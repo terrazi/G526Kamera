@@ -288,6 +288,8 @@ final class EkranGoruntuleriUITests: XCTestCase {
         // burada amaç ayarı ve "metin okunuyor" durumunu göstermek, zaman aşımı korumasının uygulamayı kilitlemediğini görmek.)
         openSettings(app)
         _ = scrollTo(app, "Metni oku")
+        drag(app, up: true)     // satırı ekranın ortasına getir (alt kenarda dokunuş tutmayabiliyor)
+        _ = scrollTo(app, "Metni oku", maxTries: 2)
         shot("ocr-ayari-kapali")
         let ocrSwitch = app.switches.matching(NSPredicate(format: "label CONTAINS %@", "Metni oku")).firstMatch
         // SwiftUI satırında dokunuş etiketin ortasına düşer; anahtar satırın sağ ucunda
@@ -311,6 +313,8 @@ final class EkranGoruntuleriUITests: XCTestCase {
         drag(app, up: false)
         openSettings(app)
         _ = scrollTo(app, "Canlı önizlemeyi kapat")
+        drag(app, up: true)
+        _ = scrollTo(app, "Canlı önizlemeyi kapat", maxTries: 2)
         shot("onizleme-ayari-kapali")
         let previewSwitch = app.switches.matching(NSPredicate(format: "label CONTAINS %@", "Canlı önizlemeyi kapat")).firstMatch
         if previewSwitch.waitForExistence(timeout: 4) {
