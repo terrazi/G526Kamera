@@ -51,6 +51,8 @@ final class AppSettings: ObservableObject {
     @Published var batchIdle: Int { didSet { d.set(batchIdle, forKey: "batchIdle") } }
     /// Drive'a giden dosya türü: "pdf" ya da "jpeg" (telefondaki kopya her zaman JPEG)
     @Published var uploadFormat: String { didSet { d.set(uploadFormat, forKey: "uploadFormat") } }
+    /// Fotoğraftaki yazıyı oku (OCR) ve PDF'in sonuna ayrı metin sayfaları olarak ekle (varsayılan kapalı)
+    @Published var ocrEnabled: Bool { didSet { d.set(ocrEnabled, forKey: "ocrEnabled") } }
 
     init() {
         uid = d.string(forKey: "uid") ?? ""
@@ -89,5 +91,6 @@ final class AppSettings: ObservableObject {
         batchSize = d.object(forKey: "batchSize") as? Int ?? 10
         batchIdle = d.object(forKey: "batchIdle") as? Int ?? 0
         uploadFormat = d.string(forKey: "uploadFormat") ?? "pdf"
+        ocrEnabled = d.object(forKey: "ocrEnabled") as? Bool ?? false
     }
 }

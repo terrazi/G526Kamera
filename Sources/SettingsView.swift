@@ -25,6 +25,7 @@ struct SettingsView: View {
             .onChange(of: settings.batchSize) { _ in model.queue.kick() }
             .onChange(of: settings.batchIdle) { _ in model.queue.kick() }
             .onChange(of: settings.uploadFormat) { _ in model.queue.kick() }
+            .onChange(of: settings.ocrEnabled) { _ in OcrCenter.shared.reset() }
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Bitti") { presentation.wrappedValue.dismiss() }
@@ -112,7 +113,7 @@ struct SettingsView: View {
 
     private var driveSection: some View {
         Section(header: Text("Google Drive"),
-                footer: Text("PDF: her fotoğraf (toplu modda birikenler tek çok sayfalı PDF olarak) gider; resim kalitesi bozulmaz. Gemini gibi yapay zekâlara PDF eklemek kolaydır. Telefondaki kopya her zaman JPEG'dir.")) {
+                footer: Text("PDF: her fotoğraf (toplu modda birikenler tek çok sayfalı PDF olarak) gider; resim kalitesi bozulmaz. Gemini gibi yapay zekâlara PDF eklemek kolaydır. Telefondaki kopya her zaman JPEG'dir. OCR açıkken her fotoğrafın yazısı arka planda okunur ve PDF'in sonuna ayrı sayfalar olarak eklenir; telefon ısınırsa ya da yavaşlarsa OCR kendini kapatır. Apple'ın yerleşik OCR'ı Türkçeyi resmen desteklemez; ş, ğ, ı gibi harfler bozulabilir.")) {
             NavigationLink(destination: DriveSetupView(auth: model.auth, queue: model.queue)) {
                 Text("Google hesabı ve bağlantı")
             }
@@ -135,6 +136,7 @@ struct SettingsView: View {
                 Text("JPEG").tag("jpeg")
             }
             .pickerStyle(.segmented)
+            Toggle("Metni oku (OCR), PDF sonuna ekle", isOn: $settings.ocrEnabled)
             Toggle("Telefonda da kopya sakla (Dosyalar uygulaması)", isOn: $settings.keepLocalCopies)
         }
     }

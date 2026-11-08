@@ -74,7 +74,8 @@ enum PDFWrap {
     }
 
     /// Her JPEG'i kendi sayfasına koyarak PDF'i `handle`'a yazar. Konum ofsetleri PDF'in başından sayılır.
-    static func write(jpegs: [URL], title: String, to handle: FileHandle) throws {
+    /// `texts` (JPEG ile aynı sırada, boş olabilir) verilirse okunan metin, resimlerden SONRA ayrı sayfalar olarak eklenir.
+    static func write(jpegs: [URL], title: String, texts: [String] = [], to handle: FileHandle) throws {
         guard !jpegs.isEmpty else { throw WrapError.empty }
         var safeTitle = ""
         for scalar in title.unicodeScalars {
@@ -87,6 +88,11 @@ enum PDFWrap {
         let count = jpegs.count
         let pageNumbers = (0..<count).map { 3 + 3 * $0 }     // her sayfa: sayfa, resim, içerik nesneleri
         let infoNumber = 3 + 3 * count
+        let textContents = texts.isEmpty ? [] : PDFText.pages(texts.enumerated().map { (number: $0.offset + 1, text: $0.element) })
+        let font1 = infoNumber + 1, font2 = infoNumber + 2, encodingNumber = infoNumber + 3, cmapNumber = infoNumber + 4
+        let textPageNumbers = textContents.indices.map { infoNumber + 5 + 2 * $0 }
+        let allPages = pageNumbers + textPageNumbers
+        let lastObject = textPageNumbers.last.map { $0 + 1 } ?? infoNumber
         var written = 0
         var offsets: [Int: Int] = [:]
 
@@ -103,8 +109,8 @@ enum PDFWrap {
 
         try put(Data([0x25, 0x50, 0x44, 0x46, 0x2D, 0x31, 0x2E, 0x34, 0x0A, 0x25, 0xE2, 0xE3, 0xCF, 0xD3, 0x0A]))
         try object(1, ascii("<< /Type /Catalog /Pages 2 0 R >>"))
-        let kids = pageNumbers.map { "\($0) 0 R" }.joined(separator: " ")
-        try object(2, ascii("<< /Type /Pages /Kids [\(kids)] /Count \(count) >>"))
+        let kids = allPages.map { "\($0) 0 R" }.joined(separator: " ")
+        try object(2, ascii("<< /Type /Pages /Kids [\(kids)] /Count \(allPages.count) >>"))
 
         for (index, url) in jpegs.enumerated() {
             let base = pageNumbers[index]
@@ -134,8 +140,29 @@ enum PDFWrap {
         let titlePart = safeTitle.isEmpty ? "" : " /Title (\(safeTitle))"
         try object(infoNumber, ascii("<< /Producer (G526 Kamera)\(titlePart) >>"))
 
+        if !textContents.isEmpty {
+            for (num, base) in [(font1, "Helvetica"), (font2, "Helvetica-Bold")] {
+                try object(num, ascii("<< /Type /Font /Subtype /Type1 /BaseFont /\(base) /Encoding \(encodingNumber) 0 R /ToUnicode \(cmapNumber) 0 R >>"))
+            }
+            try object(encodingNumber, ascii("<< /Type /Encoding /BaseEncoding /WinAnsiEncoding /Differences "
+                + "[129 /Gbreve 141 /gbreve 143 /Idotaccent /dotlessi 157 /Scedilla 160 /scedilla] >>"))
+            let cmap = PDFText.toUnicodeCMap()
+            var cmapObject = ascii("<< /Length \(cmap.count) >>\nstream\n")
+            cmapObject.append(cmap)
+            cmapObject.append(ascii("\nendstream"))
+            try object(cmapNumber, cmapObject)
+            for (number, content) in zip(textPageNumbers, textContents) {
+                try object(number, ascii("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 \(Int(PDFText.pageWidth)) \(Int(PDFText.pageHeight))] "
+                    + "/Resources << /Font << /F1 \(font1) 0 R /F2 \(font2) 0 R >> >> /Contents \(number + 1) 0 R >>"))
+                var stream = ascii("<< /Length \(content.count) >>\nstream\n")
+                stream.append(content)
+                stream.append(ascii("\nendstream"))
+                try object(number + 1, stream)
+            }
+        }
+
         let xrefOffset = written
-        let total = infoNumber + 1
+        let total = lastObject + 1
         var xref = "xref\n0 \(total)\n0000000000 65535 f \n"
         for num in 1..<total {
             xref += String(format: "%010d 00000 n \n", offsets[num] ?? 0)

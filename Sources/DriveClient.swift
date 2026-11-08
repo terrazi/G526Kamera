@@ -3,7 +3,7 @@ import Foundation
 /// Yüklenecek içerik: tek bir JPEG dosyası ya da bir veya birkaç JPEG'den yapılan PDF.
 enum UploadPayload {
     case jpeg(URL)
-    case pdf([URL], title: String)
+    case pdf([URL], title: String, texts: [String])
 
     var mime: String {
         switch self {
@@ -135,8 +135,8 @@ final class DriveClient {
                 guard let chunk = try source.read(upToCount: 256 * 1024), !chunk.isEmpty else { break }
                 try handle.write(contentsOf: chunk)
             }
-        case .pdf(let files, let title):
-            try PDFWrap.write(jpegs: files, title: title, to: handle)
+        case .pdf(let files, let title, let texts):
+            try PDFWrap.write(jpegs: files, title: title, texts: texts, to: handle)
         }
         try handle.write(contentsOf: Data("\r\n--\(boundary)--\r\n".utf8))
     }

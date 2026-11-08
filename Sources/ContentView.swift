@@ -143,6 +143,7 @@ struct VoiceRow: View {
 struct DriveStatusRow: View {
     @ObservedObject var auth: GoogleAuth
     @ObservedObject var queue: UploadQueue
+    @ObservedObject private var ocr = OcrCenter.shared
     @EnvironmentObject var settings: AppSettings
 
     var body: some View {
@@ -161,6 +162,9 @@ struct DriveStatusRow: View {
             }
             if queue.uploaded > 0 {
                 Text("Bu oturumda yüklenen: \(queue.uploaded)").font(.caption).foregroundColor(.secondary)
+            }
+            if settings.ocrEnabled && !ocr.status.isEmpty {
+                Text(ocr.status).font(.caption).foregroundColor(.secondary)
             }
             if queue.pending > 0 && auth.isSignedIn && settings.sendMode == "batch" {
                 Button("Şimdi gönder (\(queue.pending))") { queue.retry() }
