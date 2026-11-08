@@ -117,8 +117,16 @@ final class EkranGoruntuleriUITests: XCTestCase {
     }
 
     private func goBack(_ app: XCUIApplication) {
-        let back = app.navigationBars.buttons.element(boundBy: 0)
-        if back.exists { back.tap() }
+        // Ayarlar sayfasının arkasındaki ana ekranın dişli düğmesi de "Ayarlar" etiketli; geri düğmesini ondan ayır.
+        let predicate = NSPredicate(format: "(identifier == 'BackButton' OR label == 'Ayarlar') AND identifier != 'ayarlar'")
+        let back = app.navigationBars.buttons.matching(predicate).firstMatch
+        if back.exists && back.isHittable {
+            back.tap()
+        } else {
+            // Kenardan sürükleyerek geri dön
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.0, dy: 0.5))
+                .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.5)))
+        }
         sleep(1)
     }
 
@@ -275,32 +283,23 @@ final class EkranGoruntuleriUITests: XCTestCase {
         scrollTo(app, "Görüntü değişince çek")
         shot("ayarlar-otomatik-cekim")
         closeSettings(app)
-    }
 
-    // MARK: - 3) OCR açık: çekim, "metin okunuyor" durumu ve OCR ayarı
-
-    func test3_ocrAcik() {
-        installPermissionMonitor()
-        let app = XCUIApplication()
-        app.launchArguments = turkish + ["-uid", "GHBB-000001-TESTX", "-cameraIP", "127.0.0.1",
-                                        "-motionEnabled", "NO", "-ocrEnabled", "YES"]
-        app.launch()
-        sleep(2)
-        poke(app, times: 2)
-        let live = waitForLive(app)
-        note("OCR testi, canlı görüntü: \(live)")
-        guard live else { return }
-
+        // OCR'ı aç, bir fotoğraf çek, durumu göster. (CI sanal makinesinde Apple'ın yazı okuyucusu çalışmaz;
+        // burada amaç ayarı ve "metin okunuyor" durumunu göstermek, zaman aşımı korumasının uygulamayı kilitlemediğini görmek.)
         openSettings(app)
         _ = scrollTo(app, "Metni oku")
+        shot("ocr-ayari-kapali")
+        let ocrSwitch = app.switches.matching(NSPredicate(format: "label CONTAINS %@", "Metni oku")).firstMatch
+        safeTap(ocrSwitch, "OCR anahtarı")
+        sleep(1)
         shot("ocr-ayari-acik")
         closeSettings(app)
-
         capture(app)
         shot("ocr-cekim-sonrasi")
-        sleep(25)       // OCR'ın bitmesi için süre tanı
-        shot("ocr-bitti-son-durum")
+        sleep(40)
+        shot("ocr-durumu-sonra")
+        capture(app)    // OCR yavaş/başarısız olsa da çekim ve uygulama çalışmaya devam etmeli
         drag(app, up: true)
-        shot("ocr-son-fotograf", skipSame: true)
+        shot("ocr-sonrasi-son-fotograf", skipSame: true)
     }
 }
