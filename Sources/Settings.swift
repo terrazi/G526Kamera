@@ -42,6 +42,14 @@ final class AppSettings: ObservableObject {
     @Published var googleClientID: String { didSet { Keychain.set(googleClientID, for: "googleClientID") } }
     @Published var googleClientSecret: String { didSet { Keychain.set(googleClientSecret, for: "googleClientSecret") } }
     @Published var keepLocalCopies: Bool { didSet { d.set(keepLocalCopies, forKey: "keepLocalCopies") } }
+    /// "single": her fotoğraf hemen gider · "batch": biriksin, toplu gitsin
+    @Published var sendMode: String { didSet { d.set(sendMode, forKey: "sendMode") } }
+    /// Toplu modda bu kadar fotoğraf birikince gönder (0 = yalnızca düğmeyle)
+    @Published var batchSize: Int { didSet { d.set(batchSize, forKey: "batchSize") } }
+    /// Toplu modda son çekimden bu kadar saniye sonra gönder (0 = kapalı)
+    @Published var batchIdle: Int { didSet { d.set(batchIdle, forKey: "batchIdle") } }
+    /// Drive'a giden dosya türü: "pdf" ya da "jpeg" (telefondaki kopya her zaman JPEG)
+    @Published var uploadFormat: String { didSet { d.set(uploadFormat, forKey: "uploadFormat") } }
 
     init() {
         uid = d.string(forKey: "uid") ?? ""
@@ -70,5 +78,9 @@ final class AppSettings: ObservableObject {
         googleClientID = Keychain.get("googleClientID") ?? ""
         googleClientSecret = Keychain.get("googleClientSecret") ?? ""
         keepLocalCopies = d.object(forKey: "keepLocalCopies") as? Bool ?? true
+        sendMode = d.string(forKey: "sendMode") ?? "single"
+        batchSize = d.object(forKey: "batchSize") as? Int ?? 10
+        batchIdle = d.object(forKey: "batchIdle") as? Int ?? 0
+        uploadFormat = d.string(forKey: "uploadFormat") ?? "pdf"
     }
 }

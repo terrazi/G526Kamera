@@ -21,6 +21,10 @@ struct SettingsView: View {
             }
             .navigationTitle("Ayarlar")
             .navigationBarTitleDisplayMode(.inline)
+            .onChange(of: settings.sendMode) { _ in model.queue.kick() }
+            .onChange(of: settings.batchSize) { _ in model.queue.kick() }
+            .onChange(of: settings.batchIdle) { _ in model.queue.kick() }
+            .onChange(of: settings.uploadFormat) { _ in model.queue.kick() }
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Bitti") { presentation.wrappedValue.dismiss() }
@@ -103,11 +107,30 @@ struct SettingsView: View {
     }
 
     private var driveSection: some View {
-        Section(header: Text("Google Drive")) {
+        Section(header: Text("Google Drive"),
+                footer: Text("PDF: her fotoğraf (toplu modda birikenler tek çok sayfalı PDF olarak) gider; resim kalitesi bozulmaz. Gemini gibi yapay zekâlara PDF eklemek kolaydır. Telefondaki kopya her zaman JPEG'dir.")) {
             NavigationLink(destination: DriveSetupView(auth: model.auth, queue: model.queue)) {
                 Text("Google hesabı ve bağlantı")
             }
             TextField("Drive klasör adı", text: $settings.driveFolderName)
+            Picker("Drive'a gönderme", selection: $settings.sendMode) {
+                Text("Tek tek (hemen)").tag("single")
+                Text("Toplu (biriksin)").tag("batch")
+            }
+            .pickerStyle(.segmented)
+            if settings.sendMode == "batch" {
+                Stepper(value: $settings.batchSize, in: 0...50) {
+                    Text(settings.batchSize > 0 ? "\(settings.batchSize) fotoğrafta gönder" : "Otomatik gönderme kapalı (düğmeyle)")
+                }
+                Stepper(value: $settings.batchIdle, in: 0...600, step: 10) {
+                    Text(settings.batchIdle > 0 ? "Son çekimden \(settings.batchIdle) sn sonra gönder" : "Bekleme süresi kapalı")
+                }
+            }
+            Picker("Dosya türü", selection: $settings.uploadFormat) {
+                Text("PDF").tag("pdf")
+                Text("JPEG").tag("jpeg")
+            }
+            .pickerStyle(.segmented)
             Toggle("Telefonda da kopya sakla (Dosyalar uygulaması)", isOn: $settings.keepLocalCopies)
         }
     }
@@ -179,7 +202,7 @@ struct DriveSetupView: View {
                     Text(queue.status).font(.footnote).foregroundColor(.secondary)
                 }
                 if queue.pending > 0 {
-                    Button("Şimdi yeniden dene") { queue.retry() }
+                    Button(settings.sendMode == "batch" ? "Şimdi gönder" : "Şimdi yeniden dene") { queue.retry() }
                 }
             }
         }

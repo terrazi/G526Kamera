@@ -4,6 +4,31 @@ import Combine
 import AudioToolbox
 import UIKit
 
+/// Son çözülen karenin zamanı (çözücü başka iş parçacığında çalıştığı için kilitli).
+private final class DecodeClock {
+    private let lock = NSLock()
+    private var last: TimeInterval = 0
+
+    func mark() {
+        lock.lock()
+        last = ProcessInfo.processInfo.systemUptime
+        lock.unlock()
+    }
+
+    func clear() {
+        lock.lock()
+        last = 0
+        lock.unlock()
+    }
+
+    /// Son çözülen kareden bu yana geçen süre (hiç kare yoksa sonsuz)
+    func age() -> TimeInterval {
+        lock.lock()
+        defer { lock.unlock() }
+        return last == 0 ? .infinity : ProcessInfo.processInfo.systemUptime - last
+    }
+}
+
 /// Uygulamanın orkestratörü: kamera → çözücü → ekran / kare deposu; ses ve değişim tetikleyicileri;
 /// çekim → Drive kuyruğu.
 @MainActor
@@ -22,10 +47,13 @@ final class AppModel: ObservableObject {
     @Published private(set) var lastPhotoInfo = ""
     @Published private(set) var capturing = false
     @Published private(set) var deviceInfo = ""
+    /// Kameradan gelen görüntü gerçekten çözülüp ekrana veriliyor mu (son 3 sn içinde kare var mı)
+    @Published private(set) var decoding = false
 
     private let client = CameraClient()
     private let decoder = H264Decoder()
     private let pipeline = FramePipeline()
+    private let decodeClock = DecodeClock()
     private let speech = SpeechTrigger()
     private var videoHeight = 0
     private var started = false
@@ -40,8 +68,10 @@ final class AppModel: ObservableObject {
     init() {
         let pipeline = self.pipeline
         let decoder = self.decoder
+        let clock = self.decodeClock
 
         decoder.onDecoded = { pixelBuffer, time in
+            clock.mark()
             pipeline.handle(pixelBuffer, time: time)
         }
         decoder.onResolution = { [weak self] width, height in
@@ -69,6 +99,14 @@ final class AppModel: ObservableObject {
         speech.onHeard = { [weak self] text in
             Task { @MainActor in self?.heardText = text }
         }
+
+        // "Canlı" yalnızca çözülmüş kare geliyorsa yazılsın (kare gelip çözülemiyorsa yanıltmasın)
+        Timer.publish(every: 1.0, on: .main, in: .common)
+            .autoconnect()
+            .sink { [weak self] _ in
+                Task { @MainActor in self?.refreshDecoding() }
+            }
+            .store(in: &cancellables)
 
         // Ayarlar değişince (yazmayı bitirince) kendiliğinden uygula
         settings.objectWillChange
@@ -124,6 +162,8 @@ final class AppModel: ObservableObject {
         }
         decoder.reset()
         pipeline.reset()
+        decodeClock.clear()
+        decoding = false
         let quality = settings.streamQuality == 2 ? (state: 2, stream: 2) : (state: 1, stream: 1)
         let config = CameraSession.Config(uid: uid,
                                           password: settings.cameraPassword,
@@ -154,9 +194,25 @@ final class AppModel: ObservableObject {
         case .connecting, .reconnecting:
             decoder.reset()
             pipeline.reset()
+            decodeClock.clear()
+            decoding = false
         default:
             break
         }
+    }
+
+    private func refreshDecoding() {
+        let ok = cameraState.isLive && decodeClock.age() < 3.0
+        if ok != decoding { decoding = ok }
+    }
+
+    /// Görüntü gerçekten akıyor mu (bağlantı + çözülmüş kare)
+    var isLive: Bool { return cameraState.isLive && decoding }
+
+    /// Ekranda gösterilecek kamera durumu
+    var statusText: String {
+        if cameraState.isLive && !decoding { return "Görüntü çözülüyor…" }
+        return cameraState.text
     }
 
     private func resolutionChanged(width: Int, height: Int) {
@@ -174,7 +230,7 @@ final class AppModel: ObservableObject {
     // MARK: - Çekim
 
     func capture(reason: String) {
-        guard cameraState.isLive else {
+        guard isLive else {
             flash("Kamera görüntüsü yok — fotoğraf çekilemedi")
             return
         }

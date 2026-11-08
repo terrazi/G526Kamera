@@ -53,10 +53,13 @@ enum Http {
         return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
     }
 
-    static func send(_ request: URLRequest, body: Data? = nil) async throws -> (Int, Data) {
+    static func send(_ request: URLRequest, body: Data? = nil, bodyFile: URL? = nil) async throws -> (Int, Data) {
         do {
             let result: (Data, URLResponse)
-            if let body = body {
+            if let file = bodyFile {
+                // Büyük gövde diskten akıtılır, belleğe alınmaz
+                result = try await session.upload(for: request, fromFile: file)
+            } else if let body = body {
                 result = try await session.upload(for: request, from: body)
             } else {
                 result = try await session.data(for: request)

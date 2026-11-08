@@ -51,12 +51,12 @@ struct ContentView: View {
                 .cornerRadius(12)
             HStack(spacing: 6) {
                 Circle()
-                    .fill(model.cameraState.isLive ? Color.green : Color.orange)
+                    .fill(model.isLive ? Color.green : Color.orange)
                     .frame(width: 9, height: 9)
-                Text(model.cameraState.text)
+                Text(model.statusText)
                     .font(.caption)
                     .lineLimit(2)
-                if model.cameraState.isLive && !model.resolutionText.isEmpty {
+                if model.isLive && !model.resolutionText.isEmpty {
                     Text(model.resolutionText).font(.caption2).foregroundColor(.secondary)
                 }
             }
@@ -91,11 +91,11 @@ struct ContentView: View {
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 14)
-            .background(model.cameraState.isLive ? Color.accentColor : Color.gray)
+            .background(model.isLive ? Color.accentColor : Color.gray)
             .foregroundColor(.white)
             .cornerRadius(12)
         }
-        .disabled(model.capturing || !model.cameraState.isLive)
+        .disabled(model.capturing || !model.isLive)
     }
 
     @ViewBuilder
@@ -141,6 +141,7 @@ struct VoiceRow: View {
 struct DriveStatusRow: View {
     @ObservedObject var auth: GoogleAuth
     @ObservedObject var queue: UploadQueue
+    @EnvironmentObject var settings: AppSettings
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -158,6 +159,10 @@ struct DriveStatusRow: View {
             }
             if queue.uploaded > 0 {
                 Text("Bu oturumda yüklenen: \(queue.uploaded)").font(.caption).foregroundColor(.secondary)
+            }
+            if queue.pending > 0 && auth.isSignedIn && settings.sendMode == "batch" {
+                Button("Şimdi gönder (\(queue.pending))") { queue.retry() }
+                    .font(.subheadline)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

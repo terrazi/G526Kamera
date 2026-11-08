@@ -1,8 +1,10 @@
 import Foundation
 import Network
 
-/// Çekilen fotoğrafları diske yazar ve Drive'a sırayla yükler. Bağlantı yoksa kuyrukta bekler,
+/// Çekilen fotoğrafları diske yazar ve Drive'a yükler. Bağlantı yoksa kuyrukta bekler,
 /// uygulama kapansa bile kaybolmaz; başarısız yüklemeler artan aralıklarla yeniden denenir.
+/// Gönderme biçimi ayarlardan seçilir: tek tek (her fotoğraf hemen) ya da toplu (biriksin, birlikte gitsin);
+/// dosya türü PDF (JPEG yeniden işlenmeden sarılır) ya da JPEG olabilir.
 @MainActor
 final class UploadQueue: ObservableObject {
     static let shared = UploadQueue()
@@ -19,6 +21,9 @@ final class UploadQueue: ObservableObject {
     private lazy var drive = DriveClient(auth: GoogleAuth.shared)
     private var worker: Task<Void, Never>?
     private var retryNow = false
+    private var flush = false        // "şimdi gönder" istendi
+    private var draining = false     // toplu gönderim başladı: kuyruk boşalana kadar sürer
+    private var lastEnqueue = Date.distantPast
     private var failures = 0
     private let monitor = NWPathMonitor()
 
@@ -81,12 +86,15 @@ final class UploadQueue: ObservableObject {
             try? jpeg.write(to: localDir.appendingPathComponent(name), options: .atomic)
         }
         pending = pendingFiles().count
+        lastEnqueue = Date()
         kick()
         return name
     }
 
+    /// Hemen dene. Toplu modda biriken fotoğrafları da şimdi gönderir.
     func retry() {
         retryNow = true
+        flush = true
         kick()
     }
 
@@ -99,11 +107,60 @@ final class UploadQueue: ObservableObject {
         }
     }
 
+    private struct Job {
+        let files: [URL]
+        let name: String
+        let payload: UploadPayload
+    }
+
+    private func quarantine(_ url: URL) {
+        let bad = url.appendingPathExtension("bozuk")
+        do {
+            try fm.moveItem(at: url, to: bad)
+        } catch {
+            try? fm.removeItem(at: url)   // taşınamıyorsa kuyruğu kilitlemesin
+        }
+    }
+
+    /// Sıradaki yüklemeyi hazırlar. PDF modunda toplu gönderimde birçok fotoğraf tek PDF olur
+    /// (en çok ayarlanan sayıda ve 15 MB'a kadar); tek tek modda her fotoğraf kendi PDF'i olur.
+    private func prepareJob(files: [URL], batch: Bool) -> Job? {
+        if settings.uploadFormat != "pdf" {
+            guard let first = files.first else { return nil }
+            return Job(files: [first], name: first.lastPathComponent, payload: .jpeg(first))
+        }
+        let limitCount = batch ? (settings.batchSize > 0 ? settings.batchSize : 30) : 1
+        let limitBytes = 15 * 1024 * 1024
+        var group: [URL] = []
+        var total = 0
+        for url in files {
+            if group.count >= limitCount { break }
+            guard PDFWrap.isWrappable(url) else {
+                tlog("[kuyruk] bozuk JPEG atlandı: \(url.lastPathComponent)")
+                quarantine(url)
+                continue
+            }
+            let attrs = (try? fm.attributesOfItem(atPath: url.path)) ?? [:]
+            let size = (attrs[.size] as? NSNumber)?.intValue ?? 0
+            if !group.isEmpty && total + size > limitBytes { break }
+            group.append(url)
+            total += size
+        }
+        guard let first = group.first else { return nil }
+        let stem = first.deletingPathExtension().lastPathComponent
+        let name = group.count == 1
+            ? stem + ".pdf"
+            : stem.replacingOccurrences(of: "Belge_", with: "Belgeler_") + "_\(group.count)sayfa.pdf"
+        return Job(files: group, name: name, payload: .pdf(group, title: stem))
+    }
+
     private func run() async {
         while true {
             let files = pendingFiles()
             pending = files.count
-            guard let file = files.first else {
+            guard !files.isEmpty else {
+                draining = false
+                flush = false
                 status = uploaded > 0 ? "Tüm fotoğraflar yüklendi" : ""
                 return
             }
@@ -112,16 +169,39 @@ final class UploadQueue: ObservableObject {
                 return
             }
 
+            let batch = settings.sendMode == "batch"
+            if batch && !draining {
+                let size = settings.batchSize
+                let idle = settings.batchIdle
+                let quiet = Date().timeIntervalSince(lastEnqueue)
+                if flush || (size > 0 && files.count >= size) || (idle > 0 && quiet >= Double(idle)) {
+                    draining = true
+                } else {
+                    var more: [String] = []
+                    if size > 0 { more.append("\(size) olunca") }
+                    if idle > 0 { more.append("\(idle) sn beklenince") }
+                    more.append("“Şimdi gönder” ile")
+                    status = "\(files.count) fotoğraf birikti — toplu gönderilecek (\(more.joined(separator: ", ")))"
+                    if idle > 0 && !Task.isCancelled {
+                        try? await Task.sleep(nanoseconds: 2_000_000_000)
+                        continue
+                    }
+                    return
+                }
+            }
+            flush = false
+
             status = "Yükleniyor… (\(files.count) bekliyor)"
             retryNow = false
+            guard let job = prepareJob(files: files, batch: batch) else { continue }
             do {
-                let data = try Data(contentsOf: file)
-                try await drive.upload(jpeg: data, name: file.lastPathComponent)
-                try? fm.removeItem(at: file)
-                uploaded += 1
+                try await drive.upload(job.payload, name: job.name)
+                for file in job.files { try? fm.removeItem(at: file) }
+                uploaded += job.files.count
                 failures = 0
                 lastError = ""
-                tlog("[drive] yüklendi: \(file.lastPathComponent)")
+                tlog("[drive] yüklendi: \(job.name) (\(job.files.count) fotoğraf)")
+                if pendingFiles().isEmpty { draining = false }
             } catch {
                 failures += 1
                 lastError = error.localizedDescription

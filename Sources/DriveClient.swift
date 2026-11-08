@@ -1,6 +1,19 @@
 import Foundation
 
-/// Google Drive v3: uygulamanın kendi klasörünü bulur/oluşturur ve JPEG yükler (drive.file kapsamı).
+/// Yüklenecek içerik: tek bir JPEG dosyası ya da bir veya birkaç JPEG'den yapılan PDF.
+enum UploadPayload {
+    case jpeg(URL)
+    case pdf([URL], title: String)
+
+    var mime: String {
+        switch self {
+        case .jpeg: return "image/jpeg"
+        case .pdf: return "application/pdf"
+        }
+    }
+}
+
+/// Google Drive v3: uygulamanın kendi klasörünü bulur/oluşturur ve JPEG/PDF yükler (drive.file kapsamı).
 final class DriveClient {
     private let auth: GoogleAuth
     private let settings = AppSettings.shared
@@ -12,12 +25,12 @@ final class DriveClient {
         self.auth = auth
     }
 
-    private func authorized(_ make: (String) -> URLRequest, body: Data? = nil) async throws -> (Int, Data) {
+    private func authorized(_ make: (String) -> URLRequest, body: Data? = nil, bodyFile: URL? = nil) async throws -> (Int, Data) {
         var token = try await auth.accessToken()
         var attempt = 0
         while true {
             let request = make(token)
-            let (status, data) = try await Http.send(request, body: body)
+            let (status, data) = try await Http.send(request, body: body, bodyFile: bodyFile)
             if status == 401 && attempt == 0 {
                 attempt += 1
                 token = try await auth.accessToken(forceRefresh: true)
@@ -103,21 +116,46 @@ final class DriveClient {
         return id
     }
 
-    /// JPEG'i klasöre yükler, dosya kimliğini döndürür.
+    /// multipart/related gövdesini bir dosyaya yazar. PDF ve JPEG içerik doğrudan dosyaya akıtılır:
+    /// bellekte tüm gövde tutulmaz ve ana iş parçacığı kullanılmaz.
+    private static func buildBody(payload: UploadPayload, name: String, folder: String, boundary: String, to url: URL) throws {
+        FileManager.default.createFile(atPath: url.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: url)
+        defer { try? handle.close() }
+        let metaObject: [String: Any] = ["name": name, "parents": [folder], "mimeType": payload.mime]
+        let meta = try JSONSerialization.data(withJSONObject: metaObject)
+        try handle.write(contentsOf: Data("--\(boundary)\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n".utf8))
+        try handle.write(contentsOf: meta)
+        try handle.write(contentsOf: Data("\r\n--\(boundary)\r\nContent-Type: \(payload.mime)\r\n\r\n".utf8))
+        switch payload {
+        case .jpeg(let file):
+            let source = try FileHandle(forReadingFrom: file)
+            defer { try? source.close() }
+            while true {
+                guard let chunk = try source.read(upToCount: 256 * 1024), !chunk.isEmpty else { break }
+                try handle.write(contentsOf: chunk)
+            }
+        case .pdf(let files, let title):
+            try PDFWrap.write(jpegs: files, title: title, to: handle)
+        }
+        try handle.write(contentsOf: Data("\r\n--\(boundary)--\r\n".utf8))
+    }
+
+    /// Klasöre yükler, dosya kimliğini döndürür.
     @discardableResult
-    func upload(jpeg: Data, name: String) async throws -> String {
+    func upload(_ payload: UploadPayload, name: String) async throws -> String {
         var folder = try await ensureFolder()
         var attempt = 0
         while true {
             let boundary = "g526-" + UUID().uuidString
-            let metaObject: [String: Any] = ["name": name, "parents": [folder], "mimeType": "image/jpeg"]
-            let meta = try JSONSerialization.data(withJSONObject: metaObject)
-            var body = Data()
-            body.append(Data("--\(boundary)\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n".utf8))
-            body.append(meta)
-            body.append(Data("\r\n--\(boundary)\r\nContent-Type: image/jpeg\r\n\r\n".utf8))
-            body.append(jpeg)
-            body.append(Data("\r\n--\(boundary)--\r\n".utf8))
+            let bodyURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("g526-yukleme-\(UUID().uuidString).govde")
+            defer { try? FileManager.default.removeItem(at: bodyURL) }
+
+            let folderID = folder
+            try await Task.detached(priority: .utility) {
+                try DriveClient.buildBody(payload: payload, name: name, folder: folderID, boundary: boundary, to: bodyURL)
+            }.value
 
             let url = URL(string: uploadURL + "?uploadType=multipart&fields=id")!
             let (status, data) = try await authorized({ token in
@@ -126,7 +164,7 @@ final class DriveClient {
                 r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
                 r.setValue("multipart/related; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
                 return r
-            }, body: body)
+            }, bodyFile: bodyURL)
 
             if (200..<300).contains(status) {
                 return Http.jsonObject(data)["id"] as? String ?? ""
