@@ -1,0 +1,94 @@
+name: G526CameraDrive iOS Build
+
+on:
+  push:
+    branches:
+      - "**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build iPhone App (unsigned IPA)
+    runs-on: macos-15
+
+    steps:
+      - name: Get source code
+        uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build iPhone application (Release)
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project G526CameraDrive.xcodeproj \
+            -scheme G526CameraDrive \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build/DeviceData \
+            CODE_SIGNING_ALLOWED=NO \
+            build 2>&1 | tee build.log
+
+      - name: Package unsigned IPA
+        run: |
+          mkdir -p build/ipa/Payload
+          cp -R build/DeviceData/Build/Products/Release-iphoneos/G526CameraDrive.app build/ipa/Payload/
+          cd build/ipa
+          ditto -c -k --sequesterRsrc --keepParent Payload G526CameraDrive-unsigned.ipa
+
+      - name: Upload iPhone IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: G526CameraDrive-iPhone-IPA
+          path: build/ipa/G526CameraDrive-unsigned.ipa
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: G526CameraDrive-Build-Log
+          path: build.log
+          if-no-files-found: ignore
+
+  tests:
+    name: Unit tests (simulator)
+    runs-on: macos-15
+    continue-on-error: true
+
+    steps:
+      - name: Get source code
+        uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Run tests
+        run: |
+          set -o pipefail
+          DEVICE=$(xcrun simctl list devices available | grep -m1 -oE 'iPhone [0-9A-Za-z ]+ \(' | sed 's/ ($//')
+          echo "Simulator: $DEVICE"
+          xcodebuild \
+            -project G526CameraDrive.xcodeproj \
+            -scheme G526CameraDrive \
+            -destination "platform=iOS Simulator,name=$DEVICE" \
+            CODE_SIGNING_ALLOWED=NO \
+            test 2>&1 | tee test.log
+
+      - name: Upload test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: G526CameraDrive-Test-Log
+          path: test.log
+          if-no-files-found: ignore
