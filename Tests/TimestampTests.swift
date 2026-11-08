@@ -65,7 +65,7 @@ final class TimestampTests: XCTestCase {
         return Double(sum) / Double(max(n, 1))
     }
 
-    private func render(_ buffer: CVPixelBuffer, _ mode: TimestampMode) throws -> (data: Data, width: Int, height: Int) {
+    private func render(_ buffer: CVPixelBuffer, _ mode: TimestampMode) throws -> (data: Data, width: Int, height: Int, used: Int) {
         let opts = EnhanceOptions(level: 0, deskew: false, upscale: 1.0, timestamp: mode, quality: 1.0)
         return try XCTUnwrap(Enhancer.render(buffers: [buffer], options: opts))
     }
