@@ -25,7 +25,8 @@ final class AppSettings: ObservableObject {
     @Published var deskew: Bool { didSet { d.set(deskew, forKey: "deskew") } }
     /// 1.0, 1.5 veya 2.0
     @Published var upscale: Double { didSet { d.set(upscale, forKey: "upscale") } }
-    @Published var cropTimestamp: Bool { didSet { d.set(cropTimestamp, forKey: "cropTimestamp") } }
+    /// Kameranın görüntüye işlediği tarih/saat: bulanıklaştır (varsayılan), kes ya da olduğu gibi bırak
+    @Published var timestampMode: TimestampMode { didSet { d.set(timestampMode.rawValue, forKey: "timestampMode") } }
     @Published var multiFrame: Bool { didSet { d.set(multiFrame, forKey: "multiFrame") } }
     /// Seri çekimde tetiklemeden önceki / sonraki pencere (saniye)
     @Published var burstBefore: Double { didSet { d.set(burstBefore, forKey: "burstBefore") } }
@@ -65,7 +66,13 @@ final class AppSettings: ObservableObject {
         enhancement = d.object(forKey: "enhancement") as? Int ?? 1
         deskew = d.object(forKey: "deskew") as? Bool ?? false
         upscale = d.object(forKey: "upscale") as? Double ?? 1.0
-        cropTimestamp = d.object(forKey: "cropTimestamp") as? Bool ?? false
+        if let raw = d.string(forKey: "timestampMode"), let mode = TimestampMode(rawValue: raw) {
+            timestampMode = mode
+        } else if d.bool(forKey: "cropTimestamp") {
+            timestampMode = .crop          // eski sürümdeki "saat yazısını kes" ayarı
+        } else {
+            timestampMode = .blur
+        }
         multiFrame = d.object(forKey: "multiFrame") as? Bool ?? true
         burstBefore = d.object(forKey: "burstBefore") as? Double ?? 0.4
         burstAfter = d.object(forKey: "burstAfter") as? Double ?? 0.8

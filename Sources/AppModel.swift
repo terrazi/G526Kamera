@@ -235,13 +235,12 @@ final class AppModel: ObservableObject {
             return
         }
         let s = settings
-        let crop = s.cropTimestamp ? (Int(Double(videoHeight) * 0.055) & ~1) : 0
         let options = CaptureOptions(
             before: s.burstBefore,
             after: s.burstAfter,
             multiFrame: s.multiFrame,
             enhance: EnhanceOptions(level: s.enhancement, deskew: s.deskew, upscale: s.upscale,
-                                    cropTop: crop, quality: s.jpegQuality))
+                                    timestamp: s.timestampMode, quality: s.jpegQuality))
         let accepted = pipeline.engine.capture(reason: reason, options: options) { [weak self] result in
             Task { @MainActor in self?.captureFinished(result, reason: reason) }
         }

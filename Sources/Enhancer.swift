@@ -4,11 +4,17 @@ import CoreVideo
 import ImageIO
 import Vision
 
+/// Kamera tarih/saati görüntünün içine işler; silinemez. Bulanıklaştır: üst şerit okunmaz olur,
+/// Kes: üst şerit atılır, Olduğu gibi: dokunulmaz.
+enum TimestampMode: String, CaseIterable {
+    case blur, crop, keep
+}
+
 struct EnhanceOptions {
     var level: Int          // 0 kapalı, 1 hafif, 2 güçlü
     var deskew: Bool
     var upscale: Double
-    var cropTop: Int        // kaynak karede üstten atılacak piksel (saat yazısı)
+    var timestamp: TimestampMode   // kameranın görüntüye işlediği tarih/saat
     var quality: Double     // JPEG kalitesi 0.5–1.0
 }
 
@@ -33,14 +39,9 @@ enum Enhancer {
             }
         }
 
-        // 2) Üstteki saat yazısını kırp
-        if options.cropTop > 0 {
-            let e = image.extent
-            let h = e.height - CGFloat(options.cropTop)
-            if h > 64 {
-                image = image.cropped(to: CGRect(x: e.minX, y: e.minY, width: e.width, height: h))
-            }
-        }
+        // 2) Tarih/saat yazısını bulanıklaştır ya da kes
+        image = normalizeOrigin(image)
+        image = hideTimestamp(image, mode: options.timestamp)
         image = normalizeOrigin(image)
 
         // 3) Belgeyi bul, kırp ve perspektifi düzelt
@@ -82,6 +83,40 @@ enum Enhancer {
                                                     colorSpace: colorSpace,
                                                     options: [key: quality]) else { return nil }
         return (data, Int(extent.width), Int(extent.height))
+    }
+
+    /// Karenin üstten bu kadarı tarih/saat şeridi sayılır (1080p'de 81 satır; yazı 39–64. satırlarda). Windows sürümüyle aynı.
+    static let timestampBand = 0.075
+
+    /// Kameranın videoya gömdüğü tarih/saati gizler. Core Image'de başlangıç noktası sol alttır; şerit görüntünün ÜST satırlarıdır.
+    static func hideTimestamp(_ image: CIImage, mode: TimestampMode) -> CIImage {
+        let e = image.extent
+        let band = (Double(e.height) * timestampBand).rounded()
+        guard mode != .keep, band >= 4, Double(e.height) - band >= 64 else { return image }
+        let bandH = CGFloat(band)
+
+        if mode == .crop {
+            return image.cropped(to: CGRect(x: e.minX, y: e.minY, width: e.width, height: e.height - bandH))
+        }
+
+        // Önce mozaik (12 pikselik bloklar), sonra bulanıklık: harfler hiçbir şekilde seçilemez.
+        let mosaic = image.clampedToExtent().applyingFilter("CIPixellate", parameters: [
+            kCIInputScaleKey: 12.0,
+            kCIInputCenterKey: CIVector(x: e.minX, y: e.minY)])
+        let blurred = mosaic.applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: 6.0]).cropped(to: e)
+
+        // Şeridin alt kenarında yumuşak geçiş (sert çizgi görünmesin): üstte beyaz, şerit sınırında siyah.
+        let fade = CGFloat(max(2.0, (band / 6.0).rounded(.down)))
+        let edgeY = e.maxY - bandH
+        guard let gradient = CIFilter(name: "CILinearGradient", parameters: [
+            "inputPoint0": CIVector(x: e.minX, y: edgeY + fade),
+            "inputPoint1": CIVector(x: e.minX, y: edgeY),
+            "inputColor0": CIColor(red: 1, green: 1, blue: 1, alpha: 1),
+            "inputColor1": CIColor(red: 0, green: 0, blue: 0, alpha: 1)])?.outputImage else { return image }
+        let mask = gradient.cropped(to: e)
+        return blurred.applyingFilter("CIBlendWithMask", parameters: [
+            kCIInputBackgroundImageKey: image,
+            kCIInputMaskImageKey: mask]).cropped(to: e)
     }
 
     private static func normalizeOrigin(_ image: CIImage) -> CIImage {

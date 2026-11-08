@@ -64,7 +64,7 @@ struct SettingsView: View {
 
     private var photoSection: some View {
         Section(header: Text("Fotoğraf"),
-                footer: Text("Belge taraması için: İyileştirme Hafif, kalite %92 ve üzeri, Yüksek 1920×1080 görüntü önerilir. Büyütme ayrıntı eklemez, yalnızca yazıyı daha rahat okutur.")) {
+                footer: Text("Belge taraması için: İyileştirme Hafif, kalite %92 ve üzeri, Yüksek 1920×1080 görüntü önerilir. Büyütme ayrıntı eklemez, yalnızca yazıyı daha rahat okutur. Kamera tarih/saati görüntünün içine işler, silinemez: Bulanıklaştır üst şeridi okunmaz yapar, Kes ise o şeridi atar (fotoğraf biraz kısalır).")) {
             Picker("İyileştirme", selection: $settings.enhancement) {
                 Text("Kapalı").tag(0)
                 Text("Hafif").tag(1)
@@ -73,7 +73,11 @@ struct SettingsView: View {
             .pickerStyle(.segmented)
             Toggle("Birkaç net kareyi birleştir", isOn: $settings.multiFrame)
             Toggle("Belgeyi otomatik düzelt ve kırp (deneysel)", isOn: $settings.deskew)
-            Toggle("Üstteki saat yazısını kes", isOn: $settings.cropTimestamp)
+            Picker("Tarih/saat yazısı", selection: $settings.timestampMode) {
+                Text("Bulanıklaştır (okunmaz)").tag(TimestampMode.blur)
+                Text("Kes (üst şeridi at)").tag(TimestampMode.crop)
+                Text("Olduğu gibi bırak").tag(TimestampMode.keep)
+            }
             Picker("Büyütme", selection: $settings.upscale) {
                 Text("1×").tag(1.0)
                 Text("1,5×").tag(1.5)

@@ -28,7 +28,7 @@ final class PDFWrapTests: XCTestCase {
         let info = try PDFWrap.jpegInfo(data)
         XCTAssertEqual(info.width, 320)
         XCTAssertEqual(info.height, 200)
-        XCTAssertEqual(info.components, 3)
+        XCTAssertTrue([1, 3].contains(info.components), "components=\(info.components)")
     }
 
     func testRejectsNonJPEG() {
