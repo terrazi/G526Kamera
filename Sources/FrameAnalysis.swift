@@ -97,6 +97,90 @@ enum FrameAnalysis {
         return (variance, signature)
     }
 
+    // MARK: - Kare birleştirme denetimi (gölge/hayalet yazıyı önler)
+
+    /// Kareden 2x2 ortalamalı parlaklık düzlemi (NV12'de Y düzlemi; BGRA'da hesaplanır).
+    static func binnedLuma(_ pixelBuffer: CVPixelBuffer) -> (w: Int, h: Int, px: [Float])? {
+        CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
+        if CVPixelBufferGetPlaneCount(pixelBuffer) >= 1 {
+            guard let base = CVPixelBufferGetBaseAddressOfPlane(pixelBuffer, 0) else { return nil }
+            let width = CVPixelBufferGetWidthOfPlane(pixelBuffer, 0)
+            let height = CVPixelBufferGetHeightOfPlane(pixelBuffer, 0)
+            let stride = CVPixelBufferGetBytesPerRowOfPlane(pixelBuffer, 0)
+            let luma = base.assumingMemoryBound(to: UInt8.self)
+            let w2 = width / 2, h2 = height / 2
+            if w2 < 8 || h2 < 8 { return nil }
+            var out = [Float](repeating: 0, count: w2 * h2)
+            for y in 0..<h2 {
+                let r0 = luma + 2 * y * stride, r1 = r0 + stride
+                for x in 0..<w2 {
+                    out[y * w2 + x] = Float(Int(r0[2 * x]) + Int(r0[2 * x + 1]) + Int(r1[2 * x]) + Int(r1[2 * x + 1])) * 0.25
+                }
+            }
+            return (w2, h2, out)
+        }
+        guard CVPixelBufferGetPixelFormatType(pixelBuffer) == kCVPixelFormatType_32BGRA,
+              let base = CVPixelBufferGetBaseAddress(pixelBuffer) else { return nil }
+        let width = CVPixelBufferGetWidth(pixelBuffer)
+        let height = CVPixelBufferGetHeight(pixelBuffer)
+        let stride = CVPixelBufferGetBytesPerRow(pixelBuffer)
+        let bytes = base.assumingMemoryBound(to: UInt8.self)
+        let w2 = width / 2, h2 = height / 2
+        if w2 < 8 || h2 < 8 { return nil }
+        var out = [Float](repeating: 0, count: w2 * h2)
+        for y in 0..<h2 {
+            for x in 0..<w2 {
+                var acc: Float = 0
+                for dy in 0..<2 { for dx in 0..<2 {
+                    let p = bytes + (2 * y + dy) * stride + (2 * x + dx) * 4
+                    acc += 0.114 * Float(p[0]) + 0.587 * Float(p[1]) + 0.299 * Float(p[2])
+                } }
+                out[y * w2 + x] = acc * 0.25
+            }
+        }
+        return (w2, h2, out)
+    }
+
+    /// Referansın keskin kenarlarında iki kare arasındaki ortalama mutlak fark. Kare kayıksa 30+, yalnız gürültü varsa 1–5 çıkar.
+    static func edgeError(ref: (w: Int, h: Int, px: [Float]), other: (w: Int, h: Int, px: [Float]), skipRows: Int) -> Double {
+        guard ref.w == other.w, ref.h == other.h else { return .infinity }
+        var sum: Double = 0
+        var n = 0
+        ref.px.withUnsafeBufferPointer { r in
+            other.px.withUnsafeBufferPointer { o in
+                let w = ref.w
+                for y in min(max(0, skipRows), ref.h - 1)..<(ref.h - 1) {
+                    for x in 0..<(w - 1) {
+                        let i = y * w + x
+                        let v = r[i]
+                        if max(abs(r[i + 1] - v), abs(r[i + w] - v)) > 30 {
+                            sum += Double(abs(v - o[i]))
+                            n += 1
+                        }
+                    }
+                }
+            }
+        }
+        return n < 200 ? 0 : sum / Double(n)
+    }
+
+    static let edgeErrorMax = 10.0
+
+    /// İlk kare (en net) esas alınır; ona gerçekten uyan (kıpırdamamış) kareler tutulur, kayık olanlar atılır.
+    static func staticFrames(_ buffers: [CVPixelBuffer], skipFraction: Double) -> [CVPixelBuffer] {
+        guard buffers.count > 1, let first = buffers.first, let ref = binnedLuma(first) else { return Array(buffers.prefix(1)) }
+        let skipRows = Int((Double(ref.h) * skipFraction).rounded())
+        var kept = [first]
+        for buffer in buffers.dropFirst() {
+            guard let other = binnedLuma(buffer) else { continue }
+            if edgeError(ref: ref, other: other, skipRows: skipRows) <= edgeErrorMax {
+                kept.append(buffer)
+            }
+        }
+        return kept
+    }
+
     /// İki imza arasındaki ortalama mutlak fark (0–255).
     static func difference(_ a: [UInt8], _ b: [UInt8]) -> Double {
         if a.count != b.count || a.isEmpty { return 255 }

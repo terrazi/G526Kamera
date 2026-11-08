@@ -117,6 +117,28 @@ final class TimestampTests: XCTestCase {
         XCTAssertLessThan(Double(diff) / Double(n), 1.0, "şeridin altı değişti")
     }
 
+    /// Bulanıklaştırma yalnızca tarih yazısının kutusunda olmalı; satırın geri kalanı ve gövde birebir kalmalı.
+    func testBlurOnlyTouchesTheDateBox() throws {
+        let buffer = try makeBuffer()
+        let keep = try luma(try render(buffer, .keep).data)
+        let blur = try luma(try render(buffer, .blur).data)
+        // sol yarıdaki üst satırlar (aynı satırlar, tarihten uzak) değişmemeli
+        var farDiff = 0, n = 0
+        for y in 0..<100 { for x in stride(from: 0, to: 1400, by: 3) {
+            farDiff += abs(Int(keep.px[y * width + x]) - Int(blur.px[y * width + x])); n += 1
+        } }
+        XCTAssertLessThan(Double(farDiff) / Double(n), 1.0, "kutunun dışı (satırın solu) değişti")
+        // kutunun içi ise değişmeli
+        var inDiff = 0, m = 0
+        for y in 36..<68 { for x in stride(from: 1561, to: 1900, by: 2) {
+            inDiff += abs(Int(keep.px[y * width + x]) - Int(blur.px[y * width + x])); m += 1
+        } }
+        XCTAssertGreaterThan(Double(inDiff) / Double(m), 5.0, "tarih kutusu değişmedi")
+        // kutu tüm satır değil
+        let box = Enhancer.boxRect(in: CGRect(x: 0, y: 0, width: width, height: height))
+        XCTAssertLessThan(box.width / CGFloat(width), 0.25)
+    }
+
     func testBlurMakesTimestampUnreadableByOCR() throws {
         let buffer = try makeBuffer()
         let keepData = try render(buffer, .keep).data

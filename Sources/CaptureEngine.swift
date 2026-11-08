@@ -92,13 +92,13 @@ final class CaptureEngine {
             selected.append(contentsOf: similar.prefix(3))
         }
 
-        tlog("[çekim] \(candidates.count) aday kare, en net puan \(Int(best.sharpness)), birleştirilen \(selected.count)")
+        tlog("[çekim] \(candidates.count) aday kare, en net puan \(Int(best.sharpness)), birleştirme için seçilen \(selected.count)")
         guard let rendered = Enhancer.render(buffers: selected.map { $0.buffer }, options: options.enhance) else {
             return .failure(.renderFailed)
         }
         return .success(CapturedPhoto(jpeg: rendered.data, date: Date(), sharpness: best.sharpness,
                                       width: rendered.width, height: rendered.height,
-                                      framesUsed: selected.count, candidates: candidates.count, reason: reason))
+                                      framesUsed: rendered.used, candidates: candidates.count, reason: reason))
     }
 }
 

@@ -65,7 +65,7 @@ struct SettingsView: View {
 
     private var photoSection: some View {
         Section(header: Text("Fotoğraf"),
-                footer: Text("Belge taraması için: İyileştirme Hafif, kalite %92 ve üzeri, Yüksek 1920×1080 görüntü önerilir. Büyütme ayrıntı eklemez, yalnızca yazıyı daha rahat okutur. Kamera tarih/saati görüntünün içine işler, silinemez: Bulanıklaştır üst şeridi okunmaz yapar, Kes ise o şeridi atar (fotoğraf biraz kısalır).")) {
+                footer: Text("Belge taraması için: İyileştirme Hafif, kalite %92 ve üzeri, Yüksek 1920×1080 görüntü önerilir. Büyütme ayrıntı eklemez, yalnızca yazıyı daha rahat okutur. Kamera tarih/saati görüntünün içine işler, silinemez: Bulanıklaştır yalnızca sağ üstteki tarih yazısının kutusunu okunmaz yapar, Kes ise üstteki şeridi atar (fotoğraf biraz kısalır).")) {
             Picker("İyileştirme", selection: $settings.enhancement) {
                 Text("Kapalı").tag(0)
                 Text("Hafif").tag(1)
