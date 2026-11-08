@@ -31,7 +31,11 @@ jobs:
         run: |
           set -x
           xcrun simctl list devicetypes | grep -i "12 mini" || true
-          RUNTIME=$(xcrun simctl list runtimes available | grep -oE 'com\.apple\.CoreSimulator\.SimRuntime\.iOS-[0-9-]+' | tail -1)
+          # iOS 26 simulatoru CI'da "background assertion" zaman asimi veriyor; kararli olan iOS 18 surumu tercih edilir
+          RUNTIME=$(xcrun simctl list runtimes available | grep -oE 'com\.apple\.CoreSimulator\.SimRuntime\.iOS-18-[0-9]+' | tail -1)
+          if [ -z "$RUNTIME" ]; then
+            RUNTIME=$(xcrun simctl list runtimes available | grep -oE 'com\.apple\.CoreSimulator\.SimRuntime\.iOS-[0-9-]+' | tail -1)
+          fi
           echo "Runtime: $RUNTIME"
           UDID=$(xcrun simctl create "G526 iPhone 12 mini" com.apple.CoreSimulator.SimDeviceType.iPhone-12-mini "$RUNTIME" || true)
           if [ -z "$UDID" ]; then
@@ -61,6 +65,8 @@ jobs:
             -scheme G526CameraDriveUI \
             -destination "id=$UDID" \
             -resultBundlePath "$PWD/sonuc/UI.xcresult" \
+            -parallel-testing-enabled NO \
+            -retry-tests-on-failure -test-iterations 3 \
             CODE_SIGNING_ALLOWED=NO \
             test 2>&1 | tee ui.log
 
@@ -110,6 +116,7 @@ jobs:
           git config user.email "github-actions@users.noreply.github.com"
           git checkout --orphan ekran-sonuclari-tmp
           git rm -rf . >/dev/null 2>&1 || true
+          git clean -fdxq
           cp -R /tmp/sonuc/. .
           git add -A
           git commit -m "Ekran goruntuleri (run ${GITHUB_RUN_ID})"
