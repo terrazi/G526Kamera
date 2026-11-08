@@ -1,0 +1,124 @@
+name: Ekran goruntuleri (gercek uygulama, simulator)
+
+on:
+  push:
+    paths:
+      - "UITests/**"
+      - "Tools/**"
+      - ".github/workflows/ekran-goruntuleri.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  ekran:
+    name: Simulatorde uygulamayi calistir ve ekran goruntusu al
+    runs-on: macos-15
+    timeout-minutes: 40
+
+    steps:
+      - name: Get source code
+        uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Prepare iPhone 12 mini simulator
+        run: |
+          set -x
+          xcrun simctl list devicetypes | grep -i "12 mini" || true
+          RUNTIME=$(xcrun simctl list runtimes available | grep -oE 'com\.apple\.CoreSimulator\.SimRuntime\.iOS-[0-9-]+' | tail -1)
+          echo "Runtime: $RUNTIME"
+          UDID=$(xcrun simctl create "G526 iPhone 12 mini" com.apple.CoreSimulator.SimDeviceType.iPhone-12-mini "$RUNTIME" || true)
+          if [ -z "$UDID" ]; then
+            echo "iPhone 12 mini olusturulamadi, mevcut bir iPhone kullaniliyor"
+            UDID=$(xcrun simctl list devices available | grep -m1 -E 'iPhone' | grep -oE '[0-9A-F-]{36}')
+          fi
+          echo "UDID=$UDID" >> "$GITHUB_ENV"
+          xcrun simctl boot "$UDID"
+          xcrun simctl bootstatus "$UDID" -b
+          xcrun simctl list devices | grep "$UDID" | tee cihaz.txt
+          xcrun simctl list runtimes available | tee -a cihaz.txt
+
+      - name: Start test camera (127.0.0.1)
+        run: |
+          nohup python3 Tools/test_kamerasi.py > kamera.log 2>&1 &
+          sleep 2
+          cat kamera.log
+
+      - name: Run UI tests (screenshots)
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          mkdir -p "$PWD/sonuc/ekran"
+          TEST_RUNNER_G526_SHOT_DIR="$PWD/sonuc/ekran" \
+          xcodebuild \
+            -project G526CameraDrive.xcodeproj \
+            -scheme G526CameraDriveUI \
+            -destination "id=$UDID" \
+            -resultBundlePath "$PWD/sonuc/UI.xcresult" \
+            CODE_SIGNING_ALLOWED=NO \
+            test 2>&1 | tee ui.log
+
+      - name: Collect screenshots, photos and logs
+        if: always()
+        run: |
+          mkdir -p sonuc/fotograflar
+          ls -la sonuc/ekran || true
+          # 1) Dogrudan yazilan PNG'ler yoksa xcresult eklerinden cikar
+          if ! ls sonuc/ekran/*.png >/dev/null 2>&1; then
+            echo "PNG yok, xcresult ekleri cikariliyor"
+            mkdir -p sonuc/ekran sonuc/ekler
+            xcrun xcresulttool export attachments --path sonuc/UI.xcresult --output-path sonuc/ekler || true
+            python3 - <<'PY'
+          import json, os, shutil
+          base = "sonuc/ekler"
+          try:
+              manifest = json.load(open(os.path.join(base, "manifest.json")))
+          except Exception as e:
+              print("manifest okunamadi", e); raise SystemExit
+          for test in manifest:
+              for att in test.get("attachments", []):
+                  name = att.get("suggestedHumanReadableName") or att.get("exportedFileName")
+                  src = os.path.join(base, att["exportedFileName"])
+                  if name and src and os.path.exists(src):
+                      clean = name.split("_0_")[0] if "_0_" in name else name
+                      shutil.copy(src, os.path.join("sonuc/ekran", clean if clean.endswith(".png") else clean + ".png"))
+          PY
+          fi
+          # 2) Uygulamanin gercek ciktisi: telefondaki yerel kopyalar
+          DATA=$(xcrun simctl get_app_container "$UDID" com.huseyinozer.g526 data 2>/dev/null || true)
+          echo "Uygulama verisi: $DATA"
+          if [ -n "$DATA" ]; then
+            cp "$DATA"/Documents/Belgeler/*.jpg sonuc/fotograflar/ 2>/dev/null || true
+          fi
+          ls -la sonuc/fotograflar || true
+          cp cihaz.txt kamera.log sonuc/ 2>/dev/null || true
+          tail -n 400 ui.log > sonuc/ui_log_son.txt 2>/dev/null || true
+          grep -E "Test Case|error:|failed|passed" ui.log > sonuc/ui_ozet.txt 2>/dev/null || true
+          rm -rf sonuc/UI.xcresult sonuc/ekler
+
+      - name: Publish results to branch ekran-sonuclari
+        if: always()
+        run: |
+          rm -rf /tmp/sonuc && cp -R sonuc /tmp/sonuc
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git checkout --orphan ekran-sonuclari-tmp
+          git rm -rf . >/dev/null 2>&1 || true
+          cp -R /tmp/sonuc/. .
+          git add -A
+          git commit -m "Ekran goruntuleri (run ${GITHUB_RUN_ID})"
+          git push -f origin HEAD:refs/heads/ekran-sonuclari
+
+      - name: Upload results as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ekran-goruntuleri
+          path: /tmp/sonuc
+          if-no-files-found: ignore

@@ -47,6 +47,18 @@ targets:
       testTargets:
         - G526CameraDriveTests
 
+  G526CameraDriveUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: UITests
+    dependencies:
+      - target: G526CameraDrive
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.huseyinozer.g526.uitests
+
   G526CameraDriveTests:
     type: bundle.unit-test
     platform: iOS
@@ -58,3 +70,13 @@ targets:
       base:
         GENERATE_INFOPLIST_FILE: YES
         PRODUCT_BUNDLE_IDENTIFIER: com.huseyinozer.g526.tests
+
+schemes:
+  G526CameraDriveUI:
+    build:
+      targets:
+        G526CameraDrive: all
+        G526CameraDriveUITests: [test]
+    test:
+      targets:
+        - G526CameraDriveUITests

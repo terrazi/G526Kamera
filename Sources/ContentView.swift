@@ -32,6 +32,8 @@ struct ContentView: View {
                     } label: {
                         Image(systemName: "gearshape")
                     }
+                    .accessibilityLabel("Ayarlar")
+                    .accessibilityIdentifier("ayarlar")
                 }
             }
             .sheet(isPresented: $showSettings, onDismiss: { model.applySettings() }) {
