@@ -45,6 +45,11 @@ enum OcrRecognizer {
             let request = VNRecognizeTextRequest()
             request.recognitionLevel = .accurate
             request.usesLanguageCorrection = false      // Türkçe için İngilizce düzeltme sözcükleri bozar
+            #if targetEnvironment(simulator)
+            // Sanal makinede (GitHub Actions) GPU/Neural Engine yok; iste yalnız işlemciyi kullan, yoksa istek takılır.
+            // Gerçek telefonda bu satır derlenmez, Apple'ın kendi seçimi kullanılır.
+            request.usesCPUOnly = true
+            #endif
             let langs = languages ?? chooseLanguages(request).chosen
             if !langs.isEmpty { request.recognitionLanguages = langs }
 
