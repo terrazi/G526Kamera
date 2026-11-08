@@ -130,7 +130,7 @@ final class OcrTests: XCTestCase {
         settings.ocrEnabled = true
         OcrCenter.shared.reset()
         OcrCenter.shared.submit(url)
-        await OcrCenter.shared.waitFor([url], timeout: 60)
+        await OcrCenter.shared.waitFor([url], timeout: 100)
         XCTAssertFalse(OcrCenter.shared.isPending(url))
         let text = OcrCenter.readText(url)
         XCTAssertFalse(text.isEmpty, "metin dosyası yazılmadı (durum: \(OcrCenter.shared.status))")

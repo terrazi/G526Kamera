@@ -87,6 +87,7 @@ final class OcrCenter: ObservableObject {
     private var failures = 0
     private var slow = 0
     private var languagesLogged = false
+    private var firstRun = true             // ilk okuma modeli yüklediği için daha uzun sürebilir
     private let settings = AppSettings.shared
 
     nonisolated static func sidecar(_ url: URL) -> URL { url.appendingPathExtension("txt") }
@@ -181,7 +182,9 @@ final class OcrCenter: ObservableObject {
             tlog("[ocr] Vision dilleri: \(info.supported.joined(separator: ", ")) — seçilen: \(info.chosen.joined(separator: ", "))")
         }
         let started = Date()
-        let outcome = await OcrRecognizer.recognize(url: url, timeout: OcrConfig.timeout)
+        let isFirst = firstRun
+        firstRun = false
+        let outcome = await OcrRecognizer.recognize(url: url, timeout: isFirst ? OcrConfig.timeout * 2 : OcrConfig.timeout)
         let elapsed = Date().timeIntervalSince(started)
         switch outcome {
         case .success(let raw):
@@ -194,7 +197,7 @@ final class OcrCenter: ObservableObject {
                 return
             }
             tlog("[ocr] \(url.lastPathComponent): \(text.count) karakter, \(String(format: "%.1f", elapsed)) sn")
-            if elapsed > OcrConfig.slowSeconds {
+            if !isFirst && elapsed > OcrConfig.slowSeconds {
                 slow += 1
                 if slow >= OcrConfig.maxSlow { disable("çok yavaş (\(OcrConfig.maxSlow) kez \(Int(OcrConfig.slowSeconds)) sn'den uzun)") }
             }
