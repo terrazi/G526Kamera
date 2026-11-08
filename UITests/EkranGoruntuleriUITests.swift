@@ -20,10 +20,16 @@ final class EkranGoruntuleriUITests: XCTestCase {
 
     // MARK: - Yardımcılar
 
+    private static var lastShot: Data?
+
+    /// Ekran görüntüsünü kaydeder. `skipSame` doğruysa, bir öncekiyle aynıysa (kaydırma sona ermişse) kaydetmez ve false döner.
     @discardableResult
-    private func shot(_ name: String) -> String {
-        Self.counter += 1
+    private func shot(_ name: String, skipSame: Bool = false) -> Bool {
         let screenshot = XCUIScreen.main.screenshot()
+        let data = screenshot.pngRepresentation
+        if skipSame, let last = Self.lastShot, last == data { return false }
+        Self.lastShot = data
+        Self.counter += 1
         let file = String(format: "%02d_%@.png", Self.counter, name)
         try? FileManager.default.createDirectory(atPath: outDir, withIntermediateDirectories: true)
         try? screenshot.pngRepresentation.write(to: URL(fileURLWithPath: outDir + "/" + file))
@@ -31,7 +37,7 @@ final class EkranGoruntuleriUITests: XCTestCase {
         attachment.name = file
         attachment.lifetime = .keepAlways
         add(attachment)
-        return file
+        return true
     }
 
     private func note(_ text: String) {
@@ -116,9 +122,23 @@ final class EkranGoruntuleriUITests: XCTestCase {
         sleep(1)
     }
 
+    /// Öğe varsa dokunur; yoksa testi düşürmeden not düşer (ekran görüntüleri yine de alınsın).
+    @discardableResult
+    private func safeTap(_ element: XCUIElement, _ what: String) -> Bool {
+        if element.waitForExistence(timeout: 4) { element.tap(); return true }
+        note("Bulunamadı, atlandı: " + what)
+        return false
+    }
+
+    /// Ayarlar sayfasını kapatıp yeniden açar; liste en üstte başlar (aşağı sürüklemek sayfayı kapatabilir).
+    private func reopenSettings(_ app: XCUIApplication) {
+        closeSettings(app)
+        openSettings(app)
+    }
+
     private func chooseTimestamp(_ app: XCUIApplication, option: String) {
         let row = scrollTo(app, "Tarih/saat yazısı")
-        row.tap()
+        safeTap(row, "Tarih/saat yazısı")
         sleep(1)
         shot("tarih-saat-secenekleri")
         let item = firstMatch(app, option)
@@ -158,40 +178,46 @@ final class EkranGoruntuleriUITests: XCTestCase {
         sleep(1)
         shot("ana-ekran-kamera-yok")
 
+        // Ayarlar: en üstten en alta kadar, ekran değişmeyene dek
         openSettings(app)
         shot("ayarlar-1")
-        for i in 2...7 {
+        var page = 2
+        while page <= 12 {
             drag(app, up: true)
-            shot("ayarlar-\(i)")
+            if !shot("ayarlar-\(page)", skipSame: true) { break }
+            page += 1
         }
-        scrollToTop(app)
 
-        // Yeni: tarih/saat seçeneği (üç seçenek de görünsün), sonra varsayılana dön
+        // Tarih/saat seçeneği (üç seçenek de görünsün), sonra varsayılana dön
+        reopenSettings(app)
         chooseTimestamp(app, option: "Olduğu gibi bırak")
         shot("tarih-saat-olduğu-gibi-secildi")
         chooseTimestamp(app, option: "Bulanıklaştır")
 
         // Toplu gönderme modu
-        scrollTo(app, "Toplu (biriksin)").tap()
+        safeTap(scrollTo(app, "Toplu (biriksin)"), "Toplu (biriksin)")
         sleep(1)
-        drag(app, up: true)
         shot("drive-ayarlari-toplu-mod")
-        scrollTo(app, "Tek tek (hemen)").tap()
+        safeTap(scrollTo(app, "Tek tek (hemen)"), "Tek tek (hemen)")
         sleep(1)
 
         // Drive kurulum ekranı
-        scrollTo(app, "Google hesabı ve bağlantı").tap()
-        sleep(1)
-        shot("google-drive-baglanti")
-        drag(app, up: true)
-        shot("google-drive-baglanti-alt")
-        goBack(app)
+        if safeTap(scrollTo(app, "Google hesabı ve bağlantı"), "Google hesabı ve bağlantı") {
+            sleep(2)
+            shot("google-drive-baglanti")
+            drag(app, up: true)
+            shot("google-drive-baglanti-alt", skipSame: true)
+            goBack(app)
+        }
 
         // Tanı ve günlük
-        scrollTo(app, "Tanı ve günlük").tap()
-        sleep(3)
-        shot("tani-ve-gunluk")
-        goBack(app)
+        if safeTap(scrollTo(app, "Tanı ve günlük"), "Tanı ve günlük") {
+            sleep(3)
+            shot("tani-ve-gunluk")
+            drag(app, up: true)
+            shot("tani-ve-gunluk-alt", skipSame: true)
+            goBack(app)
+        }
         closeSettings(app)
         shot("ana-ekran-ayarlardan-sonra")
     }
@@ -249,5 +275,32 @@ final class EkranGoruntuleriUITests: XCTestCase {
         scrollTo(app, "Görüntü değişince çek")
         shot("ayarlar-otomatik-cekim")
         closeSettings(app)
+    }
+
+    // MARK: - 3) OCR açık: çekim, "metin okunuyor" durumu ve OCR ayarı
+
+    func test3_ocrAcik() {
+        installPermissionMonitor()
+        let app = XCUIApplication()
+        app.launchArguments = turkish + ["-uid", "GHBB-000001-TESTX", "-cameraIP", "127.0.0.1",
+                                        "-motionEnabled", "NO", "-ocrEnabled", "YES"]
+        app.launch()
+        sleep(2)
+        poke(app, times: 2)
+        let live = waitForLive(app)
+        note("OCR testi, canlı görüntü: \(live)")
+        guard live else { return }
+
+        openSettings(app)
+        _ = scrollTo(app, "Metni oku")
+        shot("ocr-ayari-acik")
+        closeSettings(app)
+
+        capture(app)
+        shot("ocr-cekim-sonrasi")
+        sleep(25)       // OCR'ın bitmesi için süre tanı
+        shot("ocr-bitti-son-durum")
+        drag(app, up: true)
+        shot("ocr-son-fotograf", skipSame: true)
     }
 }

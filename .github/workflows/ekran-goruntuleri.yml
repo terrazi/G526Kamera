@@ -101,6 +101,8 @@ jobs:
           echo "Uygulama verisi: $DATA"
           if [ -n "$DATA" ]; then
             cp "$DATA"/Documents/Belgeler/*.jpg sonuc/fotograflar/ 2>/dev/null || true
+            # OCR metin dosyalari (bekleyen yukleme klasorunde, fotografin yaninda)
+            find "$DATA" -name "*.jpg.txt" -exec cp {} sonuc/fotograflar/ \; 2>/dev/null || true
           fi
           ls -la sonuc/fotograflar || true
           cp cihaz.txt kamera.log sonuc/ 2>/dev/null || true
