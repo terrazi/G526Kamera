@@ -290,7 +290,12 @@ final class EkranGoruntuleriUITests: XCTestCase {
         _ = scrollTo(app, "Metni oku")
         shot("ocr-ayari-kapali")
         let ocrSwitch = app.switches.matching(NSPredicate(format: "label CONTAINS %@", "Metni oku")).firstMatch
-        safeTap(ocrSwitch, "OCR anahtarı")
+        // SwiftUI satırında dokunuş etiketin ortasına düşer; anahtar satırın sağ ucunda
+        if ocrSwitch.waitForExistence(timeout: 4) {
+            ocrSwitch.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
+        } else {
+            note("Bulunamadı, atlandı: OCR anahtarı")
+        }
         sleep(1)
         shot("ocr-ayari-acik")
         closeSettings(app)
