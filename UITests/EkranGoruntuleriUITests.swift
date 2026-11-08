@@ -306,5 +306,26 @@ final class EkranGoruntuleriUITests: XCTestCase {
         capture(app)    // OCR yavaş/başarısız olsa da çekim ve uygulama çalışmaya devam etmeli
         drag(app, up: true)
         shot("ocr-sonrasi-son-fotograf", skipSame: true)
+
+        // Önizlemeyi kapat (pil tasarrufu): ekranda video yok, ama çekim çalışmaya devam eder
+        drag(app, up: false)
+        openSettings(app)
+        _ = scrollTo(app, "Canlı önizlemeyi kapat")
+        shot("onizleme-ayari-kapali")
+        let previewSwitch = app.switches.matching(NSPredicate(format: "label CONTAINS %@", "Canlı önizlemeyi kapat")).firstMatch
+        if previewSwitch.waitForExistence(timeout: 4) {
+            previewSwitch.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
+        } else {
+            note("Bulunamadı, atlandı: önizleme anahtarı")
+        }
+        sleep(1)
+        shot("onizleme-ayari-acik")
+        closeSettings(app)
+        sleep(2)
+        shot("onizleme-kapali-ana-ekran")
+        capture(app)
+        shot("onizleme-kapali-cekim-sonrasi")
+        drag(app, up: true)
+        shot("onizleme-kapali-son-fotograf", skipSame: true)
     }
 }

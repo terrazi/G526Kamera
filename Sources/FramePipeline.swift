@@ -12,6 +12,13 @@ final class FramePipeline {
     private let lock = NSLock()
     private var backlog = 0
     private(set) var framesSeen = 0
+    private var _saving = false
+
+    /// Pil tasarrufu (önizleme kapalı): ekrana kare gönderilmez, analiz kareler seyreltilerek yapılır.
+    var saving: Bool {
+        get { lock.lock(); defer { lock.unlock() }; return _saving }
+        set { lock.lock(); _saving = newValue; lock.unlock() }
+    }
 
     /// Görüntü değişti ve sahne durulduysa çağrılır (analiz kuyruğundan).
     var onMotionTrigger: (() -> Void)?
@@ -21,8 +28,11 @@ final class FramePipeline {
     }
 
     func handle(_ pixelBuffer: CVPixelBuffer, time: TimeInterval) {
-        renderer.enqueue(pixelBuffer)
+        let power = saving
+        if !power { renderer.enqueue(pixelBuffer) }
         framesSeen += 1
+        // Pil tasarrufunda her ikinci kare analiz edilir (netlik/değişim hesabı işlemciyi en çok yoran iştir)
+        if power && framesSeen % 2 == 0 { return }
 
         lock.lock()
         if backlog >= 3 {

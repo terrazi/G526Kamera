@@ -108,6 +108,13 @@ final class AppModel: ObservableObject {
             }
             .store(in: &cancellables)
 
+        // Pil tasarrufu ayarları anında uygulanır
+        Publishers.CombineLatest(settings.$previewOff, settings.$dimWhenPreviewOff)
+            .sink { [weak self] _, _ in
+                Task { @MainActor in self?.updatePowerSaving() }
+            }
+            .store(in: &cancellables)
+
         // Ayarlar değişince (yazmayı bitirince) kendiliğinden uygula
         settings.objectWillChange
             .debounce(for: .seconds(2), scheduler: DispatchQueue.main)
@@ -120,16 +127,32 @@ final class AppModel: ObservableObject {
     // MARK: - Yaşam döngüsü
 
     func start() {
-        if started { return }
+        if started {
+            updatePowerSaving()
+            return
+        }
         started = true
         UIApplication.shared.isIdleTimerDisabled = true
         applySettings(force: true)
+        updatePowerSaving()
+    }
+
+    /// Önizleme kapalıysa kare gönderimi ve analiz seyrekleşir, istenirse ekran kısılır.
+    func updatePowerSaving() {
+        pipeline.saving = settings.previewOff
+        ScreenDimmer.shared.update(dim: started && settings.previewOff && settings.dimWhenPreviewOff)
+    }
+
+    /// Uygulama pasifleşirken (kilit, denetim merkezi, başka uygulama) kullanıcının parlaklığı geri verilir.
+    func restoreScreen() {
+        ScreenDimmer.shared.update(dim: false)
     }
 
     func stop() {
         if !started { return }
         started = false
         UIApplication.shared.isIdleTimerDisabled = false
+        ScreenDimmer.shared.update(dim: false)
         client.stop()
         decoder.reset()
         speech.stop()

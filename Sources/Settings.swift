@@ -37,6 +37,12 @@ final class AppSettings: ObservableObject {
     /// 0 = düşük, 1 = orta, 2 = yüksek duyarlılık
     @Published var motionSensitivity: Int { didSet { d.set(motionSensitivity, forKey: "motionSensitivity") } }
 
+    // MARK: Pil tasarrufu
+    /// Canlı önizleme kapalı: ekrana video çizilmez, kare çözme/çekim/ses/Drive aynen sürer (varsayılan: önizleme açık)
+    @Published var previewOff: Bool { didSet { d.set(previewOff, forKey: "previewOff") } }
+    /// Önizleme kapalıyken ekranı çok kıs (ekran pilin en büyük tüketicisidir)
+    @Published var dimWhenPreviewOff: Bool { didSet { d.set(dimWhenPreviewOff, forKey: "dimWhenPreviewOff") } }
+
     // MARK: Drive
     @Published var driveFolderName: String { didSet { d.set(driveFolderName, forKey: "driveFolderName") } }
     @Published var driveFolderID: String { didSet { d.set(driveFolderID, forKey: "driveFolderID") } }
@@ -92,5 +98,7 @@ final class AppSettings: ObservableObject {
         batchIdle = d.object(forKey: "batchIdle") as? Int ?? 0
         uploadFormat = d.string(forKey: "uploadFormat") ?? "pdf"
         ocrEnabled = d.object(forKey: "ocrEnabled") as? Bool ?? false
+        previewOff = d.object(forKey: "previewOff") as? Bool ?? false
+        dimWhenPreviewOff = d.object(forKey: "dimWhenPreviewOff") as? Bool ?? true
     }
 }

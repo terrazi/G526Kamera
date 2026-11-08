@@ -17,6 +17,8 @@ struct G526CameraDriveApp: App {
                         model.start()
                     case .background:
                         model.stop()
+                    case .inactive:
+                        model.restoreScreen()
                     default:
                         break
                     }

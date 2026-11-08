@@ -47,10 +47,14 @@ struct ContentView: View {
 
     private var preview: some View {
         ZStack(alignment: .topLeading) {
-            VideoLayerView(renderer: model.renderer)
-                .aspectRatio(16.0 / 9.0, contentMode: .fit)
-                .background(Color.black)
-                .cornerRadius(12)
+            if settings.previewOff {
+                previewOffBox
+            } else {
+                VideoLayerView(renderer: model.renderer)
+                    .aspectRatio(16.0 / 9.0, contentMode: .fit)
+                    .background(Color.black)
+                    .cornerRadius(12)
+            }
             HStack(spacing: 6) {
                 Circle()
                     .fill(model.isLive ? Color.green : Color.orange)
@@ -80,6 +84,30 @@ struct ContentView: View {
                     .padding(10)
             }
         }
+    }
+
+    /// Önizleme kapalıyken: video çizilmez (pil/ısınma), çekim ve diğer her şey çalışmaya devam eder.
+    private var previewOffBox: some View {
+        VStack(spacing: 8) {
+            Spacer(minLength: 34)
+            Image(systemName: "eye.slash").font(.title3)
+            Text("Önizleme kapalı (pil tasarrufu)")
+                .font(.footnote.weight(.semibold))
+            Text("Çekim, sesli komut ve Drive çalışıyor. Çekilen fotoğrafı aşağıda görürsünüz.")
+                .font(.caption2)
+                .multilineTextAlignment(.center)
+                .foregroundColor(.white.opacity(0.7))
+            Button("Önizlemeyi aç") { settings.previewOff = false }
+                .font(.footnote)
+                .accessibilityIdentifier("onizlemeyi-ac")
+            Spacer(minLength: 6)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .foregroundColor(.white)
+        .background(Color.black)
+        .cornerRadius(12)
     }
 
     private var captureButton: some View {
