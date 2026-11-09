@@ -28,6 +28,7 @@ final class CameraClient {
     var onState: ((CameraState) -> Void)?
     var onFrame: ((VideoFrame) -> Void)?
     var onDeviceInfo: (([String: Any]) -> Void)?
+    var onProbe: ((String) -> Void)?
 
     private let lock = NSLock()
     private var running = false
@@ -88,6 +89,9 @@ final class CameraClient {
             }
             session.onDeviceInfo = { [weak self] info in
                 self?.onDeviceInfo?(info)
+            }
+            session.onProbe = { [weak self] text in
+                self?.onProbe?(text)
             }
             session.onFrame = { [weak self] frame in
                 guard let self = self, self.isCurrent(gen) else { return }

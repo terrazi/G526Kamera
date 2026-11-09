@@ -48,6 +48,9 @@ final class AppModel: ObservableObject {
     @Published private(set) var lastPhotoInfo = ""
     @Published private(set) var capturing = false
     @Published private(set) var deviceInfo = ""
+    /// "Kameradan pil / şarj bilgisi ara" sonucu
+    @Published private(set) var probeText = ""
+    private var probeNext = false
     /// Kameradan gelen görüntü gerçekten çözülüp ekrana veriliyor mu (son 3 sn içinde kare var mı)
     @Published private(set) var decoding = false
 
@@ -120,6 +123,9 @@ final class AppModel: ObservableObject {
         client.onDeviceInfo = { [weak self] info in
             let text = AppModel.describe(info)
             Task { @MainActor in self?.deviceInfo = text }
+        }
+        client.onProbe = { [weak self] text in
+            Task { @MainActor in self?.probeText = text }
         }
         pipeline.onMotionTrigger = { [weak self] in
             Task { @MainActor in self?.capture(reason: "Görüntü değişti") }
@@ -256,6 +262,17 @@ final class AppModel: ObservableObject {
                                  sensitivity: settings.motionSensitivity)
     }
 
+    /// Kameraya yalnız okuma komutları gönderip pil / şarj bilgisi arar; kamera yeniden bağlanır (yaklaşık 15 sn sürer)
+    func probeCamera() {
+        guard started else {
+            probeText = "Önce kamera ekranına dönüp bağlantının kurulmasını bekleyin."
+            return
+        }
+        probeText = "Kamera sorgulanıyor… (yaklaşık 15 sn, görüntü gelince başlar)"
+        probeNext = true
+        restartCamera()
+    }
+
     private func restartCamera() {
         client.stop()
         guard let uid = CameraUID(settings.uid) else {
@@ -274,7 +291,9 @@ final class AppModel: ObservableObject {
                                           manualIP: settings.cameraIP.trimmed,
                                           videoState: quality.state,
                                           videoStream: quality.stream,
-                                          tzHours: TimeZone.current.secondsFromGMT() / 3600)
+                                          tzHours: TimeZone.current.secondsFromGMT() / 3600,
+                                          probe: probeNext)
+        probeNext = false
         cameraState = .connecting("Kameraya bağlanılıyor…")
         client.start(config: config)
     }

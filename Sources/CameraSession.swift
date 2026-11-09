@@ -11,6 +11,8 @@ final class CameraSession {
         var videoState: Int
         var videoStream: Int
         var tzHours: Int
+        /// Ayarlardaki "pil / şarj bilgisi ara" düğmesi: görüntü açıldıktan sonra yalnız okuma komutlarını dener
+        var probe: Bool = false
     }
 
     // Geri çağrılar oturum iş parçacığından gelir.
@@ -18,6 +20,7 @@ final class CameraSession {
     var onStatus: ((String) -> Void)?
     var onConnected: ((String) -> Void)?
     var onDeviceInfo: (([String: Any]) -> Void)?
+    var onProbe: ((String) -> Void)?
 
     private let config: Config
     private let did: [UInt8]
@@ -104,6 +107,7 @@ final class CameraSession {
         status("Görüntü isteniyor…")
         let userID = Int.random(in: 1...100)
         openVideo(userID: userID)
+        if config.probe { runProbe(camera: cam) }
 
         var lastKeepalive = Date()
         var streamStart = Date()
@@ -333,6 +337,30 @@ final class CameraSession {
                 }
             }
         }
+    }
+
+    /// Kameranın verdiği bilgileri tarar (yalnız okuma komutları). Bu sırada canlı tutma paketi de gönderilir.
+    private func runProbe(camera cam: UDPAddress) {
+        status("Kamera sorgulanıyor…")
+        var lines: [String] = []
+        var lastAlive = Date()
+        for name in CameraProbe.all {
+            if shouldStop { break }
+            if Date().timeIntervalSince(lastAlive) > 1.5 {
+                socket?.send(PPPP.packet(PPPP.alive), to: cam)
+                lastAlive = Date()
+            }
+            let reply = command(CameraCommand.object([("cmd", name)]), wait: name, tries: 1, gap: 0.35)
+            lines.append(CameraProbe.format(name: name, reply: reply))
+        }
+        // Beklenen adların dışında gelen cevaplar (kamera başka bir adla cevaplamış olabilir)
+        let expected = Set(CameraProbe.all + ["LoginDev", "AppointDev", "OpenVideo"])
+        for (name, reply) in replies.sorted(by: { $0.key < $1.key }) where !expected.contains(name) {
+            lines.append("Beklenmeyen cevap adı \(name): " + CameraProbe.compact(reply))
+        }
+        lines.insert(CameraProbe.summary(lines: lines), at: 0)
+        for line in lines { log("sorgu: " + line) }
+        onProbe?(lines.joined(separator: "\n"))
     }
 
     private func processCommandBytes(_ bytes: [UInt8]) {

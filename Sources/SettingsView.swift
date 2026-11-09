@@ -275,6 +275,14 @@ struct DiagnosticsView: View {
                     .font(.system(.footnote, design: .monospaced))
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
+            Button("Kameradan pil / şarj bilgisi ara") { model.probeCamera() }
+                .accessibilityIdentifier("kamera-sorgula")
+            if !model.probeText.isEmpty {
+                Text(model.probeText)
+                    .font(.system(.caption2, design: .monospaced))
+                    .foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
             if !model.deviceInfo.isEmpty {
                 Text(model.deviceInfo)
                     .font(.system(.caption2, design: .monospaced))
