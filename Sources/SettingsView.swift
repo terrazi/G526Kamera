@@ -20,6 +20,14 @@ struct SettingsView: View {
                     NavigationLink(destination: DiagnosticsView()) {
                         Text("Tanı ve günlük")
                     }
+                    HStack {
+                        Text("Sürüm")
+                        Spacer()
+                        Text(BuildInfo.version)
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                            .textSelection(.enabled)
+                    }
                 }
             }
             .navigationTitle("Ayarlar")

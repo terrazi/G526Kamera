@@ -20,6 +20,12 @@ jobs:
       - name: Get source code
         uses: actions/checkout@v4
 
+      - name: Stamp build info (shown in Settings)
+        run: |
+          STAMP=$(TZ=Europe/Istanbul date '+%d.%m.%Y %H:%M')
+          printf 'enum BuildInfo {\n    static let version = "%s · %s · #%s"\n}\n' "${GITHUB_SHA::7}" "$STAMP" "$GITHUB_RUN_NUMBER" > Sources/BuildInfo.swift
+          cat Sources/BuildInfo.swift
+
       - name: Install XcodeGen
         run: brew install xcodegen
 
