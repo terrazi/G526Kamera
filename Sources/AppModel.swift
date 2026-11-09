@@ -69,6 +69,12 @@ final class AppModel: ObservableObject {
     private var capturePart: ColumnChoice?
     /// Tek tek gönderimde çekimden sonra "dosya gönderildi" demek için çekim anındaki yüklenen sayısı
     private var uploadWatchBase: Int?
+    private var connection = ConnectionAnnouncer()
+    private var notices = NoticeQueue()
+    private var lastSpeechAt: TimeInterval = -1000
+    private var lastSpeechProblem = ""
+    private var seenUploaded = 0
+    private var uploadErrorAnnounced = false
 
     private struct FinishWatch {
         var docs: Int
@@ -121,7 +127,10 @@ final class AppModel: ObservableObject {
             Task { @MainActor in self?.voiceTriggered() }
         }
         speech.onStatus = { [weak self] text in
-            Task { @MainActor in self?.speechStatus = text }
+            Task { @MainActor in
+                self?.speechStatus = text
+                self?.announceSpeechProblem(text)
+            }
         }
         speech.onHeard = { [weak self] text in
             Task { @MainActor in self?.heardText = text }
@@ -192,6 +201,7 @@ final class AppModel: ObservableObject {
             return
         }
         started = true
+        seenUploaded = queue.uploaded
         UIApplication.shared.isIdleTimerDisabled = true
         applySettings(force: true)
         updatePowerSaving()
@@ -219,6 +229,8 @@ final class AppModel: ObservableObject {
         speech.stop()
         speaker.stop()
         speechActive = false
+        connection.reset()
+        lastSpeechProblem = ""
         pipeline.guidanceOn = false
         guidanceWasOn = false
         guidanceStatus = ""
@@ -317,6 +329,40 @@ final class AppModel: ObservableObject {
     private func refreshDecoding() {
         let ok = cameraState.isLive && decodeClock.age() < 3.0
         if ok != decoding { decoding = ok }
+        watchConnection(live: ok)
+    }
+
+    /// Kamera bağlanınca / kopunca / geri gelince sesle haber ver (yalnız sesli konumlandırma açıkken); her saniye çağrılır
+    private func watchConnection(live: Bool) {
+        guard started else {
+            connection.reset()
+            notices.clear()
+            return
+        }
+        let now = ProcessInfo.processInfo.systemUptime
+        if let message = connection.tick(now: now, live: live) {
+            switch message {
+            case .lost, .unreachable, .stillDown: notify(message.text, .alert, group: "kamera")
+            case .ready, .restored: notify(message.text, .status, group: "kamera")
+            }
+        }
+        if let text = notices.next(now: now, speaking: speaker.isSpeaking, lastSpeechAt: lastSpeechAt) {
+            say(text)
+        }
+    }
+
+    /// Kendiliğinden gelen durum haberi: sıraya girer, dinleyiciyi yormayacak anda söylenir (NoticeQueue)
+    private func notify(_ text: String, _ priority: NoticeQueue.Priority, group: String) {
+        guard started, settings.guidanceEnabled, settings.statusNotices else { return }
+        notices.add(text, priority, group: group, now: ProcessInfo.processInfo.systemUptime)
+    }
+
+    /// Mikrofon / konuşma tanıma izni gibi kullanıcının çözmesi gereken sorunları sesle söyler (her sorun bir kez)
+    private func announceSpeechProblem(_ status: String) {
+        if status.hasPrefix("Dinleniyor") { lastSpeechProblem = "" }
+        guard let text = SpokenReport.speechProblem(status), text != lastSpeechProblem else { return }
+        lastSpeechProblem = text
+        notify(text, .alert, group: "mikrofon")
     }
 
     /// Görüntü gerçekten akıyor mu (bağlantı + çözülmüş kare)
@@ -433,7 +479,7 @@ final class AppModel: ObservableObject {
             guidanceAwaiting = false
             guidanceNotice = ""
             speech.choiceMode = false
-            if on { say("Sesli konumlandırma açık.") }
+            if on { say(SpokenReport.startup(signedIn: auth.isSignedIn, waiting: queue.pending)) }
         }
     }
 
@@ -441,6 +487,7 @@ final class AppModel: ObservableObject {
     private func say(_ text: String, interrupt: Bool = false, force: Bool = false) {
         guidanceSaid = text
         guard force || settings.guidanceVoice else { return }
+        lastSpeechAt = ProcessInfo.processInfo.systemUptime
         speaker.needsPlaybackSession = !speechActive
         speech.suppressed = true
         speaker.speak(text, interrupt: interrupt)
@@ -603,24 +650,50 @@ final class AppModel: ObservableObject {
     }
 
     private func finishProgress() {
+        let spoke = watchedUploadProgress()
+        let delta = queue.uploaded - seenUploaded
+        seenUploaded = queue.uploaded
+        if queue.lastError.isEmpty { uploadErrorAnnounced = false }
+        // Bir gönderimi zaten izleyip sonucunu söylüyorsak (çekim sonrası, "hepsi tamamlandı") ayrıca haber verilmez
+        if spoke || finishWatch != nil || uploadWatchBase != nil {
+            if !queue.lastError.isEmpty { uploadErrorAnnounced = true }
+            return
+        }
+        // Kendiliğinden giden (toplu gönderim, yeniden deneme) dosyalar da bildirilir; haber kuyruğu sıklığı sınırlar
+        if delta > 0 {
+            notify(SpokenReport.autoSent(), .status, group: "gonderim")
+        } else if !queue.lastError.isEmpty && queue.pending > 0 && !uploadErrorAnnounced {
+            uploadErrorAnnounced = true
+            notify(SpokenReport.uploadFailed(signedIn: auth.isSignedIn, waiting: queue.pending), .alert, group: "gonderim")
+        }
+    }
+
+    /// Çekimden / "hepsi tamamlandı"dan sonra beklenen gönderimin sonucunu söyler; konuştuysa true döner.
+    private func watchedUploadProgress() -> Bool {
+        var spoke = false
         if let base = uploadWatchBase, queue.pending == 0, queue.uploaded > base {
             uploadWatchBase = nil
             say("Dosya gönderildi.")
+            spoke = true
         } else if uploadWatchBase != nil && queue.pending > 0 && !queue.lastError.isEmpty {
             uploadWatchBase = nil
             say("Dosya gönderilemedi, bağlantı gelince yeniden denenecek.")
+            spoke = true
         }
-        guard var watch = finishWatch else { return }
+        guard var watch = finishWatch else { return spoke }
         if queue.pending == 0 && queue.uploaded > watch.photos {
             finishWatch = nil
             say(SpokenReport.finished(photos: queue.uploaded - watch.photos,
                                       docs: queue.uploadedDocs - watch.docs,
                                       pdf: settings.uploadFormat == "pdf"), interrupt: true, force: true)
+            spoke = true
         } else if queue.pending > 0 && !queue.lastError.isEmpty && !watch.errorSpoken {
             watch.errorSpoken = true
             finishWatch = watch
             say("Gönderim başarısız oldu. Bağlantı gelince yeniden denenecek.", interrupt: true, force: true)
+            spoke = true
         }
+        return spoke
     }
 
     func reportText() -> String {

@@ -34,6 +34,36 @@ enum SpokenReport {
         return parts.joined(separator: " ")
     }
 
+    /// Sesli konumlandırma açılınca: hazır olduğunu ve gönderim durumunu bildirir (görmeden kullanan kişi neyin eksik olduğunu bilsin).
+    static func startup(signedIn: Bool, waiting: Int) -> String {
+        var t = "Sesli konumlandırma açık."
+        if !signedIn { t += " Drive'a giriş yok, çekimler telefonda kalacak." }
+        if waiting > 0 { t += " \(waiting) sayfa bekliyor." }
+        return t
+    }
+
+    /// Konuşma tanıma çalışamıyorsa söylenecek cümle (yalnız kullanıcının müdahale etmesi gereken durumlar), yoksa nil.
+    static func speechProblem(_ status: String) -> String? {
+        if status.hasPrefix("Konuşma tanıma izni verilmedi") || status.hasPrefix("Mikrofon izni verilmedi") {
+            return "Mikrofon izni yok, sesli komutlar çalışmaz. Ayarlardan izin verin."
+        }
+        if status.hasPrefix("Türkçe konuşma tanıma bu cihazda yok") {
+            return "Bu telefonda Türkçe konuşma tanıma yok, sesli komutlar çalışmaz."
+        }
+        return nil
+    }
+
+    /// Kendiliğinden (toplu gönderim, yeniden deneme) giden dosya için kısa haber
+    static func autoSent() -> String {
+        return "Dosya gönderildi."
+    }
+
+    /// Arka planda gönderim başarısız olunca
+    static func uploadFailed(signedIn: Bool, waiting: Int) -> String {
+        if !signedIn { return "Drive'a giriş yok, \(waiting) sayfa bekliyor. Ayarlardan giriş yapın." }
+        return "Gönderim başarısız, bağlantı gelince yeniden denenecek."
+    }
+
     /// Her çekim bitince söylenen kısa bilgi: ne çekildi, dosya gönderildi mi / bekliyor mu.
     /// `part`: seçilen bölümün adı ("Sol", "Sağ"…) ya da nil. Çekim cümlesi sayfayı çevirmenin güvenli olduğunu da bildirir.
     /// `batchSize`: ayarlanan toplu gönderim sayfa sayısı (0 = yalnız komutla); PDF'e en çok 30 sayfa girer.

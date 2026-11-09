@@ -48,6 +48,8 @@ final class AppSettings: ObservableObject {
     @Published var guidanceEnabled: Bool { didSet { d.set(guidanceEnabled, forKey: "guidanceEnabled") } }
     /// Uyarıları sesli söyle (kapalıysa yalnız ekranda yazar)
     @Published var guidanceVoice: Bool { didSet { d.set(guidanceVoice, forKey: "guidanceVoice") } }
+    /// Sesli konumlandırma açıkken kamera / gönderim durumunu da sesle haber ver (kamera koptu, dosya gönderildi…)
+    @Published var statusNotices: Bool { didSet { d.set(statusNotices, forKey: "statusNotices") } }
     /// Konum uygun olunca kendiliğinden çek (kapalıysa "okey" demenizi bekler)
     @Published var guidanceAutoCapture: Bool { didSet { d.set(guidanceAutoCapture, forKey: "guidanceAutoCapture") } }
     /// Kamera ters takılıysa sağ/sol ve yukarı/aşağı yönleri çevrilir
@@ -116,6 +118,7 @@ final class AppSettings: ObservableObject {
         ocrEnabled = d.object(forKey: "ocrEnabled") as? Bool ?? false
         guidanceEnabled = d.object(forKey: "guidanceEnabled") as? Bool ?? false
         guidanceVoice = d.object(forKey: "guidanceVoice") as? Bool ?? true
+        statusNotices = d.object(forKey: "statusNotices") as? Bool ?? true
         guidanceAutoCapture = d.object(forKey: "guidanceAutoCapture") as? Bool ?? true
         guidanceFlip = d.object(forKey: "guidanceFlip") as? Bool ?? false
         guidanceSharpness = d.object(forKey: "guidanceSharpness") as? Int ?? 1

@@ -11,6 +11,9 @@ final class GuidanceSpeaker: NSObject, AVSpeechSynthesizerDelegate {
     /// Son söylenen cümleler (tanı ve test için)
     private(set) var recent: [String] = []
 
+    /// Şu an (ya da sırada) söylenecek cümle var mı
+    var isSpeaking: Bool { return pending > 0 }
+
     private let synth = AVSpeechSynthesizer()
     private var pending = 0
     private var generation = 0
