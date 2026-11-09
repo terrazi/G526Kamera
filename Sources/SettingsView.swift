@@ -4,6 +4,7 @@ struct SettingsView: View {
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var settings: AppSettings
     @Environment(\.presentationMode) private var presentation
+    @State private var voiceTestResult = ""
 
     var body: some View {
         NavigationView {
@@ -82,6 +83,11 @@ struct SettingsView: View {
                 .accessibilityIdentifier("konumlandirma-ac")
             Toggle("Uyarıları sesli söyle", isOn: $settings.guidanceVoice)
             Toggle("Kamera ve gönderim durumunu da söyle", isOn: $settings.statusNotices)
+            Button("Sesi dene") { voiceTestResult = model.testVoice() }
+                .accessibilityIdentifier("sesi-dene")
+            if !voiceTestResult.isEmpty {
+                Text(voiceTestResult).font(.footnote).foregroundColor(.secondary)
+            }
             Toggle("Konum uygunsa kendiliğinden çek", isOn: $settings.guidanceAutoCapture)
             Toggle("Kamera ters takılı (yönleri çevir)", isOn: $settings.guidanceFlip)
             Picker("Netlik isteği", selection: $settings.guidanceSharpness) {

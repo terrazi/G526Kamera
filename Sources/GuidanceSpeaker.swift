@@ -25,8 +25,10 @@ final class GuidanceSpeaker: NSObject, AVSpeechSynthesizerDelegate {
 
     func speak(_ text: String, interrupt: Bool = false) {
         if interrupt && (synth.isSpeaking || pending > 0) { synth.stopSpeaking(at: .immediate) }
-        if needsPlaybackSession {
-            let session = AVAudioSession.sharedInstance()
+        // Ses oturumu çalma yapabilen bir türde değilse (varsayılan tür sessiz anahtara uyar ve sesi keser) çalma oturumu aç
+        let session = AVAudioSession.sharedInstance()
+        let playable = session.category == .playAndRecord || session.category == .playback
+        if needsPlaybackSession || !playable {
             try? session.setCategory(.playback, mode: .spokenAudio, options: [.mixWithOthers])
             try? session.setActive(true)
         }

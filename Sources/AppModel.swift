@@ -2,6 +2,7 @@ import Foundation
 import SwiftUI
 import Combine
 import AudioToolbox
+import AVFoundation
 import UIKit
 
 /// Son çözülen karenin zamanı (çözücü başka iş parçacığında çalıştığı için kilitli).
@@ -491,6 +492,26 @@ final class AppModel: ObservableObject {
         speaker.needsPlaybackSession = !speechActive
         speech.suppressed = true
         speaker.speak(text, interrupt: interrupt)
+        tlog("[konuşma] \(text)")
+    }
+
+    /// Ayarlardaki "Sesi dene": cümleyi (ayar kapalı olsa bile) söyler ve sesin neden duyulmuyor olabileceğini yazar.
+    func testVoice() -> String {
+        say("Ses denemesi. Beni duyuyorsanız sesli yönlendirme çalışıyor.", interrupt: true, force: true)
+        let session = AVAudioSession.sharedInstance()
+        let volume = Int((session.outputVolume * 100).rounded())
+        let outputs = session.currentRoute.outputs.map { $0.portName }
+        var lines = ["Medya ses seviyesi: %\(volume)",
+                     "Ses oturumu: " + session.category.rawValue.replacingOccurrences(of: "AVAudioSessionCategory", with: ""),
+                     "Ses çıkışı: " + (outputs.isEmpty ? "bilinmiyor" : outputs.joined(separator: ", "))]
+        if volume < 10 { lines.append("Ses seviyesi çok düşük: yan ses artırma tuşuyla yükseltin.") }
+        if AVSpeechSynthesisVoice(language: "tr-TR") == nil {
+            lines.append("Türkçe ses yüklü değil: Ayarlar > Erişilebilirlik > Konuşulan İçerik > Sesler > Türkçe.")
+        }
+        if !settings.guidanceVoice { lines.append("“Uyarıları sesli söyle” kapalı; açmadıkça program konumlandırmayı yalnız yazar.") }
+        if !settings.guidanceEnabled { lines.append("“Sesle konumlandır” kapalı.") }
+        lines.append("Cümleyi duydunuz mu? Duymadıysanız günlüğü bana gönderin.")
+        return lines.joined(separator: "\n")
     }
 
     private func guidanceSample(_ sample: FramePipeline.GuidanceSample) {
