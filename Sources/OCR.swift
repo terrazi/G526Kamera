@@ -130,6 +130,12 @@ final class OcrCenter: ObservableObject {
         }
     }
 
+    /// Silinen fotoğrafın okuması kuyruktan çıkarılır
+    func forget(_ url: URL) {
+        queue.removeAll { $0 == url }
+        updateStatus()
+    }
+
     func isPending(_ url: URL) -> Bool {
         return queue.contains(url) || current == url
     }
@@ -190,6 +196,8 @@ final class OcrCenter: ObservableObject {
         case .success(let raw):
             failures = 0
             let text = OcrCenter.clean(raw)
+            // Okuma sürerken fotoğraf silinmişse artık metin dosyası yazılmaz
+            guard FileManager.default.fileExists(atPath: url.path) else { return }
             do {
                 try text.write(to: OcrCenter.sidecar(url), atomically: true, encoding: .utf8)
             } catch {

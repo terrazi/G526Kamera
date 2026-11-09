@@ -511,7 +511,13 @@ final class SpeechTrigger {
             // Aynı duyum hem "sol" hem "sağ"a benziyorsa ("sal") karar verilemez: seçim yok sayılır
             let choiceIDs = firedIDs.filter { $0.hasPrefix("choice.") }
             var ids = firedIDs.filter { !$0.hasPrefix("choice.") }
-            if choiceIDs.count == 1 && !ids.contains("finish") && !ids.contains("rechoose") { ids += choiceIDs }
+            // Silme / yeniden çekme komutları kendi başına geçer: "son fotoğrafı sil" ne gönder, ne rapor, ne sol/sağ seçimi sayılır
+            let editing = ids.contains("deleteLast") || ids.contains("retake")
+            if editing {
+                ids = ids.filter { $0 != "finish" && $0 != "report" && $0 != "rechoose" }
+                if ids.contains("retake") { ids = ids.filter { $0 != "deleteLast" } }
+            }
+            if choiceIDs.count == 1 && !editing && !ids.contains("finish") && !ids.contains("rechoose") { ids += choiceIDs }
             if firedMain || !firedIDs.isEmpty {
                 unrecognizedWork?.cancel()
                 if ids.isEmpty && !firedMain && choiceIDs.count > 1 { onUnrecognized?(text) }

@@ -28,6 +28,8 @@ final class UploadQueue: ObservableObject {
     private var lastEnqueue = Date.distantPast
     private var failures = 0
     private let monitor = NWPathMonitor()
+    private var captureLog = CaptureLog()
+    private var inFlight = Set<String>()
 
     init() {
         let manager = FileManager.default
@@ -89,9 +91,26 @@ final class UploadQueue: ObservableObject {
         }
         pending = pendingFiles().count
         lastEnqueue = Date()
+        captureLog.add(name)
         if settings.ocrEnabled { OcrCenter.shared.submit(pendingDir.appendingPathComponent(name)) }
         kick()
         return name
+    }
+
+    /// "Son fotoğrafı sil": bu oturumda çekilmiş, henüz yüklenmemiş son fotoğrafı (ve OCR metnini) siler.
+    func removeLast() -> CaptureLog.Outcome {
+        let names = Set(pendingFiles().map { $0.lastPathComponent })
+        let outcome = captureLog.takeLast(pending: names, inFlight: inFlight)
+        if case .removed(let name) = outcome {
+            let url = pendingDir.appendingPathComponent(name)
+            OcrCenter.shared.forget(url)
+            remove(url)
+            try? fm.removeItem(at: localDir.appendingPathComponent(name))
+            pending = pendingFiles().count
+            status = pending > 0 ? "\(pending) fotoğraf yüklenmeyi bekliyor" : ""
+            tlog("[kuyruk] silindi: \(name)")
+        }
+        return outcome
     }
 
     /// Hemen dene. Toplu modda biriken fotoğrafları da şimdi gönderir.
@@ -217,16 +236,20 @@ final class UploadQueue: ObservableObject {
                 }
             }
             guard let job = prepareJob(files: files, batch: batch) else { continue }
+            inFlight = Set(job.files.map { $0.lastPathComponent })
+            defer { inFlight = [] }
             do {
                 try await drive.upload(job.payload, name: job.name)
                 for file in job.files { remove(file) }
                 uploaded += job.files.count
                 uploadedDocs += 1
+                DailyStatsStore.shared.recordSent(photos: job.files.count, docs: 1)
                 failures = 0
                 lastError = ""
                 tlog("[drive] yüklendi: \(job.name) (\(job.files.count) fotoğraf)")
                 if pendingFiles().isEmpty { draining = false }
             } catch {
+                inFlight = []
                 failures += 1
                 lastError = error.localizedDescription
                 let wait = min(5.0 * pow(2.0, Double(failures - 1)), 300.0)

@@ -28,6 +28,8 @@ struct PageMetrics: Equatable {
     var paper = 0.0
     /// Aralarında boşluk olan ayrı bölümler (sütunlar ya da yan yana sayfalar), soldan sağa. Tek bölümde 1 öğe.
     var columns: [ColumnBox] = []
+    /// Yazı kutusunun içinde, neredeyse tam beyaza doymuş (parlama) büyük lekenin kutuya oranı; yoksa 0
+    var glare = 0.0
 
     var summary: String {
         if !hasText { return hasPage ? "sayfa var, yazı seçilemiyor" : "yazı bulunamadı" }
@@ -210,6 +212,48 @@ enum GuidanceAnalyzer {
             out.append(b)
         }
         return out
+    }
+
+    /// Parlama: yazı kutusunun içinde, yazı olmayan ve neredeyse tam beyaza doymuş (hücre ortalaması ≥ 250)
+    /// kompakt büyük leke (en az 12 hücre, 3x3'ten büyük, kutunun %4'ü). Genel olarak parlak kâğıt ya da
+    /// satır aralıkları parlama sayılmaz. Dönen değer: leke hücreleri / kutu hücreleri (yoksa 0).
+    static func glareFraction(mean: [Float], kept: [Bool], eroded: [Bool], gw: Int,
+                              rows: Range<Int>, cols: Range<Int>) -> Double {
+        let bw = cols.count
+        let bh = rows.count
+        guard bw >= 4, bh >= 4 else { return 0 }
+        var blown = [Bool](repeating: false, count: bw * bh)
+        for y in 0..<bh {
+            for x in 0..<bw {
+                let i = (rows.lowerBound + y) * gw + cols.lowerBound + x
+                if mean[i] >= 250 && !kept[i] && eroded[i] { blown[y * bw + x] = true }
+            }
+        }
+        var seen = [Bool](repeating: false, count: bw * bh)
+        var best = 0
+        var stack: [Int] = []
+        for start in 0..<(bw * bh) where blown[start] && !seen[start] {
+            seen[start] = true
+            stack.append(start)
+            var area = 0
+            var minX = Int.max, maxX = -1, minY = Int.max, maxY = -1
+            while let i = stack.popLast() {
+                area += 1
+                let x = i % bw
+                let y = i / bw
+                minX = min(minX, x); maxX = max(maxX, x)
+                minY = min(minY, y); maxY = max(maxY, y)
+                if x > 0, blown[i - 1], !seen[i - 1] { seen[i - 1] = true; stack.append(i - 1) }
+                if x < bw - 1, blown[i + 1], !seen[i + 1] { seen[i + 1] = true; stack.append(i + 1) }
+                if y > 0, blown[i - bw], !seen[i - bw] { seen[i - bw] = true; stack.append(i - bw) }
+                if y < bh - 1, blown[i + bw], !seen[i + bw] { seen[i + bw] = true; stack.append(i + bw) }
+            }
+            let w = maxX - minX + 1
+            let h = maxY - minY + 1
+            if area >= 12 && w >= 3 && h >= 3 && Double(area) >= 0.45 * Double(w * h) { best = max(best, area) }
+        }
+        let fraction = Double(best) / Double(bw * bh)
+        return fraction >= 0.04 ? fraction : 0
     }
 
     static func analyze(luma L: [Float], width W: Int, height H: Int) -> PageMetrics {
@@ -429,6 +473,8 @@ enum GuidanceAnalyzer {
         let py0 = firstRow * cell
         let py1 = (lastRow + 1) * cell
         m.hasText = true
+        m.glare = glareFraction(mean: mean, kept: kept, eroded: eroded, gw: gw,
+                                rows: firstRow..<(lastRow + 1), cols: firstCol..<(lastCol + 1))
         m.x0 = Double(px0) / Double(W)
         m.x1 = Double(px1) / Double(W)
         m.y0 = Double(py0) / Double(H)
@@ -537,6 +583,35 @@ enum GuidanceVocabulary {
         return SpeechIntent(strong: Set(strong), scope: Set(["kac"]), weak: Set(weak))
     }()
 
+    private static let photoScope: [String] = {
+        var scope: [String] = ["son", "sonuncu", "sonuncuyu", "sonuncusu", "onceki", "bunu", "yanlis", "hatali"]
+        scope += forms("fotograf", ["", "i", "lari"])
+        scope += forms("cekim", ["", "i", "leri"])
+        scope += forms("sayfa", ["", "yi", "lari"])
+        scope += forms("resim", ["", "i", "leri"])
+        scope += ["resmi", "belge", "belgeyi"]
+        return scope
+    }()
+
+    /// "Son fotoğrafı sil", "sonuncuyu sil", "bunu kaldır", "geri al", "yanlış çektim". "Fotoğrafı al" gibi çekim emirleri
+    /// silme sayılmaz: "al" yalnız "geri al" kalıbında geçerlidir.
+    static let deleteLastIntent: SpeechIntent = {
+        var strong: [String] = []
+        strong += forms("sil", ["", "in", "elim", "ebilirsin", "ermisin", "sene", "ersen", "dir"])
+        strong += forms("kaldir", ["", "in", "alim", "abilirsin", "sana"])
+        let weak: [String] = ["iptal", "at", "atin", "cope"]
+        return SpeechIntent(strong: Set(strong), scope: Set(photoScope), weak: Set(weak))
+    }()
+
+    /// "Yeniden çek", "tekrar çek", "bir daha çek", "baştan çek", "çekimi tekrarla": son fotoğrafı silip aynı yeri yeniden çektirir
+    static let retakeIntent: SpeechIntent = {
+        let strong: [String] = ["tekrarla", "tekrarlayin", "tekrarlayalim", "tekrarlasana"]
+        let scope: [String] = ["yeniden", "tekrar", "bastan", "yine"]
+        var weak: [String] = []
+        weak += forms("cek", ["", "in", "elim", "ebilirsin", "ersin", "ermisin", "sene"])
+        return SpeechIntent(strong: Set(strong), scope: Set(scope), weak: Set(weak))
+    }()
+
     /// "Yeniden seç", "başka sütun", "seçimi değiştir", "vazgeç"
     static let rechooseIntent: SpeechIntent = {
         let strong: [String] = ["degistir", "degistirin", "degistirelim", "vazgec", "vazgectim", "iptal", "iptale"]
@@ -551,6 +626,12 @@ enum GuidanceVocabulary {
         + "işlem tamamlandı, çekimler tamamlandı, çekim bitti, bitirdim, tamamını gönder, pdf gönder"
     /// "Rapor ver": kaç sayfa çekildi, kaçı PDF olarak gönderildi, kaçı bekliyor
     static let report = "rapor ver, rapor, durum raporu, durum ver, durumu söyle, durum nedir, kaç sayfa çekildi, kaç sayfa oldu, özet ver"
+    /// Son fotoğrafı sil (kalıplar; "al" tek başına silme sayılmasın diye "geri al" burada)
+    static let deleteLast = "son fotoğrafı sil, sonuncuyu sil, son çekimi sil, son sayfayı sil, bunu sil, geri al, "
+        + "son fotoğrafı geri al, sonuncuyu geri al, son çekimi geri al, yanlış çektim, yanlış oldu, hatalı çekim, çekimi iptal et"
+    /// Son fotoğrafı silip aynı yeri yeniden çek
+    static let retake = "yeniden çek, tekrar çek, bir daha çek, baştan çek, yine çek, tekrar çekelim, yeniden çekelim, "
+        + "son fotoğrafı yeniden çek, sonuncuyu tekrar çek"
     /// Seçimi silip bölümü yeniden sordur
     static let rechoose = "yeniden seç, tekrar seç, yeniden sor, tekrar sor, başka seç, seçimi değiştir, seçimi iptal, değiştir"
 }
@@ -558,7 +639,7 @@ enum GuidanceVocabulary {
 // MARK: - Karar
 
 enum GuidanceAdvice: String, Equatable {
-    case noText, chooseColumn, moveLeft, moveRight, moveUp, moveDown, farther, closer, blurry, ok
+    case noText, chooseColumn, moveLeft, moveRight, moveUp, moveDown, farther, closer, blurry, glare, ok
 }
 
 struct GuidanceConfig {
@@ -581,6 +662,10 @@ struct GuidanceConfig {
     var stillNeeded: TimeInterval = 0.45
     /// Çekimden sonra sahne bu kadar değişince (sayfa çevrilince) yeniden hazırlanır
     var changeToRearm = 4.0
+    /// Yazı kutusunun bu oranından büyük parlama lekesi varsa uyarılır (1'den büyük: parlama denetimi kapalı)
+    var glareLimit = 0.04
+    /// Parlama için en çok kaç kez uyarılır; sonra yine de çekilir (parlama her zaman giderilemez)
+    var glareWarnings = 2
 }
 
 struct GuidanceDecision: Equatable {
@@ -621,15 +706,16 @@ enum GuidanceAdvisor {
                                                      y0: targets.map { $0.y0 }.min() ?? 0,
                                                      y1: targets.map { $0.y1 }.max() ?? 1,
                                                      cells: targets.reduce(0) { $0 + $1.cells },
-                                                     sharp: sharp, frac: frac, config: c, sharpFloor: sharpFloor))
+                                                     sharp: sharp, frac: frac, glare: m.glare, config: c,
+                                                     sharpFloor: sharpFloor))
         }
         // Tek bölüm (ya da bölünemedi): bütün yazı bloğu
         return GuidanceDecision(advice: evaluate(x0: m.x0, x1: m.x1, y0: m.y0, y1: m.y1, cells: m.cells,
-                                                 sharp: m.sharp, frac: 1, config: c, sharpFloor: sharpFloor))
+                                                 sharp: m.sharp, frac: 1, glare: m.glare, config: c, sharpFloor: sharpFloor))
     }
 
     static func evaluate(x0: Double, x1: Double, y0: Double, y1: Double, cells: Int, sharp: Double, frac: Double,
-                         config c: GuidanceConfig, sharpFloor: Double) -> GuidanceAdvice {
+                         glare: Double = 0, config c: GuidanceConfig, sharpFloor: Double) -> GuidanceAdvice {
         let margins: [(GuidanceAdvice, Double, Double)] = [
             (.moveLeft, x0, 1 - x1),          // sol kenardan taşıyorsa kamera sola
             (.moveRight, 1 - x1, x0),
@@ -645,6 +731,7 @@ enum GuidanceAdvisor {
         }
         if x1 - x0 < c.minFill * frac && y1 - y0 < c.minFill && Double(cells) >= Double(c.minCellsForCloser) * frac { return .closer }
         if sharp < sharpFloor { return .blurry }
+        if glare >= c.glareLimit { return .glare }
         return .ok
     }
 
@@ -689,6 +776,7 @@ final class GuidanceEngine {
     private var repeats = 0
     private var muted: GuidanceAdvice?
     private var blurSpeaks = 0
+    private var glareSpoken = 0
     private var questionsAsked = 0
     private var lastQuestionTime: TimeInterval = -1000
     private var lastOptions: [ColumnChoice] = []
@@ -711,6 +799,7 @@ final class GuidanceEngine {
         repeats = 0
         muted = nil
         blurSpeaks = 0
+        glareSpoken = 0
         questionsAsked = 0
         lastQuestionTime = -1000
     }
@@ -795,6 +884,7 @@ final class GuidanceEngine {
                            "Yine de net değil. Kamerayı sabit tutup bekleyin.",
                            "Net değil. Biraz yaklaşın."]
             return options[blurSpeaks % options.count]
+        case .glare: return "Sayfada parlama var. Kamerayı biraz eğin ya da ışığı değiştirin."
         case .ok: return "Çekiyorum."
         }
     }
@@ -804,6 +894,7 @@ final class GuidanceEngine {
         switch advice {
         case .ok: return prefix + (autoCapture ? "Konum uygun — sabit tutun" : "Konum uygun — “\(triggerWord)” deyin")
         case .blurry: return prefix + "Görüntü net değil"
+        case .glare: return prefix + "Parlama var — açıyı ya da ışığı değiştirin"
         case .chooseColumn: return "Hangisini çekeyim? “Sol” ya da “sağ” deyin"
         default: return prefix + String(phrase(for: advice).dropLast())
         }
@@ -828,7 +919,9 @@ final class GuidanceEngine {
         }
 
         let d = GuidanceAdvisor.decide(metrics, choice: effective(choice), config: config, sharpFloor: sharpFloor)
-        let a = d.advice
+        var a = d.advice
+        // Parlama her zaman giderilemez: birkaç kez uyardıktan sonra yine de çekilir
+        if a == .glare && glareSpoken >= config.glareWarnings { a = .ok }
         if a == last {
             consecutive += 1
         } else {
@@ -875,6 +968,7 @@ final class GuidanceEngine {
             } else {
                 out.speak = phrase(for: a)
                 if a == .blurry { blurSpeaks += 1 }
+                if a == .glare { glareSpoken += 1 }
             }
             lastSpoken = a
             lastSpokenTime = time

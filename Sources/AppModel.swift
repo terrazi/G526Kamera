@@ -162,6 +162,12 @@ final class AppModel: ObservableObject {
             }
             .store(in: &cancellables)
 
+        settings.$guidanceGlare
+            .sink { [weak self] _ in
+                Task { @MainActor in self?.updateGuidance() }
+            }
+            .store(in: &cancellables)
+
         // "Hepsi tamamlandı" gönderimi bitince / başarısız olunca sesli haber ver
         Publishers.CombineLatest3(queue.$pending, queue.$uploaded, queue.$lastError)
             .sink { [weak self] _, _, _ in
@@ -268,6 +274,10 @@ final class AppModel: ObservableObject {
         let finish = [settings.finishWord, GuidanceVocabulary.finish].filter { !$0.trimmed.isEmpty }.joined(separator: ", ")
         commands.append(SpeechTrigger.Command(id: "finish", phrases: finish, intent: GuidanceVocabulary.finishIntent))
         commands.append(SpeechTrigger.Command(id: "report", phrases: GuidanceVocabulary.report, intent: GuidanceVocabulary.reportIntent))
+        commands.append(SpeechTrigger.Command(id: "deleteLast", phrases: GuidanceVocabulary.deleteLast,
+                                              intent: GuidanceVocabulary.deleteLastIntent))
+        commands.append(SpeechTrigger.Command(id: "retake", phrases: GuidanceVocabulary.retake,
+                                              intent: GuidanceVocabulary.retakeIntent))
         if settings.guidanceEnabled {
             commands.append(SpeechTrigger.Command(id: "rechoose", phrases: GuidanceVocabulary.rechoose,
                                                   intent: GuidanceVocabulary.rechooseIntent))
@@ -369,6 +379,7 @@ final class AppModel: ObservableObject {
                 if guidanceWasOn { say("Fotoğraf kaydedilemedi. Depolama dolu olabilir.", interrupt: true) }
             } else {
                 capturedCount += 1
+                DailyStatsStore.shared.recordCapture()
                 flash("Fotoğraf çekildi")
                 if guidanceWasOn && !finishRequested { announceCapture() }
             }
@@ -412,6 +423,7 @@ final class AppModel: ObservableObject {
         guidance.triggerWord = triggerDisplay
         let floors = [0.30, 0.45, 0.60]
         guidance.sharpFloor = floors[min(max(settings.guidanceSharpness, 0), 2)]
+        guidance.config.glareLimit = settings.guidanceGlare ? 0.04 : 2
         pipeline.configureMotion(enabled: settings.motionEnabled && !settings.guidanceEnabled,
                                  sensitivity: settings.motionSensitivity)
         if on != guidanceWasOn {
@@ -473,6 +485,10 @@ final class AppModel: ObservableObject {
             finishAll()
         case "report":
             giveReport()
+        case "deleteLast":
+            deleteLast(retake: false)
+        case "retake":
+            deleteLast(retake: true)
         case "rechoose":
             guard settings.guidanceEnabled else { return }
             guidanceNotice = ""
@@ -506,12 +522,40 @@ final class AppModel: ObservableObject {
         chooseColumn(c)
     }
 
+    /// "Son fotoğrafı sil" ve "yeniden çek": gönderilmemiş son fotoğrafı siler; yeniden çekmede aynı bölümü yeniden kadraja aldırır
+    private func deleteLast(retake: Bool) {
+        // Soru beklenirken "sol"un "sil" diye yanlış duyulması fotoğraf silmesin
+        if guidance.awaitingChoice {
+            guidanceNotice = "Önce bölümü seçin (sol / sağ)"
+            return
+        }
+        if capturing || pipeline.engine.isBusy {
+            say("Çekim işleniyor, bitince tekrar söyleyin.", interrupt: true, force: true)
+            return
+        }
+        let part = guidance.lastCaptured
+        let outcome = queue.removeLast()
+        if case .removed = outcome {
+            capturedCount = max(0, capturedCount - 1)
+            DailyStatsStore.shared.undoCapture()
+            if retake && guidanceWasOn {
+                guidance.rearm()
+                if let p = part { _ = guidance.setChoice(p) }
+                pipeline.markCaptured()
+            }
+        }
+        let text = SpokenReport.afterDelete(outcome, waiting: queue.pending, retake: retake, part: part?.title,
+                                            guided: guidanceWasOn, trigger: triggerDisplay)
+        flash(text, seconds: 6)
+        say(text, interrupt: true, force: true)
+    }
+
     /// Çekim bitti: ne çekildi, dosya gönderiliyor mu / bekliyor mu (sayfa çevrilebilir)
     private func announceCapture() {
         let batch = settings.sendMode == "batch"
         let signedIn = auth.isSignedIn
         say(SpokenReport.afterCapture(part: capturePart?.title, waiting: queue.pending,
-                                      signedIn: signedIn, batchMode: batch))
+                                      signedIn: signedIn, batchMode: batch, batchSize: settings.batchSize))
         // Tek tek gönderimde dosya yüklenince "dosya gönderildi" de denir
         uploadWatchBase = (!batch && signedIn) ? queue.uploaded : nil
     }
@@ -580,7 +624,8 @@ final class AppModel: ObservableObject {
     }
 
     func reportText() -> String {
-        return SpokenReport.make(captured: capturedCount, sentPhotos: queue.uploaded, sentDocs: queue.uploadedDocs,
+        let today = DailyStatsStore.shared.today()
+        return SpokenReport.make(captured: today.captured, sentPhotos: today.sentPhotos, sentDocs: today.sentDocs,
                                  waiting: queue.pending, signedIn: auth.isSignedIn,
                                  hasError: !queue.lastError.isEmpty, pdf: settings.uploadFormat == "pdf",
                                  batchMode: settings.sendMode == "batch")

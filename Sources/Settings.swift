@@ -54,6 +54,8 @@ final class AppSettings: ObservableObject {
     @Published var guidanceFlip: Bool { didSet { d.set(guidanceFlip, forKey: "guidanceFlip") } }
     /// 0 = gevşek, 1 = normal, 2 = sıkı netlik isteği
     @Published var guidanceSharpness: Int { didSet { d.set(guidanceSharpness, forKey: "guidanceSharpness") } }
+    /// Sayfada parlama lekesi varsa uyar (birkaç uyarıdan sonra yine de çeker)
+    @Published var guidanceGlare: Bool { didSet { d.set(guidanceGlare, forKey: "guidanceGlare") } }
     /// Bekleyen fotoğrafları tek PDF olarak gönderen sözcük (virgülle birden çok); hazır söylenişler de geçerlidir
     @Published var finishWord: String { didSet { d.set(finishWord, forKey: "finishWord") } }
 
@@ -117,6 +119,7 @@ final class AppSettings: ObservableObject {
         guidanceAutoCapture = d.object(forKey: "guidanceAutoCapture") as? Bool ?? true
         guidanceFlip = d.object(forKey: "guidanceFlip") as? Bool ?? false
         guidanceSharpness = d.object(forKey: "guidanceSharpness") as? Int ?? 1
+        guidanceGlare = d.object(forKey: "guidanceGlare") as? Bool ?? true
         finishWord = d.string(forKey: "finishWord") ?? "hepsi tamamlandı"
         previewOff = d.object(forKey: "previewOff") as? Bool ?? false
         dimWhenPreviewOff = d.object(forKey: "dimWhenPreviewOff") as? Bool ?? true

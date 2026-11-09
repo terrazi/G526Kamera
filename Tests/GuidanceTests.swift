@@ -408,7 +408,7 @@ final class GuidanceTests: XCTestCase {
     func testReportTextEmptyAndProblems() {
         let empty = SpokenReport.make(captured: 0, sentPhotos: 0, sentDocs: 0, waiting: 0, signedIn: true,
                                       hasError: false, pdf: true, batchMode: true)
-        XCTAssertEqual(empty, "Bu oturumda henüz fotoğraf çekilmedi.")
+        XCTAssertEqual(empty, "Bugün henüz fotoğraf çekilmedi.")
         let signedOut = SpokenReport.make(captured: 3, sentPhotos: 0, sentDocs: 0, waiting: 3, signedIn: false,
                                           hasError: false, pdf: true, batchMode: true)
         XCTAssertTrue(signedOut.contains("giriş yapılmadığı"), signedOut)
@@ -430,6 +430,169 @@ final class GuidanceTests: XCTestCase {
                        "Çekim tamamlandı. Dosya gönderiliyor.")
         XCTAssertEqual(SpokenReport.afterCapture(part: "Sağ", waiting: 2, signedIn: false, batchMode: true),
                        "Sağ bölüm çekildi. Drive'a giriş yapılmadığı için dosya bekliyor.")
+    }
+
+    func testAfterCapturePageLimitWarnings() {
+        XCTAssertEqual(SpokenReport.afterCapture(part: nil, waiting: 10, signedIn: true, batchMode: true, batchSize: 10),
+                       "Çekim tamamlandı. 10 sayfa gönderilmeyi bekliyor. PDF dolduğu için gönderiliyor, sonraki sayfalar yeni PDF olacak.")
+        XCTAssertEqual(SpokenReport.afterCapture(part: nil, waiting: 9, signedIn: true, batchMode: true, batchSize: 10),
+                       "Çekim tamamlandı. 9 sayfa gönderilmeyi bekliyor.")
+        XCTAssertEqual(SpokenReport.afterCapture(part: nil, waiting: 30, signedIn: true, batchMode: true, batchSize: 0),
+                       "Çekim tamamlandı. 30 sayfa gönderilmeyi bekliyor. PDF'e en çok 30 sayfa girer, sonraki sayfalar yeni PDF olacak.")
+        XCTAssertEqual(SpokenReport.afterCapture(part: nil, waiting: 29, signedIn: true, batchMode: true, batchSize: 0),
+                       "Çekim tamamlandı. 29 sayfa gönderilmeyi bekliyor.")
+        XCTAssertEqual(SpokenReport.afterCapture(part: nil, waiting: 10, signedIn: false, batchMode: true, batchSize: 10),
+                       "Çekim tamamlandı. Drive'a giriş yapılmadığı için dosya bekliyor.")
+        XCTAssertEqual(SpokenReport.afterCapture(part: nil, waiting: 40, signedIn: true, batchMode: false, batchSize: 10),
+                       "Çekim tamamlandı. Dosya gönderiliyor.")
+    }
+
+    func testAfterDeleteText() {
+        func text(_ o: CaptureLog.Outcome, waiting: Int = 3, retake: Bool = false, part: String? = nil,
+                  guided: Bool = true) -> String {
+            return SpokenReport.afterDelete(o, waiting: waiting, retake: retake, part: part, guided: guided, trigger: "okey")
+        }
+        XCTAssertEqual(text(.removed("a.jpg")), "Son fotoğraf silindi. 3 sayfa gönderilmeyi bekliyor.")
+        XCTAssertEqual(text(.removed("a.jpg"), waiting: 0), "Son fotoğraf silindi. Bekleyen sayfa yok.")
+        XCTAssertEqual(text(.removed("a.jpg"), retake: true), "Son fotoğraf silindi. Sayfayı yeniden kadraja alın.")
+        XCTAssertEqual(text(.removed("a.jpg"), retake: true, part: "Sol"), "Son fotoğraf silindi. Sol bölümü yeniden kadraja alın.")
+        XCTAssertEqual(text(.removed("a.jpg"), retake: true, guided: false), "Son fotoğraf silindi. Yeniden çekmek için okey deyin.")
+        XCTAssertEqual(text(.alreadySent), "Son sayfa zaten Drive'a gönderildi, silemem.")
+        XCTAssertEqual(text(.uploading), "Son sayfa şu an gönderiliyor, silemem.")
+        XCTAssertEqual(text(.none), "Bu oturumda silinecek fotoğraf yok.")
+    }
+
+    // MARK: - Son fotoğrafı sil / yeniden çek
+
+    private func phraseHits(_ text: String, _ phrases: String) -> Int {
+        return SpeechMatcher.occurrences(in: text, trigger: phrases)
+    }
+
+    func testManyWaysToDeleteLast() {
+        for t in ["son fotoğrafı sil", "sonuncuyu sil", "sil", "bunu sil", "son çekimi sil", "fotoğrafı sil", "sayfayı sil",
+                  "son sayfayı kaldır", "yanlış çekimi sil", "son fotoğrafı iptal et", "bunu çöpe at", "silebilirsin"] {
+            XCTAssertGreaterThan(intent(GuidanceVocabulary.deleteLastIntent, t) + phraseHits(t, GuidanceVocabulary.deleteLast), 0, t)
+        }
+        for t in ["geri al", "son fotoğrafı geri al", "yanlış çektim"] {
+            XCTAssertGreaterThan(phraseHits(t, GuidanceVocabulary.deleteLast), 0, t)
+        }
+        // çekim emirleri ve diğer komutlar silme sayılmamalı
+        for t in ["fotoğrafı al", "al", "çek", "okey", "sol", "sağ", "son", "geri", "hepsini gönder", "rapor ver",
+                  "kaç sayfa çekildi", "yeniden seç", "vazgeç", "iptal", "yeniden çek", "tekrar çek"] {
+            XCTAssertEqual(intent(GuidanceVocabulary.deleteLastIntent, t) + phraseHits(t, GuidanceVocabulary.deleteLast), 0, t)
+        }
+    }
+
+    func testManyWaysToRetake() {
+        for t in ["yeniden çek", "tekrar çek", "bir daha çek", "baştan çek", "fotoğrafı yeniden çek", "tekrar çekelim",
+                  "çekimi tekrarla", "sonuncuyu tekrar çek", "yine çek"] {
+            XCTAssertGreaterThan(intent(GuidanceVocabulary.retakeIntent, t) + phraseHits(t, GuidanceVocabulary.retake), 0, t)
+        }
+        for t in ["çek", "okey", "bir sayfa çek", "fotoğraf çek", "hepsini gönder", "sol", "yeniden seç", "tekrar seç",
+                  "rapor ver", "son fotoğrafı sil"] {
+            XCTAssertEqual(intent(GuidanceVocabulary.retakeIntent, t) + phraseHits(t, GuidanceVocabulary.retake), 0, t)
+        }
+    }
+
+    func testDeleteAndRetakeDoNotTriggerOtherCommands() {
+        for t in ["son fotoğrafı sil", "sonuncuyu sil", "geri al"] {
+            XCTAssertEqual(intent(GuidanceVocabulary.finishIntent, t), 0, t)
+            XCTAssertEqual(intent(GuidanceVocabulary.reportIntent, t), 0, t)
+        }
+    }
+
+    func testCaptureLogRemovesLastPendingOnly() {
+        var log = CaptureLog()
+        XCTAssertEqual(log.takeLast(pending: [], inFlight: []), .none)
+        log.add("a.jpg")
+        log.add("b.jpg")
+        XCTAssertEqual(log.takeLast(pending: ["a.jpg", "b.jpg"], inFlight: []), .removed("b.jpg"))
+        XCTAssertEqual(log.takeLast(pending: ["a.jpg"], inFlight: ["a.jpg"]), .uploading)
+        // a.jpg gitmiş: eskileri silinmez, geçmiş temizlenir
+        XCTAssertEqual(log.takeLast(pending: [], inFlight: []), .alreadySent)
+        XCTAssertEqual(log.takeLast(pending: ["eski.jpg"], inFlight: []), .none)
+    }
+
+    // MARK: - Günlük sayaçlar
+
+    func testDailyStatsPersistAndRollOver() {
+        let suite = "g526.test.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "UTC")!
+        let day1 = cal.date(from: DateComponents(year: 2026, month: 11, day: 9, hour: 12))!
+        let day2 = cal.date(from: DateComponents(year: 2026, month: 11, day: 10, hour: 9))!
+        let store = DailyStatsStore(defaults: defaults, key: "k", calendar: cal)
+        store.recordCapture(now: day1)
+        store.recordCapture(now: day1)
+        store.recordSent(photos: 2, docs: 1, now: day1)
+        store.undoCapture(now: day1)
+        XCTAssertEqual(store.today(now: day1), DailyStats(day: "2026-11-09", captured: 1, sentPhotos: 2, sentDocs: 1))
+        // uygulama yeniden açılınca sayaçlar korunur
+        let again = DailyStatsStore(defaults: defaults, key: "k", calendar: cal)
+        XCTAssertEqual(again.today(now: day1).captured, 1)
+        // ertesi gün sıfırlanır, eksiye düşmez
+        XCTAssertEqual(again.today(now: day2), DailyStats(day: "2026-11-10"))
+        again.undoCapture(now: day2)
+        XCTAssertEqual(again.today(now: day2).captured, 0)
+    }
+
+    // MARK: - Parlama
+
+    func testGlareAdviceComesAfterPositionAndSharpness() {
+        var m = metrics(x0: 0.2, x1: 0.8)
+        m.glare = 0.08
+        XCTAssertEqual(decide(m).advice, .glare)
+        m.glare = 0.02
+        XCTAssertEqual(decide(m).advice, .ok)
+        var cut = metrics(x0: 0.01, x1: 0.8)
+        cut.glare = 0.1
+        XCTAssertEqual(decide(cut).advice, .moveLeft)
+        var soft = metrics(x0: 0.2, x1: 0.8, sharp: 0.2)
+        soft.glare = 0.1
+        XCTAssertEqual(decide(soft).advice, .blurry)
+        var off = GuidanceConfig()
+        off.glareLimit = 2
+        var g = metrics(x0: 0.2, x1: 0.8)
+        g.glare = 0.5
+        XCTAssertEqual(GuidanceAdvisor.decide(g, choice: nil, config: off, sharpFloor: 0.45).advice, .ok)
+    }
+
+    func testGlareWarnsTwiceThenCaptures() {
+        let e = GuidanceEngine()
+        var m = metrics(x0: 0.2, x1: 0.8)
+        m.glare = 0.1
+        var warnings = 0
+        var captured = false
+        var t = 0.0
+        while t < 40 && !captured {
+            let o = step(e, m, t: t)
+            if let s = o.speak, s.contains("parlama") { warnings += 1 }
+            captured = o.capture
+            t += 0.3
+        }
+        XCTAssertTrue(captured, "parlama sonsuza dek çekimi engellememeli")
+        XCTAssertEqual(warnings, 2)
+    }
+
+    func testAnalyzerDetectsGlareBlobButNotSmallSpotsOrStrips() {
+        let base = synth(pages: [(150, 810)], blocks: [(200, 760, 80, 480)])
+        XCTAssertEqual(GuidanceAnalyzer.analyze(luma: base, width: 960, height: 540).glare, 0)
+
+        var blob = base
+        for y in 200..<320 { for x in 400..<520 { blob[y * 960 + x] = 255 } }
+        let withBlob = GuidanceAnalyzer.analyze(luma: blob, width: 960, height: 540)
+        XCTAssertTrue(withBlob.hasText)
+        XCTAssertGreaterThan(withBlob.glare, 0.04)
+
+        var spot = base
+        for y in 200..<230 { for x in 400..<430 { spot[y * 960 + x] = 255 } }
+        XCTAssertEqual(GuidanceAnalyzer.analyze(luma: spot, width: 960, height: 540).glare, 0)
+
+        var strip = base
+        for y in 300..<312 { for x in 250..<700 { strip[y * 960 + x] = 255 } }
+        XCTAssertEqual(GuidanceAnalyzer.analyze(luma: strip, width: 960, height: 540).glare, 0)
     }
 
     func testFinishedText() {
