@@ -34,6 +34,20 @@ enum SpokenReport {
         return parts.joined(separator: " ")
     }
 
+    /// Her çekim bitince söylenen kısa bilgi: ne çekildi, dosya gönderildi mi / bekliyor mu.
+    /// `part`: seçilen bölümün adı ("Sol", "Sağ"…) ya da nil. Çekim cümlesi sayfayı çevirmenin güvenli olduğunu da bildirir.
+    static func afterCapture(part: String?, waiting: Int, signedIn: Bool, batchMode: Bool) -> String {
+        var s = part.map { "\($0) bölüm çekildi." } ?? "Çekim tamamlandı."
+        if !signedIn {
+            s += " Drive'a giriş yapılmadığı için dosya bekliyor."
+        } else if batchMode {
+            s += " \(max(waiting, 1)) sayfa gönderilmeyi bekliyor."
+        } else {
+            s += " Dosya gönderiliyor."
+        }
+        return s
+    }
+
     /// "Hepsi tamamlandı" gönderimi bitince söylenen cümle
     static func finished(photos: Int, docs: Int, pdf: Bool) -> String {
         if photos <= 0 { return "Gönderim tamamlandı." }

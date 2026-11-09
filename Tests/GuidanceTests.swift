@@ -421,6 +421,17 @@ final class GuidanceTests: XCTestCase {
         XCTAssertTrue(done.contains("Bekleyen sayfa yok"), done)
     }
 
+    func testAfterCaptureText() {
+        XCTAssertEqual(SpokenReport.afterCapture(part: nil, waiting: 4, signedIn: true, batchMode: true),
+                       "Çekim tamamlandı. 4 sayfa gönderilmeyi bekliyor.")
+        XCTAssertEqual(SpokenReport.afterCapture(part: "Sol", waiting: 1, signedIn: true, batchMode: true),
+                       "Sol bölüm çekildi. 1 sayfa gönderilmeyi bekliyor.")
+        XCTAssertEqual(SpokenReport.afterCapture(part: nil, waiting: 1, signedIn: true, batchMode: false),
+                       "Çekim tamamlandı. Dosya gönderiliyor.")
+        XCTAssertEqual(SpokenReport.afterCapture(part: "Sağ", waiting: 2, signedIn: false, batchMode: true),
+                       "Sağ bölüm çekildi. Drive'a giriş yapılmadığı için dosya bekliyor.")
+    }
+
     func testFinishedText() {
         XCTAssertEqual(SpokenReport.finished(photos: 8, docs: 1, pdf: true), "Tamamlandı. 8 sayfa 1 PDF olarak Drive'a gönderildi.")
         XCTAssertEqual(SpokenReport.finished(photos: 3, docs: 3, pdf: false), "Tamamlandı. 3 fotoğraf Drive'a gönderildi.")

@@ -65,6 +65,10 @@ final class AppModel: ObservableObject {
     private var speechActive = false
     private var finishRequested = false
     private var lastUnrecognizedAt: TimeInterval = 0
+    /// Sesli konumlandırmanın çektiği bölüm (çekim bitince "Sol bölüm çekildi" demek için)
+    private var capturePart: ColumnChoice?
+    /// Tek tek gönderimde çekimden sonra "dosya gönderildi" demek için çekim anındaki yüklenen sayısı
+    private var uploadWatchBase: Int?
 
     private struct FinishWatch {
         var docs: Int
@@ -362,16 +366,22 @@ final class AppModel: ObservableObject {
             lastPhotoInfo = "\(photo.width)×\(photo.height) · \(photo.jpeg.count / 1024) KB · \(reason)"
             if queue.enqueue(jpeg: photo.jpeg, date: photo.date) == nil {
                 flash("Fotoğraf kaydedilemedi (depolama dolu olabilir)", seconds: 5)
+                if guidanceWasOn { say("Fotoğraf kaydedilemedi. Depolama dolu olabilir.", interrupt: true) }
             } else {
                 capturedCount += 1
                 flash("Fotoğraf çekildi")
+                if guidanceWasOn && !finishRequested { announceCapture() }
             }
             UINotificationFeedbackGenerator().notificationOccurred(.success)
         case .failure(let error):
             flash(error.message, seconds: 4)
             UINotificationFeedbackGenerator().notificationOccurred(.error)
-            if guidanceWasOn { guidance.rearm() }
+            if guidanceWasOn {
+                guidance.rearm()
+                say("Çekim başarısız oldu. Kamerayı sabit tutup tekrar deneyin.", interrupt: true)
+            }
         }
+        capturePart = nil
         // "Hepsi tamamlandı" son fotoğraf işlenirken söylendiyse, şimdi gönder
         if finishRequested { flushNow() }
     }
@@ -439,10 +449,11 @@ final class AppModel: ObservableObject {
     }
 
     private func guidanceCapture() {
+        capturePart = guidance.lastCaptured
         if capture(reason: "Sesli konumlandırma") {
             pipeline.markCaptured()
-            say("Çektim.")
         } else {
+            capturePart = nil
             guidance.rearm()
         }
     }
@@ -495,6 +506,16 @@ final class AppModel: ObservableObject {
         chooseColumn(c)
     }
 
+    /// Çekim bitti: ne çekildi, dosya gönderiliyor mu / bekliyor mu (sayfa çevrilebilir)
+    private func announceCapture() {
+        let batch = settings.sendMode == "batch"
+        let signedIn = auth.isSignedIn
+        say(SpokenReport.afterCapture(part: capturePart?.title, waiting: queue.pending,
+                                      signedIn: signedIn, batchMode: batch))
+        // Tek tek gönderimde dosya yüklenince "dosya gönderildi" de denir
+        uploadWatchBase = (!batch && signedIn) ? queue.uploaded : nil
+    }
+
     /// Soru beklenirken komut olmayan konuşma duyuldu: açıkça belirt
     private func voiceUnrecognized(_ text: String) {
         guard settings.guidanceEnabled, guidance.awaitingChoice else { return }
@@ -538,6 +559,13 @@ final class AppModel: ObservableObject {
     }
 
     private func finishProgress() {
+        if let base = uploadWatchBase, queue.pending == 0, queue.uploaded > base {
+            uploadWatchBase = nil
+            say("Dosya gönderildi.")
+        } else if uploadWatchBase != nil && queue.pending > 0 && !queue.lastError.isEmpty {
+            uploadWatchBase = nil
+            say("Dosya gönderilemedi, bağlantı gelince yeniden denenecek.")
+        }
         guard var watch = finishWatch else { return }
         if queue.pending == 0 && queue.uploaded > watch.photos {
             finishWatch = nil
