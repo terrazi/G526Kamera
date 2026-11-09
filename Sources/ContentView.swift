@@ -11,7 +11,9 @@ struct ContentView: View {
                 VStack(spacing: 14) {
                     preview
                     captureButton
-                    VoiceRow(status: model.speechStatus, heard: model.heardText, enabled: settings.voiceEnabled)
+                    if settings.guidanceEnabled { GuidanceRow() }
+                    VoiceRow(status: model.speechStatus, heard: model.heardText,
+                             enabled: settings.voiceEnabled || settings.guidanceEnabled)
                     Toggle(isOn: $settings.motionEnabled) {
                         Label("Görüntü değişince otomatik çek", systemImage: "wand.and.rays")
                     }
@@ -197,6 +199,49 @@ struct DriveStatusRow: View {
             if queue.pending > 0 && auth.isSignedIn && settings.sendMode == "batch" {
                 Button("Şimdi gönder (\(queue.pending))") { queue.retry() }
                     .font(.subheadline)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(Color(UIColor.secondarySystemBackground))
+        .cornerRadius(12)
+    }
+}
+
+
+/// Sesli konumlandırma durumu: ne söylendiği, hangi bölümün seçildiği, bölüm sorusu ve (yedek) düğmeler.
+struct GuidanceRow: View {
+    @EnvironmentObject var model: AppModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(model.guidanceStatus.isEmpty ? "Sesli konumlandırma hazır" : model.guidanceStatus,
+                  systemImage: "viewfinder")
+                .font(.subheadline.weight(.semibold))
+                .accessibilityIdentifier("konumlandirma-durum")
+            if !model.guidanceSaid.isEmpty {
+                Label(model.guidanceSaid, systemImage: "speaker.wave.2")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .accessibilityIdentifier("konumlandirma-soylenen")
+            }
+            if !model.guidanceNotice.isEmpty {
+                Label(model.guidanceNotice, systemImage: "questionmark.circle")
+                    .font(.caption)
+                    .foregroundColor(.orange)
+                    .accessibilityIdentifier("konumlandirma-uyari")
+            }
+            if model.guidanceAwaiting {
+                HStack(spacing: 8) {
+                    ForEach(model.guidanceOptions, id: \.self) { choice in
+                        Button(choice == .all ? "Hepsi" : choice.title) { model.chooseColumn(choice) }
+                            .buttonStyle(.bordered)
+                            .accessibilityIdentifier("bolum-\(choice.rawValue)")
+                    }
+                }
+                Text("Sesle de söyleyebilirsiniz: “sol”, “sağ”…")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

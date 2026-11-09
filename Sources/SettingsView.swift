@@ -10,6 +10,7 @@ struct SettingsView: View {
             Form {
                 cameraSection
                 voiceSection
+                guidanceSection
                 photoSection
                 powerSection
                 motionSection
@@ -27,6 +28,16 @@ struct SettingsView: View {
             .onChange(of: settings.batchIdle) { _ in model.queue.kick() }
             .onChange(of: settings.uploadFormat) { _ in model.queue.kick() }
             .onChange(of: settings.ocrEnabled) { _ in OcrCenter.shared.reset() }
+            .onChange(of: settings.guidanceEnabled) { on in
+                // Sesli konumlandırma açılınca fotoğraflar birikip "hepsi tamamlandı" ile tek PDF gitsin
+                if on {
+                    settings.sendMode = "batch"
+                    settings.batchSize = 0
+                    settings.batchIdle = 0
+                    settings.uploadFormat = "pdf"
+                    settings.motionEnabled = false
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Bitti") { presentation.wrappedValue.dismiss() }
@@ -61,6 +72,24 @@ struct SettingsView: View {
             Stepper(value: $settings.cooldown, in: 2...20, step: 1) {
                 Text("İki çekim arası bekleme: \(Int(settings.cooldown)) sn")
             }
+        }
+    }
+
+    private var guidanceSection: some View {
+        Section(header: Text("Sesli konumlandırma"),
+                footer: Text("Program sayfayı ölçer ve “biraz sağa”, “yukarı”, “uzaklaş”, “yaklaş” gibi sesli yönlendirir; konum uygun olunca birkaç kareyi seri çekip en netini alır. Kadrajda birden çok sütun ya da yan yana sayfa varsa ve biri yarım kalıyorsa “Sol mu, sağ mı?” diye sorar: “sol”, “sağ”, “orta”, “ikisi birden” (ya da “soldaki”, “sağ sütun”, “birinci”, “son”…) deyin; “yeniden seç” seçimi siler. “Hepsi tamamlandı”, “hepsini gönder”, “tümünü gönder”, “pdf yap”, “bitirdim” gibi söylenişlerin hepsi bekleyen fotoğrafları tek PDF olarak gönderir (en çok 30 sayfa / 15 MB; fazlası ikinci PDF olur). “Rapor ver” kaç sayfa çekildiğini ve kaçının PDF olarak gittiğini söyler. Anlaşılmayan komutta program “anlayamadım” der. Bu özellik açılınca gönderim “toplu, yalnız komutla” olur ve “görüntü değişince çek” kapanır. Sesli yanıt için mikrofon izni gerekir.")) {
+            Toggle("Sesle konumlandır", isOn: $settings.guidanceEnabled)
+                .accessibilityIdentifier("konumlandirma-ac")
+            Toggle("Uyarıları sesli söyle", isOn: $settings.guidanceVoice)
+            Toggle("Konum uygunsa kendiliğinden çek", isOn: $settings.guidanceAutoCapture)
+            Toggle("Kamera ters takılı (yönleri çevir)", isOn: $settings.guidanceFlip)
+            Picker("Netlik isteği", selection: $settings.guidanceSharpness) {
+                Text("Gevşek").tag(0)
+                Text("Normal").tag(1)
+                Text("Sıkı").tag(2)
+            }
+            TextField("Bitirme sözcüğü", text: $settings.finishWord)
+                .disableAutocorrection(true)
         }
     }
 

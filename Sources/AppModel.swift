@@ -50,6 +50,29 @@ final class AppModel: ObservableObject {
     /// Kameradan gelen görüntü gerçekten çözülüp ekrana veriliyor mu (son 3 sn içinde kare var mı)
     @Published private(set) var decoding = false
 
+    // Sesli konumlandırma ve rapor
+    @Published private(set) var guidanceStatus = ""
+    @Published private(set) var guidanceSaid = ""
+    @Published private(set) var guidanceNotice = ""
+    @Published private(set) var guidanceAwaiting = false
+    @Published private(set) var guidanceOptions: [ColumnChoice] = []
+    /// Bu oturumda çekilen (kuyruğa alınan) fotoğraf sayısı
+    @Published private(set) var capturedCount = 0
+
+    private let guidance = GuidanceEngine()
+    private let speaker = GuidanceSpeaker()
+    private var guidanceWasOn = false
+    private var speechActive = false
+    private var finishRequested = false
+    private var lastUnrecognizedAt: TimeInterval = 0
+
+    private struct FinishWatch {
+        var docs: Int
+        var photos: Int
+        var errorSpoken = false
+    }
+    private var finishWatch: FinishWatch?
+
     private let client = CameraClient()
     private let decoder = H264Decoder()
     private let pipeline = FramePipeline()
@@ -99,6 +122,18 @@ final class AppModel: ObservableObject {
         speech.onHeard = { [weak self] text in
             Task { @MainActor in self?.heardText = text }
         }
+        speech.onCommand = { [weak self] id, text in
+            Task { @MainActor in self?.voiceCommand(id, heard: text) }
+        }
+        speech.onUnrecognized = { [weak self] text in
+            Task { @MainActor in self?.voiceUnrecognized(text) }
+        }
+        pipeline.onGuidance = { [weak self] sample in
+            Task { @MainActor in self?.guidanceSample(sample) }
+        }
+        speaker.onSpeakingChange = { [weak self] speaking in
+            Task { @MainActor in self?.speech.suppressed = speaking }
+        }
 
         // "Canlı" yalnızca çözülmüş kare geliyorsa yazılsın (kare gelip çözülemiyorsa yanıltmasın)
         Timer.publish(every: 1.0, on: .main, in: .common)
@@ -112,6 +147,21 @@ final class AppModel: ObservableObject {
         Publishers.CombineLatest(settings.$previewOff, settings.$dimWhenPreviewOff)
             .sink { [weak self] _, _ in
                 Task { @MainActor in self?.updatePowerSaving() }
+            }
+            .store(in: &cancellables)
+
+        // Sesli konumlandırma ayarları anında uygulanır
+        Publishers.CombineLatest4(settings.$guidanceEnabled, settings.$guidanceFlip,
+                                  settings.$guidanceAutoCapture, settings.$guidanceSharpness)
+            .sink { [weak self] _, _, _, _ in
+                Task { @MainActor in self?.updateGuidance() }
+            }
+            .store(in: &cancellables)
+
+        // "Hepsi tamamlandı" gönderimi bitince / başarısız olunca sesli haber ver
+        Publishers.CombineLatest3(queue.$pending, queue.$uploaded, queue.$lastError)
+            .sink { [weak self] _, _, _ in
+                Task { @MainActor in self?.finishProgress() }
             }
             .store(in: &cancellables)
 
@@ -135,6 +185,7 @@ final class AppModel: ObservableObject {
         UIApplication.shared.isIdleTimerDisabled = true
         applySettings(force: true)
         updatePowerSaving()
+        updateGuidance()
     }
 
     /// Önizleme kapalıysa kare gönderimi ve analiz seyrekleşir, istenirse ekran kısılır.
@@ -156,6 +207,12 @@ final class AppModel: ObservableObject {
         client.stop()
         decoder.reset()
         speech.stop()
+        speaker.stop()
+        speechActive = false
+        pipeline.guidanceOn = false
+        guidanceWasOn = false
+        guidanceStatus = ""
+        guidanceAwaiting = false
         cameraState = .stopped
         speechStatus = ""
     }
@@ -167,12 +224,13 @@ final class AppModel: ObservableObject {
             cameraKey = cKey
             restartCamera()
         }
-        let sKey = "\(settings.voiceEnabled)|\(settings.triggerWord)"
+        let sKey = "\(settings.voiceEnabled)|\(settings.triggerWord)|\(settings.guidanceEnabled)|\(settings.finishWord)"
         if force || sKey != speechKey {
             speechKey = sKey
             restartSpeech()
         }
-        pipeline.configureMotion(enabled: settings.motionEnabled, sensitivity: settings.motionSensitivity)
+        pipeline.configureMotion(enabled: settings.motionEnabled && !settings.guidanceEnabled,
+                                 sensitivity: settings.motionSensitivity)
     }
 
     private func restartCamera() {
@@ -201,10 +259,28 @@ final class AppModel: ObservableObject {
     private func restartSpeech() {
         speech.stop()
         heardText = ""
-        guard settings.voiceEnabled else {
+        // "Rapor ver" ve "hepsi tamamlandı" her zaman dinlenir; sol/sağ seçimi yalnız sesli konumlandırma açıkken
+        var commands: [SpeechTrigger.Command] = []
+        let finish = [settings.finishWord, GuidanceVocabulary.finish].filter { !$0.trimmed.isEmpty }.joined(separator: ", ")
+        commands.append(SpeechTrigger.Command(id: "finish", phrases: finish, intent: GuidanceVocabulary.finishIntent))
+        commands.append(SpeechTrigger.Command(id: "report", phrases: GuidanceVocabulary.report, intent: GuidanceVocabulary.reportIntent))
+        if settings.guidanceEnabled {
+            commands.append(SpeechTrigger.Command(id: "rechoose", phrases: GuidanceVocabulary.rechoose,
+                                                  intent: GuidanceVocabulary.rechooseIntent))
+            for c in ColumnChoice.allCases {
+                commands.append(SpeechTrigger.Command(id: "choice.\(c.rawValue)", tokens: c.tokens, looseTokens: c.looseTokens))
+            }
+            commands.append(SpeechTrigger.Command(id: "choice.first", tokens: GuidanceVocabulary.first))
+            commands.append(SpeechTrigger.Command(id: "choice.second", tokens: GuidanceVocabulary.second))
+            commands.append(SpeechTrigger.Command(id: "choice.last", tokens: GuidanceVocabulary.last))
+        }
+        speech.setCommands(commands)
+        guard settings.voiceEnabled || settings.guidanceEnabled else {
+            speechActive = false
             speechStatus = "Sesli komut kapalı"
             return
         }
+        speechActive = true
         speech.start(trigger: settings.triggerWord)
     }
 
@@ -244,6 +320,7 @@ final class AppModel: ObservableObject {
     }
 
     private func voiceTriggered() {
+        guard settings.voiceEnabled else { return }
         let now = ProcessInfo.processInfo.systemUptime
         if now - lastVoice < settings.cooldown { return }
         lastVoice = now
@@ -252,10 +329,11 @@ final class AppModel: ObservableObject {
 
     // MARK: - Çekim
 
-    func capture(reason: String) {
+    @discardableResult
+    func capture(reason: String) -> Bool {
         guard isLive else {
             flash("Kamera görüntüsü yok — fotoğraf çekilemedi")
-            return
+            return false
         }
         let s = settings
         let options = CaptureOptions(
@@ -273,6 +351,7 @@ final class AppModel: ObservableObject {
         } else {
             flash("Önceki fotoğraf işleniyor…", seconds: 1.5)
         }
+        return accepted
     }
 
     private func captureFinished(_ result: Result<CapturedPhoto, CaptureError>, reason: String) {
@@ -284,13 +363,17 @@ final class AppModel: ObservableObject {
             if queue.enqueue(jpeg: photo.jpeg, date: photo.date) == nil {
                 flash("Fotoğraf kaydedilemedi (depolama dolu olabilir)", seconds: 5)
             } else {
+                capturedCount += 1
                 flash("Fotoğraf çekildi")
             }
             UINotificationFeedbackGenerator().notificationOccurred(.success)
         case .failure(let error):
             flash(error.message, seconds: 4)
             UINotificationFeedbackGenerator().notificationOccurred(.error)
+            if guidanceWasOn { guidance.rearm() }
         }
+        // "Hepsi tamamlandı" son fotoğraf işlenirken söylendiyse, şimdi gönder
+        if finishRequested { flushNow() }
     }
 
     func flash(_ text: String, seconds: Double = 3) {
@@ -302,6 +385,184 @@ final class AppModel: ObservableObject {
             guard let self = self, self.bannerToken == mine else { return }
             self.banner = ""
         }
+    }
+
+    // MARK: - Sesli konumlandırma
+
+    private var triggerDisplay: String {
+        let first = settings.triggerWord.split(whereSeparator: { $0 == "," || $0 == ";" }).first.map(String.init) ?? "okey"
+        return first.trimmed.isEmpty ? "okey" : first.trimmed
+    }
+
+    private func updateGuidance() {
+        let on = started && settings.guidanceEnabled
+        pipeline.guidanceOn = on
+        guidance.flip = settings.guidanceFlip
+        guidance.autoCapture = settings.guidanceAutoCapture
+        guidance.triggerWord = triggerDisplay
+        let floors = [0.30, 0.45, 0.60]
+        guidance.sharpFloor = floors[min(max(settings.guidanceSharpness, 0), 2)]
+        pipeline.configureMotion(enabled: settings.motionEnabled && !settings.guidanceEnabled,
+                                 sensitivity: settings.motionSensitivity)
+        if on != guidanceWasOn {
+            guidanceWasOn = on
+            guidance.reset()
+            guidanceStatus = on ? "Sesli konumlandırma açık — sayfayı kadraja alın" : ""
+            guidanceAwaiting = false
+            guidanceNotice = ""
+            speech.choiceMode = false
+            if on { say("Sesli konumlandırma açık.") }
+        }
+    }
+
+    /// Ekranda göster, istenirse (ya da zorunluysa) sesli söyle. Konuşurken mikrofon bastırılır.
+    private func say(_ text: String, interrupt: Bool = false, force: Bool = false) {
+        guidanceSaid = text
+        guard force || settings.guidanceVoice else { return }
+        speaker.needsPlaybackSession = !speechActive
+        speech.suppressed = true
+        speaker.speak(text, interrupt: interrupt)
+    }
+
+    private func guidanceSample(_ sample: FramePipeline.GuidanceSample) {
+        guard started, settings.guidanceEnabled, isLive else { return }
+        if capturing || pipeline.engine.isBusy { return }
+        let out = guidance.step(sample.metrics, time: sample.time, stillFor: sample.stillFor,
+                                diffToCapture: sample.diffToCapture)
+        if out.status != guidanceStatus { guidanceStatus = out.status }
+        if out.awaitingChoice != guidanceAwaiting { guidanceAwaiting = out.awaitingChoice }
+        if out.awaitingChoice { guidanceOptions = out.options }
+        if speech.choiceMode != out.awaitingChoice { speech.choiceMode = out.awaitingChoice }
+        if !out.awaitingChoice && !guidanceNotice.isEmpty { guidanceNotice = "" }
+        if let text = out.speak { say(text) }
+        if out.capture { guidanceCapture() }
+    }
+
+    private func guidanceCapture() {
+        if capture(reason: "Sesli konumlandırma") {
+            pipeline.markCaptured()
+            say("Çektim.")
+        } else {
+            guidance.rearm()
+        }
+    }
+
+    /// Ekrandaki düğme (yedek) ya da sesli seçim
+    func chooseColumn(_ choice: ColumnChoice) {
+        let reply = guidance.setChoice(choice)
+        guidanceNotice = ""
+        guidanceAwaiting = false
+        speech.choiceMode = false
+        say(reply, interrupt: true)
+    }
+
+    private func voiceCommand(_ id: String, heard: String) {
+        switch id {
+        case "finish":
+            finishAll()
+        case "report":
+            giveReport()
+        case "rechoose":
+            guard settings.guidanceEnabled else { return }
+            guidanceNotice = ""
+            say(guidance.clearChoice(), interrupt: true)
+        default:
+            guard id.hasPrefix("choice."), settings.guidanceEnabled else { return }
+            voiceChoice(String(id.dropFirst("choice.".count)))
+        }
+    }
+
+    private func voiceChoice(_ name: String) {
+        // Soru bekleniyorken ya da bir seçim varken (seçimi değiştirmek için) kabul edilir
+        guard guidance.awaitingChoice || guidance.choice != nil else {
+            guidanceNotice = "Şu an seçim gerekmiyor"
+            return
+        }
+        let options = guidance.currentOptions
+        var choice: ColumnChoice?
+        switch name {
+        case "first": choice = .left
+        case "last": choice = .right
+        case "second": choice = options.contains(.middle) ? .middle : .right
+        default: choice = ColumnChoice(rawValue: name)
+        }
+        guard let c = choice else { return }
+        if c == .middle && !options.contains(.middle) {
+            guidanceNotice = "Orta bölüm yok"
+            say("Orta bölüm yok. Sol ya da sağ deyin.", interrupt: true)
+            return
+        }
+        chooseColumn(c)
+    }
+
+    /// Soru beklenirken komut olmayan konuşma duyuldu: açıkça belirt
+    private func voiceUnrecognized(_ text: String) {
+        guard settings.guidanceEnabled, guidance.awaitingChoice else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        if now - lastUnrecognizedAt < 3 { return }
+        lastUnrecognizedAt = now
+        guidanceNotice = "Anlaşılmadı: “\(text)”"
+        let options = guidance.currentOptions
+        say(options.contains(.middle) ? "Komutu anlayamadım. Sol, orta ya da sağ deyin."
+                                      : "Komutu anlayamadım. Sol ya da sağ deyin.", interrupt: true)
+    }
+
+    // MARK: - "Hepsi tamamlandı" ve rapor
+
+    /// Bekleyen bütün fotoğrafları şimdi gönder (toplu modda tek PDF)
+    func finishAll() {
+        if capturing {
+            finishRequested = true
+            say("Son fotoğraf işleniyor, bitince göndereceğim.", interrupt: true, force: true)
+            return
+        }
+        flushNow()
+    }
+
+    private func flushNow() {
+        finishRequested = false
+        let waiting = queue.pending
+        if waiting == 0 {
+            say("Gönderilecek sayfa yok.", interrupt: true, force: true)
+            return
+        }
+        guard auth.isSignedIn else {
+            say("Drive'a giriş yapılmamış. \(waiting) sayfa bekliyor. Ayarlardan giriş yapın.", interrupt: true, force: true)
+            return
+        }
+        finishWatch = FinishWatch(docs: queue.uploadedDocs, photos: queue.uploaded)
+        queue.retry()
+        let pdf = settings.uploadFormat == "pdf"
+        say(pdf ? "\(waiting) sayfa PDF'e çevrilip gönderiliyor." : "\(waiting) fotoğraf gönderiliyor.",
+            interrupt: true, force: true)
+    }
+
+    private func finishProgress() {
+        guard var watch = finishWatch else { return }
+        if queue.pending == 0 && queue.uploaded > watch.photos {
+            finishWatch = nil
+            say(SpokenReport.finished(photos: queue.uploaded - watch.photos,
+                                      docs: queue.uploadedDocs - watch.docs,
+                                      pdf: settings.uploadFormat == "pdf"), interrupt: true, force: true)
+        } else if queue.pending > 0 && !queue.lastError.isEmpty && !watch.errorSpoken {
+            watch.errorSpoken = true
+            finishWatch = watch
+            say("Gönderim başarısız oldu. Bağlantı gelince yeniden denenecek.", interrupt: true, force: true)
+        }
+    }
+
+    func reportText() -> String {
+        return SpokenReport.make(captured: capturedCount, sentPhotos: queue.uploaded, sentDocs: queue.uploadedDocs,
+                                 waiting: queue.pending, signedIn: auth.isSignedIn,
+                                 hasError: !queue.lastError.isEmpty, pdf: settings.uploadFormat == "pdf",
+                                 batchMode: settings.sendMode == "batch")
+    }
+
+    /// "Rapor ver": kaç sayfa çekildi, kaçı PDF olarak gitti, kaçı bekliyor
+    func giveReport() {
+        let text = reportText()
+        flash(text, seconds: 10)
+        say(text, interrupt: true, force: true)
     }
 
     // MARK: - Tanı

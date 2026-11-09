@@ -331,5 +331,26 @@ final class EkranGoruntuleriUITests: XCTestCase {
         shot("onizleme-kapali-cekim-sonrasi")
         drag(app, up: true)
         shot("onizleme-kapali-son-fotograf", skipSame: true)
+
+        // Sesli konumlandırma: ayarı aç, ana ekrandaki durum satırını göster
+        drag(app, up: false)
+        openSettings(app)
+        _ = scrollTo(app, "Sesle konumlandır")
+        drag(app, up: true)
+        _ = scrollTo(app, "Sesle konumlandır", maxTries: 2)
+        shot("konumlandirma-ayari-kapali")
+        let guidanceSwitch = app.switches.matching(NSPredicate(format: "label CONTAINS %@", "Sesle konumlandır")).firstMatch
+        if guidanceSwitch.waitForExistence(timeout: 4) {
+            guidanceSwitch.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
+        } else {
+            note("Bulunamadı, atlandı: sesle konumlandır anahtarı")
+        }
+        sleep(1)
+        shot("konumlandirma-ayari-acik")
+        closeSettings(app)
+        sleep(5)
+        shot("konumlandirma-ana-ekran")
+        sleep(5)
+        shot("konumlandirma-ana-ekran-2", skipSame: true)
     }
 }

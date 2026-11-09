@@ -11,6 +11,8 @@ final class UploadQueue: ObservableObject {
 
     @Published private(set) var pending = 0
     @Published private(set) var uploaded = 0
+    /// Bu oturumda Drive'a giden dosya (PDF ya da JPEG) sayısı
+    @Published private(set) var uploadedDocs = 0
     @Published private(set) var status = ""
     @Published private(set) var lastError = ""
 
@@ -219,6 +221,7 @@ final class UploadQueue: ObservableObject {
                 try await drive.upload(job.payload, name: job.name)
                 for file in job.files { remove(file) }
                 uploaded += job.files.count
+                uploadedDocs += 1
                 failures = 0
                 lastError = ""
                 tlog("[drive] yüklendi: \(job.name) (\(job.files.count) fotoğraf)")

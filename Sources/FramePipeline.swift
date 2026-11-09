@@ -23,6 +23,39 @@ final class FramePipeline {
     /// Görüntü değişti ve sahne durulduysa çağrılır (analiz kuyruğundan).
     var onMotionTrigger: (() -> Void)?
 
+    /// Sesli konumlandırma: sayfa/yazı ölçüsü + kameranın ne kadar süredir durgun olduğu (analiz kuyruğundan).
+    struct GuidanceSample {
+        var metrics: PageMetrics
+        var time: TimeInterval
+        /// Kare imzası bu süredir önemli ölçüde değişmedi
+        var stillFor: TimeInterval
+        /// Son çekimin imzasına göre sahne farkı (sayfa çevrildi mi / bölüm değişti mi)
+        var diffToCapture: Double
+    }
+    var onGuidance: ((GuidanceSample) -> Void)?
+    /// Ölçümler en sık bu aralıkla (saniye) yapılır
+    static let guidanceInterval: TimeInterval = 0.3
+    /// Ardışık imzalar arası ortalama fark bunun altındaysa kare "durgun" sayılır
+    static let stillDiff = 2.0
+
+    private var _guidance = false
+    // Aşağıdakiler yalnızca analiz kuyruğunda değişir
+    private var prevSignature: [UInt8]?
+    private var latestSignature: [UInt8]?
+    private var captureSignature: [UInt8]?
+    private var lastMoveTime: TimeInterval = 0
+    private var lastGuidanceTime: TimeInterval = -100
+
+    var guidanceOn: Bool {
+        get { lock.lock(); defer { lock.unlock() }; return _guidance }
+        set { lock.lock(); _guidance = newValue; lock.unlock() }
+    }
+
+    /// Çekim yapıldı: sahne farkı bu ana göre ölçülür (sayfa çevrilince yeniden hazırlanmak için).
+    func markCaptured() {
+        queue.async { self.captureSignature = self.latestSignature }
+    }
+
     init() {
         engine = CaptureEngine(store: store)
     }
@@ -50,11 +83,30 @@ final class FramePipeline {
                 if self.motion.process(signature: result.signature, time: time, busy: self.engine.isBusy) {
                     self.onMotionTrigger?()
                 }
+                if self.guidanceOn { self.guidanceStep(pixelBuffer, signature: result.signature, time: time) }
             }
             self.lock.lock()
             self.backlog -= 1
             self.lock.unlock()
         }
+    }
+
+    private func guidanceStep(_ pixelBuffer: CVPixelBuffer, signature sig: [UInt8], time: TimeInterval) {
+        if let prev = prevSignature {
+            if FrameAnalysis.difference(prev, sig) > FramePipeline.stillDiff { lastMoveTime = time }
+        } else {
+            lastMoveTime = time
+        }
+        prevSignature = sig
+        latestSignature = sig
+        // Kamera hareket ederken ağır ölçüm yapılmaz; durgunlaşınca ve aralık dolunca ölçülür
+        if time - lastGuidanceTime < FramePipeline.guidanceInterval { return }
+        lastGuidanceTime = time
+        let still = time - lastMoveTime
+        var metrics = PageMetrics()
+        if still >= 0.2, let m = GuidanceAnalyzer.analyze(pixelBuffer) { metrics = m }
+        let diff = captureSignature.map { FrameAnalysis.difference($0, sig) } ?? 100
+        onGuidance?(GuidanceSample(metrics: metrics, time: time, stillFor: still, diffToCapture: diff))
     }
 
     func configureMotion(enabled: Bool, sensitivity: Int) {
@@ -70,6 +122,12 @@ final class FramePipeline {
     /// Bağlantı yenilenince eski kareleri ve değişim referansını temizler.
     func reset() {
         store.clear()
-        queue.async { self.motion.reset() }
+        queue.async {
+            self.motion.reset()
+            self.prevSignature = nil
+            self.latestSignature = nil
+            self.captureSignature = nil
+            self.lastMoveTime = 0
+        }
     }
 }

@@ -43,6 +43,20 @@ final class AppSettings: ObservableObject {
     /// Önizleme kapalıyken ekranı çok kıs (ekran pilin en büyük tüketicisidir)
     @Published var dimWhenPreviewOff: Bool { didSet { d.set(dimWhenPreviewOff, forKey: "dimWhenPreviewOff") } }
 
+    // MARK: Sesli konumlandırma
+    /// Kamera sayfayı/sütunu ölçer; sesle "biraz sağa, uzaklaş…" der, uygun olunca kendisi çeker
+    @Published var guidanceEnabled: Bool { didSet { d.set(guidanceEnabled, forKey: "guidanceEnabled") } }
+    /// Uyarıları sesli söyle (kapalıysa yalnız ekranda yazar)
+    @Published var guidanceVoice: Bool { didSet { d.set(guidanceVoice, forKey: "guidanceVoice") } }
+    /// Konum uygun olunca kendiliğinden çek (kapalıysa "okey" demenizi bekler)
+    @Published var guidanceAutoCapture: Bool { didSet { d.set(guidanceAutoCapture, forKey: "guidanceAutoCapture") } }
+    /// Kamera ters takılıysa sağ/sol ve yukarı/aşağı yönleri çevrilir
+    @Published var guidanceFlip: Bool { didSet { d.set(guidanceFlip, forKey: "guidanceFlip") } }
+    /// 0 = gevşek, 1 = normal, 2 = sıkı netlik isteği
+    @Published var guidanceSharpness: Int { didSet { d.set(guidanceSharpness, forKey: "guidanceSharpness") } }
+    /// Bekleyen fotoğrafları tek PDF olarak gönderen sözcük (virgülle birden çok); hazır söylenişler de geçerlidir
+    @Published var finishWord: String { didSet { d.set(finishWord, forKey: "finishWord") } }
+
     // MARK: Drive
     @Published var driveFolderName: String { didSet { d.set(driveFolderName, forKey: "driveFolderName") } }
     @Published var driveFolderID: String { didSet { d.set(driveFolderID, forKey: "driveFolderID") } }
@@ -98,6 +112,12 @@ final class AppSettings: ObservableObject {
         batchIdle = d.object(forKey: "batchIdle") as? Int ?? 0
         uploadFormat = d.string(forKey: "uploadFormat") ?? "pdf"
         ocrEnabled = d.object(forKey: "ocrEnabled") as? Bool ?? false
+        guidanceEnabled = d.object(forKey: "guidanceEnabled") as? Bool ?? false
+        guidanceVoice = d.object(forKey: "guidanceVoice") as? Bool ?? true
+        guidanceAutoCapture = d.object(forKey: "guidanceAutoCapture") as? Bool ?? true
+        guidanceFlip = d.object(forKey: "guidanceFlip") as? Bool ?? false
+        guidanceSharpness = d.object(forKey: "guidanceSharpness") as? Int ?? 1
+        finishWord = d.string(forKey: "finishWord") ?? "hepsi tamamlandı"
         previewOff = d.object(forKey: "previewOff") as? Bool ?? false
         dimWhenPreviewOff = d.object(forKey: "dimWhenPreviewOff") as? Bool ?? true
     }
