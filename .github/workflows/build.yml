@@ -13,6 +13,8 @@ jobs:
   build:
     name: Build iPhone App (unsigned IPA)
     runs-on: macos-15
+    permissions:
+      contents: write
 
     steps:
       - name: Get source code
@@ -49,6 +51,19 @@ jobs:
         with:
           name: G526CameraDrive-iPhone-IPA
           path: build/ipa/G526CameraDrive-unsigned.ipa
+
+      # GitHub'a girmeden doğrudan indirilebilen bağlantı: https://github.com/<depo>/releases/download/son-surum/G526CameraDrive-unsigned.ipa
+      - name: Publish IPA as downloadable release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete son-surum --cleanup-tag --yes --repo "$GITHUB_REPOSITORY" || true
+          gh release create son-surum build/ipa/G526CameraDrive-unsigned.ipa \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Son sürüm (${GITHUB_REF_NAME})" \
+            --notes "Dal: ${GITHUB_REF_NAME} · Commit: ${GITHUB_SHA::7}. İmzasız IPA; Sideloadly ile yükleyin." \
+            --prerelease
 
       - name: Upload build log
         if: always()
