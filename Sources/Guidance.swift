@@ -214,18 +214,26 @@ enum GuidanceAnalyzer {
         return out
     }
 
-    /// Parlama: yazı kutusunun içinde, yazı olmayan ve neredeyse tam beyaza doymuş (hücre ortalaması ≥ 250)
-    /// kompakt büyük leke (en az 12 hücre, 3x3'ten büyük, kutunun %4'ü). Genel olarak parlak kâğıt ya da
-    /// satır aralıkları parlama sayılmaz. Dönen değer: leke hücreleri / kutu hücreleri (yoksa 0).
+    /// Parlama: yazı kutusunun (8 hücre genişletilmiş) içinde, yazı olmayan ve neredeyse tam beyaza doymuş
+    /// (hücre ortalaması ≥ 250) kompakt büyük leke: en az 12 hücre, 3x3'ten büyük, yazı kutusunun %4'ü; lekenin en az
+    /// dörtte biri gerçek yazı kutusunun içinde olmalı. Parlak kâğıt, boş kenar boşlukları ve satır araları parlama sayılmaz.
+    /// Dönen değer: leke hücreleri / yazı kutusu hücreleri (yoksa 0).
     static func glareFraction(mean: [Float], kept: [Bool], eroded: [Bool], gw: Int,
                               rows: Range<Int>, cols: Range<Int>) -> Double {
-        let bw = cols.count
-        let bh = rows.count
-        guard bw >= 4, bh >= 4 else { return 0 }
+        guard rows.count >= 4, cols.count >= 4, gw > 0 else { return 0 }
+        let gh = mean.count / gw
+        let er0 = max(0, rows.lowerBound - 8)
+        let er1 = min(gh, rows.upperBound + 8)
+        let ec0 = max(0, cols.lowerBound - 8)
+        let ec1 = min(gw, cols.upperBound + 8)
+        let bw = ec1 - ec0
+        let bh = er1 - er0
+        guard bw > 0, bh > 0 else { return 0 }
+        let boxCells = rows.count * cols.count
         var blown = [Bool](repeating: false, count: bw * bh)
         for y in 0..<bh {
             for x in 0..<bw {
-                let i = (rows.lowerBound + y) * gw + cols.lowerBound + x
+                let i = (er0 + y) * gw + ec0 + x
                 if mean[i] >= 250 && !kept[i] && eroded[i] { blown[y * bw + x] = true }
             }
         }
@@ -236,11 +244,13 @@ enum GuidanceAnalyzer {
             seen[start] = true
             stack.append(start)
             var area = 0
+            var inside = 0
             var minX = Int.max, maxX = -1, minY = Int.max, maxY = -1
             while let i = stack.popLast() {
                 area += 1
                 let x = i % bw
                 let y = i / bw
+                if rows.contains(er0 + y) && cols.contains(ec0 + x) { inside += 1 }
                 minX = min(minX, x); maxX = max(maxX, x)
                 minY = min(minY, y); maxY = max(maxY, y)
                 if x > 0, blown[i - 1], !seen[i - 1] { seen[i - 1] = true; stack.append(i - 1) }
@@ -250,10 +260,14 @@ enum GuidanceAnalyzer {
             }
             let w = maxX - minX + 1
             let h = maxY - minY + 1
-            if area >= 12 && w >= 3 && h >= 3 && Double(area) >= 0.45 * Double(w * h) { best = max(best, area) }
+            if area >= 12 && w >= 3 && h >= 3
+                && Double(area) >= 0.04 * Double(boxCells)
+                && Double(area) >= 0.45 * Double(w * h)
+                && Double(inside) >= 0.25 * Double(area) {
+                best = max(best, area)
+            }
         }
-        let fraction = Double(best) / Double(bw * bh)
-        return fraction >= 0.04 ? fraction : 0
+        return Double(best) / Double(boxCells)
     }
 
     static func analyze(luma L: [Float], width W: Int, height H: Int) -> PageMetrics {
@@ -448,6 +462,41 @@ enum GuidanceAnalyzer {
                 }
             }
         }
+        // Satır uzatma: kameranın kenarında ışık düşüşü (vinyet) sayfa maskesini karartabilir ve kenara dayanan yazı
+        // satırı kısa görünür. Mürekkep yoğunluğu sürdükçe (en çok 1 hücre boşlukla) satır sola/sağa uzatılır;
+        // sayfa kenarı (parlaklık sıçraması) uzatmayı durdurur. Gerçek kamera karelerinde saptandı.
+        for cy in r0..<gh {
+            var first = -1
+            var last = -1
+            var n = 0
+            for cx in 0..<gw where kept[cy * gw + cx] {
+                if first < 0 { first = cx }
+                last = cx
+                n += 1
+            }
+            if n < 3 { continue }
+            for (step, start) in [(-1, first), (1, last)] {
+                var x = start
+                var gap = 0
+                while true {
+                    let nx = x + step
+                    if nx < 0 || nx >= gw { break }
+                    let i = cy * gw + nx
+                    let d = Double(inkCount[i]) / Double(cell * cell)
+                    if d > 0.04 && d < 0.85 && !edgeCell[i] {
+                        if !kept[i] {
+                            kept[i] = true
+                            cells += 1
+                        }
+                        gap = 0
+                    } else {
+                        gap += 1
+                        if gap > 1 { break }
+                    }
+                    x = nx
+                }
+            }
+        }
         m.cells = cells
         if cells < 12 { return m }
 
@@ -549,23 +598,26 @@ enum GuidanceVocabulary {
     /// Dosyaları gönder anlamına gelen çok sayıda söyleniş: "hepsini gönder", "tümünü gönder", "hepsi tamamlandı",
     /// "gönderebilirsin", "pdf yap", "çekimler tamam", "bitirdim"… Edilgen biçimler ("gönderildi") bilerek yok:
     /// "kaç sayfa gönderildi" bir rapor sorusudur, gönder emri değil.
+    /// Günlük konuşmada geçen sözcükler ("tamam", "bitti", "çevir", "kaydet") tek başına yetmez; yanlarında "hepsi / tüm / pdf /
+    /// çekimler" gibi KAPSAM sözcüğü gerekir. Tek sayfa/fotoğraf adları ("sayfayı çevir", "fotoğrafı kaydet", "bu sayfa bitti")
+    /// kapsam sayılmaz: sayfa çevirirken konuşmak PDF göndermemeli.
     static let finishIntent: SpeechIntent = {
         var strong: [String] = []
         strong += forms("gonder", sendVerb)
         strong += forms("yolla", ["", "yin", "yalim", "r", "rmisin", "sana"])
         strong += forms("yukle", ["", "yin", "yelim", "r", "rmisin", "sene"])
         strong += forms("bitir", ["", "dim", "elim", "in", "ebilirsin"])
-        strong += ["bitti", "bittim", "bitmis", "bitirdik", "tamamlandi", "tamamla", "tamamladim", "tamamladik"]
+        strong += ["bitirdik", "tamamlandi", "tamamla", "tamamladim", "tamamladik"]
         strong += ["tamamlayalim", "tamamlayin", "tamamlanmistir", "tamamlanmis"]
         var scope: [String] = ["hepsi", "hepsini", "hepsinin", "tum", "tumu", "tumunu", "butun", "butunu"]
-        scope += ["tamami", "tamamini", "islem", "islemler", "pdf", "drive", "goruntu", "goruntuler"]
-        scope += forms("sayfa", ["", "lar", "lari", "yi", "larin"])
-        scope += forms("fotograf", ["", "lar", "lari", "i"])
-        scope += forms("cekim", ["", "ler", "leri", "i", "lerim"])
-        scope += forms("belge", ["", "ler", "leri", "yi"])
-        scope += forms("dosya", ["", "lar", "lari", "yi"])
-        scope += forms("resim", ["", "ler", "leri"])
-        var weak: [String] = ["tamam", "tamamdir", "hazir", "kaydet", "kaydedin"]
+        scope += ["tamami", "tamamini", "islem", "islemler", "pdf", "drive", "goruntuler"]
+        scope += forms("sayfa", ["lar", "lari", "larin"])
+        scope += forms("fotograf", ["lar", "lari"])
+        scope += forms("cekim", ["", "ler", "leri", "lerim"])
+        scope += forms("belge", ["ler", "leri"])
+        scope += forms("dosya", ["lar", "lari"])
+        scope += forms("resim", ["ler", "leri"])
+        var weak: [String] = ["tamam", "tamamdir", "hazir", "kaydet", "kaydedin", "bitti", "bittim", "bitmis"]
         weak += forms("aktar", ["", "in", "abilirsin"])
         weak += forms("yap", ["", "in", "alim", "ar", "abilirsin", "sana"])
         weak += forms("olustur", ["", "un", "alim", "abilirsin"])
@@ -576,7 +628,7 @@ enum GuidanceVocabulary {
 
     /// "Rapor ver", "özet", "durum ne", "kaç sayfa çekildi / gönderildi"
     static let reportIntent: SpeechIntent = {
-        let strong: [String] = ["rapor", "raporu", "raporla", "ozet", "ozeti", "ozetle", "durum", "durumu"]
+        let strong: [String] = ["rapor", "raporu", "raporla", "ozet", "ozeti", "durum", "durumu"]
         var weak: [String] = ["tane", "cekildi", "cekilmis", "gonderildi", "gonderilmis", "oldu", "fotograf"]
         weak += ["fotograflar", "resim", "belge", "pdf"]
         weak += forms("sayfa", ["", "lar", "lari"])
@@ -598,8 +650,8 @@ enum GuidanceVocabulary {
     static let deleteLastIntent: SpeechIntent = {
         var strong: [String] = []
         strong += forms("sil", ["", "in", "elim", "ebilirsin", "ermisin", "sene", "ersen", "dir"])
-        strong += forms("kaldir", ["", "in", "alim", "abilirsin", "sana"])
-        let weak: [String] = ["iptal", "at", "atin", "cope"]
+        var weak: [String] = ["iptal", "at", "atin", "cope"]
+        weak += forms("kaldir", ["", "in", "alim", "abilirsin", "sana", "ayim"])
         return SpeechIntent(strong: Set(strong), scope: Set(photoScope), weak: Set(weak))
     }()
 

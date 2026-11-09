@@ -374,6 +374,22 @@ final class GuidanceTests: XCTestCase {
         }
     }
 
+    /// Sayfa çevirirken, kitabı tutarken, kendi kendine konuşurken söylenenler PDF göndermemeli / fotoğraf silmemeli
+    func testEverydaySpeechDoesNotSendOrDelete() {
+        for t in ["tamam sayfayı çevirdim", "sayfayı çevir", "şimdi sayfayı çevireyim", "sayfayı geri çevir", "bu sayfa bitti",
+                  "bu sayfa tamam", "sayfa tamam", "fotoğrafı kaydet", "film bitti", "ders bitti", "bitti mi",
+                  "kitabı kaldır", "kitabı biraz kaldır", "şunu kaldırayım", "bana bu sayfayı özetle", "hazırım", "evet",
+                  "bir sonraki sayfaya geçelim", "bu fotoğraf güzel çıkmış", "pdf açıldı"] {
+            XCTAssertEqual(intent(GuidanceVocabulary.finishIntent, t), 0, "finish: " + t)
+            XCTAssertEqual(intent(GuidanceVocabulary.deleteLastIntent, t) + phraseHits(t, GuidanceVocabulary.deleteLast), 0, "sil: " + t)
+        }
+        XCTAssertEqual(intent(GuidanceVocabulary.reportIntent, "bana bu sayfayı özetle"), 0)
+        // ama kapsam sözcüğü varsa yine çalışır
+        for t in ["hepsi bitti", "tüm sayfalar tamam", "hepsini kaydet", "pdf'e çevir", "sayfaları pdf yap", "çekim bitti"] {
+            XCTAssertGreaterThan(intent(GuidanceVocabulary.finishIntent, t), 0, t)
+        }
+    }
+
     func testManyWaysToAskForReport() {
         for t in ["rapor ver", "rapor", "özet ver", "durum ne", "durum raporu", "kaç sayfa çekildi",
                   "kaç sayfa gönderildi", "kaç tane çekildi", "kaç fotoğraf oldu"] {
@@ -598,5 +614,58 @@ final class GuidanceTests: XCTestCase {
     func testFinishedText() {
         XCTAssertEqual(SpokenReport.finished(photos: 8, docs: 1, pdf: true), "Tamamlandı. 8 sayfa 1 PDF olarak Drive'a gönderildi.")
         XCTAssertEqual(SpokenReport.finished(photos: 3, docs: 3, pdf: false), "Tamamlandı. 3 fotoğraf Drive'a gönderildi.")
+    }
+
+    // MARK: - Gerçek kamera kareleri ve ışık düşüşü (vinyet)
+
+    func testVignettedEdgeTextStillCountsAsCut() {
+        // Kenara doğru kararan görüntüde (vinyet) kenara dayanan yazı satırı kısa görünmemeli
+        var luma = synth(pages: [(0, 960)], blocks: [(0, 700, 80, 480)])
+        for y in 0..<540 {
+            for x in 0..<960 {
+                let gain = Float(0.45 + 0.55 * min(1.0, Double(x) / 200.0))
+                luma[y * 960 + x] *= gain
+            }
+        }
+        let m = GuidanceAnalyzer.analyze(luma: luma, width: 960, height: 540)
+        XCTAssertTrue(m.hasText)
+        XCTAssertLessThan(m.x0, 0.02, "kenara dayanan yazı kenarda sayılmalı: \(m.x0)")
+        XCTAssertEqual(decide(m).advice, .moveLeft)
+    }
+
+    func testRealFramesLeftCardCutAsksWhichColumn() {
+        for (name, data) in [("A", RealFrames.leftCutA), ("B", RealFrames.leftCutB)] {
+            guard let f = RealFrames.luma(data) else { return XCTFail("kare çözülemedi: \(name)") }
+            XCTAssertEqual(f.w, 960)
+            XCTAssertEqual(f.h, 540)
+            let m = GuidanceAnalyzer.analyze(luma: f.px, width: f.w, height: f.h)
+            XCTAssertEqual(m.columns.count, 2, "\(name): \(m.summary)")
+            XCTAssertLessThan(m.columns.first?.x0 ?? 1, 0.02, "\(name): soldaki kart kenarda kesik")
+            XCTAssertEqual(decide(m).advice, .chooseColumn, name)
+            XCTAssertEqual(decide(m, .left).advice, .moveLeft, name)
+            XCTAssertEqual(decide(m, .right).advice, .ok, "\(name): sağdaki kart tam görünüyor")
+            XCTAssertEqual(m.glare, 0, name)
+        }
+    }
+
+    func testRealFrameBothCardsFullDoesNotAsk() {
+        guard let f = RealFrames.luma(RealFrames.bothFull) else { return XCTFail("kare çözülemedi") }
+        let m = GuidanceAnalyzer.analyze(luma: f.px, width: f.w, height: f.h)
+        XCTAssertEqual(m.columns.count, 2, m.summary)
+        XCTAssertEqual(decide(m).advice, .ok, m.summary)
+    }
+
+    func testRealFrameWithGlareSpotIsFlagged() {
+        guard var f = RealFrames.luma(RealFrames.leftCutA) else { return XCTFail("kare çözülemedi") }
+        // sağ kartın yazısının üstüne parlama lekesi (doymuş beyaz elips)
+        for y in 0..<f.h {
+            for x in 0..<f.w {
+                let dx = Double(x - 720) / 90.0
+                let dy = Double(y - 300) / 70.0
+                if dx * dx + dy * dy <= 1 { f.px[y * f.w + x] = 255 }
+            }
+        }
+        let m = GuidanceAnalyzer.analyze(luma: f.px, width: f.w, height: f.h)
+        XCTAssertGreaterThan(m.glare, 0.04, m.summary)
     }
 }
