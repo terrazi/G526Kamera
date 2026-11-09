@@ -30,6 +30,11 @@ struct PageMetrics: Equatable {
     var columns: [ColumnBox] = []
     /// Yazı kutusunun içinde, neredeyse tam beyaza doymuş (parlama) büyük lekenin kutuya oranı; yoksa 0
     var glare = 0.0
+    /// Yazı hücrelerindeki harf boyutunda (küçük, derli toplu) mürekkep parçalarının sayısı. -1: ölçülmedi.
+    /// Yazıda yüzlerce vardır; çizgili kumaş, tablo çizgisi, ızgara gibi desenlerde mürekkep uzun şeritlerdir.
+    var glyphs = -1
+    /// Mürekkebin ne kadarı harf boyutunda parçalardan oluşuyor (0–1)
+    var glyphShare = 1.0
 
     var summary: String {
         if !hasText { return hasPage ? "sayfa var, yazı seçilemiyor" : "yazı bulunamadı" }
@@ -270,6 +275,59 @@ enum GuidanceAnalyzer {
         return Double(best) / Double(boxCells)
     }
 
+    /// Yazı hücrelerindeki mürekkep parçalarını (8 komşuluklu bağlı bileşenler) sayar. Harf boyutunda parça: en çok 60x60 piksel
+    /// ve 1800 pikselden küçük. `share`: mürekkep piksellerinin harf boyutundaki parçalara düşen oranı.
+    static func glyphStats(ink: [UInt8], kept: [Bool], gw: Int, gh: Int, width W: Int) -> (count: Int, share: Double) {
+        var px = ink
+        let limitX = gw * cell
+        let limitY = gh * cell
+        var total = 0
+        var compact = 0
+        var count = 0
+        var stack: [Int] = []
+        for sy in 0..<limitY {
+            for sx in 0..<limitX {
+                let s = sy * W + sx
+                if px[s] != 1 || !kept[(sy / cell) * gw + (sx / cell)] { continue }
+                px[s] = 2
+                stack.append(s)
+                var minX = sx
+                var maxX = sx
+                var minY = sy
+                var maxY = sy
+                var area = 0
+                while let i = stack.popLast() {
+                    area += 1
+                    let x = i % W
+                    let y = i / W
+                    if x < minX { minX = x }
+                    if x > maxX { maxX = x }
+                    if y < minY { minY = y }
+                    if y > maxY { maxY = y }
+                    for dy in -1...1 {
+                        for dx in -1...1 where dx != 0 || dy != 0 {
+                            let nx = x + dx
+                            let ny = y + dy
+                            if nx < 0 || ny < 0 || nx >= limitX || ny >= limitY { continue }
+                            if !kept[(ny / cell) * gw + (nx / cell)] { continue }
+                            let j = ny * W + nx
+                            if px[j] == 1 {
+                                px[j] = 2
+                                stack.append(j)
+                            }
+                        }
+                    }
+                }
+                total += area
+                if area >= 3 && maxX - minX + 1 <= 60 && maxY - minY + 1 <= 60 && area <= 1800 {
+                    compact += area
+                    count += 1
+                }
+            }
+        }
+        return (count, total > 0 ? Double(compact) / Double(total) : 0)
+    }
+
     static func analyze(luma L: [Float], width W: Int, height H: Int) -> PageMetrics {
         var m = PageMetrics()
         guard W >= 64, H >= 64, L.count == W * H else { return m }
@@ -416,6 +474,7 @@ enum GuidanceAnalyzer {
         // Mürekkep: yerel ortalamadan belirgin koyu ve kâğıda göre mutlak koyu pikseller.
         var edgeCell = [Bool](repeating: false, count: gw * gh)
         var inkCount = [Int](repeating: 0, count: gw * gh)
+        var inkPx = [UInt8](repeating: 0, count: W * H)      // mürekkep pikselleri (harf parçası sayımı için)
         let edgeLimit = Float(0.55 * range)
         let inkAbs = Float(0.62 * p90)
         L.withUnsafeBufferPointer { p in
@@ -429,7 +488,10 @@ enum GuidanceAnalyzer {
                         let i = row + x
                         let v = p[i]
                         let l = q[i]
-                        if v < l - 35 && v < inkAbs { inkCount[ci] += 1 }
+                        if v < l - 35 && v < inkAbs {
+                            inkCount[ci] += 1
+                            inkPx[i] = 1
+                        }
                         if !edgeCell[ci] {
                             var strong = false
                             if x >= 8 && x < W - 8 && abs(q[i + 8] - q[i - 8]) > edgeLimit { strong = true }
@@ -522,6 +584,9 @@ enum GuidanceAnalyzer {
         let py0 = firstRow * cell
         let py1 = (lastRow + 1) * cell
         m.hasText = true
+        let gl = glyphStats(ink: inkPx, kept: kept, gw: gw, gh: gh, width: W)
+        m.glyphs = gl.count
+        m.glyphShare = gl.share
         m.glare = glareFraction(mean: mean, kept: kept, eroded: eroded, gw: gw,
                                 rows: firstRow..<(lastRow + 1), cols: firstCol..<(lastCol + 1))
         m.x0 = Double(px0) / Double(W)
@@ -729,11 +794,23 @@ struct GuidanceConfig {
     var glareLimit = 0.04
     /// Parlama için en çok kaç kez uyarılır; sonra yine de çekilir (parlama her zaman giderilemez)
     var glareWarnings = 2
+    /// "Yaklaşın" derken hedeflenen doluluk: yazı bloğunun en büyük boyutu kadrajın bu oranına varmalı
+    var closerTarget = 0.70
+    /// Yakınlaşmanın büyüklüğü en çok bu kadar sayılır (çok küçük bloklarda aşırı beklenti olmasın)
+    var closerMaxScale = 1.6
+    /// Bu kadar ya da fazla büyütme gerekiyorsa "biraz" denmez: "Yaklaşın."
+    var closerBigScale = 1.35
+    /// Yakınlaşınca yazının kenarda kalması istenen en az boşluk, `edgeMargin`e eklenir
+    var predictMargin = 0.01
 }
 
 struct GuidanceDecision: Equatable {
     var advice: GuidanceAdvice
     var options: [ColumnChoice] = []
+    /// Yazı bloğunun doluluğu (en büyük boyutu, kadraj oranı; birden çok bölümde bölüm payına göre). 0: bilinmiyor.
+    var fill = 0.0
+    /// "Yaklaşın" kararında gereken büyütme oranı (1: yok)
+    var scale = 1.0
 }
 
 /// Ölçülerden öneri çıkarır (saf fonksiyon; birim testle denenir).
@@ -745,6 +822,8 @@ enum GuidanceAdvisor {
     static func decide(_ m: PageMetrics, choice: ColumnChoice?, config c: GuidanceConfig = GuidanceConfig(),
                        sharpFloor: Double) -> GuidanceDecision {
         if !m.hasText { return GuidanceDecision(advice: m.hasPage ? .blurry : .noText) }
+        // Yazıya benzemeyen desen (çizgili kumaş, tablo çizgisi…) belge sayılmaz
+        if DocumentGate.verdict(m) != .document { return GuidanceDecision(advice: .noText) }
         let cols = m.columns
         if cols.count >= 2 {
             let allFit = cols.allSatisfy { $0.x0 >= c.edgeMargin && $0.x1 <= 1 - c.edgeMargin }
@@ -764,21 +843,45 @@ enum GuidanceAdvisor {
             }
             let frac = Double(targets.count) / Double(cols.count)
             let sharp = targets.count == 1 ? targets[0].sharp : m.sharp
-            return GuidanceDecision(advice: evaluate(x0: targets.map { $0.x0 }.min() ?? 0,
-                                                     x1: targets.map { $0.x1 }.max() ?? 1,
-                                                     y0: targets.map { $0.y0 }.min() ?? 0,
-                                                     y1: targets.map { $0.y1 }.max() ?? 1,
-                                                     cells: targets.reduce(0) { $0 + $1.cells },
-                                                     sharp: sharp, frac: frac, glare: m.glare, config: c,
-                                                     sharpFloor: sharpFloor))
+            let r = evaluateDetailed(x0: targets.map { $0.x0 }.min() ?? 0,
+                                     x1: targets.map { $0.x1 }.max() ?? 1,
+                                     y0: targets.map { $0.y0 }.min() ?? 0,
+                                     y1: targets.map { $0.y1 }.max() ?? 1,
+                                     cells: targets.reduce(0) { $0 + $1.cells },
+                                     sharp: sharp, frac: frac, glare: m.glare, config: c, sharpFloor: sharpFloor)
+            return GuidanceDecision(advice: r.advice, fill: r.fill, scale: r.scale)
         }
         // Tek bölüm (ya da bölünemedi): bütün yazı bloğu
-        return GuidanceDecision(advice: evaluate(x0: m.x0, x1: m.x1, y0: m.y0, y1: m.y1, cells: m.cells,
-                                                 sharp: m.sharp, frac: 1, glare: m.glare, config: c, sharpFloor: sharpFloor))
+        let r = evaluateDetailed(x0: m.x0, x1: m.x1, y0: m.y0, y1: m.y1, cells: m.cells,
+                                 sharp: m.sharp, frac: 1, glare: m.glare, config: c, sharpFloor: sharpFloor)
+        return GuidanceDecision(advice: r.advice, fill: r.fill, scale: r.scale)
     }
 
     static func evaluate(x0: Double, x1: Double, y0: Double, y1: Double, cells: Int, sharp: Double, frac: Double,
                          glare: Double = 0, config c: GuidanceConfig, sharpFloor: Double) -> GuidanceAdvice {
+        return evaluateDetailed(x0: x0, x1: x1, y0: y0, y1: y1, cells: cells, sharp: sharp, frac: frac,
+                                glare: glare, config: c, sharpFloor: sharpFloor).advice
+    }
+
+    /// "Yaklaşın" demeden önce: yakınlaşınca yazı kadrajdan taşacaksa (blok merkezden uzaktaysa) önce yazıyı ortaya almak gerekir.
+    /// Yakınlaşma kadraj merkezinden büyütme gibi düşünülür; taşacak kenar varsa o yöne kaydırma önerilir.
+    static func recentre(x0: Double, x1: Double, y0: Double, y1: Double, scale s: Double, config c: GuidanceConfig) -> GuidanceAdvice? {
+        let need = c.edgeMargin + c.predictMargin
+        func grow(_ v: Double) -> Double { return 0.5 + s * (v - 0.5) }
+        let after: [(GuidanceAdvice, Double)] = [
+            (.moveLeft, grow(x0)),
+            (.moveRight, 1 - grow(x1)),
+            (.moveUp, grow(y0) - GuidanceAnalyzer.skipTop),
+            (.moveDown, 1 - grow(y1)),
+        ]
+        let bad = after.filter { $0.1 < need }
+        return bad.min(by: { $0.1 < $1.1 })?.0
+    }
+
+    static func evaluateDetailed(x0: Double, x1: Double, y0: Double, y1: Double, cells: Int, sharp: Double, frac: Double,
+                                 glare: Double = 0, config c: GuidanceConfig,
+                                 sharpFloor: Double) -> (advice: GuidanceAdvice, fill: Double, scale: Double) {
+        let fill = max((x1 - x0) / max(frac, 0.01), y1 - y0)
         let margins: [(GuidanceAdvice, Double, Double)] = [
             (.moveLeft, x0, 1 - x1),          // sol kenardan taşıyorsa kamera sola
             (.moveRight, 1 - x1, x0),
@@ -788,14 +891,19 @@ enum GuidanceAdvisor {
         let cut = margins.filter { $0.1 < c.edgeMargin }
         let leftRight = cut.contains { $0.0 == .moveLeft } && cut.contains { $0.0 == .moveRight }
         let topBottom = cut.contains { $0.0 == .moveUp } && cut.contains { $0.0 == .moveDown }
-        if leftRight || topBottom { return .farther }
+        if leftRight || topBottom { return (GuidanceAdvice.farther, fill, 1.0) }
         if let worst = cut.min(by: { $0.1 < $1.1 }) {
-            return worst.2 < c.oppositeMargin ? .farther : worst.0
+            let move: GuidanceAdvice = worst.2 < c.oppositeMargin ? GuidanceAdvice.farther : worst.0
+            return (move, fill, 1.0)
         }
-        if x1 - x0 < c.minFill * frac && y1 - y0 < c.minFill && Double(cells) >= Double(c.minCellsForCloser) * frac { return .closer }
-        if sharp < sharpFloor { return .blurry }
-        if glare >= c.glareLimit { return .glare }
-        return .ok
+        if x1 - x0 < c.minFill * frac && y1 - y0 < c.minFill && Double(cells) >= Double(c.minCellsForCloser) * frac {
+            let scale = min(c.closerMaxScale, c.closerTarget / max(fill, 0.01))
+            if let side = recentre(x0: x0, x1: x1, y0: y0, y1: y1, scale: scale, config: c) { return (side, fill, scale) }
+            return (GuidanceAdvice.closer, fill, scale)
+        }
+        if sharp < sharpFloor { return (GuidanceAdvice.blurry, fill, 1.0) }
+        if glare >= c.glareLimit { return (GuidanceAdvice.glare, fill, 1.0) }
+        return (GuidanceAdvice.ok, fill, 1.0)
     }
 
     /// Eski imza: bütün yazıyı tek bölüm sayar.
@@ -843,6 +951,9 @@ final class GuidanceEngine {
     private var questionsAsked = 0
     private var lastQuestionTime: TimeInterval = -1000
     private var lastOptions: [ColumnChoice] = []
+    /// Son kararın yazı doluluğu ve gereken büyütme: bulanıklık ve "yaklaşın" cümlelerini seçmek için
+    private var lastFill = 0.0
+    private var lastScale = 1.0
     /// Son sorulan / sorulabilecek seçenekler (bölüm sayısına göre sol-sağ ya da sol-orta-sağ)
     var currentOptions: [ColumnChoice] { return lastOptions.isEmpty ? [.left, .right, .all] : lastOptions }
 
@@ -922,7 +1033,8 @@ final class GuidanceEngine {
         return s
     }
 
-    func phrase(for advice: GuidanceAdvice) -> String {
+    /// `again`: aynı uyarı ardı ardına tekrarlanıyor ("Biraz daha sola…" diye ilerleme beklenir)
+    func phrase(for advice: GuidanceAdvice, again: Bool = false) -> String {
         var a = advice
         if flip {
             switch advice {
@@ -934,18 +1046,25 @@ final class GuidanceEngine {
             }
         }
         switch a {
-        case .moveLeft: return "Kamerayı biraz sola kaydırın."
-        case .moveRight: return "Kamerayı biraz sağa kaydırın."
-        case .moveUp: return "Kamerayı biraz yukarı kaydırın."
-        case .moveDown: return "Kamerayı biraz aşağı kaydırın."
-        case .farther: return "Biraz uzaklaşın, yazı kadrajdan taşıyor."
-        case .closer: return "Biraz yaklaşın."
-        case .noText: return "Yazı görünmüyor. Kamerayı sayfaya çevirin."
+        case .moveLeft: return again ? "Biraz daha sola kaydırın." : "Kamerayı biraz sola kaydırın."
+        case .moveRight: return again ? "Biraz daha sağa kaydırın." : "Kamerayı biraz sağa kaydırın."
+        case .moveUp: return again ? "Biraz daha yukarı kaydırın." : "Kamerayı biraz yukarı kaydırın."
+        case .moveDown: return again ? "Biraz daha aşağı kaydırın." : "Kamerayı biraz aşağı kaydırın."
+        case .farther: return again ? "Biraz daha uzaklaşın." : "Biraz uzaklaşın, yazı kadrajdan taşıyor."
+        case .closer:
+            if again { return "Biraz daha yaklaşın." }
+            return lastScale >= config.closerBigScale ? "Yaklaşın, yazı küçük kalıyor." : "Biraz yaklaşın."
+        case .noText: return "Yazı görünmüyor. Kamerayı belgeye çevirin."
         case .chooseColumn: return questionText(options: lastOptions, first: questionsAsked == 0)
         case .blurry:
-            let options = ["Görüntü net değil. Biraz uzaklaşın.",
-                           "Yine de net değil. Kamerayı sabit tutup bekleyin.",
-                           "Net değil. Biraz yaklaşın."]
+            // Yazı kadrajı dolduruyorsa büyük olasılıkla fazla yakındır: önce uzaklaşmak; küçükse önce sabit tutup beklemek
+            let options = lastFill >= 0.7
+                ? ["Görüntü net değil. Biraz uzaklaşın.",
+                   "Yine de net değil. Kamerayı sabit tutup bekleyin.",
+                   "Net değil. Biraz yaklaşın."]
+                : ["Görüntü net değil. Kamerayı sabit tutup bekleyin.",
+                   "Yine de net değil. Biraz yaklaşın.",
+                   "Net değil. Biraz uzaklaşın."]
             return options[blurSpeaks % options.count]
         case .glare: return "Sayfada parlama var. Kamerayı biraz eğin ya da ışığı değiştirin."
         case .ok: return "Çekiyorum."
@@ -982,6 +1101,8 @@ final class GuidanceEngine {
         }
 
         let d = GuidanceAdvisor.decide(metrics, choice: effective(choice), config: config, sharpFloor: sharpFloor)
+        lastFill = d.fill
+        lastScale = d.scale
         var a = d.advice
         // Parlama her zaman giderilemez: birkaç kez uyardıktan sonra yine de çekilir
         if a == .glare && glareSpoken >= config.glareWarnings { a = .ok }
@@ -1029,7 +1150,7 @@ final class GuidanceEngine {
                 out.speak = "Hâlâ uygun değil. \(triggerWord) diyerek yine de çekebilirsiniz."
                 muted = a
             } else {
-                out.speak = phrase(for: a)
+                out.speak = phrase(for: a, again: repeats > 0)
                 if a == .blurry { blurSpeaks += 1 }
                 if a == .glare { glareSpoken += 1 }
             }

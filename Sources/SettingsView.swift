@@ -112,7 +112,7 @@ struct SettingsView: View {
 
     private var photoSection: some View {
         Section(header: Text("Fotoğraf"),
-                footer: Text("Belge taraması için: İyileştirme Hafif, kalite %92 ve üzeri, Yüksek 1920×1080 görüntü önerilir. Büyütme ayrıntı eklemez, yalnızca yazıyı daha rahat okutur. Kamera tarih/saati görüntünün içine işler, silinemez: Bulanıklaştır yalnızca sağ üstteki tarih yazısının kutusunu okunmaz yapar, Kes ise üstteki şeridi atar (fotoğraf biraz kısalır).")) {
+                footer: Text("“Yalnız belge çek” açıkken kadrajda kâğıt ve üzerinde yazı yoksa (el, yüz, boş masa, duvar, çizgili desen) fotoğraf çekilmez; program “Belge görünmüyor” der. Belge hiç çekilmiyorsa ya da bu kontrol rahatsız ederse kapatın. Belge taraması için: İyileştirme Hafif, kalite %92 ve üzeri, Yüksek 1920×1080 görüntü önerilir. Büyütme ayrıntı eklemez, yalnızca yazıyı daha rahat okutur. Kamera tarih/saati görüntünün içine işler, silinemez: Bulanıklaştır yalnızca sağ üstteki tarih yazısının kutusunu okunmaz yapar, Kes ise üstteki şeridi atar (fotoğraf biraz kısalır).")) {
             Picker("İyileştirme", selection: $settings.enhancement) {
                 Text("Kapalı").tag(0)
                 Text("Hafif").tag(1)
@@ -120,6 +120,7 @@ struct SettingsView: View {
             }
             .pickerStyle(.segmented)
             Toggle("Birkaç net kareyi birleştir", isOn: $settings.multiFrame)
+            Toggle("Yalnız belge çek (belge değilse çekme)", isOn: $settings.documentOnly)
             Toggle("Belgeyi otomatik düzelt ve kırp (deneysel)", isOn: $settings.deskew)
             Picker("Tarih/saat yazısı", selection: $settings.timestampMode) {
                 Text("Bulanıklaştır (okunmaz)").tag(TimestampMode.blur)

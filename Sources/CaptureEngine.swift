@@ -6,6 +6,8 @@ struct CaptureOptions {
     var after: Double
     var multiFrame: Bool
     var enhance: EnhanceOptions
+    /// Yalnız belge görünüyorsa çek (kâğıt + yazı); değilse `notDocument` ile reddedilir
+    var documentOnly = false
 }
 
 struct CapturedPhoto {
@@ -22,11 +24,14 @@ struct CapturedPhoto {
 enum CaptureError: Error {
     case noFrames
     case renderFailed
+    /// Kadrajda belge yok; açıklama günlük içindir
+    case notDocument(String)
 
     var message: String {
         switch self {
         case .noFrames: return "Görüntü akışı yok, fotoğraf çekilemedi."
         case .renderFailed: return "Fotoğraf oluşturulamadı."
+        case .notDocument: return "Belge görünmüyor — fotoğraf çekilmedi."
         }
     }
 }
@@ -78,8 +83,32 @@ final class CaptureEngine {
            ProcessInfo.processInfo.systemUptime - latest.time < 3 {
             candidates = [latest]
         }
-        guard let best = candidates.max(by: { $0.sharpness < $1.sharpness }) else {
+        let ranked = candidates.sorted { $0.sharpness > $1.sharpness }
+        guard var best = ranked.first else {
             return .failure(.noFrames)
+        }
+
+        // Belge denetimi: en net üç kareden ilk "belge" olanı seçilir; hiçbiri belge değilse fotoğraf çekilmez
+        if options.documentOnly {
+            var chosen: StoredFrame?
+            var why = ""
+            for frame in ranked.prefix(3) {
+                guard let m = GuidanceAnalyzer.analyze(frame.buffer) else {
+                    chosen = frame                      // ölçülemeyen kareyi engelleme: sayfa kaybetmektense çek
+                    break
+                }
+                let v = DocumentGate.verdict(m)
+                if v == .document {
+                    chosen = frame
+                    break
+                }
+                why = DocumentGate.describe(m, v)
+            }
+            guard let accepted = chosen else {
+                tlog("[belge] çekim reddedildi: \(why)")
+                return .failure(.notDocument(why))
+            }
+            best = accepted
         }
 
         var selected = [best]

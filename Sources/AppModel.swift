@@ -79,6 +79,8 @@ final class AppModel: ObservableObject {
     private var connection = ConnectionAnnouncer()
     private var notices = NoticeQueue()
     private var lastSpeechAt: TimeInterval = -1000
+    /// Son "belge görünmüyor" uyarısının sesli söylendiği an (art arda söylenmesin)
+    private var lastDocumentWarning: TimeInterval = -1000
     private var lastSpeechProblem = ""
     private var seenUploaded = 0
     private var uploadErrorAnnounced = false
@@ -439,13 +441,13 @@ final class AppModel: ObservableObject {
             after: s.burstAfter,
             multiFrame: s.multiFrame,
             enhance: EnhanceOptions(level: s.enhancement, deskew: s.deskew, upscale: s.upscale,
-                                    timestamp: s.timestampMode, quality: s.jpegQuality))
+                                    timestamp: s.timestampMode, quality: s.jpegQuality),
+            documentOnly: s.documentOnly)
         let accepted = pipeline.engine.capture(reason: reason, options: options) { [weak self] result in
             Task { @MainActor in self?.captureFinished(result, reason: reason) }
         }
         if accepted {
             capturing = true
-            AudioServicesPlaySystemSound(1108)
         } else {
             flash("Önceki fotoğraf işleniyor…", seconds: 1.5)
         }
@@ -456,6 +458,7 @@ final class AppModel: ObservableObject {
         capturing = false
         switch result {
         case .success(let photo):
+            AudioServicesPlaySystemSound(1108)      // deklanşör sesi: yalnız fotoğraf gerçekten çekilince
             lastPhoto = UIImage(data: photo.jpeg)
             lastPhotoInfo = "\(photo.width)×\(photo.height) · \(photo.jpeg.count / 1024) KB · \(reason)"
             if queue.enqueue(jpeg: photo.jpeg, date: photo.date) == nil {
@@ -469,16 +472,33 @@ final class AppModel: ObservableObject {
             }
             UINotificationFeedbackGenerator().notificationOccurred(.success)
         case .failure(let error):
-            flash(error.message, seconds: 4)
-            UINotificationFeedbackGenerator().notificationOccurred(.error)
-            if guidanceWasOn {
-                guidance.rearm()
-                say("Çekim başarısız oldu. Kamerayı sabit tutup tekrar deneyin.", interrupt: true)
+            if case .notDocument = error {
+                documentRejected(reason: reason)
+            } else {
+                flash(error.message, seconds: 4)
+                UINotificationFeedbackGenerator().notificationOccurred(.error)
+                if guidanceWasOn {
+                    guidance.rearm()
+                    say("Çekim başarısız oldu. Kamerayı sabit tutup tekrar deneyin.", interrupt: true)
+                }
             }
         }
         capturePart = nil
         // "Hepsi tamamlandı" son fotoğraf işlenirken söylendiyse, şimdi gönder
         if finishRequested { flushNow() }
+    }
+
+    /// Kadrajda belge yok: fotoğraf çekilmedi. Sesli uyarı en çok 8 saniyede bir; "görüntü değişti" ile kendiliğinden
+    /// denenen çekimlerde (el, kapı…) konuşulmaz, yalnız ekranda yazılır.
+    private func documentRejected(reason: String) {
+        flash("Belge görünmüyor — fotoğraf çekilmedi", seconds: 4)
+        UINotificationFeedbackGenerator().notificationOccurred(.warning)
+        if guidanceWasOn { guidance.rearm() }
+        if reason == "Görüntü değişti" { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        guard now - lastDocumentWarning >= 8 else { return }
+        lastDocumentWarning = now
+        say("Belge görünmüyor, fotoğraf çekmedim. Kamerayı belgeye çevirin.", interrupt: true)
     }
 
     func flash(_ text: String, seconds: Double = 3) {

@@ -28,6 +28,8 @@ final class AppSettings: ObservableObject {
     /// Kameranın görüntüye işlediği tarih/saat: bulanıklaştır (varsayılan), kes ya da olduğu gibi bırak
     @Published var timestampMode: TimestampMode { didSet { d.set(timestampMode.rawValue, forKey: "timestampMode") } }
     @Published var multiFrame: Bool { didSet { d.set(multiFrame, forKey: "multiFrame") } }
+    /// Yalnız belge (kâğıt + yazı) görünüyorsa fotoğraf çek; el, yüz, boş masa gibi görüntüler çekilmez
+    @Published var documentOnly: Bool { didSet { d.set(documentOnly, forKey: "documentOnly") } }
     /// Seri çekimde tetiklemeden önceki / sonraki pencere (saniye)
     @Published var burstBefore: Double { didSet { d.set(burstBefore, forKey: "burstBefore") } }
     @Published var burstAfter: Double { didSet { d.set(burstAfter, forKey: "burstAfter") } }
@@ -100,6 +102,7 @@ final class AppSettings: ObservableObject {
             timestampMode = .blur
         }
         multiFrame = d.object(forKey: "multiFrame") as? Bool ?? true
+        documentOnly = d.object(forKey: "documentOnly") as? Bool ?? true
         burstBefore = d.object(forKey: "burstBefore") as? Double ?? 0.4
         burstAfter = d.object(forKey: "burstAfter") as? Double ?? 0.8
 

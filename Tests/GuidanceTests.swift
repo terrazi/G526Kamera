@@ -668,4 +668,76 @@ final class GuidanceTests: XCTestCase {
         let m = GuidanceAnalyzer.analyze(luma: f.px, width: f.w, height: f.h)
         XCTAssertGreaterThan(m.glare, 0.04, m.summary)
     }
+
+    // MARK: - Hassas yönlendirme: yakınlaşmadan önce ortalama, tekrarda "biraz daha", bulanıklıkta doluluk
+
+    private func firstSpeech(_ e: GuidanceEngine, _ m: PageMetrics) -> String? {
+        var spoken: String?
+        for i in 0..<4 where spoken == nil {
+            spoken = step(e, m, t: Double(i) * 0.3).speak
+        }
+        return spoken
+    }
+
+    func testAdvisorCentresBeforeZoomingIn() {
+        // yazı küçük ama kenara yakın: yakınlaşınca taşar, önce o yöne kaydırılır
+        XCTAssertEqual(decide(metrics(x0: 0.05, x1: 0.30, y0: 0.30, y1: 0.50, cells: 150)).advice, .moveLeft)
+        XCTAssertEqual(decide(metrics(x0: 0.70, x1: 0.95, y0: 0.30, y1: 0.50, cells: 150)).advice, .moveRight)
+        XCTAssertEqual(decide(metrics(x0: 0.40, x1: 0.60, y0: 0.12, y1: 0.25, cells: 150)).advice, .moveUp)
+        XCTAssertEqual(decide(metrics(x0: 0.40, x1: 0.60, y0: 0.75, y1: 0.97, cells: 150)).advice, .moveDown)
+        // ortadaysa doğrudan yaklaşılır
+        XCTAssertEqual(decide(metrics(x0: 0.40, x1: 0.60, y0: 0.40, y1: 0.60, cells: 150)).advice, .closer)
+    }
+
+    func testDecisionReportsFillAndScale() {
+        let d = decide(metrics(x0: 0.40, x1: 0.60, y0: 0.40, y1: 0.60, cells: 150))
+        XCTAssertEqual(d.fill, 0.2, accuracy: 0.001)
+        XCTAssertEqual(d.scale, 1.6, accuracy: 0.001, "büyütme en çok 1,6 sayılır")
+        let ok = decide(metrics(x0: 0.15, x1: 0.85, y0: 0.15, y1: 0.85))
+        XCTAssertEqual(ok.advice, .ok)
+        XCTAssertEqual(ok.fill, 0.7, accuracy: 0.001)
+        XCTAssertEqual(ok.scale, 1.0, accuracy: 0.001)
+    }
+
+    func testCloserWordingDependsOnHowMuchIsNeeded() {
+        // çok küçük: "Yaklaşın"; sınıra yakın: "Biraz yaklaşın"
+        XCTAssertEqual(firstSpeech(GuidanceEngine(), metrics(x0: 0.40, x1: 0.60, y0: 0.40, y1: 0.60, cells: 150)),
+                       "Yaklaşın, yazı küçük kalıyor.")
+        XCTAssertEqual(firstSpeech(GuidanceEngine(), metrics(x0: 0.24, x1: 0.76, y0: 0.30, y1: 0.70, cells: 150)),
+                       "Biraz yaklaşın.")
+    }
+
+    func testRepeatedAdviceUsesShorterWording() {
+        let e = GuidanceEngine()
+        let m = metrics(x0: 0.4, x1: 0.995)
+        var spoken: [String] = []
+        var t = 0.0
+        while t < 20 {
+            if let s = step(e, m, t: t).speak { spoken.append(s) }
+            t += 0.3
+        }
+        XCTAssertEqual(spoken.first, "Kamerayı biraz sağa kaydırın.")
+        XCTAssertGreaterThan(spoken.count, 1)
+        XCTAssertEqual(spoken[1], "Biraz daha sağa kaydırın.", "tekrarda ilerleme beklenir")
+    }
+
+    func testBlurAdviceDependsOnFill() {
+        // yazı kadrajı dolduruyor: büyük olasılıkla fazla yakın → önce uzaklaş
+        XCTAssertEqual(firstSpeech(GuidanceEngine(), metrics(x0: 0.10, x1: 0.90, sharp: 0.2)),
+                       "Görüntü net değil. Biraz uzaklaşın.")
+        // küçük blok: önce kamerayı sabit tutup bekle
+        XCTAssertEqual(firstSpeech(GuidanceEngine(), metrics(x0: 0.30, x1: 0.70, y0: 0.30, y1: 0.70, cells: 60, sharp: 0.2)),
+                       "Görüntü net değil. Kamerayı sabit tutup bekleyin.")
+    }
+
+    func testNonTextLikePatternIsTreatedAsNoText() {
+        var m = metrics(x0: 0.2, x1: 0.8)
+        m.glyphs = 0
+        m.glyphShare = 0
+        XCTAssertEqual(decide(m).advice, .noText)
+        m.glyphs = 300
+        m.glyphShare = 0.9
+        XCTAssertEqual(decide(m).advice, .ok)
+        XCTAssertEqual(decide(metrics(x0: 0.2, x1: 0.8, cells: 20)).advice, .noText, "çok az yazı belge sayılmaz")
+    }
 }
