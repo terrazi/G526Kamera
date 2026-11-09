@@ -51,8 +51,10 @@ final class AppModel: ObservableObject {
     /// "Kameradan pil / şarj bilgisi ara" sonucu
     @Published private(set) var probeText = ""
     private var probeNext = false
-    /// Kameranın bildirdiği pil yüzdesi (kamera şimdilik bildirmiyor; GetDevInfo cevabında pil alanı olursa kendiliğinden dolar)
-    private var cameraBatteryPercent: Int?
+    /// Kameranın görüntü karesi başlığında bildirdiği pil kademesi (nil: henüz gelmedi); ekranda ve "batarya kontrol" cevabında kullanılır
+    @Published private(set) var cameraBattery: CameraBatteryLevel?
+    private let cameraBatteryMonitor = CameraBatteryMonitor()
+    private var cameraLowBattery = CameraLowBatteryWatcher()
     private var lowBattery = LowBatteryWatcher()
     /// Kameradan gelen görüntü gerçekten çözülüp ekrana veriliyor mu (son 3 sn içinde kare var mı)
     @Published private(set) var decoding = false
@@ -119,18 +121,20 @@ final class AppModel: ObservableObject {
         decoder.onResolution = { [weak self] width, height in
             Task { @MainActor in self?.resolutionChanged(width: width, height: height) }
         }
-        client.onFrame = { frame in
+        let batteryMonitor = self.cameraBatteryMonitor
+        client.onFrame = { [weak self] frame in
             decoder.submit(frame)
+            if let level = batteryMonitor.feed(header: frame.header, now: ProcessInfo.processInfo.systemUptime) {
+                Task { @MainActor in self?.cameraBatteryChanged(level) }
+            }
         }
         client.onState = { [weak self] state in
             Task { @MainActor in self?.stateChanged(state) }
         }
         client.onDeviceInfo = { [weak self] info in
             let text = AppModel.describe(info)
-            let battery = CameraProbe.batteryPercent(in: info)
             Task { @MainActor in
                 self?.deviceInfo = text
-                self?.cameraBatteryPercent = battery
             }
         }
         client.onProbe = { [weak self] text in
@@ -361,6 +365,8 @@ final class AppModel: ObservableObject {
             pipeline.reset()
             decodeClock.clear()
             decoding = false
+            cameraBatteryMonitor.reset()
+            cameraBattery = nil
         default:
             break
         }
@@ -803,9 +809,17 @@ final class AppModel: ObservableObject {
     /// "Batarya kontrol" / "şarj durumu nedir": telefon ve kamera şarjını söyler
     func giveBattery() {
         let phone = phoneBattery()
-        let text = SpokenReport.battery(phone: phone.percent, charging: phone.charging, camera: cameraBatteryPercent)
+        let text = SpokenReport.battery(phone: phone.percent, charging: phone.charging, camera: cameraBatteryMonitor.current(now: ProcessInfo.processInfo.systemUptime))
         flash(text, seconds: 8)
         say(text, interrupt: true, force: true)
+    }
+
+    /// Kameradan gelen kararlı pil değeri değişti: ekranı güncelle, düşükse (bir kez) uyar
+    private func cameraBatteryChanged(_ level: CameraBatteryLevel) {
+        cameraBattery = level
+        if let n = cameraLowBattery.update(level) {
+            notify(CameraBattery.lowWarning(level: n), .alert, group: "kamera-pil")
+        }
     }
 
     private func checkPhoneBattery() {

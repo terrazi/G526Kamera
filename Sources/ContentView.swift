@@ -67,6 +67,11 @@ struct ContentView: View {
                 if model.isLive && !model.resolutionText.isEmpty {
                     Text(model.resolutionText).font(.caption2).foregroundColor(.secondary)
                 }
+                if model.isLive, let battery = model.cameraBattery {
+                    Text(battery.shortText)
+                        .font(.caption2)
+                        .foregroundColor(battery.isLow ? .red : .secondary)
+                }
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
