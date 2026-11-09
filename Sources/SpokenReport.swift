@@ -64,6 +64,30 @@ enum SpokenReport {
         return "Gönderim başarısız, bağlantı gelince yeniden denenecek."
     }
 
+    /// "Batarya kontrol": telefon ve kamera şarjı. `camera` nil ise kamera şarjı bilinmiyor demektir (kamera söylemiyor).
+    static func battery(phone: Int?, charging: Bool, camera: Int?) -> String {
+        var parts: [String] = []
+        if let p = phone {
+            parts.append("Telefon yüzde \(p)" + (charging ? " ve şarjda" : ""))
+        } else {
+            parts.append("Telefonun şarjı okunamıyor")
+        }
+        if let c = camera {
+            parts.append("kamera yüzde \(c) dolu görünüyor")
+        } else {
+            parts.append("kameranın şarj bilgisi alınamıyor")
+        }
+        var out = [parts.joined(separator: ", ") + "."]
+        if let p = phone, p <= 20, !charging { out.append("Telefon şarjı düşük.") }
+        if let c = camera, c <= 20 { out.append("Kamera şarjı düşük.") }
+        return out.joined(separator: " ")
+    }
+
+    /// Telefon şarjı düşünce kendiliğinden söylenen uyarı
+    static func phoneLow(percent: Int) -> String {
+        return "Telefon şarjı yüzde \(percent). Şarja takın."
+    }
+
     /// Her çekim bitince söylenen kısa bilgi: ne çekildi, dosya gönderildi mi / bekliyor mu.
     /// `part`: seçilen bölümün adı ("Sol", "Sağ"…) ya da nil. Çekim cümlesi sayfayı çevirmenin güvenli olduğunu da bildirir.
     /// `batchSize`: ayarlanan toplu gönderim sayfa sayısı (0 = yalnız komutla); PDF'e en çok 30 sayfa girer.

@@ -517,6 +517,10 @@ final class SpeechTrigger {
                 ids = ids.filter { $0 != "finish" && $0 != "report" && $0 != "rechoose" }
                 if ids.contains("retake") { ids = ids.filter { $0 != "deleteLast" } }
             }
+            // "Şarj durumu nedir" içindeki "durum" rapor sayılmasın: batarya sorusu kendi başına geçer
+            if ids.contains("battery") && !editing {
+                ids = ids.filter { $0 == "battery" }
+            }
             if choiceIDs.count == 1 && !editing && !ids.contains("finish") && !ids.contains("rechoose") { ids += choiceIDs }
             if firedMain || !firedIDs.isEmpty {
                 unrecognizedWork?.cancel()

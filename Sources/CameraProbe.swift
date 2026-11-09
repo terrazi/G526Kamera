@@ -25,6 +25,18 @@ enum CameraProbe {
         return out
     }
 
+    /// Kameranın cevabında "bat…" adlı ve 0–100 arası sayı olan bir alan varsa pil yüzdesi sayılır (şimdiki kamera böyle bir alan vermiyor)
+    static func batteryPercent(in reply: [String: Any]) -> Int? {
+        for (key, value) in reply where key.lowercased().contains("bat") {
+            var number: Int?
+            if let i = value as? Int { number = i }
+            else if let d = value as? Double { number = Int(d.rounded()) }
+            else if let str = value as? String { number = Int(str.trimmingCharacters(in: CharacterSet(charactersIn: "% "))) }
+            if let n = number, (0...100).contains(n) { return n }
+        }
+        return nil
+    }
+
     static func compact(_ reply: [String: Any]) -> String {
         guard let data = try? JSONSerialization.data(withJSONObject: reply, options: [.sortedKeys]),
               let text = String(data: data, encoding: .utf8) else { return "\(reply)" }

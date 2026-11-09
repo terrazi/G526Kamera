@@ -635,6 +635,14 @@ enum GuidanceVocabulary {
         return SpeechIntent(strong: Set(strong), scope: Set(["kac"]), weak: Set(weak))
     }()
 
+    /// "Batarya kontrol", "şarj durumu nedir", "pil ne kadar": telefon ve kamera şarjını söyler (yalnız okuma; yanlış tetiklense zararsız)
+    static let batteryIntent: SpeechIntent = {
+        let strong: [String] = ["batarya", "bataryayi", "bataryasi", "bataryam", "bataryanin", "bataryalar", "bateri",
+                                "sarj", "sarji", "sarjim", "sarjin", "sarjlar", "sarjda", "pil", "pili", "pilim", "pilin"]
+        let none: [String] = []
+        return SpeechIntent(strong: Set(strong), scope: Set(none), weak: Set(none))
+    }()
+
     private static let photoScope: [String] = {
         var scope: [String] = ["son", "sonuncu", "sonuncuyu", "sonuncusu", "onceki", "bunu", "yanlis", "hatali"]
         scope += forms("fotograf", ["", "i", "lari"])
@@ -678,6 +686,9 @@ enum GuidanceVocabulary {
         + "işlem tamamlandı, çekimler tamamlandı, çekim bitti, bitirdim, tamamını gönder, pdf gönder"
     /// "Rapor ver": kaç sayfa çekildi, kaçı PDF olarak gönderildi, kaçı bekliyor
     static let report = "rapor ver, rapor, durum raporu, durum ver, durumu söyle, durum nedir, kaç sayfa çekildi, kaç sayfa oldu, özet ver"
+    /// Telefonun ve kameranın şarjını söyle
+    static let battery = "batarya kontrol, batarya durumu, batarya nedir, batarya ne kadar, şarj durumu, şarj durumu nedir, "
+        + "şarj ne kadar, şarj kaç, şarjım ne kadar, pil durumu, pil kontrol, pil ne kadar, telefonun şarjı, kameranın şarjı"
     /// Son fotoğrafı sil (kalıplar; "al" tek başına silme sayılmasın diye "geri al" burada)
     static let deleteLast = "son fotoğrafı sil, sonuncuyu sil, son çekimi sil, son sayfayı sil, bunu sil, geri al, "
         + "son fotoğrafı geri al, sonuncuyu geri al, son çekimi geri al, yanlış çektim, yanlış oldu, hatalı çekim, çekimi iptal et"

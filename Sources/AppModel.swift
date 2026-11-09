@@ -51,6 +51,9 @@ final class AppModel: ObservableObject {
     /// "Kameradan pil / şarj bilgisi ara" sonucu
     @Published private(set) var probeText = ""
     private var probeNext = false
+    /// Kameranın bildirdiği pil yüzdesi (kamera şimdilik bildirmiyor; GetDevInfo cevabında pil alanı olursa kendiliğinden dolar)
+    private var cameraBatteryPercent: Int?
+    private var lowBattery = LowBatteryWatcher()
     /// Kameradan gelen görüntü gerçekten çözülüp ekrana veriliyor mu (son 3 sn içinde kare var mı)
     @Published private(set) var decoding = false
 
@@ -122,7 +125,11 @@ final class AppModel: ObservableObject {
         }
         client.onDeviceInfo = { [weak self] info in
             let text = AppModel.describe(info)
-            Task { @MainActor in self?.deviceInfo = text }
+            let battery = CameraProbe.batteryPercent(in: info)
+            Task { @MainActor in
+                self?.deviceInfo = text
+                self?.cameraBatteryPercent = battery
+            }
         }
         client.onProbe = { [weak self] text in
             Task { @MainActor in self?.probeText = text }
@@ -162,6 +169,16 @@ final class AppModel: ObservableObject {
                 Task { @MainActor in self?.refreshDecoding() }
             }
             .store(in: &cancellables)
+
+        // Telefon şarjı düşünce (sesli konumlandırma açıkken) bir kez uyar
+        UIDevice.current.isBatteryMonitoringEnabled = true
+        for name in [UIDevice.batteryLevelDidChangeNotification, UIDevice.batteryStateDidChangeNotification] {
+            NotificationCenter.default.publisher(for: name)
+                .sink { [weak self] _ in
+                    Task { @MainActor in self?.checkPhoneBattery() }
+                }
+                .store(in: &cancellables)
+        }
 
         // Pil tasarrufu ayarları anında uygulanır
         Publishers.CombineLatest(settings.$previewOff, settings.$dimWhenPreviewOff)
@@ -306,6 +323,7 @@ final class AppModel: ObservableObject {
         let finish = [settings.finishWord, GuidanceVocabulary.finish].filter { !$0.trimmed.isEmpty }.joined(separator: ", ")
         commands.append(SpeechTrigger.Command(id: "finish", phrases: finish, intent: GuidanceVocabulary.finishIntent))
         commands.append(SpeechTrigger.Command(id: "report", phrases: GuidanceVocabulary.report, intent: GuidanceVocabulary.reportIntent))
+        commands.append(SpeechTrigger.Command(id: "battery", phrases: GuidanceVocabulary.battery, intent: GuidanceVocabulary.batteryIntent))
         commands.append(SpeechTrigger.Command(id: "deleteLast", phrases: GuidanceVocabulary.deleteLast,
                                               intent: GuidanceVocabulary.deleteLastIntent))
         commands.append(SpeechTrigger.Command(id: "retake", phrases: GuidanceVocabulary.retake,
@@ -572,6 +590,8 @@ final class AppModel: ObservableObject {
             finishAll()
         case "report":
             giveReport()
+        case "battery":
+            giveBattery()
         case "deleteLast":
             deleteLast(retake: false)
         case "retake":
@@ -749,6 +769,30 @@ final class AppModel: ObservableObject {
         let text = reportText()
         flash(text, seconds: 10)
         say(text, interrupt: true, force: true)
+    }
+
+    /// Telefonun şarj yüzdesi (bilinmiyorsa nil) ve şarjda olup olmadığı
+    private func phoneBattery() -> (percent: Int?, charging: Bool) {
+        let device = UIDevice.current
+        let level = device.batteryLevel
+        let percent: Int? = level >= 0 ? Int((level * 100).rounded()) : nil
+        let charging = device.batteryState == .charging || device.batteryState == .full
+        return (percent, charging)
+    }
+
+    /// "Batarya kontrol" / "şarj durumu nedir": telefon ve kamera şarjını söyler
+    func giveBattery() {
+        let phone = phoneBattery()
+        let text = SpokenReport.battery(phone: phone.percent, charging: phone.charging, camera: cameraBatteryPercent)
+        flash(text, seconds: 8)
+        say(text, interrupt: true, force: true)
+    }
+
+    private func checkPhoneBattery() {
+        let phone = phoneBattery()
+        if let p = lowBattery.update(percent: phone.percent, charging: phone.charging) {
+            notify(SpokenReport.phoneLow(percent: p), .alert, group: "pil")
+        }
     }
 
     // MARK: - Tanı
