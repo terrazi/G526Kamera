@@ -9,6 +9,7 @@ enum OcrConfig {
     static let maxFailures = 3                  // art arda bu kadar hata olursa OCR kapanır
     static let maxQueue = 4
     static let uploadWait: TimeInterval = 25    // yükleme, OCR bitsin diye en fazla bu kadar bekler
+    static let minimumTextHeight: Float = 0.008 // okunacak en küçük yazı: görüntü yüksekliğinin %0,8'i (1080 satırda ~9 piksel)
 }
 
 /// Vision ile tek bir JPEG'deki yazıyı okur. Arka plan önceliğinde çalışır; süre aşılırsa istek iptal edilir.
@@ -40,11 +41,18 @@ enum OcrRecognizer {
         return (chosen, supported)
     }
 
+    /// Dil düzeltmesi, tanıma dillerinin ilki Türkçe ise açılır
+    static func useLanguageCorrection(for languages: [String]) -> Bool {
+        return languages.first?.lowercased() == "tr-tr"
+    }
+
     static func recognize(url: URL, timeout: TimeInterval, languages: [String]? = nil) async -> Result<String, OcrError> {
         return await withCheckedContinuation { (continuation: CheckedContinuation<Result<String, OcrError>, Never>) in
             let request = VNRecognizeTextRequest()
             request.recognitionLevel = .accurate
-            request.usesLanguageCorrection = false      // Türkçe için İngilizce düzeltme sözcükleri bozar
+            // Küçük yazı: varsayılan en küçük yazı boyu (görüntü yüksekliğinin 1/32'si) ekran/kâğıt fotoğraflarındaki küçük harfleri
+            // atlayıp bozabilir; biraz düşürmek okumayı artırır (biraz yavaşlatır).
+            request.minimumTextHeight = OcrConfig.minimumTextHeight
             #if targetEnvironment(simulator)
             // Sanal makinede (GitHub Actions) GPU/Neural Engine yok; iste yalnız işlemciyi kullan, yoksa istek takılır.
             // Gerçek telefonda bu satır derlenmez, Apple'ın kendi seçimi kullanılır.
@@ -52,6 +60,8 @@ enum OcrRecognizer {
             #endif
             let langs = languages ?? chooseLanguages(request).chosen
             if !langs.isEmpty { request.recognitionLanguages = langs }
+            // Dil düzeltmesi yalnız Türkçe modeli bu cihazda varsa açılır ("tobrik" → "tebrik"); yoksa İngilizce düzeltme Türkçe sözcükleri bozar
+            request.usesLanguageCorrection = useLanguageCorrection(for: langs)
 
             let once = Once<Result<String, OcrError>> { continuation.resume(returning: $0) }
             DispatchQueue.global(qos: .background).async {
@@ -185,7 +195,8 @@ final class OcrCenter: ObservableObject {
             let probe = VNRecognizeTextRequest()
             probe.recognitionLevel = .accurate
             let info = OcrRecognizer.chooseLanguages(probe)
-            tlog("[ocr] Vision dilleri: \(info.supported.joined(separator: ", ")) — seçilen: \(info.chosen.joined(separator: ", "))")
+            tlog("[ocr] Vision dilleri: \(info.supported.joined(separator: ", ")) — seçilen: \(info.chosen.joined(separator: ", "))"
+                 + " — dil düzeltmesi: \(OcrRecognizer.useLanguageCorrection(for: info.chosen) ? "açık" : "kapalı")")
         }
         let started = Date()
         let isFirst = firstRun

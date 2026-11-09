@@ -68,3 +68,19 @@ final class BatteryTests: XCTestCase {
         XCTAssertNil(CameraProbe.batteryPercent(in: ["cmd": "GetDevInfo", "battery": 250]))      // yüzde olamaz
     }
 }
+
+/// OCR ayarları
+final class OcrSettingsTests: XCTestCase {
+    func testLanguageCorrectionOnlyWhenTurkishIsFirst() {
+        XCTAssertTrue(OcrRecognizer.useLanguageCorrection(for: ["tr-TR", "en-US"]))
+        XCTAssertTrue(OcrRecognizer.useLanguageCorrection(for: ["TR-tr"]))
+        XCTAssertFalse(OcrRecognizer.useLanguageCorrection(for: ["en-US", "tr-TR"]))
+        XCTAssertFalse(OcrRecognizer.useLanguageCorrection(for: ["en-US"]))
+        XCTAssertFalse(OcrRecognizer.useLanguageCorrection(for: []))
+    }
+
+    func testMinimumTextHeightIsSmallButSane() {
+        XCTAssertGreaterThan(OcrConfig.minimumTextHeight, 0.002)
+        XCTAssertLessThan(OcrConfig.minimumTextHeight, 1.0 / 32.0)
+    }
+}
