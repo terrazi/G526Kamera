@@ -47,6 +47,8 @@ final class GeminiChat: ObservableObject {
     var onProfileSwitch: ((GeminiProfileInfo, GeminiProfileInfo) -> Void)?
     /// Kullanıcı "model değiştir" dedi: oturum biter, sesli model seçimi başlar
     var onModelChoice: (() -> Void)?
+    /// Drive'dan okumadan önce bekleyen (toplu modda biriken) fotoğrafları gönderip bekler; hâlâ yüklenmeyen sayıyı döndürür
+    var flushUploads: (() async -> Int)?
 
     private let client: GeminiAsking
     private let docs: GeminiDocProviding
@@ -60,6 +62,11 @@ final class GeminiChat: ObservableObject {
     private var speechDone: CheckedContinuation<Void, Never>?
     /// Bu sohbette şimdiye kadar hazırlanan belge adları ("1 tanesi yeni" diyebilmek için)
     private var seenDocs: Set<String> = []
+    /// Oturumda art arda yaşanan geçici hata sayısı (üstünde oturum biter)
+    private var softErrors = 0
+    /// Bu hatalar oturumu bitirmez: hata söylenir, dinlemeye devam edilir (anahtar, model, kota ve harcama sınırı bitirir)
+    static let softErrorKinds: Set<GeminiErrorKind> = [.network, .http, .empty, .blocked, .error]
+    static let maxSoftErrors = 2
 
     init(client: GeminiAsking, docs: GeminiDocProviding, recorder: QuestionRecording, options: @escaping () -> GeminiOptions) {
         self.client = client
@@ -158,6 +165,12 @@ final class GeminiChat: ObservableObject {
         }
     }
 
+    /// Drive'dan okumadan önce bekleyen fotoğrafları gönderir; hâlâ yüklenmeyen fotoğraf sayısını döndürür
+    private func syncUploads() async -> Int {
+        guard let flush = flushUploads else { return 0 }
+        return await flush()
+    }
+
     private func releaseSpeechWait() {
         waitingForSpeech = false
         speechEndedEarly = false
@@ -199,6 +212,7 @@ final class GeminiChat: ObservableObject {
         }
 
         let session = opts.session && text == nil
+        softErrors = 0
         if session {
             guard await prepare(gen, opts) else { return }
         }
@@ -212,17 +226,20 @@ final class GeminiChat: ObservableObject {
     private func prepare(_ gen: Int, _ opts: GeminiOptions) async -> Bool {
         setPhase(.thinking, "Belgeler hazırlanıyor…")
         do {
+            let unsent = await syncUploads()
             let fetched = try await docs.fetch(count: opts.docCount)
             guard gen == generation else { return false }
-            notes = fetched.notes
+            var allNotes = fetched.notes
+            if unsent > 0 { allNotes.append(GeminiText.unsentNote(unsent)) }
+            notes = allNotes
             docNames = fetched.docs.map { $0.name }
             if fetched.docs.isEmpty {
-                fail(gen, "Okunacak belge bulunamadı. " + fetched.notes.joined(separator: " "))
+                fail(gen, "Okunacak belge bulunamadı. " + allNotes.joined(separator: " "))
                 return false
             }
             let fresh = seenDocs.isEmpty ? nil : fetched.docs.filter { !seenDocs.contains($0.name) }.count
             seenDocs.formUnion(docNames)
-            let line = GeminiText.readyLine(count: fetched.docs.count, new: fresh, warnings: fetched.notes)
+            let line = GeminiText.readyLine(count: fetched.docs.count, new: fresh, warnings: allNotes)
             _ = await speakAndWait(line, "Hazırım")
             return gen == generation && !Task.isCancelled
         } catch is CancellationError {
@@ -297,12 +314,20 @@ final class GeminiChat: ObservableObject {
 
         do {
             setPhase(.thinking, "Belgeler hazırlanıyor…")
+            let unsent = await syncUploads()
             let fetched = try await docs.fetch(count: opts.docCount)
             guard gen == generation else { return false }
-            notes = fetched.notes
+            var allNotes = fetched.notes
+            var warning = ""
+            if unsent > 0 {
+                let note = GeminiText.unsentNote(unsent)
+                allNotes.append(note)
+                warning = "Dikkat: " + note + " "
+            }
+            notes = allNotes
             docNames = fetched.docs.map { $0.name }
             if fetched.docs.isEmpty {
-                fail(gen, "Okunacak belge bulunamadı. " + fetched.notes.joined(separator: " "))
+                fail(gen, "Okunacak belge bulunamadı. " + allNotes.joined(separator: " "))
                 return false
             }
             seenDocs.formUnion(docNames)
@@ -341,22 +366,34 @@ final class GeminiChat: ObservableObject {
             if history.count > GeminiConfig.maxHistory { history.removeFirst(history.count - GeminiConfig.maxHistory) }
             turns += 1
             error = ""
+            softErrors = 0
             tlog("[gemini] cevap geldi: \(reply.totalTokens) jeton, \(fetched.docs.count) belge")
 
             if session {
-                let ok = await speakAndWait(spoken + " " + GeminiText.nextQuestionLine, "Cevap okunuyor")
+                let ok = await speakAndWait(warning + spoken + " " + GeminiText.nextQuestionLine, "Cevap okunuyor")
                 guard gen == generation else { return false }
                 if !ok { setPhase(.idle) }
                 return ok
             }
             setPhase(.speaking, "Cevap okunuyor")
-            if speak?(spoken) != true {
+            if speak?(warning + spoken) != true {
                 setPhase(.idle)
             }
             return false
         } catch is CancellationError {
             return false
         } catch let e as GeminiError {
+            if session, GeminiChat.softErrorKinds.contains(e.kind), softErrors < GeminiChat.maxSoftErrors,
+               gen == generation, !Task.isCancelled {
+                // Geçici hata (internet kopması gibi): oturum kapanmaz, hata söylenir ve soru yeniden beklenir
+                softErrors += 1
+                error = e.message
+                tlog("[gemini] oturum sürüyor, geçici hata (\(softErrors)): \(e.message)")
+                let ok = await speakAndWait(e.message + " " + GeminiText.retryLine, "Hata söyleniyor")
+                guard gen == generation else { return false }
+                if !ok { setPhase(.idle) }
+                return ok
+            }
             fail(gen, e.message)
             return false
         } catch {

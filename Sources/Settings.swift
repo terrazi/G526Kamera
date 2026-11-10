@@ -192,7 +192,7 @@ final class AppSettings: ObservableObject {
         geminiSession = d.object(forKey: "geminiSession") as? Bool ?? true
         geminiCallWord = d.string(forKey: "geminiCallWord") ?? GeminiText.defaultCallWord
         geminiPrivacyOK = d.object(forKey: "geminiPrivacyOK") as? Bool ?? false
-        geminiDocCount = min(max(d.object(forKey: "geminiDocCount") as? Int ?? 3, 1), 10)
+        geminiDocCount = min(max(d.object(forKey: "geminiDocCount") as? Int ?? 3, 1), 30)
         previewOff = d.object(forKey: "previewOff") as? Bool ?? false
         dimWhenPreviewOff = d.object(forKey: "dimWhenPreviewOff") as? Bool ?? true
     }

@@ -29,7 +29,9 @@ enum GeminiConfig {
             + "sayfaları düzelterek oku.",
         "7. Bütün belgeleri bir bütün olarak değerlendir: bir sorunun metni, şıkları ya da ilgili bilgi farklı belgelerde ya "
             + "da sayfalarda olabilir, hepsini birleştirerek cevapla. Aynı sayfa birden çok kez taranmış (mükerrer) olabilir: "
-            + "en temiz ve en okunaklı olanı esas al, diğerlerini yok say, aynı bilgiyi iki kez sayma.",
+            + "en temiz ve en okunaklı olanı esas al, diğerlerini yok say, aynı bilgiyi iki kez sayma. PDF'lerin sonunda "
+            + "'okunan metin (OCR)' başlıklı sayfalar olabilir: bunlar otomatik okumanın çıktısıdır ve hatalı olabilir; "
+            + "sayfa görüntüsüyle çelişirse görüntüyü esas al.",
         "8. Kullanıcı belgelerdeki numaralı bir soruyu istediğinde ('beşinci soruyu cevapla', '5. soru'), o soruyu belgelerde "
             + "bul ve cevabı tam şu kalıpla ver: 'Beşinci sorunun cevabı, C, CEYHAN şıkkıdır.' Sıra sayısını yazıyla yaz "
             + "(birinci, ikinci, … beşinci, onuncu), şıkkı belgedeki harfi ve metniyle söyle; şık harfini ASLA tek başına söyleme, yanında şıkkın metnini (sayı, tarih, birim dahil) eksiksiz yaz (şıklarda harf yoksa yalnız "

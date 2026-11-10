@@ -120,6 +120,25 @@ final class UploadQueue: ObservableObject {
         kick()
     }
 
+    /// Gemini'ye sormadan önce: biriken (toplu modda bekleyen) fotoğrafları şimdi gönderir ve yüklenmelerini bekler.
+    /// En fazla `timeout` sn bekler; art arda 2 yeni hata olursa (internet yok) vazgeçer. Hâlâ yüklenmeyen sayıyı döndürür.
+    func flushAndWait(timeout: TimeInterval = 90) async -> Int {
+        guard !pendingFiles().isEmpty, GoogleAuth.shared.isSignedIn else {
+            pending = pendingFiles().count
+            return pending
+        }
+        let failuresAtStart = failures
+        retry()
+        let end = Date().addingTimeInterval(max(0, timeout))
+        while Date() < end && !Task.isCancelled {
+            if pendingFiles().isEmpty { break }
+            if failures >= failuresAtStart + 2 { break }
+            try? await Task.sleep(nanoseconds: 250_000_000)
+        }
+        pending = pendingFiles().count
+        return pending
+    }
+
     func kick() {
         if worker != nil { return }
         worker = Task { [weak self] in

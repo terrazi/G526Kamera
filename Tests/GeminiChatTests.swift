@@ -64,6 +64,11 @@ private final class FakeRecorder: QuestionRecording {
     }
 }
 
+private final class FlushLog {
+    var calls = 0
+    var remaining = 0
+}
+
 private final class Log {
     var spoken: [String] = []
     var active: [Bool] = []
@@ -462,6 +467,84 @@ final class GeminiChatTests: XCTestCase {
 
     private func capError() -> Result<GeminiAnswer, Error> {
         return .failure(GeminiError("Aylık harcama sınırınız doldu.", .cap, status: 429))
+    }
+
+    func testTransientErrorKeepsTheSessionOpen() async {
+        log.autoFinish = true
+        options.session = true
+        client.replies = [.failure(GeminiError("Gemini şu an yanıt vermiyor (503).", .http, status: 503)), answer("Yüz lira.")]
+        recorder.results = [(Data(count: 32000), .done), (Data(count: 32000), .done), noSpeech]
+        chat.ask()
+        let ended = await waitUntil { self.chat.status == "Oturum bitti" }
+        XCTAssertTrue(ended)
+        XCTAssertEqual(log.spoken, ["1 belge hazır. Sorunuzu bekliyorum.",
+                                    "Gemini şu an yanıt vermiyor (503). Sorunuzu yeniden söyleyebilirsiniz.",
+                                    "Yüz lira. Sonraki sorunuzu bekliyorum."])
+        XCTAssertEqual(client.calls.count, 2)
+        XCTAssertEqual(chat.turns, 1)
+        XCTAssertEqual(chat.error, "", "başarılı cevaptan sonra hata temizlenir")
+    }
+
+    func testKeyErrorEndsTheSession() async {
+        log.autoFinish = true
+        options.session = true
+        client.replies = [.failure(GeminiError("Anahtar geçersiz.", .key, status: 403))]
+        recorder.results = [(Data(count: 32000), .done), (Data(count: 32000), .done)]
+        chat.ask()
+        let ended = await waitUntil { self.chat.phase == .idle && self.chat.error == "Anahtar geçersiz." }
+        XCTAssertTrue(ended)
+        XCTAssertEqual(client.calls.count, 1)
+        XCTAssertEqual(recorder.waits.count, 1, "anahtar hatasından sonra yeniden dinlenmemeli")
+    }
+
+    func testRepeatedTransientErrorsEndTheSession() async {
+        log.autoFinish = true
+        options.session = true
+        let down = GeminiError("İnternete ulaşılamadı.", .network)
+        client.replies = [.failure(down), .failure(down), .failure(down)]
+        recorder.results = [(Data(count: 32000), .done), (Data(count: 32000), .done), (Data(count: 32000), .done),
+                            (Data(count: 32000), .done)]
+        chat.ask()
+        let ended = await waitUntil { self.chat.phase == .idle && self.client.calls.count == 3 }
+        XCTAssertTrue(ended)
+        XCTAssertEqual(chat.error, "İnternete ulaşılamadı.")
+        XCTAssertEqual(client.calls.count, 3, "üçüncü geçici hatada oturum kapanır")
+        XCTAssertEqual(log.spoken.filter { $0.hasSuffix("Sorunuzu yeniden söyleyebilirsiniz.") }.count, 2)
+    }
+
+    func testPendingPhotosAreFlushedBeforeEachDriveRead() async {
+        log.autoFinish = true
+        options.session = true
+        let flush = FlushLog()
+        chat.flushUploads = { flush.calls += 1; return flush.remaining }
+        recorder.results = [(Data(count: 32000), .done), noSpeech]
+        chat.ask()
+        let ended = await waitUntil { self.chat.status == "Oturum bitti" }
+        XCTAssertTrue(ended)
+        XCTAssertEqual(flush.calls, 2, "oturum başında ve soruda")
+        XCTAssertEqual(log.spoken, ["1 belge hazır. Sorunuzu bekliyorum.", "Cevap 1. Sonraki sorunuzu bekliyorum."],
+                       "her şey yüklendiyse uyarı yok")
+        XCTAssertFalse(chat.notes.contains { $0.contains("henüz Drive") })
+    }
+
+    func testPhotosStillUnsentAreWarnedAboutInTheGreetingAndTheAnswer() async {
+        log.autoFinish = true
+        options.session = true
+        let flush = FlushLog()
+        flush.remaining = 2
+        chat.flushUploads = { flush.calls += 1; return flush.remaining }
+        recorder.results = [(Data(count: 32000), .done), noSpeech]
+        chat.ask()
+        let ended = await waitUntil { self.chat.status == "Oturum bitti" }
+        XCTAssertTrue(ended)
+        let note = "2 fotoğraf henüz Drive'a yüklenmedi, Gemini onları göremez."
+        XCTAssertEqual(log.spoken, ["1 belge hazır. Dikkat: \(note) Sorunuzu bekliyorum.",
+                                    "Dikkat: \(note) Cevap 1. Sonraki sorunuzu bekliyorum."])
+        XCTAssertTrue(chat.notes.contains(note))
+    }
+
+    func testUnsentNoteText() {
+        XCTAssertEqual(GeminiText.unsentNote(3), "3 fotoğraf henüz Drive'a yüklenmedi, Gemini onları göremez.")
     }
 
     func testSpendingCapSwitchesToTheFreeProfileAndRetries() async {

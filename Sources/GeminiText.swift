@@ -9,6 +9,13 @@ enum GeminiText {
     private static let geminiVariants = ["cimini", "geminay", "ceminay", "cemini", "jemini"]
     /// Oturumda her cevabın sonuna uygulama ekler (Gemini'ye bunu söyletmiyoruz)
     static let nextQuestionLine = "Sonraki sorunuzu bekliyorum."
+    /// Oturumda geçici bir hata söylendikten sonra
+    static let retryLine = "Sorunuzu yeniden söyleyebilirsiniz."
+
+    /// Drive'a henüz yüklenmemiş fotoğraflar için uyarı (Gemini onları göremez)
+    static func unsentNote(_ count: Int) -> String {
+        return "\(count) fotoğraf henüz Drive'a yüklenmedi, Gemini onları göremez."
+    }
 
     /// Oturum başında söylenen hazırlık cümlesi. `new`: önceki hazırlıktan beri gelen yeni belge sayısı (ilkinde nil).
     /// `warnings`: atlanan belge gibi sorulara etki eden uyarılar (sesle de söylenir).

@@ -205,6 +205,10 @@ final class AppModel: ObservableObject {
         gemini.stopSpeaking = { [weak self] in
             self?.speaker.stop()
         }
+        // Gemini'ye sormadan önce biriken fotoğraflar Drive'a gönderilir
+        gemini.flushUploads = {
+            return await UploadQueue.shared.flushAndWait(timeout: 90)
+        }
         // Aylık harcama sınırı dolunca ücretsiz profile geçildi: ayarlar güncellenir, yeni ayda eski profile dönülür
         gemini.onProfileSwitch = { [weak self] from, to in
             guard let self = self else { return }

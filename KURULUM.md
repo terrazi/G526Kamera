@@ -119,7 +119,14 @@ Drive'a gönderdiğiniz son PDF'ler hakkında sesle soru sorarsınız; cevap iPh
    Dikkat: ücretsiz anahtarda Google içeriğinizi ürünlerini geliştirmek için kullanabilir; gizli belgeleriniz varsa
    **Harcama sınırı dolunca ücretsiz modele geç** kutusunu kapatın.
 10. Her soruda ses kaydınız ve seçilen PDF'ler (en çok ~14 MB) hücresel veriyle Google'a gider.
-11. **Şık cevapları:** şık verirken harfle birlikte şıkkın metni de okunur ("C, CEYHAN şıkkıdır"); harf tek başına söylenmez.
+11. **Belge sayısı:** "Gönderilecek son belge sayısı" 1-30 arasıdır. Tek tek göndermede her sayfa ayrı PDF'tir; taradığınız
+    sayfa sayısı kadar yapın, yoksa Gemini yalnız en yeni birkaç sayfayı görür. Toplu göndermede bir PDF birçok sayfa içerir.
+12. **Bekleyen fotoğraflar:** Gemini'ye her sorudan önce, Drive'a henüz gitmemiş (toplu modda biriken) fotoğraflar kendiliğinden
+    gönderilir ve yüklenmeleri en çok 90 sn beklenir. Yine de yüklenemeyenler olursa (internet yok) program bunu sesle söyler:
+    "N fotoğraf henüz Drive'a yüklenmedi, Gemini onları göremez."
+13. **Geçici hatalar:** oturum sırasında internet kopması ya da Gemini'nin geçici hatası oturumu kapatmaz; hata söylenir ve
+    "Sorunuzu yeniden söyleyebilirsiniz" denir. Üst üste 3. hatada, ya da anahtar/model/kota/harcama sınırı hatasında oturum kapanır.
+14. **Şık cevapları:** şık verirken harfle birlikte şıkkın metni de okunur ("C, CEYHAN şıkkıdır"); harf tek başına söylenmez.
     Aynı numaralı soru birden çok belgede varsa program tahmin etmez, "hangisi?" diye sorar.
 
 ### Akıllı OCR (Gemini ile)

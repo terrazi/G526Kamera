@@ -191,9 +191,11 @@ struct SettingsView: View {
                 Text("Bu sözcük başka bir komutla aynı: \(callWordClashes.joined(separator: ", ")). Farklı bir sözcük seçin.")
                     .font(.footnote).foregroundColor(.orange)
             }
-            Stepper(value: $settings.geminiDocCount, in: 1...10) {
+            Stepper(value: $settings.geminiDocCount, in: 1...30) {
                 Text(verbatim: "Gönderilecek son belge sayısı: \(settings.geminiDocCount)")
             }
+            Text("Tek tek göndermede her sayfa ayrı belgedir: taradığınız sayfa sayısı kadar yapın.")
+                .font(.footnote).foregroundColor(.secondary)
             Toggle("Ses kaydımın ve PDF’lerimin Google’a gönderilmesini onaylıyorum", isOn: $settings.geminiPrivacyOK)
                 .accessibilityIdentifier("gemini-gizlilik")
         }
