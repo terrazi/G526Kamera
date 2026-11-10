@@ -150,6 +150,9 @@ enum GeminiSupport {
         if status == 413 {
             return (.tooBig, "İstek çok büyük. Daha az ya da daha küçük belge seçin.")
         }
+        if status == 429 && low.contains("spending cap") {
+            return (.quota, "Aylık harcama sınırınız doldu. AI Studio'da Spend sayfasından sınırı yükseltin ya da ayın birinde sıfırlanmasını bekleyin.")
+        }
         if status == 429 {
             var wait = ""
             if let regex = try? NSRegularExpression(pattern: "retry in ([0-9.]+)s", options: [.caseInsensitive]),
