@@ -3,8 +3,12 @@ import Foundation
 /// Gemini cevabını sesli okunacak düz metne çevirir ve sorunun başındaki "Gemini" çağrı sözcüğünü atar
 /// (Windows sürümündeki talk.py'nin clean_for_speech / strip_trigger karşılığı).
 enum GeminiText {
-    /// Sesli komut olarak "Gemini" demenin tanınabilecek yazılışları (konuşma tanıma "Cemini", "Jemini" diye de duyabilir)
-    static let callWords = "gemini, cimini, geminay, ceminay"
+    /// Ayarlarda hiçbir şey yazılı değilse kullanılan çağrı sözcüğü
+    static let defaultCallWord = "gemini"
+    /// Çağrı sözcüğü "gemini" ise konuşma tanımanın onu yazabileceği başka biçimler de kabul edilir
+    private static let geminiVariants = ["cimini", "geminay", "ceminay", "cemini", "jemini"]
+    /// Bundan kısa sözcükler çağrı sözcüğü sayılmaz (sohbette kendiliğinden tetikler)
+    static let minCallWordLength = 3
 
     private static let turkish = Locale(identifier: "tr_TR")
 
@@ -71,6 +75,9 @@ enum GeminiText {
         for word in words.sorted(by: { $0.count > $1.count }) {
             let w = fold(word).trimmed
             if !w.isEmpty && folded.hasPrefix(w) {
+                // "dostumun faturası" gibi sözcüğün ortasında kesmesin: çağrı sözcüğünden sonra harf gelmemeli
+                let end = folded.index(folded.startIndex, offsetBy: w.count)
+                if end < folded.endIndex && (folded[end].isLetter || folded[end].isNumber) { continue }
                 let rest = t.dropFirst(w.count)
                 return String(rest.drop(while: { " ,.:;-".contains($0) }))
             }
@@ -78,10 +85,42 @@ enum GeminiText {
         return t
     }
 
-    /// callWords listesini sözcük dizisine çevirir
-    static var triggerList: [String] {
-        return callWords.split(whereSeparator: { $0 == "," || $0 == ";" })
-            .map { String($0).trimmed }
-            .filter { !$0.isEmpty } + ["cemini", "jemini", "gemini"]
+    /// Ayardaki çağrı sözcüklerini ("dostum, gemini" gibi, virgülle) temiz listeye çevirir: çok kısa ve yinelenen
+    /// girdiler atılır, boşsa "gemini" kullanılır, "gemini" varsa tanıma varyantları eklenir.
+    static func callWordList(_ setting: String) -> [String] {
+        var list: [String] = []
+        for part in setting.split(whereSeparator: { $0 == "," || $0 == ";" }) {
+            let w = String(part).trimmed
+            let key = fold(w)
+            if key.count >= minCallWordLength && !list.contains(where: { fold($0) == key }) { list.append(w) }
+        }
+        if list.isEmpty { list = [defaultCallWord] }
+        if list.contains(where: { fold($0) == defaultCallWord }) {
+            for v in geminiVariants where !list.contains(where: { fold($0) == v }) { list.append(v) }
+        }
+        return list
+    }
+
+    /// Sesli komut kaydı için virgülle ayrılmış söylenişler
+    static func callPhrases(_ setting: String) -> String {
+        return callWordList(setting).joined(separator: ", ")
+    }
+
+    /// Sorunun başından atılacak sözcükler
+    static func triggerList(for setting: String) -> [String] {
+        return callWordList(setting)
+    }
+
+    /// Çağrı sözcüğü başka bir komutla (ör. fotoğraf çekme sözcüğü) aynıysa o sözcüklerin listesi
+    static func clashes(_ setting: String, with others: [String]) -> [String] {
+        let mine = Set(callWordList(setting).map { fold($0) })
+        var out: [String] = []
+        for other in others {
+            for part in other.split(whereSeparator: { $0 == "," || $0 == ";" }) {
+                let w = String(part).trimmed
+                if mine.contains(fold(w)) && !out.contains(w) { out.append(w) }
+            }
+        }
+        return out
     }
 }

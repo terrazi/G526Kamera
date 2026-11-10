@@ -74,6 +74,8 @@ final class AppSettings: ObservableObject {
     @Published var geminiEnabled: Bool { didSet { d.set(geminiEnabled, forKey: "geminiEnabled") } }
     /// Google AI Studio API anahtarı (yalnız Keychain'de saklanır)
     @Published var geminiKey: String { didSet { Keychain.set(geminiKey.trimmed, for: "geminiApiKey") } }
+    /// Gemini'yi çağıran sözcük(ler), virgülle ("dostum, gemini"); boşsa "gemini"
+    @Published var geminiCallWord: String { didSet { d.set(geminiCallWord, forKey: "geminiCallWord") } }
     /// Boşsa varsayılan model kullanılır
     @Published var geminiModel: String { didSet { d.set(geminiModel, forKey: "geminiModel") } }
     /// Belgelerin ve ses kaydının Google'a gönderileceğinin onayı (onay olmadan soru sorulmaz)
@@ -149,6 +151,7 @@ final class AppSettings: ObservableObject {
         finishWord = d.string(forKey: "finishWord") ?? "hepsi tamamlandı"
         geminiEnabled = d.object(forKey: "geminiEnabled") as? Bool ?? false
         geminiKey = Keychain.get("geminiApiKey") ?? ""
+        geminiCallWord = d.string(forKey: "geminiCallWord") ?? GeminiText.defaultCallWord
         geminiModel = d.string(forKey: "geminiModel") ?? GeminiConfig.defaultModel
         geminiPrivacyOK = d.object(forKey: "geminiPrivacyOK") as? Bool ?? false
         geminiDocCount = min(max(d.object(forKey: "geminiDocCount") as? Int ?? 3, 1), 5)

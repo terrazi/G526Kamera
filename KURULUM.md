@@ -86,11 +86,14 @@ Drive'a gönderdiğiniz son PDF'ler hakkında sesle soru sorarsınız; cevap iPh
 2. **Dişli > Gemini ile belge sohbeti**: anahtarı yapıştırın, "Ses kaydımın ve PDF'lerimin Google'a gönderilmesini
    onaylıyorum" kutusunu işaretleyin, **Gemini'ye sesle soru sor**'u açın. Model boşsa `gemini-3.8-flash` kullanılır.
 3. **Dişli > Google Drive > dosya türü: PDF** olmalı (Gemini yalnız Drive'daki PDF'leri okur).
-4. Kullanım: **"Gemini"** deyin, kısa "tık" sesinden sonra sorunuzu söyleyin (susunca gönderilir), ya da ana ekrandaki
-   **Gemini'ye sor** düğmesine basın. Örnek: "Son faturanın tutarı ne kadar?", "Bu sözleşmede ödeme vadesi kaç gün?"
+4. Çağrı sözcüğünü değiştirmek için **Çağrı sözcüğü** kutusuna istediğinizi yazın (ör. `dostum`; virgülle birden çok:
+   `dostum, gemini`). En az 3 harf olsun, gündelik konuşmada sık geçmesin, fotoğraf çekme/gönder sözcüklerinden farklı
+   olsun. Kutu boşsa "gemini" kullanılır.
+5. Kullanım: **çağrı sözcüğünü** ("Gemini" ya da seçtiğiniz) deyin, kısa "tık" sesinden sonra sorunuzu söyleyin
+   (susunca gönderilir), ya da ana ekrandaki **Gemini'ye sor** düğmesine basın. Örnek: "Son faturanın tutarı ne kadar?", "Bu sözleşmede ödeme vadesi kaç gün?"
    Sohbet son 6 soruyu hatırlar; **Yeni sohbet** sıfırlar.
-5. Soru sürerken sürekli dinleyen "Okey" komutu kısa süre durur, cevap bitince yeniden başlar.
-6. Her soruda ses kaydınız ve seçilen PDF'ler (en çok ~14 MB) hücresel veriyle Google'a gider.
+6. Soru sürerken sürekli dinleyen "Okey" komutu kısa süre durur, cevap bitince yeniden başlar.
+7. Her soruda ses kaydınız ve seçilen PDF'ler (en çok ~14 MB) hücresel veriyle Google'a gider.
 
 ## Sorun giderme
 

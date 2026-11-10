@@ -112,14 +112,28 @@ struct SettingsView: View {
         }
     }
 
+    /// Gemini çağrı sözcüğü fotoğraf çekme / gönderme sözcükleriyle çakışıyorsa uyarı için
+    private var callWordClashes: [String] {
+        let others = [settings.triggerWord, settings.finishWord, GuidanceVocabulary.finish]
+        return GeminiText.clashes(settings.geminiCallWord, with: others)
+    }
+
     private var geminiSection: some View {
         Section(header: Text("Gemini ile belge sohbeti"),
-                footer: Text("Drive’a gönderdiğiniz son PDF’leri Gemini’ye verir; “Gemini” deyip (kısa bir “tık” sesinden sonra) ya da ana ekrandaki düğmeyle belgeler hakkında sesli soru sorarsınız, cevap Türkçe sesle okunur. Anahtarı aistudio.google.com adresinden alın ve buraya yapıştırın; yalnız bu telefonun Keychain’inde saklanır, kimseyle paylaşmayın. Ücretsiz anahtarda günlük istek sınırı düşüktür ve Google gönderdiğiniz içeriği ürünlerini geliştirmek için kullanabilir; faturalandırma bağlı (ücretli) bir projenin anahtarında içerik bu amaçla kullanılmaz. Her soruda ses kaydınız ve seçilen PDF’ler Google’a gönderilir; IBAN, vergi numarası gibi bilgiler içeren belgeler için ücretli anahtarı tercih edin. Belgelerin PDF olarak Drive’a gitmesi gerekir (Google Drive bölümünde dosya türü “PDF”). “Gemini” sesli komutu için Sesli komut açık olmalıdır; düğme her zaman çalışır.")) {
+                footer: Text("Drive’a gönderdiğiniz son PDF’leri Gemini’ye verir; çağrı sözcüğünü (varsayılan “Gemini”) söyleyip (kısa bir “tık” sesinden sonra) ya da ana ekrandaki düğmeyle belgeler hakkında sesli soru sorarsınız, cevap Türkçe sesle okunur. Anahtarı aistudio.google.com adresinden alın ve buraya yapıştırın; yalnız bu telefonun Keychain’inde saklanır, kimseyle paylaşmayın. Ücretsiz anahtarda günlük istek sınırı düşüktür ve Google gönderdiğiniz içeriği ürünlerini geliştirmek için kullanabilir; faturalandırma bağlı (ücretli) bir projenin anahtarında içerik bu amaçla kullanılmaz. Her soruda ses kaydınız ve seçilen PDF’ler Google’a gönderilir; IBAN, vergi numarası gibi bilgiler içeren belgeler için ücretli anahtarı tercih edin. Belgelerin PDF olarak Drive’a gitmesi gerekir (Google Drive bölümünde dosya türü “PDF”). Çağrı sözcüğü için Sesli komut açık olmalıdır; düğme her zaman çalışır. Çağrı sözcüğünü değiştirebilirsiniz (ör. “dostum”; virgülle birden çok yazabilirsiniz, en az 3 harf). Gündelik konuşmada sık geçen bir sözcük seçerseniz Gemini yanlışlıkla açılabilir; fotoğraf çekme ve gönder sözcüklerinden farklı olsun.")) {
             Toggle("Gemini’ye sesle soru sor", isOn: $settings.geminiEnabled)
                 .accessibilityIdentifier("gemini-ac")
             SecureField("Gemini API anahtarı", text: $settings.geminiKey)
                 .textInputAutocapitalization(.never)
                 .disableAutocorrection(true)
+            TextField("Çağrı sözcüğü (boşsa \(GeminiText.defaultCallWord))", text: $settings.geminiCallWord)
+                .textInputAutocapitalization(.never)
+                .disableAutocorrection(true)
+                .accessibilityIdentifier("gemini-cagri-sozcugu")
+            if !callWordClashes.isEmpty {
+                Text("Bu sözcük başka bir komutla aynı: \(callWordClashes.joined(separator: ", ")). Farklı bir sözcük seçin.")
+                    .font(.footnote).foregroundColor(.orange)
+            }
             TextField("Model (boşsa \(GeminiConfig.defaultModel))", text: $settings.geminiModel)
                 .textInputAutocapitalization(.never)
                 .disableAutocorrection(true)

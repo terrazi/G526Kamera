@@ -77,7 +77,8 @@ final class AppModel: ObservableObject {
         recorder: QuestionRecorder(),
         options: {
             let s = AppSettings.shared
-            return GeminiOptions(privacyOK: s.geminiPrivacyOK, hasKey: !s.geminiKey.trimmed.isEmpty, docCount: s.geminiDocCount)
+            return GeminiOptions(privacyOK: s.geminiPrivacyOK, hasKey: !s.geminiKey.trimmed.isEmpty, docCount: s.geminiDocCount,
+                                 callWords: s.geminiCallWord)
         })
     private var guidanceWasOn = false
     private var speechActive = false
@@ -306,7 +307,7 @@ final class AppModel: ObservableObject {
             cameraKey = cKey
             restartCamera()
         }
-        let sKey = "\(settings.voiceEnabled)|\(settings.triggerWord)|\(settings.guidanceEnabled)|\(settings.finishWord)|\(settings.geminiEnabled)"
+        let sKey = "\(settings.voiceEnabled)|\(settings.triggerWord)|\(settings.guidanceEnabled)|\(settings.finishWord)|\(settings.geminiEnabled)|\(settings.geminiCallWord)"
         if force || sKey != speechKey {
             speechKey = sKey
             restartSpeech()
@@ -377,7 +378,7 @@ final class AppModel: ObservableObject {
             commands.append(SpeechTrigger.Command(id: "choice.last", tokens: GuidanceVocabulary.last))
         }
         if settings.geminiEnabled {
-            commands.append(SpeechTrigger.Command(id: "gemini", phrases: GeminiText.callWords))
+            commands.append(SpeechTrigger.Command(id: "gemini", phrases: GeminiText.callPhrases(settings.geminiCallWord)))
         }
         speech.setCommands(commands)
         guard settings.voiceEnabled || settings.guidanceEnabled else {

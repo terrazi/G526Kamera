@@ -5,6 +5,8 @@ struct GeminiOptions {
     var privacyOK: Bool
     var hasKey: Bool
     var docCount: Int
+    /// Sorunun başındaki çağrı sözcüğünü atmak için (ayardaki ham metin)
+    var callWords: String = GeminiText.defaultCallWord
 }
 
 /// Gemini ile belge sohbeti: sesli soru → Drive'daki son PDF'ler + Gemini → sesli cevap.
@@ -172,7 +174,7 @@ final class GeminiChat: ObservableObject {
             guard gen == generation else { return }
 
             let heard = reply.question.isEmpty ? typed : reply.question
-            let q = GeminiText.stripTrigger(heard, words: GeminiText.triggerList)
+            let q = GeminiText.stripTrigger(heard, words: GeminiText.triggerList(for: options().callWords))
             question = q
             answer = reply.answer
             tokens = reply.totalTokens

@@ -223,11 +223,56 @@ final class GeminiTextTests: XCTestCase {
     }
 
     func testCallWordIsStripped() {
-        let words = GeminiText.triggerList
+        let words = GeminiText.triggerList(for: GeminiText.defaultCallWord)
         XCTAssertEqual(GeminiText.stripTrigger("Gemini, son faturanın tutarı nedir", words: words), "son faturanın tutarı nedir")
         XCTAssertEqual(GeminiText.stripTrigger("Cemini son fatura", words: words), "son fatura")
         XCTAssertEqual(GeminiText.stripTrigger("Gemini", words: words), "")
         XCTAssertEqual(GeminiText.stripTrigger("bugün gemini", words: words), "bugün gemini")
+    }
+
+    func testDefaultCallWordsIncludeRecognitionVariants() {
+        let list = GeminiText.callWordList("")
+        XCTAssertEqual(list.first, "gemini")
+        for v in ["cimini", "geminay", "ceminay", "cemini", "jemini"] { XCTAssertTrue(list.contains(v), v) }
+        XCTAssertEqual(GeminiText.callWordList("  ;; "), list)
+    }
+
+    func testCustomCallWordReplacesTheDefault() {
+        XCTAssertEqual(GeminiText.callWordList("dostum"), ["dostum"])
+        XCTAssertEqual(GeminiText.callPhrases("Dostum, hey asistan"), "Dostum, hey asistan")
+        // "gemini" listede kalırsa varyantları da gelir, yinelenenler atılır
+        let both = GeminiText.callWordList("dostum; Gemini, dostum")
+        XCTAssertEqual(Array(both.prefix(2)), ["dostum", "Gemini"])
+        XCTAssertTrue(both.contains("jemini"))
+        XCTAssertEqual(both.filter { GeminiText.fold($0) == "dostum" }.count, 1)
+    }
+
+    func testTooShortCallWordsAreDropped() {
+        XCTAssertEqual(GeminiText.callWordList("ok, he, dostum"), ["dostum"])
+        XCTAssertEqual(GeminiText.callWordList("ok"), GeminiText.callWordList(""))
+    }
+
+    func testCustomCallWordIsStrippedOnlyAsAWholeWord() {
+        let words = GeminiText.triggerList(for: "dostum")
+        XCTAssertEqual(GeminiText.stripTrigger("Dostum, son faturanın tutarı nedir", words: words), "son faturanın tutarı nedir")
+        XCTAssertEqual(GeminiText.stripTrigger("DOSTUM kira ne kadar", words: words), "kira ne kadar")
+        XCTAssertEqual(GeminiText.stripTrigger("dostumun faturası ne kadar", words: words), "dostumun faturası ne kadar")
+        // "dostum" seçilince "gemini" artık çağrı sözcüğü değildir
+        XCTAssertEqual(GeminiText.stripTrigger("Gemini kira ne kadar", words: words), "Gemini kira ne kadar")
+    }
+
+    func testCallWordMatchesWhatTheRecognizerHears() {
+        let phrases = GeminiText.callPhrases("dostum")
+        XCTAssertGreaterThan(SpeechMatcher.occurrences(in: "dostum son fatura ne kadar", trigger: phrases), 0)
+        XCTAssertGreaterThan(SpeechMatcher.occurrences(in: "Dostum", trigger: phrases), 0)
+        XCTAssertEqual(SpeechMatcher.occurrences(in: "gemini son fatura", trigger: phrases), 0)
+        XCTAssertGreaterThan(SpeechMatcher.occurrences(in: "cemini son fatura", trigger: GeminiText.callPhrases("")), 0)
+    }
+
+    func testCallWordClashWithOtherCommandsIsReported() {
+        XCTAssertEqual(GeminiText.clashes("okey", with: ["okey, tamam"]), ["okey"])
+        XCTAssertEqual(GeminiText.clashes("dostum", with: ["okey", "hepsi tamamlandı"]), [])
+        XCTAssertEqual(GeminiText.clashes("", with: ["okey"]), [])
     }
 }
 
