@@ -416,6 +416,16 @@ final class GeminiSessionTextTests: XCTestCase {
         XCTAssertFalse(plain.switchModel)
     }
 
+    func testServerErrorShowsTheServersOwnMessage() {
+        let google = GeminiSupport.describeError(status: 503, json: GeminiSupport.errorObject(from: Data("{\"error\":{\"message\":\"The model is overloaded.\"}}".utf8)), model: "m").1
+        XCTAssertEqual(google, "Gemini şu an yanıt vermiyor (503). Sunucunun mesajı: The model is overloaded. Biraz sonra yeniden deneyin.")
+        let proxy = GeminiSupport.describeError(status: 503, json: GeminiSupport.errorObject(from: Data("<html><body><h1>503 Service Unavailable</h1><p>Proxy blocked</p></body></html>".utf8)), model: "m").1
+        XCTAssertTrue(proxy.contains("Proxy blocked"), proxy)
+        XCTAssertFalse(proxy.contains("<"), proxy)
+        XCTAssertEqual(GeminiSupport.describeError(status: 503, json: GeminiSupport.errorObject(from: Data()), model: "m").1,
+                       "Gemini şu an yanıt vermiyor (503). Biraz sonra yeniden deneyin.")
+    }
+
     func testTruncatedJsonSalvagesAnswerInsteadOfReadingRawJson() throws {
         func response(_ text: String, finish: String) -> [String: Any] {
             return ["candidates": [["finishReason": finish, "content": ["parts": [["text": text]]]]]]

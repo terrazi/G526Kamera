@@ -334,11 +334,20 @@ final class GeminiChat: ObservableObject {
             return try await client.ask(questionText: text, audioWAV: audio, docs: list, history: history, cached: cached)
         }
         func retryable(_ e: GeminiError) -> Bool { return e.status == 400 || e.status == 403 || e.status == 404 }
+        func serverFault(_ e: GeminiError) -> Bool { return e.status == 500 || e.status == 502 || e.status == 503 || e.status == 504 }
         var first = GeminiError("", .error)
         do {
             return try await go(docs, cache)
         } catch let e as GeminiError {
-            guard GeminiSupport.allRemote(docs), retryable(e) else { throw e }
+            guard GeminiSupport.allRemote(docs) else { throw e }
+            if serverFault(e) {
+                // Önbellekli istek sunucu hatasında takılıyorsa (yeniden denemelerden sonra bile) önbelleksiz, dosya adresli dene
+                guard !cache.isEmpty else { throw e }
+                tlog("[gemini] önbellekli istek sunucu hatası verdi (\(e.message)), önbelleksiz deneniyor")
+                await memory?.dropCache()
+                return try await go(docs, "")
+            }
+            guard retryable(e) else { throw e }
             first = e
         }
         tlog("[gemini] önbellek/dosya geçersiz olabilir (\(first.message)), denetleniyor")

@@ -240,6 +240,19 @@ enum GeminiSupport {
 
     // MARK: Hata çevirisi
 
+    /// Hata yanıtının gövdesinden hata nesnesi. JSON değilse (aradaki proxy / güvenlik duvarı HTML sayfası döndürmüş olabilir)
+    /// etiketleri atılmış kısa metin "message" olarak konur; böylece nedeni görülebilir.
+    static func errorObject(from data: Data) -> [String: Any] {
+        if let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any], !obj.isEmpty { return obj }
+        var text = String(decoding: data, as: UTF8.self)
+        if let regex = try? NSRegularExpression(pattern: "<[^>]*>") {
+            text = regex.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: " ")
+        }
+        let flat = text.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+        if flat.isEmpty { return [:] }
+        return ["error": ["message": String(flat.prefix(200))]]
+    }
+
     static func describeError(status: Int, json: [String: Any], model: String) -> (GeminiErrorKind, String) {
         var message = ""
         var reason = ""
@@ -283,7 +296,9 @@ enum GeminiSupport {
             return (.http, "Gemini isteği kabul etmedi (400): " + (message.isEmpty ? "bilinmeyen neden" : message))
         }
         if status >= 500 {
-            return (.http, "Gemini şu an yanıt vermiyor (\(status)). Biraz sonra yeniden deneyin.")
+            let detail = message.trimmed.trimmingCharacters(in: CharacterSet(charactersIn: "."))
+            let shown = detail.isEmpty ? "" : " Sunucunun mesajı: \(String(detail.prefix(200)))."
+            return (.http, "Gemini şu an yanıt vermiyor (\(status)).\(shown) Biraz sonra yeniden deneyin.")
         }
         return (.http, "Gemini hatası (\(status)): " + String(message.prefix(200)))
     }
@@ -897,8 +912,8 @@ final class GeminiClient: GeminiAsking, GeminiRemote {
                 tlog("[gemini] HTTP \(status), yeniden deneniyor (\(serverAttempt)/\(serverRetries))")
                 continue
             }
-            let (kind, message) = GeminiSupport.describeError(status: status, json: (json as? [String: Any]) ?? [:], model: model)
-            tlog("[gemini] HTTP \(status): \(message)")
+            let (kind, message) = GeminiSupport.describeError(status: status, json: GeminiSupport.errorObject(from: data), model: model)
+            tlog("[gemini] HTTP \(status) (\(path.split(separator: "?").first.map(String.init) ?? path)): \(message)")
             throw GeminiError(message, kind, status: status)
         }
     }
@@ -958,7 +973,7 @@ extension GeminiClient {
     private func checked(_ status: Int, _ data: Data) throws -> [String: Any] {
         let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
         if (200..<300).contains(status) { return json }
-        let (kind, message) = GeminiSupport.describeError(status: status, json: json, model: model)
+        let (kind, message) = GeminiSupport.describeError(status: status, json: GeminiSupport.errorObject(from: data), model: model)
         tlog("[gemini] HTTP \(status): \(message)")
         throw GeminiError(message, kind, status: status)
     }

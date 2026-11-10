@@ -898,6 +898,21 @@ final class GeminiChatTests: XCTestCase {
         XCTAssertTrue(log.spoken.contains("Tamam. Sonraki sorunuzu bekliyorum."), "\(log.spoken)")
     }
 
+    func testServerErrorWithCacheFallsBackToAskingWithoutIt() async {
+        let memory = FakeMemory()
+        chat = makeChat(memory: memory)
+        log.autoFinish = true
+        options.session = true
+        client.replies = [.failure(GeminiError("Gemini şu an yanıt vermiyor (503).", .http, status: 503)), .success(GeminiAnswer(question: "q", answer: "Tamam."))]
+        docs.result = .success((docs: [GeminiDoc(name: "a.pdf", fileURL: URL(fileURLWithPath: "/tmp/yok.pdf"), size: 10, pages: 40, key: "k1")], notes: []))
+        recorder.results = [(Data(count: 32000), .done), noSpeech]
+        chat.ask()
+        _ = await waitUntil { self.chat.status == "Oturum bitti" }
+        XCTAssertEqual(client.calls.map { $0.cached }, ["cachedContents/1", ""])
+        XCTAssertEqual(memory.dropped, 1)
+        XCTAssertTrue(log.spoken.contains("Tamam. Sonraki sorunuzu bekliyorum."), "\(log.spoken)")
+    }
+
     func testLostFilesAreReuploadedAndTheQuestionIsRetried() async {
         let memory = FakeMemory()
         memory.lostOnRevalidate = 1
