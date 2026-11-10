@@ -946,11 +946,22 @@ final class GeminiClientTests: XCTestCase {
         XCTAssertEqual(FakeGeminiProtocol.urls.count, 2)
     }
 
-    func testTwoServerErrorsFail() async {
-        queue(.init(status: 503, body: errorBody("x"), error: nil), .init(status: 503, body: errorBody("x"), error: nil))
+    func testTwoServerErrorsAreStillRetriedWithGrowingWait() async throws {
+        queue(.init(status: 503, body: errorBody("x"), error: nil), .init(status: 503, body: errorBody("x"), error: nil),
+              .init(status: 200, body: okBody(), error: nil))
+        let answer = try await makeClient().ask(questionText: "x", audioWAV: nil, docs: [], history: [])
+        XCTAssertFalse(answer.answer.isEmpty)
+        XCTAssertEqual(sleeps.values, [1.5, 4.0])
+    }
+
+    func testPersistentServerErrorFailsAfterThreeRetries() async {
+        let bad = FakeGeminiProtocol.Reply(status: 503, body: errorBody("x"), error: nil)
+        queue(bad, bad, bad, bad)
         let error = await failure { _ = try await self.makeClient().ask(questionText: "x", audioWAV: nil, docs: [], history: []) }
         XCTAssertEqual(error?.kind, .http)
         XCTAssertEqual(error?.status, 503)
+        XCTAssertEqual(sleeps.values, [1.5, 4.0, 8.0])
+        XCTAssertEqual(FakeGeminiProtocol.urls.count, 4)
     }
 
     func testQuotaErrorMentionsWait() async {

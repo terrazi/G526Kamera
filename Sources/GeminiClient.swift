@@ -779,7 +779,8 @@ final class GeminiClient: GeminiAsking, GeminiRemote {
         let body = try GeminiSupport.buildRequest(questionText: questionText, audioWAV: audioWAV, docs: docs, history: history,
                                                   system: systemPrompt, cached: cached, batchLast: batchProvider())
         let name = model.addingPercentEncoding(withAllowedCharacters: GeminiClient.pathAllowed) ?? model
-        let object = try await post(path: "/models/\(name):generateContent", body: body)
+        let object = try await post(path: "/models/\(name):generateContent", body: body,
+                                    serverRetries: GeminiClient.askServerRetries)
         return try GeminiSupport.parseAnswer(object)
     }
 
@@ -845,8 +846,14 @@ final class GeminiClient: GeminiAsking, GeminiRemote {
         return GeminiSupport.parseModelList(json)
     }
 
-    /// POST + bir kez yeniden deneme (ağ hatası ve 500/502/503/504 için, 1,5 sn sonra)
-    private func post(path: String, body: Data) async throws -> Any {
+    /// Sunucu hatalarında (500/502/503/504) yeniden denemeden önce beklenecek süreler (sn). Gemini'nin geçici
+    /// "yoğunluk" (503) hataları genelde birkaç saniyede geçer.
+    static let serverBackoff: [TimeInterval] = [1.5, 4.0, 8.0]
+    /// Soru sorarken sunucu hatasında en çok bu kadar yeniden deneme yapılır
+    static let askServerRetries = 3
+
+    /// POST + yeniden deneme: ağ hatasında bir kez (1,5 sn sonra); 500/502/503/504'te `serverRetries` kez, artan aralıkla
+    private func post(path: String, body: Data, serverRetries: Int = 1) async throws -> Any {
         let key = keyProvider().trimmed
         guard !key.isEmpty else {
             throw GeminiError("Gemini API anahtarı girilmemiş. Ayarlardan yapıştırın.", .key)
@@ -855,6 +862,7 @@ final class GeminiClient: GeminiAsking, GeminiRemote {
             throw GeminiError("Gemini adresi geçersiz.", .error)
         }
         var attempt = 0
+        var serverAttempt = 0
         while true {
             var request = URLRequest(url: url)
             request.httpMethod = "POST"
@@ -882,9 +890,11 @@ final class GeminiClient: GeminiAsking, GeminiRemote {
             }
             let json = (try? JSONSerialization.jsonObject(with: data)) ?? [String: Any]()
             if (200..<300).contains(status) { return json }
-            if [500, 502, 503, 504].contains(status) && attempt < 1 {
-                attempt += 1
-                await sleep(1.5)
+            if [500, 502, 503, 504].contains(status) && serverAttempt < serverRetries {
+                let backoff = GeminiClient.serverBackoff
+                await sleep(backoff[min(serverAttempt, backoff.count - 1)])
+                serverAttempt += 1
+                tlog("[gemini] HTTP \(status), yeniden deneniyor (\(serverAttempt)/\(serverRetries))")
                 continue
             }
             let (kind, message) = GeminiSupport.describeError(status: status, json: (json as? [String: Any]) ?? [:], model: model)
