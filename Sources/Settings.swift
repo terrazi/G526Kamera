@@ -103,6 +103,12 @@ final class AppSettings: ObservableObject {
     @Published var geminiPrivacyOK: Bool { didSet { d.set(geminiPrivacyOK, forKey: "geminiPrivacyOK") } }
     /// Gemini'ye gönderilecek en yeni PDF sayısı
     @Published var geminiDocCount: Int { didSet { d.set(geminiDocCount, forKey: "geminiDocCount") } }
+    /// Büyük belge setlerini Gemini'ye bir kez yükle (Files API) ve oturumda önbelleğe al
+    @Published var geminiMemory: Bool { didSet { d.set(geminiMemory, forKey: "geminiMemory") } }
+    /// Şık harfi yerine sesli okunan kod sözcükleri ("A=ADANA, B=BURSA…"); boş = harfin kendisi okunur
+    @Published var geminiOptionCodes: String { didSet { d.set(geminiOptionCodes, forKey: "geminiOptionCodes") } }
+    /// Toplu cevapta (10'arlı gruplar) kullanıcıya ulaşan son soru numarası; kalıcıdır, "ilk on soru" deyince yeniden başlar
+    @Published var geminiBatchLast: Int { didSet { d.set(geminiBatchLast, forKey: "geminiBatchLast") } }
 
     // MARK: Drive
     @Published var driveFolderName: String { didSet { d.set(driveFolderName, forKey: "driveFolderName") } }
@@ -192,7 +198,10 @@ final class AppSettings: ObservableObject {
         geminiSession = d.object(forKey: "geminiSession") as? Bool ?? true
         geminiCallWord = d.string(forKey: "geminiCallWord") ?? GeminiText.defaultCallWord
         geminiPrivacyOK = d.object(forKey: "geminiPrivacyOK") as? Bool ?? false
-        geminiDocCount = min(max(d.object(forKey: "geminiDocCount") as? Int ?? 3, 1), 30)
+        geminiDocCount = min(max(d.object(forKey: "geminiDocCount") as? Int ?? 3, 1), GeminiConfig.maxPages)
+        geminiMemory = d.object(forKey: "geminiMemory") as? Bool ?? true
+        geminiOptionCodes = d.string(forKey: "geminiOptionCodes") ?? GeminiConfig.defaultOptionCodes
+        geminiBatchLast = min(max(d.object(forKey: "geminiBatchLast") as? Int ?? 0, 0), 100000)
         previewOff = d.object(forKey: "previewOff") as? Bool ?? false
         dimWhenPreviewOff = d.object(forKey: "dimWhenPreviewOff") as? Bool ?? true
     }

@@ -49,11 +49,21 @@ final class GeminiChat: ObservableObject {
     var onModelChoice: (() -> Void)?
     /// Drive'dan okumadan önce bekleyen (toplu modda biriken) fotoğrafları gönderip bekler; hâlâ yüklenmeyen sayıyı döndürür
     var flushUploads: (() async -> Int)?
+    /// Toplu cevap kullanıcıya SONUNA KADAR okunup ulaşınca çağrılır (parametre: verilen en büyük soru numarası); kalıcı sıra buradan ilerler
+    var onBatchProgress: ((Int) -> Void)?
 
     private let client: GeminiAsking
     private let docs: GeminiDocProviding
     private let recorder: QuestionRecording
     private let options: () -> GeminiOptions
+    private let memory: GeminiMemoryProviding?
+    private let lastStore: LastAnswerStore
+    /// Son verilen cevap (diskte de durur): "son yanıtı tekrarla" Gemini'ye gitmeden buradan okunur
+    private(set) var last: LastAnswer?
+    /// Okuma sonuna kadar bitince çağrılacak iş (toplu cevap sırası); kesilen okumada çağrılmaz
+    private var pendingReceived: (() -> Void)?
+    /// Bundan uzun sesli istek "tekrarla" olamaz, doğrudan soru sayılır (5 sn, 16 kHz 16 bit + WAV başlığı)
+    static let repeatMaxBytes = 16000 * 2 * 5 + 44
     private var generation = 0
     private var task: Task<Void, Never>?
     /// Okuma bitişini bekleyen akış (oturumda cevap bitmeden mikrofon açılmaz)
@@ -68,11 +78,15 @@ final class GeminiChat: ObservableObject {
     static let softErrorKinds: Set<GeminiErrorKind> = [.network, .http, .empty, .blocked, .error]
     static let maxSoftErrors = 2
 
-    init(client: GeminiAsking, docs: GeminiDocProviding, recorder: QuestionRecording, options: @escaping () -> GeminiOptions) {
+    init(client: GeminiAsking, docs: GeminiDocProviding, recorder: QuestionRecording, options: @escaping () -> GeminiOptions,
+         memory: GeminiMemoryProviding? = nil, lastStore: LastAnswerStore = LastAnswerStore()) {
         self.client = client
         self.docs = docs
         self.recorder = recorder
         self.options = options
+        self.memory = memory
+        self.lastStore = lastStore
+        self.last = lastStore.load()
     }
 
     var isActive: Bool { return phase != .idle }
@@ -92,6 +106,7 @@ final class GeminiChat: ObservableObject {
         generation += 1
         let gen = generation
         let question = typed
+        pendingReceived = nil
         error = ""
         setPhase(question == nil ? .listening : .thinking, "Hazırlanıyor…")
         task = Task { [weak self] in
@@ -104,6 +119,7 @@ final class GeminiChat: ObservableObject {
     func cancel() {
         guard isActive else { return }
         generation += 1
+        pendingReceived = nil
         task?.cancel()
         task = nil
         recorder.cancel()
@@ -125,8 +141,12 @@ final class GeminiChat: ObservableObject {
     }
 
     /// Okuma başladı / bitti haberi (GuidanceSpeaker'dan)
-    func speakingChanged(_ speaking: Bool) {
+    /// completed: konuşma kesilmeden sonuna kadar okundu mu (false: kesildi/iptal/bitiş haberi gelmedi)
+    func speakingChanged(_ speaking: Bool, completed: Bool = true) {
         guard !speaking else { return }
+        let received = pendingReceived
+        pendingReceived = nil
+        if completed { received?() }
         if waitingForSpeech {
             if let c = speechDone {
                 speechDone = nil
@@ -181,12 +201,14 @@ final class GeminiChat: ObservableObject {
     }
 
     /// Metni okutur ve okuma bitene kadar bekler. Okuma başlayamadıysa false döner.
-    private func speakAndWait(_ text: String, _ label: String) async -> Bool {
+    private func speakAndWait(_ text: String, _ label: String, received: (() -> Void)? = nil) async -> Bool {
         waitingForSpeech = true
         speechEndedEarly = false
         setPhase(.speaking, label)
+        pendingReceived = received
         guard speak?(text) == true else {
             waitingForSpeech = false
+            pendingReceived = nil
             return false
         }
         if speechEndedEarly {
@@ -213,6 +235,14 @@ final class GeminiChat: ObservableObject {
 
         let session = opts.session && text == nil
         softErrors = 0
+        await runLoop(gen: gen, text: text, session: session, opts: opts)
+        if session, let memory = memory {
+            // Oturum bitti: önbellek silinir (saklama ücreti işlemesin). İptal edilen görevden bağımsız çalışsın diye ayrı görev.
+            Task { @MainActor in await memory.release() }
+        }
+    }
+
+    private func runLoop(gen: Int, text: String?, session: Bool, opts: GeminiOptions) async {
         if session {
             guard await prepare(gen, opts) else { return }
         }
@@ -237,9 +267,14 @@ final class GeminiChat: ObservableObject {
                 fail(gen, "Okunacak belge bulunamadı. " + allNotes.joined(separator: " "))
                 return false
             }
-            let fresh = seenDocs.isEmpty ? nil : fetched.docs.filter { !seenDocs.contains($0.name) }.count
+            let prepared = try await memorize(docs: fetched.docs, notes: &allNotes, session: true)
+            guard gen == generation else { return false }
+            notes = allNotes
+            docNames = prepared.docs.map { $0.name }
+            let fresh = seenDocs.isEmpty ? nil : prepared.docs.filter { !seenDocs.contains($0.name) }.count
             seenDocs.formUnion(docNames)
-            let line = GeminiText.readyLine(count: fetched.docs.count, new: fresh, warnings: allNotes)
+            let pages = prepared.docs.reduce(0) { $0 + $1.pageEstimate }
+            let line = GeminiText.readyLine(count: prepared.docs.count, new: fresh, warnings: allNotes, pages: pages)
             _ = await speakAndWait(line, "Hazırım")
             return gen == generation && !Task.isCancelled
         } catch is CancellationError {
@@ -253,10 +288,78 @@ final class GeminiChat: ObservableObject {
         }
     }
 
-    /// Soruyu sorar; aylık harcama sınırı dolmuşsa ve ücretsiz bir yedek profil varsa ona geçip aynı soruyu yineler.
-    private func askWithFallback(gen: Int, opts: GeminiOptions, text: String, audio: Data?, docs: [GeminiDoc]) async throws -> GeminiAnswer {
+    /// Büyük belge setlerini Gemini'nin hafızasına koyar (Files API + oturumda önbellek). Hafıza kullanılamazsa belgeler doğrudan
+    /// (inline) gider; 14 MB'a sığacak kadarına kırpılır ve not düşülür.
+    private func memorize(docs input: [GeminiDoc], notes: inout [String], session: Bool) async throws -> (docs: [GeminiDoc], cache: String) {
+        var docs = input
+        var cache = ""
+        if !docs.isEmpty, let mem = memory, mem.wanted(docs) {
+            do {
+                status = "Belgeler Gemini hafızasına alınıyor…"
+                let result = try await mem.prepare(docs, session: session) { [weak self] done, total in
+                    self?.status = "Belgeler Gemini’ye yükleniyor: \(done) / \(total)"
+                }
+                docs = result.docs
+                cache = result.cache
+                tlog("[gemini] hafıza: \(docs.count) belge\(cache.isEmpty ? "" : ", önbellekli")")
+            } catch let e as GeminiError {
+                if e.kind == .key || e.kind == .quota || e.kind == .cap || e.kind == .network { throw e }
+                tlog("[gemini] hafızaya alınamadı, belgeler doğrudan gönderilecek: \(e.message)")
+                docs = docs.map { var d = $0; d.uri = ""; d.remote = ""; return d }
+                cache = ""
+                notes.append("Belgeler Gemini hafızasına alınamadı, doğrudan gönderiliyor.")
+            }
+        }
+        if !docs.isEmpty && !GeminiSupport.allRemote(docs) {
+            let picked = GeminiSupport.selectDocs(docs.map { (name: $0.name, size: $0.size) })
+            if !picked.skipped.isEmpty {
+                let current = docs
+                docs = picked.chosen.map { current[$0] }
+                notes.append("\(picked.skipped.count) belge boyut sınırı nedeniyle atlandı.")
+            }
+        }
+        return (docs, cache)
+    }
+
+    /// Soruyu sorar. Önbellek ya da yüklü dosya artık geçerli değilse (süresi dolmuş) önce önbelleksiz, sonra eksik dosyaları
+    /// yeniden yükleyerek dener; sorun belgelerden değilse ilk hatayı olduğu gibi verir.
+    private func askRobust(text: String, audio: Data?, docs: [GeminiDoc], cache: String) async throws -> GeminiAnswer {
+        func go(_ list: [GeminiDoc], _ cached: String) async throws -> GeminiAnswer {
+            if cached.isEmpty {
+                return try await client.ask(questionText: text, audioWAV: audio, docs: list, history: history)
+            }
+            return try await client.ask(questionText: text, audioWAV: audio, docs: list, history: history, cached: cached)
+        }
+        func retryable(_ e: GeminiError) -> Bool { return e.status == 400 || e.status == 403 || e.status == 404 }
+        var first = GeminiError("", .error)
         do {
-            return try await client.ask(questionText: text, audioWAV: audio, docs: docs, history: history)
+            return try await go(docs, cache)
+        } catch let e as GeminiError {
+            guard GeminiSupport.allRemote(docs), retryable(e) else { throw e }
+            first = e
+        }
+        tlog("[gemini] önbellek/dosya geçersiz olabilir (\(first.message)), denetleniyor")
+        if !cache.isEmpty {
+            await memory?.dropCache()
+            do {
+                return try await go(docs, "")
+            } catch let e as GeminiError {
+                guard retryable(e) else { throw e }
+                first = e
+            }
+        }
+        guard let memory = memory else { throw first }
+        let checked = await memory.revalidate(docs)
+        guard checked.lost > 0 else { throw first }
+        let uploaded = try await memory.upload(checked.docs, progress: { _, _ in })
+        return try await go(uploaded, "")
+    }
+
+    /// Soruyu sorar; aylık harcama sınırı dolmuşsa ve ücretsiz bir yedek profil varsa ona geçip (belgeleri o anahtarla yükleyip) aynı soruyu yineler.
+    private func askWithFallback(gen: Int, opts: GeminiOptions, text: String, audio: Data?, docs: [GeminiDoc], cache: String,
+                                 session: Bool) async throws -> GeminiAnswer {
+        do {
+            return try await askRobust(text: text, audio: audio, docs: docs, cache: cache)
         } catch let e as GeminiError where e.kind == .cap {
             let current = GeminiProfiles.active(opts.profiles, active: opts.active)
             guard let target = GeminiProfiles.fallbackTarget(opts.profiles, from: current, auto: opts.autoFallback) else { throw e }
@@ -266,8 +369,69 @@ final class GeminiChat: ObservableObject {
             _ = await speakAndWait("Aylık harcama sınırı doldu. \(target.name) modeline geçtim.", "Model değişti")
             guard gen == generation, !Task.isCancelled else { throw CancellationError() }
             setPhase(.thinking, "Gemini düşünüyor…")
-            return try await client.ask(questionText: text, audioWAV: audio, docs: docs, history: history)
+            // Dosyalar API anahtarının projesine aittir: yeni anahtarla yeniden yüklenir
+            var dropped: [String] = []
+            let reset = docs.map { var d = $0; d.uri = ""; d.remote = ""; return d }
+            let again = try await memorize(docs: reset, notes: &dropped, session: session)
+            return try await askRobust(text: text, audio: audio, docs: again.docs, cache: again.cache)
         }
+    }
+
+    // MARK: - Son yanıtı tekrarla
+
+    private func remember(_ answer: String, batch: Int, question: String) {
+        let item = LastAnswer(answer: answer, batch: max(0, batch), question: question)
+        last = item
+        lastStore.save(item)
+    }
+
+    /// Kullanıcı "son yanıtı tekrarla" dedi mi? Yazı biliniyorsa (yazılı soru) yerelde bakılır; yalnız ses varsa ve kısaysa
+    /// belgesiz küçük bir yazıya dökme isteği yapılır. Hata olursa normal soru gibi sürer.
+    private func repeatAsked(typed: String, audio: Data?, opts: GeminiOptions) async -> Bool {
+        let words = GeminiText.triggerList(for: opts.callWords)
+        if !typed.isEmpty {
+            return GeminiSupport.isRepeatRequest(GeminiText.stripTrigger(typed, words: words))
+        }
+        guard let wav = audio, last != nil, wav.count <= GeminiChat.repeatMaxBytes else { return false }
+        do {
+            let heard = try await client.transcribe(audioWAV: wav)
+            return GeminiSupport.isRepeatRequest(GeminiText.stripTrigger(heard, words: words))
+        } catch {
+            tlog("[gemini] kısa ses yazıya dökülemedi, normal soru sayılıyor: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    /// Son cevabı kendi hafızasından yeniden okur: Gemini'ye istek gitmez, ücret yazılmaz, geçmişe eklenmez.
+    private func repeatLast(gen: Int, session: Bool) async -> Bool {
+        error = ""
+        guard let item = last else {
+            return await deliver(gen: gen, session: session, text: GeminiText.noLastLine, received: nil)
+        }
+        question = "(son yanıt tekrarlandı)"
+        answer = item.answer
+        tokens = 0
+        tlog("[gemini] son yanıt hafızadan tekrarlanıyor (istek yok)")
+        let n = item.batch
+        let received: (() -> Void)? = n > 0 ? { [weak self] in self?.onBatchProgress?(n) } : nil
+        return await deliver(gen: gen, session: session, text: GeminiText.cleanForSpeech(item.answer), received: received)
+    }
+
+    /// Cevabı okutur. Oturumdaysa ve yeni soru dinlenecekse true döner.
+    private func deliver(gen: Int, session: Bool, text: String, received: (() -> Void)?) async -> Bool {
+        if session {
+            let ok = await speakAndWait(text + " " + GeminiText.nextQuestionLine, "Cevap okunuyor", received: received)
+            guard gen == generation else { return false }
+            if !ok { setPhase(.idle) }
+            return ok
+        }
+        setPhase(.speaking, "Cevap okunuyor")
+        pendingReceived = received
+        if speak?(text) != true {
+            pendingReceived = nil
+            setPhase(.idle)
+        }
+        return false
     }
 
     /// Bir soru-cevap turu. Oturumdaysa ve yeni soru dinlenecekse true döner.
@@ -313,6 +477,11 @@ final class GeminiChat: ObservableObject {
         }
 
         do {
+            if await repeatAsked(typed: typed, audio: audio, opts: opts) {
+                guard gen == generation else { return false }
+                return await repeatLast(gen: gen, session: session)
+            }
+            guard gen == generation else { return false }
             setPhase(.thinking, "Belgeler hazırlanıyor…")
             let unsent = await syncUploads()
             let fetched = try await docs.fetch(count: opts.docCount)
@@ -330,9 +499,14 @@ final class GeminiChat: ObservableObject {
                 fail(gen, "Okunacak belge bulunamadı. " + allNotes.joined(separator: " "))
                 return false
             }
+            let prepared = try await memorize(docs: fetched.docs, notes: &allNotes, session: session)
+            guard gen == generation else { return false }
+            notes = allNotes
+            docNames = prepared.docs.map { $0.name }
             seenDocs.formUnion(docNames)
             status = "Gemini düşünüyor…"
-            let reply = try await askWithFallback(gen: gen, opts: opts, text: typed, audio: audio, docs: fetched.docs)
+            let reply = try await askWithFallback(gen: gen, opts: opts, text: typed, audio: audio, docs: prepared.docs,
+                                                  cache: prepared.cache, session: session)
             guard gen == generation else { return false }
             tokens = reply.totalTokens
 
@@ -367,19 +541,13 @@ final class GeminiChat: ObservableObject {
             turns += 1
             error = ""
             softErrors = 0
-            tlog("[gemini] cevap geldi: \(reply.totalTokens) jeton, \(fetched.docs.count) belge")
+            tlog("[gemini] cevap geldi: \(reply.totalTokens) jeton, \(prepared.docs.count) belge, \(reply.cachedTokens) önbellekten")
 
-            if session {
-                let ok = await speakAndWait(warning + spoken + " " + GeminiText.nextQuestionLine, "Cevap okunuyor")
-                guard gen == generation else { return false }
-                if !ok { setPhase(.idle) }
-                return ok
-            }
-            setPhase(.speaking, "Cevap okunuyor")
-            if speak?(warning + spoken) != true {
-                setPhase(.idle)
-            }
-            return false
+            // Toplu cevap sırası, cevap kullanıcıya SONUNA KADAR okunup ulaşınca ilerler; kesilen/okunamayan/gelmeyen cevapta ilerlemez
+            remember(reply.answer, batch: reply.lastQuestion, question: q)
+            let n = reply.lastQuestion
+            let received: (() -> Void)? = n > 0 ? { [weak self] in self?.onBatchProgress?(n) } : nil
+            return await deliver(gen: gen, session: session, text: warning + spoken, received: received)
         } catch is CancellationError {
             return false
         } catch let e as GeminiError {

@@ -118,16 +118,37 @@ Drive'a gönderdiğiniz son PDF'ler hakkında sesle soru sorarsınız; cevap iPh
    yeni ayda eski profile döner. Google harcamayı yaklaşık 10 dakika gecikmeyle saydığı için sınır biraz aşılabilir.
    Dikkat: ücretsiz anahtarda Google içeriğinizi ürünlerini geliştirmek için kullanabilir; gizli belgeleriniz varsa
    **Harcama sınırı dolunca ücretsiz modele geç** kutusunu kapatın.
-10. Her soruda ses kaydınız ve seçilen PDF'ler (en çok ~14 MB) hücresel veriyle Google'a gider.
-11. **Belge sayısı:** "Gönderilecek son belge sayısı" 1-30 arasıdır. Tek tek göndermede her sayfa ayrı PDF'tir; taradığınız
+10. Ses kaydınız Google'a her soruda gider. PDF'ler küçük setlerde (8 sayfadan az) her soruda doğrudan (en çok ~14 MB) gider; büyük
+    setlerde **Gemini hafızası** devreye girer (madde 15).
+11. **Belge sayısı:** "Gönderilecek son belge sayısı" 1-500 arasıdır; Gemini'ye en çok **500 sayfa** verilir (en yeni belgelerden başlanır,
+    sığmayan eski belgeler atlanır ve bu sesle söylenir). Tek tek göndermede her sayfa ayrı PDF'tir; taradığınız
     sayfa sayısı kadar yapın, yoksa Gemini yalnız en yeni birkaç sayfayı görür. Toplu göndermede bir PDF birçok sayfa içerir.
 12. **Bekleyen fotoğraflar:** Gemini'ye her sorudan önce, Drive'a henüz gitmemiş (toplu modda biriken) fotoğraflar kendiliğinden
     gönderilir ve yüklenmeleri en çok 90 sn beklenir. Yine de yüklenemeyenler olursa (internet yok) program bunu sesle söyler:
     "N fotoğraf henüz Drive'a yüklenmedi, Gemini onları göremez."
 13. **Geçici hatalar:** oturum sırasında internet kopması ya da Gemini'nin geçici hatası oturumu kapatmaz; hata söylenir ve
     "Sorunuzu yeniden söyleyebilirsiniz" denir. Üst üste 3. hatada, ya da anahtar/model/kota/harcama sınırı hatasında oturum kapanır.
-14. **Şık cevapları:** şık verirken harfle birlikte şıkkın metni de okunur ("C, CEYHAN şıkkıdır"); harf tek başına söylenmez.
+14. **Şık cevapları:** şık harfi yerine **kod sözcüğü** okunur ve ardından şıkkın metni/değeri gelir: "Birinci sorunun cevabı
+    DENİZLİ, altmış sekiz." Kodlar Dişli > Gemini > **Şık kodları** kutusundadır (varsayılan A=ADANA, B=BURSA, C=CEYHAN,
+    D=DENİZLİ, E=EDİRNE); kutuyu boşaltırsanız harfin kendisi okunur.
     Aynı numaralı soru birden çok belgede varsa program tahmin etmez, "hangisi?" diye sorar.
+15. **Gemini hafızası** (Dişli > Gemini > "Büyük belge setlerini Gemini'nin hafızasına al", varsayılan açık): 8 sayfadan büyük setlerde
+    PDF'ler Gemini'ye **bir kez** yüklenir (48 saat saklanır; uygulama kapanıp açılsa da yeniden yüklenmez) ve oturumda belgeler Gemini'nin
+    önbelleğinde durur: her soruda 500 sayfa yeniden gönderilmez. Önbellek oturum boyunca saat başı küçük bir saklama ücreti işler,
+    oturum bitince silinir (uygulama aniden kapanırsa 30 dakika sonra kendiliğinden silinir). İlk büyük yüklemede (500 sayfa) hazırlık
+    birkaç dakika sürebilir; durum ekranda yazılır. Bir sorun olursa belgeler eski yöntemle doğrudan gönderilir.
+16. **Toplu cevap (10'arlı gruplar):** "ilk on soruyu cevapla" deyince Gemini belgelerdeki numaralı soruları 1-10 arası okur; "sıradaki on
+    soruyu cevapla" (ya da "sonraki on soru", "devam") dediğinizde 11-20'ye geçer. Kaldığı yer telefonda **kalıcı** saklanır ve yalnızca cevap
+    size **sonuna kadar okununca** ilerler: cevabı kestiyseniz, internet koptuysa ya da cevap gelmediyse aynı grup yeniden verilir. Oturum
+    kapansa, "Yeni sohbet" dense ya da uygulama yeniden açılsa da kaldığı yerden devam eder. Baştan başlamak için "ilk on soruyu cevapla"
+    deyin (ayarlardaki **Sıfırla** düğmesi de sırayı sıfırlar).
+17. **Belirli sorular:** "üçüncü, sekizinci ve on beşinci soruların cevabını ver" deyin. Bu ayrımı Gemini yapar: cevabını bu sohbette zaten
+    verdiği soruları sohbet geçmişinden aynen yeniden okur (son 12 soru-cevap turu hatırlanır), vermediklerini belgelerden hazırlar. Bu
+    istek toplu sırayı değiştirmez ve normal bir Gemini sorusu olarak ücretlendirilir.
+18. **Son yanıtı tekrarla:** "son yanıtı tekrarla", "bir daha söyle", "yeniden oku" derseniz son cevap Gemini'ye gitmeden uygulamanın kendi
+    hafızasından (telefona yazılır) yeniden okunur: ücret yazılmaz. 5 saniyeden kısa sesli sorular önce belgesiz, birkaç yüz jetonluk küçük
+    bir istekle yazıya dökülüp bu isteğe bakılır (çok az ücret; internet gerekir). Yarım kalmış bir toplu cevabı tekrarlatıp sonuna kadar
+    dinlerseniz kaldığı yer de o cevaba göre ilerler.
 
 ### Akıllı OCR (Gemini ile)
 

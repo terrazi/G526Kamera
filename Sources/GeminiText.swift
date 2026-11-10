@@ -19,8 +19,9 @@ enum GeminiText {
 
     /// Oturum başında söylenen hazırlık cümlesi. `new`: önceki hazırlıktan beri gelen yeni belge sayısı (ilkinde nil).
     /// `warnings`: atlanan belge gibi sorulara etki eden uyarılar (sesle de söylenir).
-    static func readyLine(count: Int, new: Int?, warnings: [String] = []) -> String {
+    static func readyLine(count: Int, new: Int?, warnings: [String] = [], pages: Int? = nil) -> String {
         var line = "\(count) belge hazır"
+        if let p = pages, p > 0, p != count { line = "\(count) belge, \(p) sayfa hazır" }
         if let n = new, n > 0 {
             line += n >= count ? ", hepsi yeni" : ", \(n) tanesi yeni"
         }
@@ -29,6 +30,8 @@ enum GeminiText {
         if !warn.isEmpty { line += " Dikkat: " + warn }
         return line + " Sorunuzu bekliyorum."
     }
+
+    static let noLastLine = "Tekrarlanacak bir yanıt yok."
 
     /// Bundan kısa sözcükler çağrı sözcüğü sayılmaz (sohbette kendiliğinden tetikler)
     static let minCallWordLength = 3

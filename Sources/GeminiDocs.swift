@@ -21,19 +21,25 @@ protocol GeminiDriveSource: AnyObject {
 
 extension DriveClient: GeminiDriveSource {}
 
-/// Drive'daki son PDF'leri indirir; aynı dosya (kimlik + boyut) yeniden indirilmesin diye önbelleğe koyar.
-final class GeminiDocStore: GeminiDocProviding {
+/// Drive'daki son PDF'leri diske indirir; aynı dosya (kimlik + boyut) yeniden indirilmesin diye önbelleğe koyar.
+/// En yeni belgelerden başlayıp toplam `maxPages` sayfaya kadar alır; sayfa sayıları diskte tutulur (her soruda yeniden okunmaz).
+/// 500 sayfalık set belleğe doldurulmaz: belgeler dosya adresiyle ve gerektiğinde okunur.
+final class GeminiDocStore: GeminiDocProviding, @unchecked Sendable {
+    static let workers = 6
+    static let pageIndexKeep = 3000
+
     private let source: GeminiDriveSource
     private let cacheDirectory: URL
     private let keep: Int
-    private let budget: Int
+    private let maxPages: Int
 
-    init(source: GeminiDriveSource, cacheDirectory: URL? = nil, keep: Int = 40, budget: Int = GeminiConfig.inlineBudget) {
+    init(source: GeminiDriveSource, cacheDirectory: URL? = nil, keep: Int = GeminiConfig.maxPages + 100,
+         maxPages: Int = GeminiConfig.maxPages) {
         self.source = source
         self.cacheDirectory = cacheDirectory ?? FileManager.default
             .urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("gemini-belge", isDirectory: true)
         self.keep = keep
-        self.budget = budget
+        self.maxPages = maxPages
     }
 
     private func cacheURL(_ id: String) -> URL {
@@ -44,26 +50,95 @@ final class GeminiDocStore: GeminiDocProviding {
         return cacheDirectory.appendingPathComponent(safe + ".pdf")
     }
 
+    private var pagesURL: URL { return cacheDirectory.appendingPathComponent("sayfalar.json") }
+
+    private func pkey(_ file: DriveFileInfo) -> String { return "\(file.id):\(file.size)" }
+
     private func cached(_ file: DriveFileInfo) -> Data? {
         let url = cacheURL(file.id)
-        guard file.size > 0, let data = try? Data(contentsOf: url), data.count == file.size else { return nil }
+        guard file.size > 0, let data = try? Data(contentsOf: url, options: .mappedIfSafe), data.count == file.size else { return nil }
         return data
     }
 
     private func store(_ data: Data, id: String) {
-        let fm = FileManager.default
-        try? fm.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
         try? data.write(to: cacheURL(id), options: .atomic)
-        guard let names = try? fm.contentsOfDirectory(atPath: cacheDirectory.path), names.count > keep else { return }
-        let dated = names.map { name -> (Date, String) in
+    }
+
+    private func trim() {
+        let fm = FileManager.default
+        guard let names = try? fm.contentsOfDirectory(atPath: cacheDirectory.path) else { return }
+        let pdfs = names.filter { $0.hasSuffix(".pdf") }
+        guard pdfs.count > keep else { return }
+        let dated = pdfs.map { name -> (Date, String) in
             let path = cacheDirectory.appendingPathComponent(name).path
             let attributes = (try? fm.attributesOfItem(atPath: path)) ?? [:]
-            let date = (attributes[.modificationDate] as? Date) ?? Date.distantPast
-            return (date, name)
+            return ((attributes[.modificationDate] as? Date) ?? Date.distantPast, name)
         }.sorted { $0.0 < $1.0 }
-        for (_, name) in dated.prefix(names.count - keep) {
+        for (_, name) in dated.prefix(pdfs.count - keep) {
             try? fm.removeItem(at: cacheDirectory.appendingPathComponent(name))
         }
+    }
+
+    private func loadPages() -> [String: Int] {
+        guard let data = try? Data(contentsOf: pagesURL),
+              let obj = try? JSONDecoder().decode([String: Int].self, from: data) else { return [:] }
+        return obj
+    }
+
+    private func savePages(_ index: [String: Int], order: [String]) {
+        var kept = index
+        if kept.count > GeminiDocStore.pageIndexKeep {
+            // en yeni listedekiler kalsın, kalanlardan rastgele fazlalık atılsın
+            let protected = Set(order)
+            for key in kept.keys where !protected.contains(key) && kept.count > GeminiDocStore.pageIndexKeep { kept[key] = nil }
+        }
+        try? FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
+        if let data = try? JSONEncoder().encode(kept) { try? data.write(to: pagesURL, options: .atomic) }
+    }
+
+    /// Belge baytları: diskteyse oradan, değilse Drive'dan indirip diske yazar
+    private func bytes(_ file: DriveFileInfo) async throws -> Data {
+        if let data = cached(file) { return data }
+        try Task.checkCancellation()
+        let data = try await source.download(fileID: file.id)
+        store(data, id: file.id)
+        return data
+    }
+
+    /// Sayfa sayısı bilinmeyen PDF'leri paralel indirir ve sayar
+    private func countMissing(_ todo: [DriveFileInfo]) async throws -> [String: Int] {
+        var found: [String: Int] = [:]
+        var failure: Error?
+        var cursor = 0
+        var running = 0
+        await withTaskGroup(of: (String, Int?, Error?).self) { group in
+            while cursor < todo.count || running > 0 {
+                while failure == nil && running < GeminiDocStore.workers && cursor < todo.count {
+                    let file = todo[cursor]
+                    cursor += 1
+                    running += 1
+                    group.addTask { [self] in
+                        do {
+                            let data = try await bytes(file)
+                            return (pkey(file), GeminiSupport.countPages(data, size: file.size), nil)
+                        } catch {
+                            return (pkey(file), nil, error)
+                        }
+                    }
+                }
+                if running == 0 { break }
+                guard let result = await group.next() else { break }
+                running -= 1
+                if let pages = result.1 {
+                    found[result.0] = pages
+                } else if failure == nil {
+                    failure = result.2
+                }
+            }
+        }
+        if let failure = failure { throw failure }
+        return found
     }
 
     func fetch(count: Int) async throws -> (docs: [GeminiDoc], notes: [String]) {
@@ -71,22 +146,27 @@ final class GeminiDocStore: GeminiDocProviding {
         if listing.isEmpty {
             return ([], ["Drive klasöründe PDF bulunamadı. Belgeler bu uygulamayla ve aynı Google kimliğiyle PDF olarak yüklenmiş olmalı; Drive’da elle açılan klasör ya da elle atılan dosyalar görünmez."])
         }
-        let picked = GeminiSupport.selectDocs(listing.map { (name: $0.name, size: $0.size) }, budget: budget)
-        var notes: [String] = []
-        if !picked.skipped.isEmpty {
-            notes.append("\(picked.skipped.count) belge boyut sınırı nedeniyle atlandı.")
+        var index = loadPages()
+        let todo = listing.filter { index[pkey($0)] == nil }
+        if !todo.isEmpty {
+            tlog("[belge] \(todo.count) belgenin sayfa sayısı için indiriliyor")
+            let found = try await countMissing(todo)
+            for (k, v) in found { index[k] = v }
+            trim()
+            savePages(index, order: listing.map { pkey($0) })
         }
+        var notes: [String] = []
         var docs: [GeminiDoc] = []
-        for index in picked.chosen {
-            let file = listing[index]
-            if let data = cached(file) {
-                docs.append(GeminiDoc(name: file.name, data: data))
-                continue
+        var used = 0
+        for (i, file) in listing.enumerated() {
+            let pages = max(1, index[pkey(file)] ?? 1)
+            if used + pages > maxPages {
+                notes.append("\(listing.count - i) belge \(maxPages) sayfa sınırı nedeniyle atlandı.")
+                break
             }
-            try Task.checkCancellation()
-            let data = try await source.download(fileID: file.id)
-            store(data, id: file.id)
-            docs.append(GeminiDoc(name: file.name, data: data))
+            docs.append(GeminiDoc(name: file.name, fileURL: cacheURL(file.id), size: file.size, pages: pages,
+                                  key: "d:" + pkey(file), loader: { [self] in try await bytes(file) }))
+            used += pages
         }
         return (docs, notes)
     }

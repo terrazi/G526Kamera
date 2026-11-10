@@ -9,15 +9,24 @@ private final class FakeClient: GeminiAsking {
         var audio: Data?
         var docs: [String]
         var history: [GeminiTurn]
+        var cached: String
     }
 
     var replies: [Result<GeminiAnswer, Error>] = []
     var calls: [Call] = []
+    /// Sırayla verilecek "kısa sesi yazıya dök" sonuçları (bitince boş metin)
+    var transcripts: [String] = []
+    var transcribeCalls = 0
 
-    func ask(questionText: String, audioWAV: Data?, docs: [GeminiDoc], history: [GeminiTurn]) async throws -> GeminiAnswer {
-        calls.append(Call(text: questionText, audio: audioWAV, docs: docs.map { $0.name }, history: history))
+    func ask(questionText: String, audioWAV: Data?, docs: [GeminiDoc], history: [GeminiTurn], cached: String) async throws -> GeminiAnswer {
+        calls.append(Call(text: questionText, audio: audioWAV, docs: docs.map { $0.name }, history: history, cached: cached))
         if replies.isEmpty { return GeminiAnswer(question: questionText, answer: "Cevap \(calls.count).") }
         return try replies.removeFirst().get()
+    }
+
+    func transcribe(audioWAV: Data) async throws -> String {
+        transcribeCalls += 1
+        return transcripts.isEmpty ? "" : transcripts.removeFirst()
     }
 }
 
@@ -75,6 +84,58 @@ private final class Log {
     var speakResult = true
     /// true: okuma hemen bitmiş sayılır (oturum akışı okuma bitmesini bekler)
     var autoFinish = false
+    /// autoFinish ile bitirilen okuma sonuna kadar okundu mu (false: kesildi)
+    var completed = true
+    /// onBatchProgress ile bildirilen toplu cevap sıraları
+    var progress: [Int] = []
+}
+
+@MainActor
+private final class FakeMemory: GeminiMemoryProviding {
+    var isWanted = true
+    var uploadFailure: GeminiError?
+    var cacheName = "cachedContents/1"
+    var prepared = 0
+    var sessions: [Bool] = []
+    var dropped = 0
+    var released = 0
+    var revalidated = 0
+    var uploads = 0
+    var lostOnRevalidate = 0
+
+    func wanted(_ docs: [GeminiDoc]) -> Bool { return isWanted }
+
+    func prepare(_ docs: [GeminiDoc], session: Bool, progress: @escaping (Int, Int) -> Void) async throws -> (docs: [GeminiDoc], cache: String) {
+        prepared += 1
+        sessions.append(session)
+        if let failure = uploadFailure { throw failure }
+        progress(docs.count, docs.count)
+        let marked = docs.map { doc -> GeminiDoc in
+            var d = doc
+            d.uri = "https://files/\(doc.name)"
+            d.remote = "files/\(doc.name)"
+            return d
+        }
+        return (marked, session ? cacheName : "")
+    }
+
+    func upload(_ docs: [GeminiDoc], progress: @escaping (Int, Int) -> Void) async throws -> [GeminiDoc] {
+        uploads += 1
+        return docs.map { doc -> GeminiDoc in
+            var d = doc
+            d.uri = "https://files/yeni/\(doc.name)"
+            d.remote = "files/yeni/\(doc.name)"
+            return d
+        }
+    }
+
+    func revalidate(_ docs: [GeminiDoc]) async -> (docs: [GeminiDoc], lost: Int) {
+        revalidated += 1
+        return (docs, lostOnRevalidate)
+    }
+
+    func dropCache() async { dropped += 1 }
+    func release() async { released += 1 }
 }
 
 @MainActor
@@ -85,6 +146,8 @@ final class GeminiChatTests: XCTestCase {
     private var log = Log()
     private var options = GeminiOptions(privacyOK: true, hasKey: true, docCount: 3)
     private var chat: GeminiChat!
+    private var memory = FakeMemory()
+    private var lastURL = FileManager.default.temporaryDirectory
 
     override func setUp() {
         super.setUp()
@@ -92,20 +155,33 @@ final class GeminiChatTests: XCTestCase {
         docs = FakeDocs()
         recorder = FakeRecorder()
         log = Log()
+        memory = FakeMemory()
+        lastURL = FileManager.default.temporaryDirectory.appendingPathComponent("son-cevap-\(UUID().uuidString).json")
         options = GeminiOptions(privacyOK: true, hasKey: true, docCount: 3)
+        chat = makeChat(memory: nil)
+    }
+
+    override func tearDown() {
+        try? FileManager.default.removeItem(at: lastURL)
+        super.tearDown()
+    }
+
+    private func makeChat(memory: GeminiMemoryProviding?) -> GeminiChat {
         let box = self
-        let chat = GeminiChat(client: client, docs: docs, recorder: recorder, options: { box.options })
+        let chat = GeminiChat(client: client, docs: docs, recorder: recorder, options: { box.options },
+                              memory: memory, lastStore: LastAnswerStore(url: lastURL))
         let log = self.log
         chat.speak = { [weak chat] text in
             log.spoken.append(text)
             if log.speakResult && log.autoFinish {
-                Task { @MainActor in chat?.speakingChanged(false) }
+                Task { @MainActor in chat?.speakingChanged(false, completed: log.completed) }
             }
             return log.speakResult
         }
         chat.stopSpeaking = {}
         chat.onActiveChange = { log.active.append($0) }
-        self.chat = chat
+        chat.onBatchProgress = { log.progress.append($0) }
+        return chat
     }
 
     private func waitUntil(_ seconds: TimeInterval = 3, _ condition: () -> Bool) async -> Bool {
@@ -221,17 +297,17 @@ final class GeminiChatTests: XCTestCase {
         XCTAssertFalse(chat.ask(text: "   "))
     }
 
-    func testHistoryKeepsLastSixTurns() async {
-        for n in 1...8 {
+    func testHistoryKeepsLastTwelveTurns() async {
+        for n in 1...14 {
             chat.ask(text: "soru \(n)")
             _ = await waitUntil { self.chat.phase == .speaking }
             chat.speakingChanged(false)
         }
-        XCTAssertEqual(client.calls.map { $0.history.count }, [0, 1, 2, 3, 4, 5, 6, 6])
-        XCTAssertEqual(chat.history.count, 6)
+        XCTAssertEqual(client.calls.map { $0.history.count }, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 12])
+        XCTAssertEqual(chat.history.count, 12)
         XCTAssertEqual(chat.history.first?.question, "soru 3")
-        XCTAssertEqual(client.calls[7].history.last?.question, "soru 7")
-        XCTAssertEqual(chat.turns, 8)
+        XCTAssertEqual(client.calls[13].history.last?.question, "soru 13")
+        XCTAssertEqual(chat.turns, 14)
     }
 
     func testNewConversationClearsHistory() async {
@@ -602,21 +678,265 @@ final class GeminiChatTests: XCTestCase {
         XCTAssertEqual(chat.error, "Aylık harcama sınırınız doldu.")
     }
 
+
+    // MARK: Toplu cevap sırası, tekrar, hafıza
+
+    private func batchReply(_ text: String, last: Int) -> Result<GeminiAnswer, Error> {
+        var answer = GeminiAnswer(question: "ilk on soruyu cevapla", answer: text)
+        answer.lastQuestion = last
+        return .success(answer)
+    }
+
+    func testBatchCursorAdvancesOnlyWhenTheAnswerWasFullyRead() async {
+        client.replies = [batchReply("Birinci sorunun cevabı DENİZLİ, altmış sekiz.", last: 10),
+                          batchReply("Birinci sorunun cevabı DENİZLİ, altmış sekiz.", last: 10)]
+        chat.ask(text: "ilk on soruyu cevapla")
+        _ = await waitUntil { self.chat.phase == .speaking }
+        XCTAssertEqual(log.progress, [], "okunurken sıra ilerlememeli")
+        chat.speakingChanged(false, completed: false)
+        XCTAssertEqual(log.progress, [], "kesilen okumada sıra ilerlememeli")
+
+        chat.ask(text: "ilk on soruyu cevapla")
+        _ = await waitUntil { self.chat.phase == .speaking && self.client.calls.count == 2 }
+        chat.speakingChanged(false, completed: true)
+        XCTAssertEqual(log.progress, [10], "sonuna kadar okununca sıra ilerler")
+    }
+
+    func testBatchCursorInSessionFollowsTheReadingResult() async {
+        log.autoFinish = true
+        log.completed = false
+        options.session = true
+        client.replies = [batchReply("Cevaplar.", last: 10)]
+        recorder.results = [(Data(count: 32000), .done), noSpeech]
+        chat.ask()
+        _ = await waitUntil { self.chat.status == "Oturum bitti" }
+        XCTAssertEqual(log.progress, [], "okuma kesildiyse oturumda da sıra ilerlemez")
+
+        let fresh = makeChat(memory: nil)
+        log.completed = true
+        client.replies = [batchReply("Cevaplar.", last: 20)]
+        recorder.results = [(Data(count: 32000), .done), noSpeech]
+        fresh.ask()
+        _ = await waitUntil { fresh.status == "Oturum bitti" }
+        XCTAssertEqual(log.progress, [20])
+    }
+
+    func testRequestFailureNeverMovesTheCursor() async {
+        client.replies = [.failure(GeminiError("İnternete ulaşılamadı.", .network))]
+        chat.ask(text: "sıradaki on soruyu cevapla")
+        _ = await waitUntil { self.chat.phase == .speaking || self.chat.phase == .idle }
+        chat.speakingChanged(false)
+        XCTAssertEqual(log.progress, [])
+    }
+
+    func testNonBatchAnswerLeavesTheCursorAlone() async {
+        chat.ask(text: "toplam nedir")
+        _ = await waitUntil { self.chat.phase == .speaking }
+        chat.speakingChanged(false)
+        XCTAssertEqual(log.progress, [])
+    }
+
+    func testRepeatLastAnswerSpeaksFromMemoryWithoutAskingGemini() async {
+        client.replies = [batchReply("Birinci sorunun cevabı DENİZLİ, altmış sekiz.", last: 10)]
+        chat.ask(text: "ilk on soruyu cevapla")
+        _ = await waitUntil { self.chat.phase == .speaking }
+        chat.speakingChanged(false, completed: false)         // kullanıcı cevabı kaçırdı
+        XCTAssertEqual(log.progress, [])
+
+        chat.ask(text: "son yanıtı tekrarla")
+        _ = await waitUntil { self.log.spoken.count == 2 }
+        XCTAssertEqual(client.calls.count, 1, "tekrar için Gemini'ye istek gitmemeli")
+        XCTAssertEqual(log.spoken.last, "Birinci sorunun cevabı DENİZLİ, altmış sekiz.")
+        XCTAssertEqual(chat.turns, 1, "tekrar geçmişe eklenmez")
+        XCTAssertEqual(chat.history.count, 1)
+        XCTAssertEqual(chat.tokens, 0)
+        chat.speakingChanged(false, completed: true)
+        XCTAssertEqual(log.progress, [10], "kaçırılan toplu cevap tekrarlanıp tam dinlenince sıra ilerler")
+    }
+
+    func testRepeatIsRememberedAcrossChats() async {
+        chat.ask(text: "toplam nedir")
+        _ = await waitUntil { self.chat.phase == .speaking }
+        chat.speakingChanged(false)
+        let reopened = makeChat(memory: nil)
+        XCTAssertEqual(reopened.last?.answer, "Cevap 1.")
+        reopened.ask(text: "bir daha söyle")
+        _ = await waitUntil { self.log.spoken.count == 2 }
+        XCTAssertEqual(log.spoken.last, "Cevap 1.")
+        XCTAssertEqual(client.calls.count, 1)
+    }
+
+    func testRepeatWithoutAnyAnswerSaysSo() async {
+        chat.ask(text: "son yanıtı tekrarla")
+        _ = await waitUntil { self.log.spoken.count == 1 }
+        XCTAssertEqual(log.spoken, [GeminiText.noLastLine])
+        XCTAssertEqual(client.calls.count, 0)
+    }
+
+    func testNewQuestionPhrasedLikeARepeatIsStillAsked() async {
+        chat.ask(text: "ilk on soruyu tekrar cevapla")
+        _ = await waitUntil { self.chat.phase == .speaking }
+        XCTAssertEqual(client.calls.count, 1)
+    }
+
+    func testShortSpokenRepeatIsRecognisedWithoutDocuments() async {
+        chat.ask(text: "toplam nedir")
+        _ = await waitUntil { self.chat.phase == .speaking }
+        chat.speakingChanged(false)
+        client.transcripts = ["Gemini, son cevabı tekrar et"]
+        chat.ask()
+        _ = await waitUntil { self.log.spoken.count == 2 }
+        XCTAssertEqual(client.transcribeCalls, 1)
+        XCTAssertEqual(client.calls.count, 1, "tekrar istenince ana istek gitmemeli")
+        XCTAssertEqual(docs.counts.count, 1, "tekrar için belgeler yeniden hazırlanmamalı")
+    }
+
+    func testShortSpokenQuestionThatIsNotARepeatContinuesNormally() async {
+        chat.ask(text: "toplam nedir")
+        _ = await waitUntil { self.chat.phase == .speaking }
+        chat.speakingChanged(false)
+        client.transcripts = ["kira bedeli ne kadar"]
+        chat.ask()
+        _ = await waitUntil { self.client.calls.count == 2 }
+        XCTAssertEqual(client.transcribeCalls, 1)
+        XCTAssertNotNil(client.calls[1].audio, "normal soru sesle gitmeli")
+    }
+
+    func testLongSpokenRequestSkipsTheRepeatCheck() async {
+        chat.ask(text: "toplam nedir")
+        _ = await waitUntil { self.chat.phase == .speaking }
+        chat.speakingChanged(false)
+        recorder.result = (Data(count: 16000 * 2 * 8), .done)
+        chat.ask()
+        _ = await waitUntil { self.client.calls.count == 2 }
+        XCTAssertEqual(client.transcribeCalls, 0, "5 saniyeden uzun ses doğrudan soru sayılır")
+    }
+
+    func testReadyLineMentionsPagesWhenTheyDifferFromDocuments() {
+        XCTAssertEqual(GeminiText.readyLine(count: 2, new: nil, pages: 40), "2 belge, 40 sayfa hazır. Sorunuzu bekliyorum.")
+        XCTAssertEqual(GeminiText.readyLine(count: 2, new: nil, pages: 2), "2 belge hazır. Sorunuzu bekliyorum.")
+        XCTAssertEqual(GeminiText.readyLine(count: 2, new: 2, pages: 40), "2 belge, 40 sayfa hazır, hepsi yeni. Sorunuzu bekliyorum.")
+    }
+
+    func testMemoryUploadsOnceAndSessionUsesTheCacheThenReleasesIt() async {
+        let memory = FakeMemory()
+        chat = makeChat(memory: memory)
+        log.autoFinish = true
+        options.session = true
+        docs.result = .success((docs: [GeminiDoc(name: "a.pdf", fileURL: URL(fileURLWithPath: "/tmp/yok.pdf"), size: 10, pages: 40, key: "k1")], notes: []))
+        recorder.results = [(Data(count: 32000), .done), noSpeech]
+        chat.ask()
+        _ = await waitUntil { self.chat.status == "Oturum bitti" }
+        XCTAssertEqual(log.spoken.first, "1 belge, 40 sayfa hazır. Sorunuzu bekliyorum.")
+        XCTAssertEqual(client.calls.count, 1)
+        XCTAssertEqual(client.calls[0].cached, "cachedContents/1")
+        XCTAssertEqual(memory.sessions, [true, true], "hazırlıkta ve soruda hafıza oturum kipinde hazırlanır")
+        let released = await waitUntil { memory.released == 1 }
+        XCTAssertTrue(released, "oturum bitince önbellek silinmeli")
+    }
+
+    func testSingleQuestionUsesFilesButNoCache() async {
+        let memory = FakeMemory()
+        chat = makeChat(memory: memory)
+        chat.ask(text: "toplam nedir")
+        _ = await waitUntil { self.chat.phase == .speaking }
+        XCTAssertEqual(memory.sessions, [false])
+        XCTAssertEqual(client.calls[0].cached, "")
+        XCTAssertEqual(memory.released, 0)
+    }
+
+    func testMemoryFailureFallsBackToInlineDocumentsWithANote() async {
+        let memory = FakeMemory()
+        memory.uploadFailure = GeminiError("Yükleme başarısız.", .http, status: 500)
+        chat = makeChat(memory: memory)
+        chat.ask(text: "toplam nedir")
+        _ = await waitUntil { self.chat.phase == .speaking }
+        XCTAssertEqual(client.calls.count, 1)
+        XCTAssertEqual(client.calls[0].cached, "")
+        XCTAssertTrue(chat.notes.contains("Belgeler Gemini hafızasına alınamadı, doğrudan gönderiliyor."), "\(chat.notes)")
+    }
+
+    func testKeyErrorDuringUploadIsReportedNotHidden() async {
+        let memory = FakeMemory()
+        memory.uploadFailure = GeminiError("API anahtarı geçersiz.", .key, status: 400)
+        chat = makeChat(memory: memory)
+        chat.ask(text: "toplam nedir")
+        _ = await waitUntil { self.chat.phase == .speaking }
+        XCTAssertEqual(client.calls.count, 0)
+        XCTAssertEqual(chat.error, "API anahtarı geçersiz.")
+    }
+
+    func testExpiredCacheIsDroppedAndTheQuestionIsRetriedWithoutIt() async {
+        let memory = FakeMemory()
+        chat = makeChat(memory: memory)
+        log.autoFinish = true
+        options.session = true
+        client.replies = [.failure(GeminiError("Önbellek bulunamadı.", .http, status: 404)), .success(GeminiAnswer(question: "q", answer: "Tamam."))]
+        docs.result = .success((docs: [GeminiDoc(name: "a.pdf", fileURL: URL(fileURLWithPath: "/tmp/yok.pdf"), size: 10, pages: 40, key: "k1")], notes: []))
+        recorder.results = [(Data(count: 32000), .done), noSpeech]
+        chat.ask()
+        _ = await waitUntil { self.chat.status == "Oturum bitti" }
+        XCTAssertEqual(client.calls.map { $0.cached }, ["cachedContents/1", ""])
+        XCTAssertEqual(memory.dropped, 1)
+        XCTAssertTrue(log.spoken.contains("Tamam. Sonraki sorunuzu bekliyorum."), "\(log.spoken)")
+    }
+
+    func testLostFilesAreReuploadedAndTheQuestionIsRetried() async {
+        let memory = FakeMemory()
+        memory.lostOnRevalidate = 1
+        chat = makeChat(memory: memory)
+        client.replies = [.failure(GeminiError("Dosya bulunamadı.", .http, status: 403)), .success(GeminiAnswer(question: "q", answer: "Tamam."))]
+        docs.result = .success((docs: [GeminiDoc(name: "a.pdf", fileURL: URL(fileURLWithPath: "/tmp/yok.pdf"), size: 10, pages: 40, key: "k1")], notes: []))
+        chat.ask(text: "toplam nedir")
+        _ = await waitUntil { self.chat.phase == .speaking }
+        XCTAssertEqual(client.calls.count, 2)
+        XCTAssertEqual(memory.revalidated, 1)
+        XCTAssertEqual(memory.uploads, 1)
+        XCTAssertEqual(chat.answer, "Tamam.")
+    }
+
+    func testUnrelatedHTTPErrorIsNotRetriedAsAFileProblem() async {
+        let memory = FakeMemory()
+        chat = makeChat(memory: memory)
+        client.replies = [.failure(GeminiError("Sunucu hatası.", .http, status: 500))]
+        chat.ask(text: "toplam nedir")
+        _ = await waitUntil { self.chat.phase == .speaking }
+        XCTAssertEqual(client.calls.count, 1)
+        XCTAssertEqual(memory.revalidated, 0)
+        XCTAssertEqual(chat.error, "Sunucu hatası.")
+    }
 }
 
 // MARK: - Belge önbelleği
 
-private final class FakeDrive: GeminiDriveSource {
+private final class FakeDrive: GeminiDriveSource, @unchecked Sendable {
     var listing: [DriveFileInfo] = []
-    var downloads: [String] = []
+    private let lock = NSLock()
+    private var log: [String] = []
+    /// Veri sayfa işaretleri içersin diye PDF gibi görünen baytlar (her sayfa "/Type /Page")
+    var pagesPerFile: [String: Int] = [:]
+
+    var downloads: [String] {
+        lock.lock(); defer { lock.unlock() }
+        return log
+    }
 
     func listPDFs(count: Int) async throws -> [DriveFileInfo] {
         return Array(listing.prefix(count))
     }
 
     func download(fileID: String) async throws -> Data {
-        downloads.append(fileID)
+        lock.lock()
+        log.append(fileID)
+        lock.unlock()
         let size = listing.first(where: { $0.id == fileID })?.size ?? 0
+        if let pages = pagesPerFile[fileID] {
+            var text = "%PDF-1.4\n"
+            for _ in 0..<pages { text += "<< /Type /Page >>\n" }
+            var data = Data(text.utf8)
+            if data.count < size { data.append(Data(repeating: 32, count: size - data.count)) }
+            return data
+        }
         return Data(repeating: 7, count: size)
     }
 }
@@ -646,7 +966,7 @@ final class GeminiDocStoreTests: XCTestCase {
         let first = try await store.fetch(count: 2)
         XCTAssertEqual(first.docs.map { $0.name }, ["yeni.pdf", "eski.pdf"])
         XCTAssertEqual(first.docs.map { $0.data.count }, [120, 80])
-        XCTAssertEqual(drive.downloads, ["yeni", "eski"])
+        XCTAssertEqual(drive.downloads.sorted(), ["eski", "yeni"])
 
         let second = try await store.fetch(count: 2)
         XCTAssertEqual(second.docs.map { $0.data.count }, [120, 80])
@@ -664,15 +984,55 @@ final class GeminiDocStoreTests: XCTestCase {
         XCTAssertEqual(drive.downloads, ["a", "a"])
     }
 
-    func testBudgetSkipsDocumentsAndReportsIt() async throws {
+    func testPageBudgetKeepsNewestAndReportsSkipped() async throws {
         let drive = FakeDrive()
-        drive.listing = [info("a", 60), info("b", 60), info("c", 30)]
-        let store = GeminiDocStore(source: drive, cacheDirectory: directory, budget: 100)
+        drive.listing = [info("a", 300), info("b", 300), info("c", 300)]
+        drive.pagesPerFile = ["a": 200, "b": 200, "c": 150]
+        let store = GeminiDocStore(source: drive, cacheDirectory: directory, maxPages: 500)
         let result = try await store.fetch(count: 3)
-        XCTAssertEqual(result.docs.map { $0.name }, ["a.pdf", "c.pdf"])
-        XCTAssertEqual(result.notes.count, 1)
-        XCTAssertTrue(result.notes[0].contains("1 belge"))
-        XCTAssertFalse(drive.downloads.contains("b"))
+        XCTAssertEqual(result.docs.map { $0.name }, ["a.pdf", "b.pdf"])
+        XCTAssertEqual(result.docs.map { $0.pages }, [200, 200])
+        XCTAssertEqual(result.notes, ["1 belge 500 sayfa sınırı nedeniyle atlandı."])
+    }
+
+    func testExactly500PagesFitAndThe501stDoesNot() async throws {
+        let drive = FakeDrive()
+        drive.listing = [info("a", 300), info("b", 300), info("c", 300)]
+        drive.pagesPerFile = ["a": 100, "b": 200, "c": 200]
+        let store = GeminiDocStore(source: drive, cacheDirectory: directory, maxPages: 500)
+        let fit = try await store.fetch(count: 3)
+        XCTAssertEqual(fit.docs.map { $0.name }, ["a.pdf", "b.pdf", "c.pdf"])
+        XCTAssertTrue(fit.notes.isEmpty)
+        drive.listing = [info("n", 300)] + drive.listing
+        drive.pagesPerFile["n"] = 1
+        let over = try await store.fetch(count: 4)
+        XCTAssertEqual(over.docs.map { $0.name }, ["n.pdf", "a.pdf", "b.pdf"])
+        XCTAssertEqual(over.notes, ["1 belge 500 sayfa sınırı nedeniyle atlandı."])
+    }
+
+    func testPageCountsAreRememberedBetweenFetches() async throws {
+        let drive = FakeDrive()
+        drive.listing = [info("a", 300), info("b", 300)]
+        drive.pagesPerFile = ["a": 10, "b": 20]
+        let store = GeminiDocStore(source: drive, cacheDirectory: directory)
+        _ = try await store.fetch(count: 2)
+        let before = drive.downloads.count
+        let again = GeminiDocStore(source: drive, cacheDirectory: directory)
+        let result = try await again.fetch(count: 2)
+        XCTAssertEqual(result.docs.map { $0.pages }, [10, 20])
+        XCTAssertEqual(drive.downloads.count, before, "sayfa sayıları diskteki eşlemeden gelmeli, yeniden indirilmemeli")
+    }
+
+    func testDocumentBytesAreReloadedWhenTheCacheFileIsGone() async throws {
+        let drive = FakeDrive()
+        drive.listing = [info("a", 300)]
+        drive.pagesPerFile = ["a": 3]
+        let store = GeminiDocStore(source: drive, cacheDirectory: directory)
+        let result = try await store.fetch(count: 1)
+        try FileManager.default.removeItem(at: directory.appendingPathComponent("a.pdf"))
+        let data = try await result.docs[0].load()
+        XCTAssertEqual(data.count, 300)
+        XCTAssertEqual(drive.downloads, ["a", "a"])
     }
 
     func testEmptyFolderGivesNote() async throws {
@@ -687,7 +1047,7 @@ final class GeminiDocStoreTests: XCTestCase {
         drive.listing = (1...6).map { info("f\($0)", 10 + $0) }
         let store = GeminiDocStore(source: drive, cacheDirectory: directory, keep: 3)
         _ = try await store.fetch(count: 6)
-        let files = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
+        let files = ((try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []).filter { $0.hasSuffix(".pdf") }
         XCTAssertEqual(files.count, 3)
     }
 }

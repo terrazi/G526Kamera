@@ -71,20 +71,33 @@ final class AppModel: ObservableObject {
     private let guidance = GuidanceEngine()
     private let speaker = GuidanceSpeaker()
     /// Belgelerle sesli Gemini sohbeti
-    let gemini = GeminiChat(
-        client: GeminiClient(key: { AppSettings.shared.activeGeminiProfile.key }, model: { AppSettings.shared.activeGeminiProfile.model }),
-        docs: GeminiDocStore(source: DriveClient(auth: GoogleAuth.shared)),
-        recorder: QuestionRecorder(),
-        options: {
-            let s = AppSettings.shared
-            // Yedeğe geçilen ay bittiyse eski profile dönülür
-            s.refreshGeminiCapFallback()
-            let active = s.activeGeminiProfile
-            return GeminiOptions(privacyOK: s.geminiPrivacyOK, hasKey: !active.key.isEmpty, docCount: s.geminiDocCount,
-                                 callWords: s.geminiCallWord, session: s.geminiSession,
-                                 sessionTimeout: s.geminiSessionTimeout, profiles: s.geminiProfileInfos(),
-                                 active: active.slot, autoFallback: s.geminiAutoFallback)
-        })
+    let gemini: GeminiChat = AppModel.makeGemini()
+
+    private static func makeGemini() -> GeminiChat {
+        let client = GeminiClient(key: { AppSettings.shared.activeGeminiProfile.key },
+                                  model: { AppSettings.shared.activeGeminiProfile.model },
+                                  codes: { AppSettings.shared.geminiOptionCodes },
+                                  batchLast: { AppSettings.shared.geminiBatchLast })
+        let memory = GeminiMemory(remote: client, enabled: { AppSettings.shared.geminiMemory })
+        let chat = GeminiChat(
+            client: client,
+            docs: GeminiDocStore(source: DriveClient(auth: GoogleAuth.shared)),
+            recorder: QuestionRecorder(),
+            options: {
+                let s = AppSettings.shared
+                // Yedeğe geçilen ay bittiyse eski profile dönülür
+                s.refreshGeminiCapFallback()
+                let active = s.activeGeminiProfile
+                return GeminiOptions(privacyOK: s.geminiPrivacyOK, hasKey: !active.key.isEmpty, docCount: s.geminiDocCount,
+                                     callWords: s.geminiCallWord, session: s.geminiSession,
+                                     sessionTimeout: s.geminiSessionTimeout, profiles: s.geminiProfileInfos(),
+                                     active: active.slot, autoFallback: s.geminiAutoFallback)
+            },
+            memory: memory)
+        // Toplu cevap kullanıcıya sonuna kadar okunup ulaşınca kalıcı sıra ilerler
+        chat.onBatchProgress = { n in AppSettings.shared.geminiBatchLast = n }
+        return chat
+    }
     private var guidanceWasOn = false
     private var speechActive = false
     /// Sesli model seçimi sürüyor ("model değiştir" denildi)
@@ -183,9 +196,10 @@ final class AppModel: ObservableObject {
             Task { @MainActor in self?.guidanceSample(sample) }
         }
         speaker.onSpeakingChange = { [weak self] speaking in
+            let clean = self?.speaker.endedCleanly ?? false
             Task { @MainActor in
                 self?.speech.suppressed = speaking
-                self?.gemini.speakingChanged(speaking)
+                self?.gemini.speakingChanged(speaking, completed: clean)
             }
         }
         // Gemini sorusu sürerken sürekli dinleyen sesli komut durur (mikrofonu tek kayıtçı kullanır), bitince geri açılır

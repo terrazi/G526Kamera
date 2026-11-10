@@ -191,11 +191,29 @@ struct SettingsView: View {
                 Text("Bu sözcük başka bir komutla aynı: \(callWordClashes.joined(separator: ", ")). Farklı bir sözcük seçin.")
                     .font(.footnote).foregroundColor(.orange)
             }
-            Stepper(value: $settings.geminiDocCount, in: 1...30) {
+            Stepper(value: $settings.geminiDocCount, in: 1...GeminiConfig.maxPages) {
                 Text(verbatim: "Gönderilecek son belge sayısı: \(settings.geminiDocCount)")
             }
-            Text("Tek tek göndermede her sayfa ayrı belgedir: taradığınız sayfa sayısı kadar yapın.")
+            Text("Tek tek göndermede her sayfa ayrı belgedir: taradığınız sayfa sayısı kadar yapın. Gemini’ye en çok \(GeminiConfig.maxPages) sayfa verilir; en yeni belgelerden başlanır, sığmayanlar atlanır ve bu sesli söylenir.")
                 .font(.footnote).foregroundColor(.secondary)
+            Toggle("Büyük belge setlerini Gemini’nin hafızasına al", isOn: $settings.geminiMemory)
+                .accessibilityIdentifier("gemini-hafiza")
+            Text("Açıkken (8 sayfadan büyük setlerde) PDF’ler Gemini’ye bir kez yüklenir (48 saat saklanır), oturumda belgeler Gemini’nin önbelleğinde durur: her soruda 500 sayfa yeniden gönderilmez, daha hızlı ve ucuzdur. Önbellek oturum süresince saat başı küçük bir saklama ücreti işler ve oturum bitince silinir. Bir sorun olursa belgeler eski yöntemle (en çok yaklaşık 14 MB) doğrudan gönderilir.")
+                .font(.footnote).foregroundColor(.secondary)
+            TextField("Şık kodları (A=ADANA, B=BURSA…)", text: $settings.geminiOptionCodes)
+                .textInputAutocapitalization(.characters)
+                .disableAutocorrection(true)
+                .accessibilityIdentifier("gemini-sik-kodlari")
+            Text("Cevapta şık harfi yerine bu kod sözcüğü okunur (ör. “Birinci sorunun cevabı DENİZLİ, altmış sekiz.”). Boş bırakırsanız harfin kendisi okunur. “İlk on soruyu cevapla” deyince 10’arlı gruplar hâlinde okunur; “sıradaki on soruyu cevapla” dediğinizde, ulaşan son cevaptan sonrasından devam edilir (cevap kesilirse ya da internet koparsa aynı grup yeniden verilir). Belirli soruları da isteyebilirsiniz: “üçüncü, sekizinci ve on beşinci soruların cevabını ver”; “son yanıtı tekrarla” derseniz son cevap Gemini’ye gitmeden uygulamanın hafızasından okunur.")
+                .font(.footnote).foregroundColor(.secondary)
+            if settings.geminiBatchLast > 0 {
+                HStack {
+                    Text(verbatim: "Toplu cevapta kalınan yer: \(settings.geminiBatchLast). soru")
+                    Spacer()
+                    Button("Sıfırla") { settings.geminiBatchLast = 0 }
+                        .accessibilityIdentifier("gemini-sira-sifirla")
+                }
+            }
             Toggle("Ses kaydımın ve PDF’lerimin Google’a gönderilmesini onaylıyorum", isOn: $settings.geminiPrivacyOK)
                 .accessibilityIdentifier("gemini-gizlilik")
         }

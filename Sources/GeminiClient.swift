@@ -9,9 +9,31 @@ enum GeminiConfig {
     /// Ham PDF baytları; base64 ile ~18,7 MB olur, istek 20 MB'ın altında kalır
     static let inlineBudget = 14 * 1024 * 1024
     /// Sohbet geçmişinde tutulan son soru-cevap sayısı
-    static let maxHistory = 6
+    static let maxHistory = 12
+    /// Bir oturumda Gemini'ye verilecek en çok sayfa
+    static let maxPages = 500
+    /// Gemini bir PDF sayfasını ortalama bu kadar jetonla sayar
+    static let tokensPerPage = 560
+    /// Bundan az sayfa "hafıza" kullanmadan doğrudan (inline) gider
+    static let memoryMinPages = 8
+    /// Açık önbellek için en az jeton (Gemini 3.x Flash)
+    static let cacheMinTokens = 4096
+    /// Önbellek her soruda bu kadar saniye uzatılır
+    static let cacheTTL = 1800
+    /// Files API dosyaları 48 saat saklar; 40 saatten eskisi yeniden yüklenir
+    static let fileKeepSeconds: Double = 40 * 3600
+    /// Şık harfleri yerine sesli okunan kod sözcükleri
+    static let defaultOptionCodes = "A=ADANA, B=BURSA, C=CEYHAN, D=DENİZLİ, E=EDİRNE"
+    static let docsIntro = "Aşağıdaki belgeler, soruları yanıtlarken dayanacağın belgelerdir."
+    static let docsAck = "Belgeleri okudum, sorularınızı bekliyorum."
+    static let transcribeSystem = "Sesi Türkçe olarak aynen yazıya dök. Başındaki çağrı sözcüğünü ('Gemini' gibi) yazma. Yorum ekleme."
+    static let transcribeMarker = "Bu sesi yazıya dök."
+    static let batchNote = "[Uygulama notu] Toplu cevapta en son verilen soru numarası: "
 
-    static let systemPrompt: String = [
+    /// Şık kodlarına göre tamamlanan yönerge (varsayılan kodlarla)
+    static var systemPrompt: String { return GeminiSupport.systemPrompt(codesText: defaultOptionCodes) }
+
+    static let systemTemplate: String = [
         "Sen, kullanıcının taradığı belgeleri okuyup sorularını yanıtlayan bir belge asistanısın. "
             + "Cevabın hoparlörden yüksek sesle okunacak. Kurallar:",
         "1. Türkçe yaz. Kısa ve doğal konuş: genelde 2 ile 5 cümle; kullanıcı ayrıntı istemedikçe uzatma.",
@@ -32,20 +54,17 @@ enum GeminiConfig {
             + "en temiz ve en okunaklı olanı esas al, diğerlerini yok say, aynı bilgiyi iki kez sayma. PDF'lerin sonunda "
             + "'okunan metin (OCR)' başlıklı sayfalar olabilir: bunlar otomatik okumanın çıktısıdır ve hatalı olabilir; "
             + "sayfa görüntüsüyle çelişirse görüntüyü esas al.",
-        "8. Kullanıcı belgelerdeki numaralı bir soruyu istediğinde ('beşinci soruyu cevapla', '5. soru'), o soruyu belgelerde "
-            + "bul ve cevabı tam şu kalıpla ver: 'Beşinci sorunun cevabı, C, CEYHAN şıkkıdır.' Sıra sayısını yazıyla yaz "
-            + "(birinci, ikinci, … beşinci, onuncu), şıkkı belgedeki harfi ve metniyle söyle; şık harfini ASLA tek başına söyleme, yanında şıkkın metnini (sayı, tarih, birim dahil) eksiksiz yaz (şıklarda harf yoksa yalnız "
-            + "metni: 'CEYHAN şıkkıdır'). Bu kalıpta gerekçe, belge adı ya da sayfa numarası ekleme; kullanıcı 'neden' diye "
-            + "sorarsa kısaca açıkla. Aynı numaralı soru birden çok belgede ya da kitapçıkta varsa tahmin etme, hangisini kastettiğini sor (örn. 'Birden fazla belgede 5. soru var, hangisi?'). Soruyu bulamazsan ya da şıklar okunamıyorsa tahmin etme, bunu söyle. Cevabın sonuna "
-            + "'sonraki sorunuzu bekliyorum' gibi bir cümle ekleme; uygulama onu kendisi söyler.",
+        "@@KURAL8@@",
         "9. Kullanıcı konuşmayı bitirmek istiyorsa ('oturumu kapat', 'yeter', 'bu kadar', 'görüşürüz' gibi) 'kapat' alanını "
             + "true yap ve 'cevap' alanına kısa bir vedalaşma yaz; aksi hâlde 'kapat' false olsun.",
         "10. Ses bir soru ya da istek içermiyorsa (gürültü, öksürük, başkalarının sohbeti, kendi kendine konuşma, anlaşılmayan "
             + "ses) 'soru' ve 'cevap' alanlarını boş bırak; tahmin yürütüp cevap uydurma.",
         "11. Kullanıcı yapay zekâ modelini değiştirmek istiyorsa ('model değiştir', 'modeli değiştir') 'model_degistir' "
             + "alanını true yap ve 'cevap' alanını boş bırak; aksi hâlde false olsun.",
+        "@@KURAL12@@",
+        "@@KURAL13@@",
         "Çıktı her zaman JSON olmalı: 'soru' alanına kullanıcının sorusunu (ses geldiyse duyduğun şekliyle yazarak) koy, "
-            + "'cevap' alanına cevabını, 'kapat' ve 'model_degistir' alanlarına true ya da false koy."
+            + "'cevap' alanına cevabını, 'kapat' ve 'model_degistir' alanlarına true ya da false, 'son_soru' alanına tamsayı koy."
     ].joined(separator: "\n")
 
     /// Sayfa fotoğrafını metne döktüren OCR yönergesi
@@ -63,7 +82,7 @@ enum GeminiConfig {
     static let responseSchema: [String: Any] = [
         "type": "OBJECT",
         "properties": ["soru": ["type": "STRING"], "cevap": ["type": "STRING"], "kapat": ["type": "BOOLEAN"],
-                       "model_degistir": ["type": "BOOLEAN"]],
+                       "model_degistir": ["type": "BOOLEAN"], "son_soru": ["type": "INTEGER"]],
         "required": ["soru", "cevap"]
     ]
 }
@@ -86,9 +105,59 @@ struct GeminiError: LocalizedError {
     var errorDescription: String? { return message }
 }
 
+/// Gemini'ye verilecek bir PDF. Baytlar bellekte (kısa belgeler) ya da diskte durur; 500 sayfalık set belleğe doldurulmaz.
 struct GeminiDoc {
     let name: String
-    let data: Data
+    private let inlineData: Data?
+    let fileURL: URL?
+    let size: Int
+    /// Sayfa sayısı (0 = bilinmiyor; boyuttan tahmin edilir)
+    var pages: Int
+    /// Eşleme anahtarı (Drive dosya kimliği + boyut); boşsa içerik özetinden türetilir
+    var key: String
+    /// Files API adresi ve adı ("files/abc"); belge yüklendiyse dolu
+    var uri = ""
+    var remote = ""
+    /// Dosya diskte yoksa baytları getirir (ör. Drive'dan yeniden indirir)
+    var loader: (() async throws -> Data)?
+
+    init(name: String, data: Data) {
+        self.name = name
+        self.inlineData = data
+        self.fileURL = nil
+        self.size = data.count
+        self.pages = 0
+        self.key = ""
+        self.loader = nil
+    }
+
+    init(name: String, fileURL: URL, size: Int, pages: Int, key: String, loader: (() async throws -> Data)? = nil) {
+        self.name = name
+        self.inlineData = nil
+        self.fileURL = fileURL
+        self.size = size
+        self.pages = pages
+        self.key = key
+        self.loader = loader
+    }
+
+    /// Baytlar (diskteyse okunur; yoksa boş)
+    var data: Data {
+        if let d = inlineData { return d }
+        if let url = fileURL, let d = try? Data(contentsOf: url, options: .mappedIfSafe) { return d }
+        return Data()
+    }
+
+    /// Baytlar yoksa yükleyiciyle getirir
+    func load() async throws -> Data {
+        if let d = inlineData { return d }
+        if let url = fileURL, let d = try? Data(contentsOf: url, options: .mappedIfSafe), size == 0 || d.count == size { return d }
+        if let loader = loader { return try await loader() }
+        return data
+    }
+
+    var pageEstimate: Int { return pages > 0 ? pages : max(1, (size + 249_999) / 250_000) }
+    var isRemote: Bool { return !uri.isEmpty }
 }
 
 struct GeminiTurn: Equatable {
@@ -107,6 +176,10 @@ struct GeminiAnswer: Equatable {
     var close = false
     /// Kullanıcı "model değiştir" dedi
     var switchModel = false
+    /// Toplu cevapta (10'arlı gruplar) verilen son soru numarası; 0 = toplu cevap değil
+    var lastQuestion = 0
+    /// Önbellekten okunan girdi jetonu
+    var cachedTokens = 0
 }
 
 /// Saf (ağsız) yardımcılar: istek kurma, cevap ayrıştırma, hata çevirisi, belge seçimi. Hepsi sınanabilir.
@@ -204,26 +277,214 @@ enum GeminiSupport {
         return (.http, "Gemini hatası (\(status)): " + String(message.prefix(200)))
     }
 
+    // MARK: Sayfa sayısı
+
+    private static func hasBytes(_ bytes: [UInt8], at index: Int, _ pattern: [UInt8]) -> Bool {
+        guard index >= 0, index + pattern.count <= bytes.count else { return false }
+        for (offset, b) in pattern.enumerated() where bytes[index + offset] != b { return false }
+        return true
+    }
+
+    /// PDF'teki sayfa sayısı (/Type /Page nesneleri; /Pages sayılmaz). Nesne akışlı PDF'te sayılamazsa boyuta göre tahmin eder (~250 KB/sayfa).
+    static func countPages(_ data: Data, size: Int = 0) -> Int {
+        let bytes = [UInt8](data)
+        let typeMark = Array("/Type".utf8)
+        let pageMark = Array("/Page".utf8)
+        let n = bytes.count
+        var count = 0
+        var i = 0
+        while i < n {
+            if bytes[i] == 0x2F && hasBytes(bytes, at: i, typeMark) {
+                var j = i + typeMark.count
+                while j < n && (bytes[j] == 0x20 || bytes[j] == 0x0A || bytes[j] == 0x0D || bytes[j] == 0x09) { j += 1 }
+                if hasBytes(bytes, at: j, pageMark) {
+                    let k = j + pageMark.count
+                    let next: UInt8 = k < n ? bytes[k] : 0x20
+                    let isLetter = (next >= 0x41 && next <= 0x5A) || (next >= 0x61 && next <= 0x7A)
+                    if !isLetter { count += 1 }
+                }
+                i += typeMark.count
+            } else {
+                i += 1
+            }
+        }
+        if count > 0 { return count }
+        let basis = size > 0 ? size : n
+        return max(1, (basis + 249_999) / 250_000)
+    }
+
+    // MARK: Şık kodları ve yönerge
+
+    /// "A=ADANA, B-BURSA; c:CEYHAN" → [("A","ADANA"), ("B","BURSA"), ("C","CEYHAN")]. Bozuk girdiler atlanır; aynı harf ilk tanımıyla kalır.
+    static func parseOptionCodes(_ text: String) -> [(letter: String, word: String)] {
+        var out: [(letter: String, word: String)] = []
+        var seen = Set<String>()
+        for part in text.components(separatedBy: CharacterSet(charactersIn: ",;\n")) {
+            let trimmed = part.trimmed
+            guard let first = trimmed.first, first.isLetter else { continue }
+            var rest = Substring(trimmed.dropFirst())
+            rest = rest.drop(while: { $0 == " " || $0 == "\t" })
+            guard let separator = rest.first, "-=:–".contains(separator) else { continue }
+            let word = String(rest.dropFirst()).trimmed
+            let letter = String(first).uppercased()
+            if word.isEmpty || seen.contains(letter) { continue }
+            seen.insert(letter)
+            out.append((letter: letter, word: word))
+        }
+        return out
+    }
+
+    private static func example(_ codes: [(letter: String, word: String)]) -> (sentence: String, letter: String) {
+        if codes.isEmpty { return ("Birinci sorunun cevabı D, altmış sekiz.", "D") }
+        if let d = codes.first(where: { $0.letter == "D" }) {
+            return ("Birinci sorunun cevabı \(d.word), altmış sekiz.", "D")
+        }
+        return ("Birinci sorunun cevabı \(codes[0].word), altmış sekiz.", codes[0].letter)
+    }
+
+    private static func rule8(_ codes: [(letter: String, word: String)]) -> String {
+        let ex = example(codes)
+        let sik: String
+        if codes.isEmpty {
+            sik = "Şık harfini söyle ve ardından şıkkın metnini ya da değerini belgede yazdığı gibi eksiksiz söyle; harfi ASLA tek başına söyleme "
+                + "(şıkta hiç metin yoksa yalnız harf yeter). "
+        } else {
+            let table = codes.map { "\($0.letter) = \($0.word)" }.joined(separator: ", ")
+            sik = "Şık harfini (A, B, C…) SÖYLEME; harfin yerine kullanıcının şık kodunu söyle: \(table) (kod sözcüğünü aynen, büyük harfle yaz). "
+                + "Kod sözcüğünden sonra virgül koy ve doğru şıkkın metnini ya da değerini belgede yazdığı gibi eksiksiz söyle. "
+                + "Şıkta hiç metin yoksa (yalnız harf ya da şekil) yalnız kod sözcüğünü söyle; kodu tanımlı olmayan bir harfi harfin kendisiyle söyle. "
+        }
+        var text = "8. Kullanıcı belgelerdeki numaralı bir soruyu istediğinde ('beşinci soruyu cevapla', '5. soru'), o soruyu belgelerde "
+        text += "bul, çöz ve cevabı tam şu kalıpla ver: '\(ex.sentence)' (doğru şık \(ex.letter) ve değeri 68 ise; örnekteki sözcükleri ve sayıyı asla "
+        text += "kendi cevabına kopyalama, cevabı yalnızca belgeden al). Sıra sayısını yazıyla yaz (birinci, ikinci, … beşinci, onuncu, "
+        text += "on birinci). \(sik)Şık birden çok parçadan oluşuyorsa (ad, sayı, birim, tarih…) hepsini oku; sayıları okunuşuyla yazıyla yaz. "
+        text += "Bu kalıpta 'şıkkıdır' gibi ek sözcük, gerekçe, belge adı ya da sayfa numarası ekleme; kullanıcı 'neden' diye sorarsa kısaca "
+        text += "açıkla. Aynı numaralı soru birden çok belgede ya da kitapçıkta varsa tahmin etme, hangisini kastettiğini sor "
+        text += "(örn. 'Birden fazla belgede 5. soru var, hangisi?'). Soruyu bulamazsan ya da şıklar okunamıyorsa tahmin etme, bunu söyle. "
+        text += "Cevabın sonuna 'sonraki sorunuzu bekliyorum' gibi bir cümle ekleme; uygulama onu kendisi söyler."
+        return text
+    }
+
+    private static func rule12(_ codes: [(letter: String, word: String)]) -> String {
+        let ex = example(codes)
+        var text = "12. Kullanıcı soruları toplu cevaplatmak isterse ('ilk on soruyu cevapla', 'sıradaki on soruyu cevapla', 'sonraki on soru', 'devam', 'on birden yirmiye "
+        text += "kadar'), belgelerdeki numaralı soruları sıra numarasına göre onarlı gruplar hâlinde cevapla. İlk istekte 1'den 10'a kadar; "
+        text += "'sıradaki', 'sonraki', 'devam', 'diğer on' denirse bu konuşmada en son verdiğin grubun hemen devamından 10 soru ver (önceki cevaplarına "
+        text += "bak; kullanıcı aralık söylerse onu uygula). Uygulama sana 'Toplu cevapta en son verilen soru numarası: N' notunu verebilir: "
+        text += "'sıradaki', 'sonraki' ya da 'devam' denirse konuşma geçmişine değil bu nota bakıp N+1'den başla (oturum kapanıp açılmış, internet kopmuş "
+        text += "olabilir). Toplu cevap verdiğinde 'son_soru' alanına verdiğin gruptaki en büyük soru numarasını yaz; toplu cevap değilse 0 yaz. "
+        text += "Her soru için 8. kuraldaki kalıpla ayrı bir cümle kur ('\(ex.sentence)' gibi). "
+        text += "Soruları sırayla say, aralara başka söz ve gerekçe ekleme; 1. kuraldaki cümle sınırı bu durumda geçerli değildir. "
+        text += "Okunamayan ya da belgelerde bulunamayan soru için 'Üçüncü soru okunamadı.' de ve sıraya devam et. Grubun sonunda hangi "
+        text += "numaraya kadar geldiğini söyle ('Onuncu soruya kadar bitti.'); belgelerdeki son soruya gelince bunu belirt."
+        return text
+    }
+
+    private static func rule13() -> String {
+        var text = "13. Kullanıcı belirli soruların cevabını isterse ('üçüncü, sekizinci ve on beşinci soruların cevaplarını ver', '3, 8 ve 15. sorular'), "
+        text += "yalnızca o soruları, istenen sırayla ve 8. kuraldaki kalıpla cevapla (her soru ayrı cümle; aralara başka söz ekleme). Önce konuşma "
+        text += "geçmişine bak: istenen sorunun cevabını bu konuşmada zaten verdiysen aynı cevabı geçmişten AYNEN yeniden oku, belgeden yeniden çözme. "
+        text += "Geçmişte olmayan soruları belgelerden bul ve çöz. Hepsini aynı yanıtta ver; hangisinin geçmişten, hangisinin yeni hazırlandığını söyleme. "
+        text += "Bu durumda 'son_soru' alanına 0 yaz (toplu cevap sırasını değiştirme). Kullanıcı son yanıtını yeniden dinlemek isterse "
+        text += "('son yanıtı tekrarla', 'bir daha söyle') son cevabını geçmişten aynen yinele ve 'son_soru' alanına 0 yaz."
+        return text
+    }
+
+    /// Sistem yönergesi; codesText: şık kodları ("A=ADANA, B=BURSA…"; boş = harfin kendisi okunur)
+    static func systemPrompt(codesText: String) -> String {
+        let codes = parseOptionCodes(codesText)
+        return GeminiConfig.systemTemplate
+            .replacingOccurrences(of: "@@KURAL8@@", with: rule8(codes))
+            .replacingOccurrences(of: "@@KURAL12@@", with: rule12(codes))
+            .replacingOccurrences(of: "@@KURAL13@@", with: rule13())
+    }
+
+    // MARK: "Son yanıtı tekrarla" tanıma
+
+    /// Küçük harf + Türkçe harfleri ASCII'ye indirger (karşılaştırma için)
+    static func foldTR(_ text: String) -> String {
+        let map: [Character: Character] = ["ç": "c", "ğ": "g", "ı": "i", "ö": "o", "ş": "s", "ü": "u", "â": "a", "î": "i", "û": "u"]
+        let lowered = text.replacingOccurrences(of: "İ", with: "i").replacingOccurrences(of: "I", with: "ı").lowercased()
+        var out = ""
+        for ch in lowered {
+            if let m = map[ch] {
+                out.append(m)
+            } else if ch.isASCII && (ch.isLetter || ch.isNumber) {
+                out.append(ch)
+            } else {
+                out.append(" ")
+            }
+        }
+        return out.split(separator: " ").joined(separator: " ")
+    }
+
+    /// 'Son yanıtı tekrarla', 'bir daha söyle', 'yeniden oku' gibi isteği tanır. Yeni bir soruyu ('ilk on soruyu tekrar cevapla',
+    /// 'sıradaki on soru') tekrar isteği saymaz.
+    static func isRepeatRequest(_ text: String) -> Bool {
+        let words = foldTR(text).split(separator: " ").map(String.init)
+        if words.isEmpty || words.count > 9 { return false }
+        let notRepeat = ["cevapla", "yanitla", "sirad", "sonrak", "ilk", "kadar", "arasi", "baslat"]
+        if words.contains(where: { w in notRepeat.contains(where: { w.hasPrefix($0) }) || w.allSatisfy({ $0.isNumber }) }) { return false }
+        let repeating = words.contains(where: { $0.hasPrefix("tekrar") || $0.hasPrefix("yinele") })
+        let again = words.contains("daha") && words.contains("bir")
+        let redo = words.contains("yeniden") || words.contains("bastan")
+        if !(repeating || again || redo) { return false }
+        if repeating || again { return true }
+        let verbs = ["oku", "soyle", "dinle", "anlat", "ver", "yinele", "tekrar"]
+        return words.contains(where: { w in verbs.contains(where: { w.hasPrefix($0) }) })
+    }
+
     // MARK: İstek kurma
 
-    /// Belgeler ilk kullanıcı turuna eklenir. Sesli soru WAV olarak, belgelerden sonra gelir.
+    static func allRemote(_ docs: [GeminiDoc]) -> Bool {
+        return !docs.isEmpty && docs.allSatisfy { !$0.uri.isEmpty }
+    }
+
+    /// Dosya adresiyle (Files API) verilen belgeleri iki turluk bir giriş olarak dizer: kullanıcı (belgeler) + model (onay).
+    /// Aynı dizi hem açık önbelleğe hem de önbelleksiz isteğe konur.
+    static func docsTurns(_ docs: [GeminiDoc]) -> [[String: Any]] {
+        var parts: [[String: Any]] = []
+        for (n, doc) in docs.enumerated() {
+            parts.append(["text": "Belge \(n + 1): \(doc.name)"])
+            parts.append(["fileData": ["mimeType": "application/pdf", "fileUri": doc.uri]])
+        }
+        parts.append(["text": GeminiConfig.docsIntro])
+        let ack = modelTurnText(GeminiTurn(question: "", answer: GeminiConfig.docsAck))
+        return [["role": "user", "parts": parts], ["role": "model", "parts": [["text": ack]]]]
+    }
+
+    /// cachedContents oluşturma isteği: sistem yönergesi + dosya adresli belgeler
+    static func cacheRequestObject(model: String, docs: [GeminiDoc], system: String, ttl: Int) -> [String: Any] {
+        return ["model": "models/" + model, "contents": docsTurns(docs),
+                "systemInstruction": ["parts": [["text": system]]], "ttl": "\(ttl)s"]
+    }
+
+    /// Belgeler Files API'ye yüklenmişse dosya adresiyle, değilse inline gönderilir (ilk kullanıcı turuna eklenir).
+    /// cached: açık önbelleğin adı ("cachedContents/…"): belgeler ve sistem yönergesi önbellekte olduğundan isteğe konmaz.
+    /// batchLast > 0: uygulamanın tuttuğu "toplu cevapta en son verilen soru numarası" notu soruya eklenir.
     static func requestObject(questionText: String, audioWAV: Data?, docs: [GeminiDoc],
-                              history: [GeminiTurn], system: String = GeminiConfig.systemPrompt) -> [String: Any] {
+                              history: [GeminiTurn], system: String = GeminiConfig.systemPrompt,
+                              cached: String = "", batchLast: Int = 0) -> [String: Any] {
+        let remote = cached.isEmpty && allRemote(docs)
         var contents: [[String: Any]] = []
+        if remote { contents.append(contentsOf: docsTurns(docs)) }
         for turn in history {
             contents.append(["role": "user", "parts": [["text": turn.question]]])
             contents.append(["role": "model", "parts": [["text": modelTurnText(turn)]]])
         }
-        let current: [[String: Any]]
+        var current: [[String: Any]]
         if let wav = audioWAV {
             current = [["inlineData": ["mimeType": "audio/wav", "data": wav.base64EncodedString()]],
                        ["text": GeminiConfig.audioInstruction]]
         } else {
             current = [["text": questionText]]
         }
+        if batchLast > 0 {
+            current.append(["text": GeminiConfig.batchNote + "\(batchLast)."])
+        }
         contents.append(["role": "user", "parts": current])
 
-        if !docs.isEmpty {
+        if cached.isEmpty && !remote && !docs.isEmpty {
             var docParts: [[String: Any]] = []
             for (n, doc) in docs.enumerated() {
                 docParts.append(["text": "Belge \(n + 1): \(doc.name)"])
@@ -234,8 +495,7 @@ enum GeminiSupport {
             first["parts"] = docParts + firstParts
             contents[0] = first
         }
-        return [
-            "systemInstruction": ["parts": [["text": system]]],
+        var body: [String: Any] = [
             "contents": contents,
             "generationConfig": [
                 "temperature": 0.3,
@@ -244,11 +504,19 @@ enum GeminiSupport {
                 "maxOutputTokens": 16384
             ] as [String: Any]
         ]
+        if cached.isEmpty {
+            body["systemInstruction"] = ["parts": [["text": system]]]
+        } else {
+            body["cachedContent"] = cached
+        }
+        return body
     }
 
     static func buildRequest(questionText: String, audioWAV: Data?, docs: [GeminiDoc],
-                             history: [GeminiTurn]) throws -> Data {
-        let object = requestObject(questionText: questionText, audioWAV: audioWAV, docs: docs, history: history)
+                             history: [GeminiTurn], system: String = GeminiConfig.systemPrompt,
+                             cached: String = "", batchLast: Int = 0) throws -> Data {
+        let object = requestObject(questionText: questionText, audioWAV: audioWAV, docs: docs, history: history,
+                                   system: system, cached: cached, batchLast: batchLast)
         return try JSONSerialization.data(withJSONObject: object, options: [.withoutEscapingSlashes])
     }
 
@@ -290,6 +558,7 @@ enum GeminiSupport {
         answer.promptTokens = intValue(usage["promptTokenCount"])
         answer.outputTokens = intValue(usage["candidatesTokenCount"])
         answer.totalTokens = intValue(usage["totalTokenCount"])
+        answer.cachedTokens = intValue(usage["cachedContentTokenCount"])
         answer.finish = finish
         if text.trimmed.isEmpty {
             if ["SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST", "RECITATION"].contains(finish) {
@@ -306,6 +575,7 @@ enum GeminiSupport {
             answer.question = ((json["soru"] as? String) ?? "").trimmed
             answer.close = (json["kapat"] as? Bool) == true
             answer.switchModel = (json["model_degistir"] as? Bool) == true
+            answer.lastQuestion = min(max(intValue(json["son_soru"]), 0), 100_000)
         }
         return answer
     }
@@ -353,22 +623,56 @@ enum GeminiSupport {
 
 /// Soru sorma arayüzü (sohbet mantığı sahte istemciyle sınanabilsin diye).
 protocol GeminiAsking: AnyObject {
-    func ask(questionText: String, audioWAV: Data?, docs: [GeminiDoc], history: [GeminiTurn]) async throws -> GeminiAnswer
+    /// cached: açık önbellek adı (belgeler önbellekte); boş = önbelleksiz
+    func ask(questionText: String, audioWAV: Data?, docs: [GeminiDoc], history: [GeminiTurn], cached: String) async throws -> GeminiAnswer
+    /// Kısa sesi belgesiz yazıya döker ("son yanıtı tekrarla" ön kontrolü)
+    func transcribe(audioWAV: Data) async throws -> String
+}
+
+extension GeminiAsking {
+    func transcribe(audioWAV: Data) async throws -> String { return "" }
+    func ask(questionText: String, audioWAV: Data?, docs: [GeminiDoc], history: [GeminiTurn]) async throws -> GeminiAnswer {
+        return try await ask(questionText: questionText, audioWAV: audioWAV, docs: docs, history: history, cached: "")
+    }
+}
+
+/// Files API'ye yüklenmiş bir dosya
+struct RemoteFile: Equatable {
+    var name: String
+    var uri: String
+    var state: String
+}
+
+/// Belgeleri Gemini'nin hafızasına koyan çağrılar (Files API + açık önbellek); hafıza mantığı sahte uzaktan sınansın diye ayrı arayüz.
+protocol GeminiRemote: AnyObject {
+    /// API anahtarının kısa parmak izi (dosyalar anahtarın projesine aittir)
+    var keyFingerprint: String { get }
+    /// Önbellek imzasına girer: model + anahtar + yönerge
+    var cacheIdentity: String { get }
+    func uploadFile(name: String, data: Data) async throws -> RemoteFile
+    /// Dosya bilgisi; yoksa ya da erişilemiyorsa nil
+    func getFile(name: String) async throws -> RemoteFile?
+    func waitActive(_ file: RemoteFile) async throws -> RemoteFile
+    func createCache(docs: [GeminiDoc]) async throws -> String
+    func touchCache(_ name: String) async throws
+    func deleteCache(_ name: String) async
 }
 
 /// Gerçek istemci: URLSession ile generateContent çağırır.
-final class GeminiClient: GeminiAsking {
+final class GeminiClient: GeminiAsking, GeminiRemote {
     private let session: URLSession
     private let baseURL: String
     private let keyProvider: () -> String
     private let modelProvider: () -> String
+    private let codesProvider: () -> String
+    private let batchProvider: () -> Int
     private let sleep: (TimeInterval) async -> Void
 
     static func makeSession() -> URLSession {
         let c = URLSessionConfiguration.ephemeral
         c.waitsForConnectivity = false
         c.timeoutIntervalForRequest = 120
-        c.timeoutIntervalForResource = 240
+        c.timeoutIntervalForResource = 600
         return URLSession(configuration: c)
     }
 
@@ -376,6 +680,8 @@ final class GeminiClient: GeminiAsking {
          baseURL: String = GeminiConfig.baseURL,
          key: @escaping () -> String,
          model: @escaping () -> String,
+         codes: @escaping () -> String = { GeminiConfig.defaultOptionCodes },
+         batchLast: @escaping () -> Int = { 0 },
          sleep: @escaping (TimeInterval) async -> Void = { seconds in
              try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
          }) {
@@ -383,6 +689,8 @@ final class GeminiClient: GeminiAsking {
         self.baseURL = baseURL
         self.keyProvider = key
         self.modelProvider = model
+        self.codesProvider = codes
+        self.batchProvider = batchLast
         self.sleep = sleep
     }
 
@@ -399,14 +707,43 @@ final class GeminiClient: GeminiAsking {
         return set
     }()
 
-    func ask(questionText: String, audioWAV: Data?, docs: [GeminiDoc], history: [GeminiTurn]) async throws -> GeminiAnswer {
+    private var systemPrompt: String { return GeminiSupport.systemPrompt(codesText: codesProvider()) }
+
+    func ask(questionText: String, audioWAV: Data?, docs: [GeminiDoc], history: [GeminiTurn], cached: String) async throws -> GeminiAnswer {
         if questionText.trimmed.isEmpty && audioWAV == nil {
             throw GeminiError("Soru boş.", .error)
         }
-        let body = try GeminiSupport.buildRequest(questionText: questionText, audioWAV: audioWAV, docs: docs, history: history)
+        let body = try GeminiSupport.buildRequest(questionText: questionText, audioWAV: audioWAV, docs: docs, history: history,
+                                                  system: systemPrompt, cached: cached, batchLast: batchProvider())
         let name = model.addingPercentEncoding(withAllowedCharacters: GeminiClient.pathAllowed) ?? model
         let object = try await post(path: "/models/\(name):generateContent", body: body)
         return try GeminiSupport.parseAnswer(object)
+    }
+
+    /// Kısa bir sesi (belgesiz) yazıya döker: 'son yanıtı tekrarla' gibi isteklerin tekrar mı yeni soru mu olduğunu anlamak için.
+    /// Belge göndermediğinden birkaç yüz jetona mal olur.
+    func transcribe(audioWAV: Data) async throws -> String {
+        let schema: [String: Any] = ["type": "OBJECT", "properties": ["soru": ["type": "STRING"]], "required": ["soru"]]
+        let config: [String: Any] = ["temperature": 0, "responseMimeType": "application/json", "maxOutputTokens": 256,
+                                     "responseSchema": schema]
+        let audioPart: [String: Any] = ["inlineData": ["mimeType": "audio/wav", "data": audioWAV.base64EncodedString()]]
+        let textPart: [String: Any] = ["text": GeminiConfig.transcribeMarker]
+        let turn: [String: Any] = ["role": "user", "parts": [audioPart, textPart]]
+        let object: [String: Any] = [
+            "systemInstruction": ["parts": [["text": GeminiConfig.transcribeSystem]]],
+            "contents": [turn],
+            "generationConfig": config
+        ]
+        let body = try JSONSerialization.data(withJSONObject: object, options: [.withoutEscapingSlashes])
+        let name = model.addingPercentEncoding(withAllowedCharacters: GeminiClient.pathAllowed) ?? model
+        let result = try await post(path: "/models/\(name):generateContent", body: body)
+        guard let obj = result as? [String: Any],
+              let cand = (obj["candidates"] as? [[String: Any]])?.first,
+              let parts = (cand["content"] as? [String: Any])?["parts"] as? [[String: Any]] else { return "" }
+        let text = parts.compactMap { $0["text"] as? String }.joined()
+        guard let data = GeminiSupport.stripFence(text).data(using: .utf8),
+              let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return "" }
+        return ((json["soru"] as? String) ?? "").trimmed
     }
 
     /// Sayfa fotoğrafındaki yazıyı okur (cihazdaki OCR'dan çok daha doğru). Yazı yoksa boş metin döner.
@@ -490,6 +827,177 @@ final class GeminiClient: GeminiAsking {
             let (kind, message) = GeminiSupport.describeError(status: status, json: (json as? [String: Any]) ?? [:], model: model)
             tlog("[gemini] HTTP \(status): \(message)")
             throw GeminiError(message, kind, status: status)
+        }
+    }
+}
+
+// MARK: - Files API ve açık önbellek (Gemini hafızası)
+
+extension GeminiClient {
+    var keyFingerprint: String { return GeminiMemory.fingerprint(keyProvider().trimmed) }
+
+    var cacheIdentity: String {
+        return [model, GeminiMemory.fingerprint(keyProvider().trimmed), GeminiMemory.fingerprint(systemPrompt)].joined(separator: "|")
+    }
+
+    private func requireKey() throws -> String {
+        let key = keyProvider().trimmed
+        guard !key.isEmpty else {
+            throw GeminiError("Gemini API anahtarı girilmemiş. Ayarlardan yapıştırın.", .key)
+        }
+        return key
+    }
+
+    /// İstek gönderir; ağ hatasında ve 500/502/503/504'te bir kez yeniden dener (1,5 sn sonra).
+    private func send(_ request: URLRequest, body: Data?) async throws -> (status: Int, data: Data, response: HTTPURLResponse) {
+        var attempt = 0
+        while true {
+            do {
+                let result: (Data, URLResponse)
+                if let body = body {
+                    result = try await session.upload(for: request, from: body)
+                } else {
+                    result = try await session.data(for: request)
+                }
+                guard let http = result.1 as? HTTPURLResponse else {
+                    throw GeminiError("Gemini'den anlaşılmaz yanıt geldi.", .error)
+                }
+                if [500, 502, 503, 504].contains(http.statusCode) && attempt < 1 {
+                    attempt += 1
+                    await sleep(1.5)
+                    continue
+                }
+                return (http.statusCode, result.0, http)
+            } catch let error as GeminiError {
+                throw error
+            } catch {
+                if Task.isCancelled || (error as? URLError)?.code == .cancelled { throw CancellationError() }
+                if attempt < 1 {
+                    attempt += 1
+                    await sleep(1.5)
+                    continue
+                }
+                throw GeminiError("İnternete ulaşılamadı: \(error.localizedDescription)", .network)
+            }
+        }
+    }
+
+    private func checked(_ status: Int, _ data: Data) throws -> [String: Any] {
+        let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
+        if (200..<300).contains(status) { return json }
+        let (kind, message) = GeminiSupport.describeError(status: status, json: json, model: model)
+        tlog("[gemini] HTTP \(status): \(message)")
+        throw GeminiError(message, kind, status: status)
+    }
+
+    /// JSON gövdeli / gövdesiz çağrı (cachedContents, files)
+    private func call(_ method: String, path: String, body: [String: Any]?, timeout: TimeInterval = 60) async throws -> [String: Any] {
+        let key = try requireKey()
+        guard let url = URL(string: baseURL + path) else {
+            throw GeminiError("Gemini adresi geçersiz.", .error)
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.timeoutInterval = timeout
+        request.setValue(key, forHTTPHeaderField: "x-goog-api-key")
+        var payload: Data?
+        if let body = body {
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            payload = try JSONSerialization.data(withJSONObject: body, options: [.withoutEscapingSlashes])
+        }
+        let result = try await send(request, body: payload)
+        return try checked(result.status, result.data)
+    }
+
+    private var uploadURLString: String {
+        var base = baseURL
+        if base.hasSuffix("/v1beta") { base = String(base.dropLast("/v1beta".count)) }
+        return base + "/upload/v1beta/files"
+    }
+
+    /// Dosyayı Files API'ye yükler (kesintisiz-devam eden protokol, tek parça).
+    func uploadFile(name: String, data: Data) async throws -> RemoteFile {
+        let key = try requireKey()
+        guard let startURL = URL(string: uploadURLString) else {
+            throw GeminiError("Gemini adresi geçersiz.", .error)
+        }
+        var start = URLRequest(url: startURL)
+        start.httpMethod = "POST"
+        start.timeoutInterval = 60
+        start.setValue(key, forHTTPHeaderField: "x-goog-api-key")
+        start.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        start.setValue("resumable", forHTTPHeaderField: "X-Goog-Upload-Protocol")
+        start.setValue("start", forHTTPHeaderField: "X-Goog-Upload-Command")
+        start.setValue(String(data.count), forHTTPHeaderField: "X-Goog-Upload-Header-Content-Length")
+        start.setValue("application/pdf", forHTTPHeaderField: "X-Goog-Upload-Header-Content-Type")
+        let meta = try JSONSerialization.data(withJSONObject: ["file": ["display_name": String(name.prefix(120))]])
+        let first = try await send(start, body: meta)
+        _ = try checked(first.status, first.data)
+        guard let target = first.response.value(forHTTPHeaderField: "x-goog-upload-url"), let targetURL = URL(string: target) else {
+            throw GeminiError("Gemini dosya yükleme adresi vermedi.", .error)
+        }
+        var finish = URLRequest(url: targetURL)
+        finish.httpMethod = "POST"
+        finish.timeoutInterval = 300
+        finish.setValue(key, forHTTPHeaderField: "x-goog-api-key")
+        finish.setValue("0", forHTTPHeaderField: "X-Goog-Upload-Offset")
+        finish.setValue("upload, finalize", forHTTPHeaderField: "X-Goog-Upload-Command")
+        let done = try await send(finish, body: data)
+        let json = try checked(done.status, done.data)
+        guard let file = json["file"] as? [String: Any], let fileName = file["name"] as? String, let uri = file["uri"] as? String else {
+            throw GeminiError("Gemini dosya yüklemeye anlaşılmaz yanıt verdi.", .error)
+        }
+        return RemoteFile(name: fileName, uri: uri, state: (file["state"] as? String) ?? "ACTIVE")
+    }
+
+    func getFile(name: String) async throws -> RemoteFile? {
+        do {
+            let json = try await call("GET", path: "/" + name, body: nil, timeout: 30)
+            return RemoteFile(name: (json["name"] as? String) ?? name, uri: (json["uri"] as? String) ?? "",
+                              state: (json["state"] as? String) ?? "ACTIVE")
+        } catch let e as GeminiError where [400, 403, 404].contains(e.status) {
+            return nil
+        }
+    }
+
+    /// Yüklenen dosya kullanıma hazır (ACTIVE) olana dek bekler (en çok 180 sn).
+    func waitActive(_ file: RemoteFile) async throws -> RemoteFile {
+        var current = file
+        var waited = 0.0
+        while current.state != "ACTIVE" {
+            if current.state == "FAILED" || waited > 180 {
+                throw GeminiError("Gemini yüklenen belgeyi işleyemedi (\(current.state)).", .error)
+            }
+            await sleep(1.0)
+            waited += 1.0
+            guard let fresh = try await getFile(name: current.name) else {
+                throw GeminiError("Gemini yüklenen belgeyi bulamadı.", .error)
+            }
+            current = fresh
+        }
+        return current
+    }
+
+    /// Sistem yönergesi + belgelerden önbellek kurar. Dönüş: önbellek adı.
+    func createCache(docs: [GeminiDoc]) async throws -> String {
+        let body = GeminiSupport.cacheRequestObject(model: model, docs: docs, system: systemPrompt, ttl: GeminiConfig.cacheTTL)
+        let json = try await call("POST", path: "/cachedContents", body: body, timeout: 120)
+        guard let name = json["name"] as? String, !name.isEmpty else {
+            throw GeminiError("Gemini önbellek adı vermedi.", .error)
+        }
+        return name
+    }
+
+    /// Önbelleğin ömrünü uzatır
+    func touchCache(_ name: String) async throws {
+        _ = try await call("PATCH", path: "/" + name + "?updateMask=ttl", body: ["ttl": "\(GeminiConfig.cacheTTL)s"], timeout: 30)
+    }
+
+    func deleteCache(_ name: String) async {
+        do {
+            _ = try await call("DELETE", path: "/" + name, body: nil, timeout: 30)
+        } catch {
+            tlog("[gemini] önbellek silinemedi: \(error.localizedDescription)")
         }
     }
 }

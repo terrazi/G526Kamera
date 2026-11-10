@@ -14,6 +14,9 @@ final class GuidanceSpeaker: NSObject, AVSpeechSynthesizerDelegate {
     var rateFactor = 1.0
     /// Son söylenen cümleler (tanı ve test için)
     private(set) var recent: [String] = []
+    /// `onSpeakingChange(false)` geldiğinde: konuşma kesilmeden sonuna kadar okundu mu (kesildi, iptal edildi ya da bitiş haberi gelmedi → false)
+    private(set) var endedCleanly = true
+    private var interrupted = false
 
     /// Şu an (ya da sırada) söylenecek cümle var mı
     var isSpeaking: Bool { return pending > 0 }
@@ -28,7 +31,10 @@ final class GuidanceSpeaker: NSObject, AVSpeechSynthesizerDelegate {
     }
 
     func speak(_ text: String, interrupt: Bool = false) {
-        if interrupt && (synth.isSpeaking || pending > 0) { synth.stopSpeaking(at: .immediate) }
+        if interrupt && (synth.isSpeaking || pending > 0) {
+            interrupted = true
+            synth.stopSpeaking(at: .immediate)
+        }
         // Ses oturumu çalma yapabilen bir türde değilse (varsayılan tür sessiz anahtara uyar ve sesi keser) çalma oturumu aç
         let session = AVAudioSession.sharedInstance()
         let playable = session.category == .playAndRecord || session.category == .playback
@@ -43,7 +49,10 @@ final class GuidanceSpeaker: NSObject, AVSpeechSynthesizerDelegate {
         utterance.volume = 1.0
         utterance.postUtteranceDelay = 0.05
         pending += 1
-        if pending == 1 { onSpeakingChange?(true) }
+        if pending == 1 {
+            interrupted = false
+            onSpeakingChange?(true)
+        }
         recent.append(text)
         if recent.count > 20 { recent.removeFirst(recent.count - 20) }
         synth.speak(utterance)
@@ -55,11 +64,13 @@ final class GuidanceSpeaker: NSObject, AVSpeechSynthesizerDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + limit) { [weak self] in
             guard let self = self, self.generation == mine, self.pending > 0 else { return }
             self.pending = 0
+            self.endedCleanly = false
             self.onSpeakingChange?(false)
         }
     }
 
     func stop() {
+        if pending > 0 { interrupted = true }
         synth.stopSpeaking(at: .immediate)
     }
 
@@ -67,10 +78,16 @@ final class GuidanceSpeaker: NSObject, AVSpeechSynthesizerDelegate {
         DispatchQueue.main.async { [weak self] in
             guard let self = self, self.pending > 0 else { return }
             self.pending -= 1
-            if self.pending == 0 { self.onSpeakingChange?(false) }
+            if self.pending == 0 {
+                self.endedCleanly = !self.interrupted
+                self.onSpeakingChange?(false)
+            }
         }
     }
 
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) { finished() }
-    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) { finished() }
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
+        DispatchQueue.main.async { [weak self] in self?.interrupted = true }
+        finished()
+    }
 }
