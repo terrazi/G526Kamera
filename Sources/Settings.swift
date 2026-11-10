@@ -69,6 +69,18 @@ final class AppSettings: ObservableObject {
     /// Bekleyen fotoğrafları tek PDF olarak gönderen sözcük (virgülle birden çok); hazır söylenişler de geçerlidir
     @Published var finishWord: String { didSet { d.set(finishWord, forKey: "finishWord") } }
 
+    // MARK: Gemini (belgelerle sesli sohbet)
+    /// "Gemini" deyince / düğmeyle sesli soru sorulabilsin
+    @Published var geminiEnabled: Bool { didSet { d.set(geminiEnabled, forKey: "geminiEnabled") } }
+    /// Google AI Studio API anahtarı (yalnız Keychain'de saklanır)
+    @Published var geminiKey: String { didSet { Keychain.set(geminiKey.trimmed, for: "geminiApiKey") } }
+    /// Boşsa varsayılan model kullanılır
+    @Published var geminiModel: String { didSet { d.set(geminiModel, forKey: "geminiModel") } }
+    /// Belgelerin ve ses kaydının Google'a gönderileceğinin onayı (onay olmadan soru sorulmaz)
+    @Published var geminiPrivacyOK: Bool { didSet { d.set(geminiPrivacyOK, forKey: "geminiPrivacyOK") } }
+    /// Gemini'ye gönderilecek en yeni PDF sayısı
+    @Published var geminiDocCount: Int { didSet { d.set(geminiDocCount, forKey: "geminiDocCount") } }
+
     // MARK: Drive
     @Published var driveFolderName: String { didSet { d.set(driveFolderName, forKey: "driveFolderName") } }
     @Published var driveFolderID: String { didSet { d.set(driveFolderID, forKey: "driveFolderID") } }
@@ -135,6 +147,11 @@ final class AppSettings: ObservableObject {
         guidanceSharpness = d.object(forKey: "guidanceSharpness") as? Int ?? 1
         guidanceGlare = d.object(forKey: "guidanceGlare") as? Bool ?? true
         finishWord = d.string(forKey: "finishWord") ?? "hepsi tamamlandı"
+        geminiEnabled = d.object(forKey: "geminiEnabled") as? Bool ?? false
+        geminiKey = Keychain.get("geminiApiKey") ?? ""
+        geminiModel = d.string(forKey: "geminiModel") ?? GeminiConfig.defaultModel
+        geminiPrivacyOK = d.object(forKey: "geminiPrivacyOK") as? Bool ?? false
+        geminiDocCount = min(max(d.object(forKey: "geminiDocCount") as? Int ?? 3, 1), 5)
         previewOff = d.object(forKey: "previewOff") as? Bool ?? false
         dimWhenPreviewOff = d.object(forKey: "dimWhenPreviewOff") as? Bool ?? true
     }

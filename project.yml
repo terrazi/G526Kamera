@@ -31,7 +31,7 @@ targets:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        NSMicrophoneUsageDescription: "Sesli komutu (örneğin “Okey”) algılamak için mikrofon gerekir."
+        NSMicrophoneUsageDescription: "Sesli komutu (örneğin “Okey”) algılamak ve belgeler hakkındaki sesli sorunuzu kaydetmek için mikrofon gerekir."
         NSSpeechRecognitionUsageDescription: "Sesli komutu anlamak için konuşma tanıma gerekir. Mümkünse cihaz içinde çalışır."
         NSLocalNetworkUsageDescription: "G526 kameraya kameranın kendi Wi-Fi ağı üzerinden bağlanmak için yerel ağ erişimi gerekir."
         UIFileSharingEnabled: true

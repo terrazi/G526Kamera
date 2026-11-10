@@ -14,6 +14,7 @@ struct ContentView: View {
                     if settings.guidanceEnabled { GuidanceRow() }
                     VoiceRow(status: model.speechStatus, heard: model.heardText,
                              enabled: settings.voiceEnabled || settings.guidanceEnabled)
+                    if settings.geminiEnabled { GeminiRow(chat: model.gemini) }
                     Toggle(isOn: $settings.motionEnabled) {
                         Label("Görüntü değişince otomatik çek", systemImage: "wand.and.rays")
                     }
@@ -245,6 +246,78 @@ struct GuidanceRow: View {
                     }
                 }
                 Text("Sesle de söyleyebilirsiniz: “sol”, “sağ”…")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(Color(UIColor.secondarySystemBackground))
+        .cornerRadius(12)
+    }
+}
+
+
+/// Gemini ile belge sohbeti: durum, son soru ve cevap, "Gemini'ye sor" düğmesi.
+struct GeminiRow: View {
+    @ObservedObject var chat: GeminiChat
+
+    private var headline: String {
+        switch chat.phase {
+        case .idle: return "Gemini hazır"
+        case .listening: return "Dinliyorum…"
+        case .thinking: return "Gemini düşünüyor…"
+        case .speaking: return "Cevap okunuyor"
+        }
+    }
+
+    private var icon: String {
+        switch chat.phase {
+        case .idle: return "sparkles"
+        case .listening: return "mic.fill"
+        case .thinking: return "hourglass"
+        case .speaking: return "speaker.wave.2.fill"
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(headline, systemImage: icon)
+                .font(.subheadline.weight(.semibold))
+                .accessibilityIdentifier("gemini-durum")
+            if !chat.status.isEmpty {
+                Text(chat.status).font(.caption).foregroundColor(.secondary)
+            }
+            if !chat.docNames.isEmpty {
+                Text("Belgeler: " + chat.docNames.joined(separator: ", "))
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+            }
+            if !chat.question.isEmpty {
+                Text("Soru: \(chat.question)").font(.footnote).foregroundColor(.secondary)
+            }
+            if !chat.answer.isEmpty {
+                Text(chat.answer).font(.callout)
+            }
+            if !chat.error.isEmpty {
+                Label(chat.error, systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundColor(.orange)
+            }
+            HStack(spacing: 12) {
+                Button(chat.isActive ? "Durdur" : "Gemini’ye sor") {
+                    if chat.isActive { chat.cancel() } else { chat.ask() }
+                }
+                .buttonStyle(.borderedProminent)
+                .accessibilityIdentifier("gemini-sor")
+                if chat.turns > 0 && !chat.isActive {
+                    Button("Yeni sohbet") { chat.newConversation() }
+                        .buttonStyle(.bordered)
+                }
+            }
+            if chat.turns > 0 {
+                Text("Sohbette \(chat.turns) soru · son cevap \(chat.tokens) jeton")
                     .font(.caption2)
                     .foregroundColor(.secondary)
             }

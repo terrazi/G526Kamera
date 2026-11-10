@@ -76,6 +76,22 @@ geri kalanını göremez. Google parolanızı uygulamaya hiç yazmazsınız.
   **Üstteki saat yazısını kes** seçeneğini açın.
 - Işık bol ve titreşimsiz olsun; gölge düşürmeyin.
 
+## 6) Gemini ile belgelerle sesli sohbet
+
+Drive'a gönderdiğiniz son PDF'ler hakkında sesle soru sorarsınız; cevap iPhone'un en kaliteli Türkçe sesiyle okunur.
+
+1. **aistudio.google.com** adresinden bir API anahtarı alın (Get API key). Faturalandırma bağlı (ücretli) bir
+   projenin anahtarı önerilir: ücretsiz anahtarda Google gönderdiğiniz içeriği ürünlerini geliştirmek için
+   kullanabilir ve günlük istek sınırı düşüktür. Anahtarı sohbete/koda yazmayın.
+2. **Dişli > Gemini ile belge sohbeti**: anahtarı yapıştırın, "Ses kaydımın ve PDF'lerimin Google'a gönderilmesini
+   onaylıyorum" kutusunu işaretleyin, **Gemini'ye sesle soru sor**'u açın. Model boşsa `gemini-3.8-flash` kullanılır.
+3. **Dişli > Google Drive > dosya türü: PDF** olmalı (Gemini yalnız Drive'daki PDF'leri okur).
+4. Kullanım: **"Gemini"** deyin, kısa "tık" sesinden sonra sorunuzu söyleyin (susunca gönderilir), ya da ana ekrandaki
+   **Gemini'ye sor** düğmesine basın. Örnek: "Son faturanın tutarı ne kadar?", "Bu sözleşmede ödeme vadesi kaç gün?"
+   Sohbet son 6 soruyu hatırlar; **Yeni sohbet** sıfırlar.
+5. Soru sürerken sürekli dinleyen "Okey" komutu kısa süre durur, cevap bitince yeniden başlar.
+6. Her soruda ses kaydınız ve seçilen PDF'ler (en çok ~14 MB) hücresel veriyle Google'a gider.
+
 ## Sorun giderme
 
 - **Kamera bulunamadı:** telefon kameranın ağında mı? Ayarlar > G526 Kamera > **Yerel Ağ** açık mı?
@@ -84,4 +100,7 @@ geri kalanını göremez. Google parolanızı uygulamaya hiç yazmazsınız.
   "Duyulan:" satırında ne anladığı görünür. Tetikleme sözcüğünü değiştirebilirsiniz.
 - **Drive'a yüklenmiyor:** Ayarlar > Google Drive'da durumu görün; İstemci türü "TV ve Sınırlı
   Giriş Cihazları" olmalı; yayınlama durumu *Üretimde* olmalı.
+- **Gemini cevap vermiyor:** cevap kutusundaki turuncu mesaj nedeni söyler (anahtar geçersiz, kota doldu, Drive'da
+  PDF yok…). "Gemini" deyince tepki yoksa düğmeyi deneyin; ana ekranda "Duyulan:" satırı "Cemini" gibi yazıyorsa
+  komut yine yakalanır.
 - Hâlâ olmuyorsa **Ayarlar > Tanı ve günlük > Günlüğü kopyala** ile kopyalayıp bana gönderin.

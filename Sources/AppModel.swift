@@ -70,6 +70,15 @@ final class AppModel: ObservableObject {
 
     private let guidance = GuidanceEngine()
     private let speaker = GuidanceSpeaker()
+    /// Belgelerle sesli Gemini sohbeti
+    let gemini = GeminiChat(
+        client: GeminiClient(key: { AppSettings.shared.geminiKey }, model: { AppSettings.shared.geminiModel }),
+        docs: GeminiDocStore(source: DriveClient(auth: GoogleAuth.shared)),
+        recorder: QuestionRecorder(),
+        options: {
+            let s = AppSettings.shared
+            return GeminiOptions(privacyOK: s.geminiPrivacyOK, hasKey: !s.geminiKey.trimmed.isEmpty, docCount: s.geminiDocCount)
+        })
     private var guidanceWasOn = false
     private var speechActive = false
     private var finishRequested = false
@@ -165,7 +174,27 @@ final class AppModel: ObservableObject {
             Task { @MainActor in self?.guidanceSample(sample) }
         }
         speaker.onSpeakingChange = { [weak self] speaking in
-            Task { @MainActor in self?.speech.suppressed = speaking }
+            Task { @MainActor in
+                self?.speech.suppressed = speaking
+                self?.gemini.speakingChanged(speaking)
+            }
+        }
+        // Gemini sorusu sürerken sürekli dinleyen sesli komut durur (mikrofonu tek kayıtçı kullanır), bitince geri açılır
+        gemini.onActiveChange = { [weak self] active in
+            guard let self = self else { return }
+            if active {
+                self.speech.stop()
+                self.speaker.stop()
+                self.speechStatus = "Gemini sorusu sürüyor"
+            } else if self.started {
+                self.restartSpeech()
+            }
+        }
+        gemini.speak = { [weak self] text in
+            return self?.speakGemini(text) ?? false
+        }
+        gemini.stopSpeaking = { [weak self] in
+            self?.speaker.stop()
         }
 
         // "Canlı" yalnızca çözülmüş kare geliyorsa yazılsın (kare gelip çözülemiyorsa yanıltmasın)
@@ -256,6 +285,7 @@ final class AppModel: ObservableObject {
         ScreenDimmer.shared.update(dim: false)
         client.stop()
         decoder.reset()
+        gemini.cancel()
         speech.stop()
         speaker.stop()
         speechActive = false
@@ -276,7 +306,7 @@ final class AppModel: ObservableObject {
             cameraKey = cKey
             restartCamera()
         }
-        let sKey = "\(settings.voiceEnabled)|\(settings.triggerWord)|\(settings.guidanceEnabled)|\(settings.finishWord)"
+        let sKey = "\(settings.voiceEnabled)|\(settings.triggerWord)|\(settings.guidanceEnabled)|\(settings.finishWord)|\(settings.geminiEnabled)"
         if force || sKey != speechKey {
             speechKey = sKey
             restartSpeech()
@@ -323,6 +353,8 @@ final class AppModel: ObservableObject {
 
     private func restartSpeech() {
         speech.stop()
+        // Gemini sorusu sürerken mikrofon kayıtçıdadır; bitince yeniden başlatılır
+        if gemini.isActive { return }
         heardText = ""
         // "Rapor ver" ve "hepsi tamamlandı" her zaman dinlenir; sol/sağ seçimi yalnız sesli konumlandırma açıkken
         var commands: [SpeechTrigger.Command] = []
@@ -343,6 +375,9 @@ final class AppModel: ObservableObject {
             commands.append(SpeechTrigger.Command(id: "choice.first", tokens: GuidanceVocabulary.first))
             commands.append(SpeechTrigger.Command(id: "choice.second", tokens: GuidanceVocabulary.second))
             commands.append(SpeechTrigger.Command(id: "choice.last", tokens: GuidanceVocabulary.last))
+        }
+        if settings.geminiEnabled {
+            commands.append(SpeechTrigger.Command(id: "gemini", phrases: GeminiText.callWords))
         }
         speech.setCommands(commands)
         guard settings.voiceEnabled || settings.guidanceEnabled else {
@@ -549,6 +584,8 @@ final class AppModel: ObservableObject {
 
     /// Ekranda göster, istenirse (ya da zorunluysa) sesli söyle. Konuşurken mikrofon bastırılır.
     private func say(_ text: String, interrupt: Bool = false, force: Bool = false) {
+        // Gemini sorusu / cevabı sürerken kendiliğinden yönlendirme cümleleri araya girmez
+        if gemini.isActive && !force { return }
         guidanceSaid = text
         guard force || settings.guidanceVoice else { return }
         lastSpeechAt = ProcessInfo.processInfo.systemUptime
@@ -558,6 +595,19 @@ final class AppModel: ObservableObject {
         speech.suppressed = true
         speaker.speak(text, interrupt: interrupt)
         tlog("[konuşma] \(text)")
+    }
+
+    /// Gemini cevabını (ya da hata mesajını) seçili okuma sesiyle söyler
+    private func speakGemini(_ text: String) -> Bool {
+        guard !text.trimmed.isEmpty else { return false }
+        lastSpeechAt = ProcessInfo.processInfo.systemUptime
+        speaker.needsPlaybackSession = true
+        speaker.voiceID = settings.speechVoiceID
+        speaker.rateFactor = settings.speechRate
+        speech.suppressed = true
+        speaker.speak(text, interrupt: true)
+        tlog("[gemini] okunuyor: \(text.count) karakter")
+        return true
     }
 
     /// Okuma sesi ayarı: seçili sesle kısa bir örnek cümle söyler.
@@ -625,6 +675,9 @@ final class AppModel: ObservableObject {
             giveReport()
         case "battery":
             giveBattery()
+        case "gemini":
+            guard settings.geminiEnabled else { return }
+            gemini.ask()
         case "deleteLast":
             deleteLast(retake: false)
         case "retake":

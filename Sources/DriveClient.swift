@@ -141,6 +141,58 @@ final class DriveClient {
         try handle.write(contentsOf: Data("\r\n--\(boundary)--\r\n".utf8))
     }
 
+    /// Klasördeki en yeni PDF'ler (yeniden eskiye). Gemini sohbeti için; drive.file kapsamı yalnız uygulamanın kendi yüklediklerini görür.
+    func listPDFs(count: Int) async throws -> [DriveFileInfo] {
+        let folder = try await ensureFolder()
+        var components = URLComponents(string: filesURL)!
+        components.queryItems = [
+            URLQueryItem(name: "q", value: "'\(folder)' in parents and mimeType = 'application/pdf' and trashed = false"),
+            URLQueryItem(name: "fields", value: "files(id,name,size,createdTime)"),
+            URLQueryItem(name: "orderBy", value: "createdTime desc"),
+            URLQueryItem(name: "pageSize", value: String(min(max(count, 1), 10)))
+        ]
+        let listURL = components.url!
+        let (status, data) = try await authorized({ token in
+            var r = URLRequest(url: listURL)
+            r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            return r
+        })
+        guard (200..<300).contains(status) else {
+            throw DriveError.http(status, DriveClient.errorMessage(data))
+        }
+        return DriveClient.parseListing(Http.jsonObject(data))
+    }
+
+    /// Drive `files.list` cevabından PDF bilgileri (boyut metin olarak gelir)
+    static func parseListing(_ json: [String: Any]) -> [DriveFileInfo] {
+        guard let files = json["files"] as? [[String: Any]] else { return [] }
+        var out: [DriveFileInfo] = []
+        for f in files {
+            guard let id = f["id"] as? String, !id.isEmpty else { continue }
+            let name = (f["name"] as? String) ?? "belge.pdf"
+            var size = 0
+            if let text = f["size"] as? String { size = Int(text) ?? 0 }
+            else if let number = f["size"] as? NSNumber { size = number.intValue }
+            out.append(DriveFileInfo(id: id, name: name, size: size, created: (f["createdTime"] as? String) ?? ""))
+        }
+        return out
+    }
+
+    /// Dosyanın içeriğini indirir.
+    func download(fileID: String) async throws -> Data {
+        let escaped = fileID.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? fileID
+        let url = URL(string: filesURL + "/\(escaped)?alt=media")!
+        let (status, data) = try await authorized({ token in
+            var r = URLRequest(url: url)
+            r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            return r
+        })
+        guard (200..<300).contains(status) else {
+            throw DriveError.http(status, DriveClient.errorMessage(data))
+        }
+        return data
+    }
+
     /// Klasöre yükler, dosya kimliğini döndürür.
     @discardableResult
     func upload(_ payload: UploadPayload, name: String) async throws -> String {
