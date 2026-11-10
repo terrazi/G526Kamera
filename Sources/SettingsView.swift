@@ -5,12 +5,14 @@ struct SettingsView: View {
     @EnvironmentObject var settings: AppSettings
     @Environment(\.presentationMode) private var presentation
     @State private var voiceTestResult = ""
+    @State private var voices: [VoiceInfo] = SpeechVoiceChooser.sortedTurkish(SpeechVoiceChooser.installed())
 
     var body: some View {
         NavigationView {
             Form {
                 cameraSection
                 voiceSection
+                readingVoiceSection
                 guidanceSection
                 photoSection
                 powerSection
@@ -32,6 +34,7 @@ struct SettingsView: View {
             }
             .navigationTitle("Ayarlar")
             .navigationBarTitleDisplayMode(.inline)
+            .onAppear { voices = SpeechVoiceChooser.sortedTurkish(SpeechVoiceChooser.installed()) }
             .onChange(of: settings.sendMode) { _ in model.queue.kick() }
             .onChange(of: settings.batchSize) { _ in model.queue.kick() }
             .onChange(of: settings.batchIdle) { _ in model.queue.kick() }
@@ -81,6 +84,30 @@ struct SettingsView: View {
             Stepper(value: $settings.cooldown, in: 2...20, step: 1) {
                 Text("İki çekim arası bekleme: \(Int(settings.cooldown)) sn")
             }
+        }
+    }
+
+    private var readingVoiceSection: some View {
+        Section(header: Text("Okuma sesi"),
+                footer: Text("“Otomatik”, telefonda kurulu en kaliteli Türkçe sesi seçer. Daha doğal bir ses için iPhone Ayarlar > Erişilebilirlik > Konuşulan İçerik > Sesler > Türkçe bölümünden “Gelişmiş” ya da “Premium” bir ses indirin, sonra bu ekrana dönün. Siri’nin kendi sesi uygulamalara açık değildir; yalnız bu listedeki sesler kullanılabilir.")) {
+            HStack {
+                Text("Şu an")
+                Spacer()
+                Text(SpeechVoiceChooser.currentDescription(preferredID: settings.speechVoiceID))
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+            }
+            Picker("Ses", selection: $settings.speechVoiceID) {
+                Text("Otomatik (en kaliteli)").tag("")
+                ForEach(voices, id: \.id) { voice in
+                    Text(voice.title).tag(voice.id)
+                }
+            }
+            Stepper(value: $settings.speechRate, in: 0.7...1.3, step: 0.05) {
+                Text(verbatim: "Okuma hızı: %\(Int((settings.speechRate * 100).rounded()))")
+            }
+            Button("Bu sesi dene") { model.previewVoice() }
+                .accessibilityIdentifier("okuma-sesi-dene")
         }
     }
 

@@ -45,6 +45,12 @@ final class AppSettings: ObservableObject {
     /// Önizleme kapalıyken ekranı çok kıs (ekran pilin en büyük tüketicisidir)
     @Published var dimWhenPreviewOff: Bool { didSet { d.set(dimWhenPreviewOff, forKey: "dimWhenPreviewOff") } }
 
+    // MARK: Okuma sesi
+    /// Seçilen konuşma sesi (boş = telefonda kurulu en kaliteli Türkçe ses)
+    @Published var speechVoiceID: String { didSet { d.set(speechVoiceID, forKey: "speechVoiceID") } }
+    /// Okuma hızı çarpanı: 1 = varsayılan hız
+    @Published var speechRate: Double { didSet { d.set(speechRate, forKey: "speechRate") } }
+
     // MARK: Sesli konumlandırma
     /// Kamera sayfayı/sütunu ölçer; sesle "biraz sağa, uzaklaş…" der, uygun olunca kendisi çeker
     @Published var guidanceEnabled: Bool { didSet { d.set(guidanceEnabled, forKey: "guidanceEnabled") } }
@@ -121,6 +127,8 @@ final class AppSettings: ObservableObject {
         ocrEnabled = d.object(forKey: "ocrEnabled") as? Bool ?? false
         guidanceEnabled = d.object(forKey: "guidanceEnabled") as? Bool ?? false
         guidanceVoice = d.object(forKey: "guidanceVoice") as? Bool ?? true
+        speechVoiceID = d.string(forKey: "speechVoiceID") ?? ""
+        speechRate = d.object(forKey: "speechRate") as? Double ?? 1.0
         statusNotices = d.object(forKey: "statusNotices") as? Bool ?? true
         guidanceAutoCapture = d.object(forKey: "guidanceAutoCapture") as? Bool ?? true
         guidanceFlip = d.object(forKey: "guidanceFlip") as? Bool ?? false

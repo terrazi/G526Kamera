@@ -553,9 +553,16 @@ final class AppModel: ObservableObject {
         guard force || settings.guidanceVoice else { return }
         lastSpeechAt = ProcessInfo.processInfo.systemUptime
         speaker.needsPlaybackSession = !speechActive
+        speaker.voiceID = settings.speechVoiceID
+        speaker.rateFactor = settings.speechRate
         speech.suppressed = true
         speaker.speak(text, interrupt: interrupt)
         tlog("[konuşma] \(text)")
+    }
+
+    /// Okuma sesi ayarı: seçili sesle kısa bir örnek cümle söyler.
+    func previewVoice() {
+        say("Merhaba. Belgeniz kadraja alındı, çekim için hazırım.", interrupt: true, force: true)
     }
 
     /// Ayarlardaki "Sesi dene": cümleyi (ayar kapalı olsa bile) söyler ve sesin neden duyulmuyor olabileceğini yazar.

@@ -8,6 +8,10 @@ final class GuidanceSpeaker: NSObject, AVSpeechSynthesizerDelegate {
     var onSpeakingChange: ((Bool) -> Void)?
     /// Konuşma tanıma çalışmıyorsa ses oturumunu biz hazırlarız (sessiz anahtarı çalmayı engellemesin)
     var needsPlaybackSession = false
+    /// Kullanıcının seçtiği ses (boş = telefonda kurulu en kaliteli Türkçe ses)
+    var voiceID = ""
+    /// Okuma hızı çarpanı (1 = varsayılan hız)
+    var rateFactor = 1.0
     /// Son söylenen cümleler (tanı ve test için)
     private(set) var recent: [String] = []
 
@@ -33,8 +37,9 @@ final class GuidanceSpeaker: NSObject, AVSpeechSynthesizerDelegate {
             try? session.setActive(true)
         }
         let utterance = AVSpeechUtterance(string: text)
-        utterance.voice = AVSpeechSynthesisVoice(language: "tr-TR")
-        utterance.rate = AVSpeechUtteranceDefaultSpeechRate * 1.05
+        utterance.voice = SpeechVoiceChooser.voice(preferredID: voiceID)
+        let rate = AVSpeechUtteranceDefaultSpeechRate * 1.05 * Float(min(max(rateFactor, 0.6), 1.5))
+        utterance.rate = min(max(rate, AVSpeechUtteranceMinimumSpeechRate), AVSpeechUtteranceMaximumSpeechRate)
         utterance.volume = 1.0
         utterance.postUtteranceDelay = 0.05
         pending += 1
