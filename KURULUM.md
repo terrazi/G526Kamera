@@ -80,20 +80,38 @@ geri kalanını göremez. Google parolanızı uygulamaya hiç yazmazsınız.
 
 Drive'a gönderdiğiniz son PDF'ler hakkında sesle soru sorarsınız; cevap iPhone'un en kaliteli Türkçe sesiyle okunur.
 
-1. **aistudio.google.com** adresinden bir API anahtarı alın (Get API key). Faturalandırma bağlı (ücretli) bir
+1. **aistudio.google.com** adresinden API anahtarı alın (Get API key). Faturalandırma bağlı (ücretli) bir
    projenin anahtarı önerilir: ücretsiz anahtarda Google gönderdiğiniz içeriği ürünlerini geliştirmek için
-   kullanabilir ve günlük istek sınırı düşüktür. Anahtarı sohbete/koda yazmayın.
-2. **Dişli > Gemini ile belge sohbeti**: anahtarı yapıştırın, "Ses kaydımın ve PDF'lerimin Google'a gönderilmesini
-   onaylıyorum" kutusunu işaretleyin, **Gemini'ye sesle soru sor**'u açın. Model boşsa `gemini-3.8-flash` kullanılır.
-3. **Dişli > Google Drive > dosya türü: PDF** olmalı (Gemini yalnız Drive'daki PDF'leri okur).
-4. Çağrı sözcüğünü değiştirmek için **Çağrı sözcüğü** kutusuna istediğinizi yazın (ör. `dostum`; virgülle birden çok:
-   `dostum, gemini`). En az 3 harf olsun, gündelik konuşmada sık geçmesin, fotoğraf çekme/gönder sözcüklerinden farklı
-   olsun. Kutu boşsa "gemini" kullanılır.
-5. Kullanım: **çağrı sözcüğünü** ("Gemini" ya da seçtiğiniz) deyin, kısa "tık" sesinden sonra sorunuzu söyleyin
-   (susunca gönderilir), ya da ana ekrandaki **Gemini'ye sor** düğmesine basın. Örnek: "Son faturanın tutarı ne kadar?", "Bu sözleşmede ödeme vadesi kaç gün?"
-   Sohbet son 6 soruyu hatırlar; **Yeni sohbet** sıfırlar.
-6. Soru sürerken sürekli dinleyen "Okey" komutu kısa süre durur, cevap bitince yeniden başlar.
-7. Her soruda ses kaydınız ve seçilen PDF'ler (en çok ~14 MB) hücresel veriyle Google'a gider.
+   kullanabilir ve günlük istek sınırı düşüktür. Anahtarı sohbete/koda yazmayın, yalnız uygulamanın ayarlarına yapıştırın.
+2. **Dişli > Gemini modelleri**: her model profili için (1. Flash, 2. Pro, 3. ücretsiz gibi) ad, model adı ve kendi
+   API anahtarını yazın. Ücretli/ücretsiz olmak modelin değil anahtarın özelliğidir: faturalandırma bağlı projenin
+   anahtarı ücretli, bağlı olmayan ücretsizdir; **Ücretsiz anahtar** kutusunu buna göre işaretleyin. **Kullanılan model**
+   listesinden hangisiyle çalışılacağını seçin. Doğru model adını bilmiyorsanız **Modelleri listele** düğmesi anahtarın
+   görebildiği modelleri yazar. Birinci profilde model boşsa `gemini-3.8-flash` kullanılır.
+3. **Dişli > Gemini ile belge sohbeti**: "Ses kaydımın ve PDF'lerimin Google'a gönderilmesini onaylıyorum" kutusunu
+   işaretleyin, **Gemini'ye sesle soru sor**'u açın.
+4. **Dişli > Google Drive > dosya türü: PDF** olmalı (Gemini yalnız Drive'daki PDF'leri okur).
+5. Çağrı sözcüğünü değiştirmek için **Çağrı sözcüğü** kutusuna istediğinizi yazın (ör. `hey dostum`; virgülle birden
+   çok: `dostum, gemini`). En az 3 harf olsun, gündelik konuşmada sık geçmesin, fotoğraf çekme/gönder sözcüklerinden
+   farklı olsun. Kutu boşsa "gemini" kullanılır.
+6. Kullanım: **çağrı sözcüğünü** deyin. Program Drive klasöründeki PDF'leri okuyup "3 belge hazır, sorunuzu bekliyorum"
+   der (atlanan belge varsa onu da söyler). Sorunuzu söyleyin (susunca gönderilir), ör. "Beşinci soruyu cevapla": cevap
+   "Beşinci sorunun cevabı, C, CEYHAN şıkkıdır. Sonraki sorunuzu bekliyorum." diye okunur ve mikrofon kendiliğinden yeniden
+   açılır. Her soruda klasör yeniden taranır, yeni PDF'ler de değerlendirilir. Ana ekrandaki **Gemini'ye sor** düğmesi de
+   aynı işi yapar. Sohbet son 6 soruyu hatırlar; **Yeni sohbet** sıfırlar.
+7. **Oturum süresi:** "Oturum sessizlik süresi" kutusu 0 ise (varsayılan) oturum siz kapatana kadar açık kalır ve her an
+   soru bekler. Bir süre (saniye) yazarsanız o kadar sessiz kalınca oturum kapanır. Oturumu "oturumu kapat" diyerek,
+   Durdur düğmesiyle kapatırsınız. Oturum açıkken mikrofon sürekli açıktır: duyulan her konuşma
+   Gemini'ye gider ve ücretlendirilir; "okey" gibi diğer sesli komutlar bu sürede çalışmaz.
+8. **Model değiştirme:** "model değiştir" deyin (oturum açıkken de olur). Program "Model seçimi yapınız. 1. model: Flash,
+   ücretli. 2. model: Pro, ücretli. 3. model: Ücretsiz, ücretsiz. Hangisini istiyorsunuz?" der; "ikinci model", "2 model" ya
+   da profil adını ("pro") söyleyin. 35 saniye içinde seçmezseniz "Model değişmedi" der.
+9. **Harcama sınırı:** AI Studio'da Spend sayfasından aylık sınır koyun (ör. 20 dolar). Ücretli profilde sınır dolunca
+   program "Aylık harcama sınırı doldu. <ad> modeline geçtim" der, aynı soruyu "ücretsiz" işaretli profille yineler ve
+   yeni ayda eski profile döner. Google harcamayı yaklaşık 10 dakika gecikmeyle saydığı için sınır biraz aşılabilir.
+   Dikkat: ücretsiz anahtarda Google içeriğinizi ürünlerini geliştirmek için kullanabilir; gizli belgeleriniz varsa
+   **Harcama sınırı dolunca ücretsiz modele geç** kutusunu kapatın.
+10. Her soruda ses kaydınız ve seçilen PDF'ler (en çok ~14 MB) hücresel veriyle Google'a gider.
 
 ## Sorun giderme
 

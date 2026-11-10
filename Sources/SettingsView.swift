@@ -5,6 +5,8 @@ struct SettingsView: View {
     @EnvironmentObject var settings: AppSettings
     @Environment(\.presentationMode) private var presentation
     @State private var voiceTestResult = ""
+    @State private var modelListText = ""
+    @State private var listingModels = false
     @State private var voices: [VoiceInfo] = SpeechVoiceChooser.sortedTurkish(SpeechVoiceChooser.installed())
 
     var body: some View {
@@ -14,6 +16,7 @@ struct SettingsView: View {
                 voiceSection
                 readingVoiceSection
                 geminiSection
+                geminiModelsSection
                 guidanceSection
                 photoSection
                 powerSection
@@ -41,6 +44,10 @@ struct SettingsView: View {
             .onChange(of: settings.batchIdle) { _ in model.queue.kick() }
             .onChange(of: settings.uploadFormat) { _ in model.queue.kick() }
             .onChange(of: settings.ocrEnabled) { _ in OcrCenter.shared.reset() }
+            .onChange(of: settings.geminiSessionTimeout) { value in
+                if value < 0 { settings.geminiSessionTimeout = 0 }
+                if value > 86400 { settings.geminiSessionTimeout = 86400 }
+            }
             .onChange(of: settings.guidanceEnabled) { on in
                 // Sesli konumlandırma açılınca fotoğraflar birikip "hepsi tamamlandı" ile tek PDF gitsin
                 if on {
@@ -118,14 +125,63 @@ struct SettingsView: View {
         return GeminiText.clashes(settings.geminiCallWord, with: others)
     }
 
+    private func profileName(_ i: Int) -> Binding<String> {
+        return Binding(get: { settings.geminiProfiles[i].name }, set: { settings.geminiProfiles[i].name = $0 })
+    }
+
+    private func profileModel(_ i: Int) -> Binding<String> {
+        return Binding(get: { settings.geminiProfiles[i].model }, set: { settings.geminiProfiles[i].model = $0 })
+    }
+
+    private func profileFree(_ i: Int) -> Binding<Bool> {
+        return Binding(get: { settings.geminiProfiles[i].free }, set: { settings.geminiProfiles[i].free = $0 })
+    }
+
+    private func profileKey(_ i: Int) -> Binding<String> {
+        return Binding(get: { settings.geminiKeys[i] }, set: { settings.geminiKeys[i] = $0 })
+    }
+
+    /// Seçili profilin anahtarının görebildiği modelleri yazar (doğru model adını bulmak için)
+    private func listGeminiModels() {
+        let profile = settings.activeGeminiProfile
+        listingModels = true
+        modelListText = "Modeller isteniyor…"
+        let client = GeminiClient(key: { profile.key }, model: { profile.model })
+        Task { @MainActor in
+            let text: String
+            do {
+                let names = try await client.listModels()
+                text = names.isEmpty ? "Bu anahtarla kullanılabilir model görünmüyor." : names.joined(separator: "\n")
+            } catch let e as GeminiError {
+                text = e.message
+            } catch {
+                text = error.localizedDescription
+            }
+            modelListText = text
+            listingModels = false
+        }
+    }
+
     private var geminiSection: some View {
         Section(header: Text("Gemini ile belge sohbeti"),
-                footer: Text("Drive’a gönderdiğiniz son PDF’leri Gemini’ye verir; çağrı sözcüğünü (varsayılan “Gemini”) söyleyip (kısa bir “tık” sesinden sonra) ya da ana ekrandaki düğmeyle belgeler hakkında sesli soru sorarsınız, cevap Türkçe sesle okunur. Anahtarı aistudio.google.com adresinden alın ve buraya yapıştırın; yalnız bu telefonun Keychain’inde saklanır, kimseyle paylaşmayın. Ücretsiz anahtarda günlük istek sınırı düşüktür ve Google gönderdiğiniz içeriği ürünlerini geliştirmek için kullanabilir; faturalandırma bağlı (ücretli) bir projenin anahtarında içerik bu amaçla kullanılmaz. Her soruda ses kaydınız ve seçilen PDF’ler Google’a gönderilir; IBAN, vergi numarası gibi bilgiler içeren belgeler için ücretli anahtarı tercih edin. Belgelerin PDF olarak Drive’a gitmesi gerekir (Google Drive bölümünde dosya türü “PDF”). Çağrı sözcüğü için Sesli komut açık olmalıdır; düğme her zaman çalışır. Çağrı sözcüğünü değiştirebilirsiniz (ör. “dostum”; virgülle birden çok yazabilirsiniz, en az 3 harf). Gündelik konuşmada sık geçen bir sözcük seçerseniz Gemini yanlışlıkla açılabilir; fotoğraf çekme ve gönder sözcüklerinden farklı olsun.")) {
+                footer: Text("Drive’a gönderdiğiniz son PDF’leri Gemini’ye verir; çağrı sözcüğünü söyleyip (kısa bir “tık” sesinden sonra) ya da ana ekrandaki düğmeyle belgeler hakkında sesli soru sorarsınız, cevap Türkçe sesle okunur. Çağrı sözcüğünü değiştirebilirsiniz (ör. “hey dostum”; virgülle birden çok yazabilirsiniz, en az 3 harf); gündelik konuşmada sık geçen bir sözcük seçerseniz Gemini yanlışlıkla açılabilir, fotoğraf çekme ve gönder sözcüklerinden de farklı olsun. Çağrı sözcüğü için Sesli komut açık olmalıdır; düğme her zaman çalışır. Oturum açıkken uygulama “N belge hazır, sorunuzu bekliyorum” der, her cevaptan sonra “Sonraki sorunuzu bekliyorum” diyerek yeni soruyu kendiliğinden dinler. Oturum siz “oturumu kapat” diyene, Durdur’a basana ya da aşağıda yazdığınız sessizlik süresi dolana kadar açık kalır; süreyi 0 bırakırsanız hiç kapanmaz. Oturum açıkken mikrofon sürekli açıktır: duyulan her konuşma Gemini’ye gider ve ücretlendirilir, “okey” gibi diğer sesli komutlar çalışmaz. Her soruda ses kaydınız ve seçilen PDF’ler Google’a gönderilir; IBAN, vergi numarası gibi bilgiler içeren belgeler için ücretli anahtarı tercih edin. Belgelerin PDF olarak Drive’a gitmesi gerekir (Google Drive bölümünde dosya türü “PDF”).")) {
             Toggle("Gemini’ye sesle soru sor", isOn: $settings.geminiEnabled)
                 .accessibilityIdentifier("gemini-ac")
-            SecureField("Gemini API anahtarı", text: $settings.geminiKey)
-                .textInputAutocapitalization(.never)
-                .disableAutocorrection(true)
+            Toggle("Oturum: “hazırım” de, cevaptan sonra yeni soruyu dinle", isOn: $settings.geminiSession)
+                .accessibilityIdentifier("gemini-oturum")
+            HStack {
+                Text("Oturum sessizlik süresi (sn)")
+                Spacer()
+                TextField("0", value: $settings.geminiSessionTimeout, format: .number)
+                    .keyboardType(.numberPad)
+                    .multilineTextAlignment(.trailing)
+                    .frame(maxWidth: 90)
+                    .accessibilityIdentifier("gemini-oturum-suresi")
+            }
+            Text(settings.geminiSessionTimeout <= 0
+                 ? "0: oturum hiç kapanmaz, siz kapatana kadar soru beklenir."
+                 : "\(settings.geminiSessionTimeout) sn soru gelmezse oturum kapanır.")
+                .font(.footnote).foregroundColor(.secondary)
             TextField("Çağrı sözcüğü (boşsa \(GeminiText.defaultCallWord))", text: $settings.geminiCallWord)
                 .textInputAutocapitalization(.never)
                 .disableAutocorrection(true)
@@ -134,14 +190,48 @@ struct SettingsView: View {
                 Text("Bu sözcük başka bir komutla aynı: \(callWordClashes.joined(separator: ", ")). Farklı bir sözcük seçin.")
                     .font(.footnote).foregroundColor(.orange)
             }
-            TextField("Model (boşsa \(GeminiConfig.defaultModel))", text: $settings.geminiModel)
-                .textInputAutocapitalization(.never)
-                .disableAutocorrection(true)
-            Stepper(value: $settings.geminiDocCount, in: 1...5) {
+            Stepper(value: $settings.geminiDocCount, in: 1...10) {
                 Text(verbatim: "Gönderilecek son belge sayısı: \(settings.geminiDocCount)")
             }
             Toggle("Ses kaydımın ve PDF’lerimin Google’a gönderilmesini onaylıyorum", isOn: $settings.geminiPrivacyOK)
                 .accessibilityIdentifier("gemini-gizlilik")
+        }
+    }
+
+    private var geminiModelsSection: some View {
+        Section(header: Text("Gemini modelleri (Flash / Pro / ücretsiz)"),
+                footer: Text("Her profilin kendi API anahtarı vardır (aistudio.google.com); anahtarlar yalnız bu telefonun Keychain’inde saklanır, kimseyle paylaşmayın. Ücretli ya da ücretsiz olmak modelin değil anahtarın özelliğidir: faturalandırma bağlı projenin anahtarı ücretli, bağlı olmayan ücretsizdir; “Ücretsiz anahtar” kutusunu buna göre işaretleyin. “Model değiştir” deyince uygulama modelleri sıralar; “ikinci model” ya da profil adını söylersiniz. AI Studio’da Spend sayfasından aylık harcama sınırı (ör. 20 dolar) koyabilirsiniz; sınır dolunca ücretli profilden “ücretsiz” işaretli profile kendiliğinden geçilir, yeni ayda eski profile dönülür. Google harcamayı yaklaşık 10 dakika gecikmeyle saydığı için sınır biraz aşılabilir. Dikkat: ücretsiz katmanda Google gönderdiğiniz içeriği ürünlerini geliştirmek için kullanabilir; gizli belgeleriniz varsa bu geçişi kapatın.")) {
+            Picker("Kullanılan model", selection: $settings.geminiActive) {
+                ForEach(0..<GeminiProfiles.slotCount, id: \.self) { i in
+                    Text(settings.geminiProfiles[i].name.trimmed.isEmpty ? "Model \(i + 1)" : settings.geminiProfiles[i].name).tag(i + 1)
+                }
+            }
+            .accessibilityIdentifier("gemini-kullanilan-model")
+            ForEach(0..<GeminiProfiles.slotCount, id: \.self) { i in
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("\(i + 1). model").font(.footnote).foregroundColor(.secondary)
+                    TextField("Ad (ör. Pro)", text: profileName(i))
+                        .disableAutocorrection(true)
+                    TextField("Model (ör. \(GeminiConfig.defaultModel))", text: profileModel(i))
+                        .textInputAutocapitalization(.never)
+                        .disableAutocorrection(true)
+                    SecureField("API anahtarı", text: profileKey(i))
+                        .textInputAutocapitalization(.never)
+                        .disableAutocorrection(true)
+                        .accessibilityIdentifier("gemini-anahtar-\(i + 1)")
+                    Toggle("Ücretsiz anahtar", isOn: profileFree(i))
+                }
+            }
+            Toggle("Harcama sınırı dolunca ücretsiz modele geç", isOn: $settings.geminiAutoFallback)
+            if settings.geminiAutoFallback {
+                Text("Ücretsiz katmanda içeriğiniz Google tarafından ürün geliştirmede kullanılabilir.")
+                    .font(.footnote).foregroundColor(.orange)
+            }
+            Button(listingModels ? "Modeller isteniyor…" : "Modelleri listele (seçili modelin anahtarıyla)") { listGeminiModels() }
+                .disabled(listingModels)
+            if !modelListText.isEmpty {
+                Text(modelListText).font(.footnote).foregroundColor(.secondary).textSelection(.enabled)
+            }
         }
     }
 

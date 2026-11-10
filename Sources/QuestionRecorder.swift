@@ -21,7 +21,12 @@ struct EndpointDetector {
     private(set) var speechTime = 0.0
     private(set) var silenceRun = 0.0
     private(set) var started = false
+    /// Konuşmanın başladığı an (en uzun süre buradan sayılır)
+    private(set) var startAt = 0.0
     private(set) var reason: State?
+
+    /// Konuşma başlamadan bu kadar sessizlik, biriken kısa seslerin sayımını sıfırlar
+    static let onsetGap = 0.4
 
     init(rate: Int = 16000, silenceEnd: Double = 1.3, noSpeech: Double = 7.0, maxLen: Double = 30.0, minSpeech: Double = 0.25) {
         self.rate = rate
@@ -65,15 +70,20 @@ struct EndpointDetector {
             if loud {
                 speechTime += dt
                 silenceRun = 0
-                if speechTime >= minSpeechTime { started = true }
+                if !started && speechTime >= minSpeechTime {
+                    started = true
+                    startAt = elapsed - speechTime
+                }
             } else {
                 silenceRun += dt
+                // Uzun beklemede dağınık tıkırtılar (kapı, tuş sesi) toplanıp konuşma sayılmasın
+                if !started && silenceRun >= EndpointDetector.onsetGap { speechTime = 0 }
             }
             if started && silenceRun >= silenceLimit {
                 reason = .done
             } else if !started && elapsed >= noSpeechLimit {
                 reason = .noSpeech
-            } else if elapsed >= maxLength {
+            } else if started && elapsed - startAt >= maxLength {
                 reason = .max
             }
             if let r = reason {
@@ -94,7 +104,8 @@ enum QuestionOutcome: Equatable {
 /// Soru kaydı arayüzü (sohbet mantığı sahte kayıtçıyla sınanabilsin diye).
 protocol QuestionRecording: AnyObject {
     /// Mikrofonu açar, konuşma bitince (sessizlikte) ya da hata / iptalde döner. pcm: 16 kHz, 16 bit, tek kanal.
-    func record(onStatus: @escaping (String) -> Void) async -> (pcm: Data, outcome: QuestionOutcome)
+    /// `waitForSpeech`: konuşma başlamazsa en çok bu kadar saniye beklenir (.infinity = süresiz).
+    func record(waitForSpeech: TimeInterval, onStatus: @escaping (String) -> Void) async -> (pcm: Data, outcome: QuestionOutcome)
     func cancel()
 }
 
@@ -110,17 +121,25 @@ final class QuestionRecorder: QuestionRecording {
     private var target: AVAudioFormat?
     private var tapInstalled = false
     private var completion: ((Data, QuestionOutcome) -> Void)?
-    private var timeoutWork: DispatchWorkItem?
+    private var watchdog: Timer?
     private var cancelled = false
+    private var waitLimit: TimeInterval = 7
 
     // Aşağıdakiler yalnızca `queue` üzerinde değişir
     private var detector = EndpointDetector()
     private var pcm = Data()
     private var signaled = false
+    private var lastBuffer = Date()
 
-    func record(onStatus: @escaping (String) -> Void) async -> (pcm: Data, outcome: QuestionOutcome) {
+    /// Konuşma başlamadan önce yalnız son bu kadar ses tutulur (süresiz beklemede bellek şişmesin): 1,2 sn
+    private static let preRollBytes = 16000 * 2 * 12 / 10
+    /// Bu kadar saniye mikrofondan hiç ses gelmezse kayıt hatayla biter
+    private static let silentMicLimit: TimeInterval = 6
+
+    func record(waitForSpeech: TimeInterval, onStatus: @escaping (String) -> Void) async -> (pcm: Data, outcome: QuestionOutcome) {
         return await withCheckedContinuation { continuation in
             DispatchQueue.main.async {
+                self.waitLimit = waitForSpeech
                 self.begin(onStatus: onStatus) { pcm, outcome in
                     continuation.resume(returning: (pcm, outcome))
                 }
@@ -186,10 +205,12 @@ final class QuestionRecorder: QuestionRecording {
             }
             self.target = target
             self.converter = converter
+            let limit = waitLimit
             queue.sync {
-                detector = EndpointDetector()
+                detector = EndpointDetector(noSpeech: limit)
                 pcm = Data()
                 signaled = false
+                lastBuffer = Date()
             }
             if tapInstalled {
                 input.removeTap(onBus: 0)
@@ -206,9 +227,15 @@ final class QuestionRecorder: QuestionRecording {
             try engine.start()
             onStatus("Dinliyorum — sorunuzu söyleyin")
 
-            let work = DispatchWorkItem { [weak self] in self?.finish(.max) }
-            timeoutWork = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 35, execute: work)
+            // Mikrofon sessizce durduysa (başka uygulama aldı, arama geldi) süresiz beklemeye takılmasın
+            watchdog?.invalidate()
+            watchdog = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
+                guard let self = self, self.completion != nil else { return }
+                let last = self.queue.sync { self.lastBuffer }
+                if Date().timeIntervalSince(last) > QuestionRecorder.silentMicLimit {
+                    self.finish(.failed("Mikrofondan ses gelmiyor. Başka bir uygulama mikrofonu kullanıyor olabilir."))
+                }
+            }
         } catch {
             finish(.failed("Mikrofon açılamadı: \(error.localizedDescription)"))
         }
@@ -217,8 +244,8 @@ final class QuestionRecorder: QuestionRecording {
     private func finish(_ outcome: QuestionOutcome) {
         guard let done = completion else { return }
         completion = nil
-        timeoutWork?.cancel()
-        timeoutWork = nil
+        watchdog?.invalidate()
+        watchdog = nil
         if tapInstalled {
             engine.inputNode.removeTap(onBus: 0)
             tapInstalled = false
@@ -255,6 +282,7 @@ final class QuestionRecorder: QuestionRecording {
     /// `queue` üzerinde: örnekleri biriktirir, konuşma bitince ana iş parçacığına haber verir
     private func consume(_ samples: [Int16]) {
         if signaled { return }
+        lastBuffer = Date()
         samples.withUnsafeBufferPointer { pcm.append(Data(buffer: $0)) }
         let state = detector.feed(samples)
         let outcome: QuestionOutcome
@@ -262,7 +290,11 @@ final class QuestionRecorder: QuestionRecording {
         case .done: outcome = .done
         case .noSpeech: outcome = .noSpeech
         case .max: outcome = .max
-        case .wait, .speech: return
+        case .wait:
+            // Konuşma başlayana kadar yalnız son 1,2 sn tutulur
+            if pcm.count > QuestionRecorder.preRollBytes { pcm = Data(pcm.suffix(QuestionRecorder.preRollBytes)) }
+            return
+        case .speech: return
         }
         signaled = true
         DispatchQueue.main.async { [weak self] in self?.finish(outcome) }

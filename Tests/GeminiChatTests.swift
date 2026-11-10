@@ -34,16 +34,24 @@ private final class FakeDocs: GeminiDocProviding {
 
 private final class FakeRecorder: QuestionRecording {
     var result: (pcm: Data, outcome: QuestionOutcome) = (Data(count: 32000), .done)
+    /// Sırayla verilecek sonuçlar; bitince `result` verilir
+    var results: [(pcm: Data, outcome: QuestionOutcome)] = []
+    /// Her kayıtta istenen "konuşma başlasın diye bekleme" süresi
+    var waits: [TimeInterval] = []
     /// true: kayıt, `cancel()` gelene kadar sürer
     var hold = false
     var entered = false
     var cancelled = 0
     private var pending: CheckedContinuation<(pcm: Data, outcome: QuestionOutcome), Never>?
 
-    func record(onStatus: @escaping (String) -> Void) async -> (pcm: Data, outcome: QuestionOutcome) {
+    func record(waitForSpeech: TimeInterval, onStatus: @escaping (String) -> Void) async -> (pcm: Data, outcome: QuestionOutcome) {
         entered = true
+        waits.append(waitForSpeech)
         onStatus("Dinliyorum")
-        if !hold { return result }
+        if !hold {
+            if !results.isEmpty { return results.removeFirst() }
+            return result
+        }
         return await withCheckedContinuation { continuation in
             self.pending = continuation
         }
@@ -60,6 +68,8 @@ private final class Log {
     var spoken: [String] = []
     var active: [Bool] = []
     var speakResult = true
+    /// true: okuma hemen bitmiş sayılır (oturum akışı okuma bitmesini bekler)
+    var autoFinish = false
 }
 
 @MainActor
@@ -81,8 +91,11 @@ final class GeminiChatTests: XCTestCase {
         let box = self
         let chat = GeminiChat(client: client, docs: docs, recorder: recorder, options: { box.options })
         let log = self.log
-        chat.speak = { text in
+        chat.speak = { [weak chat] text in
             log.spoken.append(text)
+            if log.speakResult && log.autoFinish {
+                Task { @MainActor in chat?.speakingChanged(false) }
+            }
             return log.speakResult
         }
         chat.stopSpeaking = {}
@@ -285,6 +298,227 @@ final class GeminiChatTests: XCTestCase {
         XCTAssertEqual(chat.phase, .listening)
         chat.cancel()
     }
+
+    // MARK: Oturum
+
+    private func answer(_ text: String, close: Bool = false, switchModel: Bool = false) -> Result<GeminiAnswer, Error> {
+        var a = GeminiAnswer(question: "soru", answer: text)
+        a.close = close
+        a.switchModel = switchModel
+        return .success(a)
+    }
+
+    private let noSpeech: (pcm: Data, outcome: QuestionOutcome) = (Data(), .noSpeech)
+
+    func testSessionGreetsAnswersAndKeepsListening() async {
+        log.autoFinish = true
+        options.session = true
+        recorder.results = [(Data(count: 32000), .done), noSpeech]
+        XCTAssertTrue(chat.ask())
+        let ended = await waitUntil { self.chat.status == "Oturum bitti" }
+        XCTAssertTrue(ended)
+        XCTAssertEqual(log.spoken, ["1 belge hazır. Sorunuzu bekliyorum.", "Cevap 1. Sonraki sorunuzu bekliyorum."])
+        XCTAssertEqual(client.calls.count, 1)
+        XCTAssertEqual(recorder.waits, [.infinity, .infinity], "varsayılan: oturum hiç kapanmaz")
+        XCTAssertEqual(chat.phase, .idle)
+        XCTAssertEqual(chat.turns, 1)
+        XCTAssertEqual(log.active, [true, false])
+    }
+
+    func testSessionTimeoutIsUserDefined() async {
+        log.autoFinish = true
+        options.session = true
+        options.sessionTimeout = 45
+        recorder.results = [noSpeech]
+        chat.ask()
+        _ = await waitUntil { self.chat.status == "Oturum bitti" }
+        XCTAssertEqual(recorder.waits, [45])
+        XCTAssertTrue(client.calls.isEmpty)
+        XCTAssertEqual(log.spoken, ["1 belge hazır. Sorunuzu bekliyorum."])
+        XCTAssertEqual(chat.error, "")
+    }
+
+    func testSingleVoiceQuestionStillWaitsOnlyBriefly() async {
+        recorder.result = (Data(), .noSpeech)
+        chat.ask()
+        _ = await waitUntil { self.chat.phase == .speaking }
+        XCTAssertEqual(recorder.waits, [7])
+        XCTAssertTrue(chat.error.contains("duyamadım"))
+    }
+
+    func testSessionCloseFlagSaysGoodbyeAndStops() async {
+        log.autoFinish = true
+        options.session = true
+        client.replies = [answer("Görüşürüz.", close: true)]
+        chat.ask()
+        _ = await waitUntil { self.chat.status == "Oturum kapandı" }
+        XCTAssertEqual(log.spoken.last, "Görüşürüz.")
+        XCTAssertFalse(log.spoken.contains { $0.contains("Sonraki sorunuzu") })
+        XCTAssertEqual(recorder.waits.count, 1, "kapat dendikten sonra yeniden dinlenmemeli")
+        XCTAssertEqual(chat.phase, .idle)
+    }
+
+    func testSessionCloseWithoutGoodbyeStillCloses() async {
+        log.autoFinish = true
+        options.session = true
+        client.replies = [answer("", close: true)]
+        chat.ask()
+        _ = await waitUntil { self.chat.status == "Oturum kapandı" }
+        XCTAssertEqual(log.spoken.last, "Oturum kapandı.")
+        XCTAssertEqual(recorder.waits.count, 1)
+    }
+
+    func testSessionIgnoresSoundsThatAreNotQuestions() async {
+        log.autoFinish = true
+        options.session = true
+        client.replies = [answer(""), answer("Gerçek cevap.")]
+        recorder.results = [(Data(count: 32000), .done), (Data(count: 32000), .done), noSpeech]
+        chat.ask()
+        _ = await waitUntil { self.chat.status == "Oturum bitti" }
+        XCTAssertEqual(client.calls.count, 2)
+        XCTAssertEqual(log.spoken, ["1 belge hazır. Sorunuzu bekliyorum.", "Gerçek cevap. Sonraki sorunuzu bekliyorum."])
+        XCTAssertEqual(chat.turns, 1, "boş cevap konuşma geçmişine girmemeli")
+        XCTAssertEqual(chat.error, "")
+    }
+
+    func testSessionKeepsListeningAfterTooShortRecording() async {
+        log.autoFinish = true
+        options.session = true
+        recorder.results = [(Data(count: 100), .done), noSpeech]
+        chat.ask()
+        _ = await waitUntil { self.chat.status == "Oturum bitti" }
+        XCTAssertTrue(client.calls.isEmpty)
+        XCTAssertEqual(recorder.waits.count, 2)
+        XCTAssertEqual(chat.error, "")
+    }
+
+    func testEmptyAnswerOutsideSessionIsReported() async {
+        client.replies = [answer("")]
+        chat.ask(text: "bir şey")
+        _ = await waitUntil { self.chat.phase == .speaking }
+        XCTAssertTrue(chat.error.contains("anlayamadım"))
+    }
+
+    func testSwitchModelFlagStartsModelChoice() async {
+        log.autoFinish = true
+        options.session = true
+        var choices = 0
+        chat.onModelChoice = { choices += 1 }
+        client.replies = [answer("", switchModel: true)]
+        chat.ask()
+        _ = await waitUntil { choices == 1 }
+        XCTAssertEqual(choices, 1)
+        XCTAssertEqual(chat.phase, .idle)
+        XCTAssertEqual(recorder.waits.count, 1, "model seçimine geçince oturum dinlemeyi bırakır")
+        XCTAssertEqual(log.spoken, ["1 belge hazır. Sorunuzu bekliyorum."])
+        XCTAssertEqual(chat.turns, 0)
+    }
+
+    func testSkippedDocumentsAreAnnouncedInTheGreeting() async {
+        log.autoFinish = true
+        options.session = true
+        docs.result = .success((docs: [GeminiDoc(name: "a.pdf", data: Data("%PDF".utf8))],
+                                notes: ["2 belge boyut sınırı nedeniyle atlandı."]))
+        recorder.results = [noSpeech]
+        chat.ask()
+        _ = await waitUntil { self.chat.status == "Oturum bitti" }
+        XCTAssertEqual(log.spoken.first, "1 belge hazır. Dikkat: 2 belge boyut sınırı nedeniyle atlandı. Sorunuzu bekliyorum.")
+    }
+
+    func testNewDocumentsAreMentionedWhenTheSessionRestarts() async {
+        log.autoFinish = true
+        options.session = true
+        recorder.results = [noSpeech, noSpeech]
+        chat.ask()
+        _ = await waitUntil { self.chat.status == "Oturum bitti" }
+        docs.result = .success((docs: [GeminiDoc(name: "b.pdf", data: Data("%PDF".utf8)),
+                                       GeminiDoc(name: "a.pdf", data: Data("%PDF".utf8))], notes: []))
+        chat.ask()
+        _ = await waitUntil { self.log.spoken.count == 2 }
+        XCTAssertEqual(log.spoken[1], "2 belge hazır, 1 tanesi yeni. Sorunuzu bekliyorum.")
+    }
+
+    func testCancelWhileTheGreetingIsSpokenNeverOpensTheMicrophone() async {
+        options.session = true
+        chat.ask()
+        _ = await waitUntil { self.log.spoken.count == 1 }
+        XCTAssertEqual(chat.phase, .speaking)
+        chat.cancel()
+        try? await Task.sleep(nanoseconds: 150_000_000)
+        XCTAssertFalse(recorder.entered)
+        XCTAssertEqual(chat.phase, .idle)
+        XCTAssertEqual(log.active, [true, false])
+    }
+
+    // MARK: Harcama sınırı → ücretsiz profil
+
+    private func paidProfile(_ slot: Int = 1) -> GeminiProfileInfo {
+        return GeminiProfileInfo(slot: slot, name: "Pro", model: "m\(slot)", key: "k\(slot)", free: false)
+    }
+
+    private func freeProfile(_ slot: Int = 3) -> GeminiProfileInfo {
+        return GeminiProfileInfo(slot: slot, name: "Ücretsiz", model: "m\(slot)", key: "k\(slot)", free: true)
+    }
+
+    private func capError() -> Result<GeminiAnswer, Error> {
+        return .failure(GeminiError("Aylık harcama sınırınız doldu.", .cap, status: 429))
+    }
+
+    func testSpendingCapSwitchesToTheFreeProfileAndRetries() async {
+        log.autoFinish = true
+        options.profiles = [paidProfile(1), freeProfile(3)]
+        options.active = 1
+        options.autoFallback = true
+        var switched: [(Int, Int)] = []
+        chat.onProfileSwitch = { switched.append(($0.slot, $1.slot)) }
+        client.replies = [capError(), .success(GeminiAnswer(question: "toplam", answer: "Yüz lira."))]
+        chat.ask(text: "toplam nedir")
+        _ = await waitUntil { self.log.spoken.count == 2 }
+        XCTAssertEqual(switched.count, 1)
+        XCTAssertEqual(switched.first?.0, 1)
+        XCTAssertEqual(switched.first?.1, 3)
+        XCTAssertEqual(client.calls.map { $0.text }, ["toplam nedir", "toplam nedir"], "aynı soru yeni modelle yinelenmeli")
+        XCTAssertEqual(log.spoken, ["Aylık harcama sınırı doldu. Ücretsiz modeline geçtim.", "Yüz lira."])
+        XCTAssertEqual(chat.error, "")
+        XCTAssertEqual(chat.answer, "Yüz lira.")
+    }
+
+    func testSpendingCapWithoutAFreeProfileIsReported() async {
+        options.profiles = [paidProfile(1), paidProfile(2)]
+        options.active = 1
+        options.autoFallback = true
+        client.replies = [capError()]
+        chat.ask(text: "soru")
+        _ = await waitUntil { self.chat.phase == .speaking }
+        XCTAssertEqual(client.calls.count, 1)
+        XCTAssertEqual(chat.error, "Aylık harcama sınırınız doldu.")
+    }
+
+    func testSpendingCapDoesNotSwitchWhenAutoFallbackIsOff() async {
+        options.profiles = [paidProfile(1), freeProfile(3)]
+        options.active = 1
+        options.autoFallback = false
+        var switched = 0
+        chat.onProfileSwitch = { _, _ in switched += 1 }
+        client.replies = [capError()]
+        chat.ask(text: "soru")
+        _ = await waitUntil { self.chat.phase == .speaking }
+        XCTAssertEqual(switched, 0)
+        XCTAssertEqual(client.calls.count, 1)
+        XCTAssertEqual(chat.error, "Aylık harcama sınırınız doldu.")
+    }
+
+    func testFreeProfileHittingTheCapDoesNotLoop() async {
+        options.profiles = [paidProfile(1), freeProfile(3)]
+        options.active = 3
+        options.autoFallback = true
+        client.replies = [capError()]
+        chat.ask(text: "soru")
+        _ = await waitUntil { self.chat.phase == .speaking }
+        XCTAssertEqual(client.calls.count, 1)
+        XCTAssertEqual(chat.error, "Aylık harcama sınırınız doldu.")
+    }
+
 }
 
 // MARK: - Belge önbelleği

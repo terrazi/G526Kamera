@@ -73,11 +73,32 @@ final class AppSettings: ObservableObject {
     /// "Gemini" deyince / düğmeyle sesli soru sorulabilsin
     @Published var geminiEnabled: Bool { didSet { d.set(geminiEnabled, forKey: "geminiEnabled") } }
     /// Google AI Studio API anahtarı (yalnız Keychain'de saklanır)
-    @Published var geminiKey: String { didSet { Keychain.set(geminiKey.trimmed, for: "geminiApiKey") } }
+    /// Model profilleri (ad, model, ücretsiz mi); anahtarlar `geminiKeys` içinde, Keychain'de
+    @Published var geminiProfiles: [GeminiProfile] {
+        didSet { d.set(try? JSONEncoder().encode(geminiProfiles), forKey: "geminiProfiles") }
+    }
+    /// Profillerin API anahtarları (Keychain: geminiApiKey, geminiApiKey2, geminiApiKey3); yalnız bu telefonda
+    @Published var geminiKeys: [String] {
+        didSet {
+            for (i, key) in geminiKeys.enumerated() {
+                Keychain.set(key.trimmed, for: GeminiProfiles.keychainName(slot: i + 1))
+            }
+        }
+    }
+    /// Kullanılan profil (1-3)
+    @Published var geminiActive: Int { didSet { d.set(geminiActive, forKey: "geminiActive") } }
+    /// Aylık harcama sınırı dolunca "ücretsiz" işaretli profile geç
+    @Published var geminiAutoFallback: Bool { didSet { d.set(geminiAutoFallback, forKey: "geminiAutoFallback") } }
+    /// Harcama sınırı yüzünden yedeğe geçilen ay ("202611"); yeni ayda eski profile dönülür
+    @Published var geminiCapMonth: String { didSet { d.set(geminiCapMonth, forKey: "geminiCapMonth") } }
+    /// Yedeğe geçmeden önceki profil
+    @Published var geminiCapPrev: Int { didSet { d.set(geminiCapPrev, forKey: "geminiCapPrev") } }
+    /// Oturumda bu kadar saniye konuşulmazsa oturum kapanır; 0 = hiç kapanmaz (varsayılan)
+    @Published var geminiSessionTimeout: Int { didSet { d.set(geminiSessionTimeout, forKey: "geminiSessionTimeout") } }
+    /// Oturum: çağrı sözcüğüyle "N belge hazır" der, her cevaptan sonra yeni soruyu kendiliğinden dinler
+    @Published var geminiSession: Bool { didSet { d.set(geminiSession, forKey: "geminiSession") } }
     /// Gemini'yi çağıran sözcük(ler), virgülle ("dostum, gemini"); boşsa "gemini"
     @Published var geminiCallWord: String { didSet { d.set(geminiCallWord, forKey: "geminiCallWord") } }
-    /// Boşsa varsayılan model kullanılır
-    @Published var geminiModel: String { didSet { d.set(geminiModel, forKey: "geminiModel") } }
     /// Belgelerin ve ses kaydının Google'a gönderileceğinin onayı (onay olmadan soru sorulmaz)
     @Published var geminiPrivacyOK: Bool { didSet { d.set(geminiPrivacyOK, forKey: "geminiPrivacyOK") } }
     /// Gemini'ye gönderilecek en yeni PDF sayısı
@@ -150,12 +171,48 @@ final class AppSettings: ObservableObject {
         guidanceGlare = d.object(forKey: "guidanceGlare") as? Bool ?? true
         finishWord = d.string(forKey: "finishWord") ?? "hepsi tamamlandı"
         geminiEnabled = d.object(forKey: "geminiEnabled") as? Bool ?? false
-        geminiKey = Keychain.get("geminiApiKey") ?? ""
+        geminiKeys = (1...GeminiProfiles.slotCount).map { Keychain.get(GeminiProfiles.keychainName(slot: $0)) ?? "" }
+        if let data = d.data(forKey: "geminiProfiles"), let saved = try? JSONDecoder().decode([GeminiProfile].self, from: data),
+           saved.count == GeminiProfiles.slotCount {
+            geminiProfiles = saved
+        } else {
+            // Eski sürümden: tek model ayarı 1. profil olur
+            var list = GeminiProfiles.defaults()
+            if let old = d.string(forKey: "geminiModel"), !old.trimmed.isEmpty { list[0].model = old.trimmed }
+            geminiProfiles = list
+        }
+        geminiActive = min(max(d.object(forKey: "geminiActive") as? Int ?? 1, 1), GeminiProfiles.slotCount)
+        geminiAutoFallback = d.object(forKey: "geminiAutoFallback") as? Bool ?? true
+        geminiCapMonth = d.string(forKey: "geminiCapMonth") ?? ""
+        geminiCapPrev = min(max(d.object(forKey: "geminiCapPrev") as? Int ?? 1, 1), GeminiProfiles.slotCount)
+        geminiSessionTimeout = min(max(d.object(forKey: "geminiSessionTimeout") as? Int ?? 0, 0), 86400)
+        geminiSession = d.object(forKey: "geminiSession") as? Bool ?? true
         geminiCallWord = d.string(forKey: "geminiCallWord") ?? GeminiText.defaultCallWord
-        geminiModel = d.string(forKey: "geminiModel") ?? GeminiConfig.defaultModel
         geminiPrivacyOK = d.object(forKey: "geminiPrivacyOK") as? Bool ?? false
-        geminiDocCount = min(max(d.object(forKey: "geminiDocCount") as? Int ?? 3, 1), 5)
+        geminiDocCount = min(max(d.object(forKey: "geminiDocCount") as? Int ?? 3, 1), 10)
         previewOff = d.object(forKey: "previewOff") as? Bool ?? false
         dimWhenPreviewOff = d.object(forKey: "dimWhenPreviewOff") as? Bool ?? true
+    }
+}
+
+extension AppSettings {
+    /// Üç profil (anahtarlarıyla)
+    func geminiProfileInfos() -> [GeminiProfileInfo] {
+        return geminiProfiles.enumerated().map { i, p in
+            GeminiProfileInfo(slot: i + 1, name: p.name.trimmed.isEmpty ? "Model \(i + 1)" : p.name.trimmed,
+                              model: p.model.trimmed, key: i < geminiKeys.count ? geminiKeys[i].trimmed : "", free: p.free)
+        }
+    }
+
+    /// Şu an kullanılan profil (seçili boşsa ilk dolu profil)
+    var activeGeminiProfile: GeminiProfileInfo {
+        return GeminiProfiles.active(geminiProfileInfos(), active: geminiActive)
+    }
+
+    /// Harcama sınırı yüzünden yedeğe geçilen ay bittiyse eski profile döner
+    func refreshGeminiCapFallback(now: Date = Date()) {
+        guard !geminiCapMonth.isEmpty, geminiCapMonth != GeminiProfiles.monthKey(now) else { return }
+        if activeGeminiProfile.free { geminiActive = geminiCapPrev }
+        geminiCapMonth = ""
     }
 }

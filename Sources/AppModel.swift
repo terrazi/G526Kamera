@@ -72,16 +72,24 @@ final class AppModel: ObservableObject {
     private let speaker = GuidanceSpeaker()
     /// Belgelerle sesli Gemini sohbeti
     let gemini = GeminiChat(
-        client: GeminiClient(key: { AppSettings.shared.geminiKey }, model: { AppSettings.shared.geminiModel }),
+        client: GeminiClient(key: { AppSettings.shared.activeGeminiProfile.key }, model: { AppSettings.shared.activeGeminiProfile.model }),
         docs: GeminiDocStore(source: DriveClient(auth: GoogleAuth.shared)),
         recorder: QuestionRecorder(),
         options: {
             let s = AppSettings.shared
-            return GeminiOptions(privacyOK: s.geminiPrivacyOK, hasKey: !s.geminiKey.trimmed.isEmpty, docCount: s.geminiDocCount,
-                                 callWords: s.geminiCallWord)
+            // Yedeğe geçilen ay bittiyse eski profile dönülür
+            s.refreshGeminiCapFallback()
+            let active = s.activeGeminiProfile
+            return GeminiOptions(privacyOK: s.geminiPrivacyOK, hasKey: !active.key.isEmpty, docCount: s.geminiDocCount,
+                                 callWords: s.geminiCallWord, session: s.geminiSession,
+                                 sessionTimeout: s.geminiSessionTimeout, profiles: s.geminiProfileInfos(),
+                                 active: active.slot, autoFallback: s.geminiAutoFallback)
         })
     private var guidanceWasOn = false
     private var speechActive = false
+    /// Sesli model seçimi sürüyor ("model değiştir" denildi)
+    private var modelChoosing = false
+    private var modelChoiceWork: DispatchWorkItem?
     private var finishRequested = false
     private var lastUnrecognizedAt: TimeInterval = 0
     /// Sesli konumlandırmanın çektiği bölüm (çekim bitince "Sol bölüm çekildi" demek için)
@@ -197,6 +205,17 @@ final class AppModel: ObservableObject {
         gemini.stopSpeaking = { [weak self] in
             self?.speaker.stop()
         }
+        // Aylık harcama sınırı dolunca ücretsiz profile geçildi: ayarlar güncellenir, yeni ayda eski profile dönülür
+        gemini.onProfileSwitch = { [weak self] from, to in
+            guard let self = self else { return }
+            self.settings.geminiCapPrev = from.slot
+            self.settings.geminiActive = to.slot
+            self.settings.geminiCapMonth = GeminiProfiles.monthKey(Date())
+        }
+        // Oturumda "model değiştir" denildi: sesli model seçimi başlar
+        gemini.onModelChoice = { [weak self] in
+            self?.beginModelChoice()
+        }
 
         // "Canlı" yalnızca çözülmüş kare geliyorsa yazılsın (kare gelip çözülemiyorsa yanıltmasın)
         Timer.publish(every: 1.0, on: .main, in: .common)
@@ -287,6 +306,7 @@ final class AppModel: ObservableObject {
         client.stop()
         decoder.reset()
         gemini.cancel()
+        endModelChoice()
         speech.stop()
         speaker.stop()
         speechActive = false
@@ -307,7 +327,7 @@ final class AppModel: ObservableObject {
             cameraKey = cKey
             restartCamera()
         }
-        let sKey = "\(settings.voiceEnabled)|\(settings.triggerWord)|\(settings.guidanceEnabled)|\(settings.finishWord)|\(settings.geminiEnabled)|\(settings.geminiCallWord)"
+        let sKey = "\(settings.voiceEnabled)|\(settings.triggerWord)|\(settings.guidanceEnabled)|\(settings.finishWord)|\(settings.geminiEnabled)|\(settings.geminiCallWord)|\(settings.geminiProfiles.map { $0.name }.joined(separator: ","))"
         if force || sKey != speechKey {
             speechKey = sKey
             restartSpeech()
@@ -379,6 +399,11 @@ final class AppModel: ObservableObject {
         }
         if settings.geminiEnabled {
             commands.append(SpeechTrigger.Command(id: "gemini", phrases: GeminiText.callPhrases(settings.geminiCallWord)))
+            commands.append(SpeechTrigger.Command(id: "model", phrases: "model değiştir, modeli değiştir, model seç, modeli seç"))
+            // "ikinci model", "2 model" ya da profil adı; yalnız model seçimi sürerken işlenir
+            for p in settings.geminiProfileInfos() {
+                commands.append(SpeechTrigger.Command(id: "pick.\(p.slot)", phrases: GeminiProfiles.pickPhrases(slot: p.slot, name: p.name)))
+            }
         }
         speech.setCommands(commands)
         guard settings.voiceEnabled || settings.guidanceEnabled else {
@@ -611,6 +636,48 @@ final class AppModel: ObservableObject {
         return true
     }
 
+    // MARK: - Sesli model seçimi
+
+    /// "Model değiştir": modelleri sıralar, "ikinci model" / profil adı bekler. 35 sn içinde seçilmezse model değişmez.
+    private func beginModelChoice() {
+        guard started, settings.geminiEnabled else { return }
+        if gemini.isActive { gemini.cancel() }
+        let usable = GeminiProfiles.usable(settings.geminiProfileInfos())
+        guard usable.count >= 2 else {
+            _ = speakGemini("Seçilebilecek başka model yok. Ayarlardan ikinci modeli ve anahtarını ekleyin.")
+            return
+        }
+        modelChoosing = true
+        _ = speakGemini(GeminiProfiles.choiceAnnouncement(usable))
+        modelChoiceWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self = self, self.modelChoosing else { return }
+            self.endModelChoice()
+            _ = self.speakGemini("Model değişmedi.")
+        }
+        modelChoiceWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 35, execute: work)
+    }
+
+    private func endModelChoice() {
+        modelChoosing = false
+        modelChoiceWork?.cancel()
+        modelChoiceWork = nil
+    }
+
+    private func pickModel(slot: Int) {
+        guard modelChoosing else { return }
+        guard let profile = settings.geminiProfileInfos().first(where: { $0.slot == slot }), profile.usable else {
+            _ = speakGemini("\(slot). model kullanılamıyor. Başka bir model söyleyin.")
+            return
+        }
+        endModelChoice()
+        settings.geminiActive = slot
+        settings.geminiCapMonth = ""
+        tlog("[gemini] model seçildi: \(profile.name) (\(profile.model))")
+        _ = speakGemini("\(profile.spokenName) modeline geçildi.")
+    }
+
     /// Okuma sesi ayarı: seçili sesle kısa bir örnek cümle söyler.
     func previewVoice() {
         say("Merhaba. Belgeniz kadraja alındı, çekim için hazırım.", interrupt: true, force: true)
@@ -678,7 +745,11 @@ final class AppModel: ObservableObject {
             giveBattery()
         case "gemini":
             guard settings.geminiEnabled else { return }
+            endModelChoice()
             gemini.ask()
+        case "model":
+            guard settings.geminiEnabled else { return }
+            beginModelChoice()
         case "deleteLast":
             deleteLast(retake: false)
         case "retake":
@@ -688,6 +759,10 @@ final class AppModel: ObservableObject {
             guidanceNotice = ""
             say(guidance.clearChoice(), interrupt: true)
         default:
+            if id.hasPrefix("pick.") {
+                if let slot = Int(id.dropFirst("pick.".count)) { pickModel(slot: slot) }
+                return
+            }
             guard id.hasPrefix("choice."), settings.guidanceEnabled else { return }
             voiceChoice(String(id.dropFirst("choice.".count)))
         }

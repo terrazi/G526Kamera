@@ -7,6 +7,15 @@ struct GeminiOptions {
     var docCount: Int
     /// Sorunun başındaki çağrı sözcüğünü atmak için (ayardaki ham metin)
     var callWords: String = GeminiText.defaultCallWord
+    /// Oturum: sesli soru başlarken belgeleri hazırlayıp "hazır" der, her cevaptan sonra yeni soruyu kendiliğinden dinler.
+    /// Yazılı sorularda uygulanmaz.
+    var session: Bool = false
+    /// Oturumda bu kadar saniye konuşulmazsa oturum kapanır; 0 = hiç kapanmaz
+    var sessionTimeout: Int = 0
+    /// Model profilleri ve seçili yuva (aylık harcama sınırı dolunca ücretsiz profile geçmek için)
+    var profiles: [GeminiProfileInfo] = []
+    var active: Int = 1
+    var autoFallback: Bool = false
 }
 
 /// Gemini ile belge sohbeti: sesli soru → Drive'daki son PDF'ler + Gemini → sesli cevap.
@@ -34,6 +43,10 @@ final class GeminiChat: ObservableObject {
     /// Metni sesli okutur; okuma başladıysa true döner
     var speak: ((String) -> Bool)?
     var stopSpeaking: (() -> Void)?
+    /// Harcama sınırı yüzünden profil değişti (eski, yeni): ayarlar güncellenir
+    var onProfileSwitch: ((GeminiProfileInfo, GeminiProfileInfo) -> Void)?
+    /// Kullanıcı "model değiştir" dedi: oturum biter, sesli model seçimi başlar
+    var onModelChoice: (() -> Void)?
 
     private let client: GeminiAsking
     private let docs: GeminiDocProviding
@@ -41,6 +54,12 @@ final class GeminiChat: ObservableObject {
     private let options: () -> GeminiOptions
     private var generation = 0
     private var task: Task<Void, Never>?
+    /// Okuma bitişini bekleyen akış (oturumda cevap bitmeden mikrofon açılmaz)
+    private var waitingForSpeech = false
+    private var speechEndedEarly = false
+    private var speechDone: CheckedContinuation<Void, Never>?
+    /// Bu sohbette şimdiye kadar hazırlanan belge adları ("1 tanesi yeni" diyebilmek için)
+    private var seenDocs: Set<String> = []
 
     init(client: GeminiAsking, docs: GeminiDocProviding, recorder: QuestionRecording, options: @escaping () -> GeminiOptions) {
         self.client = client
@@ -82,6 +101,7 @@ final class GeminiChat: ObservableObject {
         task = nil
         recorder.cancel()
         stopSpeaking?()
+        releaseSpeechWait()
         setPhase(.idle)
     }
 
@@ -93,12 +113,24 @@ final class GeminiChat: ObservableObject {
         error = ""
         notes = []
         docNames = []
+        seenDocs = []
         tokens = 0
     }
 
     /// Okuma başladı / bitti haberi (GuidanceSpeaker'dan)
     func speakingChanged(_ speaking: Bool) {
-        if !speaking && phase == .speaking { setPhase(.idle) }
+        guard !speaking else { return }
+        if waitingForSpeech {
+            if let c = speechDone {
+                speechDone = nil
+                waitingForSpeech = false
+                c.resume()
+            } else {
+                speechEndedEarly = true
+            }
+            return
+        }
+        if phase == .speaking { setPhase(.idle) }
     }
 
     // MARK: - İç işler
@@ -126,6 +158,35 @@ final class GeminiChat: ObservableObject {
         }
     }
 
+    private func releaseSpeechWait() {
+        waitingForSpeech = false
+        speechEndedEarly = false
+        if let c = speechDone {
+            speechDone = nil
+            c.resume()
+        }
+    }
+
+    /// Metni okutur ve okuma bitene kadar bekler. Okuma başlayamadıysa false döner.
+    private func speakAndWait(_ text: String, _ label: String) async -> Bool {
+        waitingForSpeech = true
+        speechEndedEarly = false
+        setPhase(.speaking, label)
+        guard speak?(text) == true else {
+            waitingForSpeech = false
+            return false
+        }
+        if speechEndedEarly {
+            waitingForSpeech = false
+            speechEndedEarly = false
+            return true
+        }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            speechDone = continuation
+        }
+        return true
+    }
+
     private func run(gen: Int, text: String?) async {
         // Başlamadan iptal edildiyse mikrofon hiç açılmasın
         guard gen == generation, !Task.isCancelled else { return }
@@ -137,25 +198,99 @@ final class GeminiChat: ObservableObject {
             return fail(gen, "Gemini API anahtarı girilmemiş. Ayarlardan yapıştırın.")
         }
 
+        let session = opts.session && text == nil
+        if session {
+            guard await prepare(gen, opts) else { return }
+        }
+        while true {
+            let again = await runTurn(gen: gen, text: text, session: session)
+            guard again, gen == generation, !Task.isCancelled else { return }
+        }
+    }
+
+    /// Oturum başı: belgeleri hazırlar ve "N belge hazır, sorunuzu bekliyorum" der. Devam edilecekse true.
+    private func prepare(_ gen: Int, _ opts: GeminiOptions) async -> Bool {
+        setPhase(.thinking, "Belgeler hazırlanıyor…")
+        do {
+            let fetched = try await docs.fetch(count: opts.docCount)
+            guard gen == generation else { return false }
+            notes = fetched.notes
+            docNames = fetched.docs.map { $0.name }
+            if fetched.docs.isEmpty {
+                fail(gen, "Okunacak belge bulunamadı. " + fetched.notes.joined(separator: " "))
+                return false
+            }
+            let fresh = seenDocs.isEmpty ? nil : fetched.docs.filter { !seenDocs.contains($0.name) }.count
+            seenDocs.formUnion(docNames)
+            let line = GeminiText.readyLine(count: fetched.docs.count, new: fresh, warnings: fetched.notes)
+            _ = await speakAndWait(line, "Hazırım")
+            return gen == generation && !Task.isCancelled
+        } catch is CancellationError {
+            return false
+        } catch let e as GeminiError {
+            fail(gen, e.message)
+            return false
+        } catch {
+            fail(gen, error.localizedDescription)
+            return false
+        }
+    }
+
+    /// Soruyu sorar; aylık harcama sınırı dolmuşsa ve ücretsiz bir yedek profil varsa ona geçip aynı soruyu yineler.
+    private func askWithFallback(gen: Int, opts: GeminiOptions, text: String, audio: Data?, docs: [GeminiDoc]) async throws -> GeminiAnswer {
+        do {
+            return try await client.ask(questionText: text, audioWAV: audio, docs: docs, history: history)
+        } catch let e as GeminiError where e.kind == .cap {
+            let current = GeminiProfiles.active(opts.profiles, active: opts.active)
+            guard let target = GeminiProfiles.fallbackTarget(opts.profiles, from: current, auto: opts.autoFallback) else { throw e }
+            guard gen == generation, !Task.isCancelled else { throw CancellationError() }
+            tlog("[gemini] harcama sınırı doldu: \(current.name) → \(target.name)")
+            onProfileSwitch?(current, target)
+            _ = await speakAndWait("Aylık harcama sınırı doldu. \(target.name) modeline geçtim.", "Model değişti")
+            guard gen == generation, !Task.isCancelled else { throw CancellationError() }
+            setPhase(.thinking, "Gemini düşünüyor…")
+            return try await client.ask(questionText: text, audioWAV: audio, docs: docs, history: history)
+        }
+    }
+
+    /// Bir soru-cevap turu. Oturumdaysa ve yeni soru dinlenecekse true döner.
+    private func runTurn(gen: Int, text: String?, session: Bool) async -> Bool {
+        let opts = options()
         var audio: Data?
         var typed = ""
         if let t = text {
             typed = t
         } else {
-            let result = await recorder.record { [weak self] line in
+            if phase != .listening { setPhase(.listening, "Dinliyorum") }
+            // Oturumda bekleme süresini kullanıcı belirler (0 = hiç kapanmaz); oturum dışı tek soruda 7 sn
+            let wait: TimeInterval = session ? (opts.sessionTimeout > 0 ? TimeInterval(opts.sessionTimeout) : .infinity) : 7
+            let result = await recorder.record(waitForSpeech: wait) { [weak self] line in
                 Task { @MainActor in self?.recorderStatus(gen, line) }
             }
-            guard gen == generation else { return }
+            guard gen == generation else { return false }
             switch result.outcome {
             case .stopped:
-                return setPhase(.idle)
+                setPhase(.idle)
+                return false
             case .failed(let message):
-                return fail(gen, message)
-            case .done, .noSpeech, .max:
+                fail(gen, message)
+                return false
+            case .noSpeech:
+                if session {
+                    // Belirlenen süre içinde soru gelmedi: oturum sessizce kapanır, çağrı sözcüğüyle yeniden başlatılır
+                    setPhase(.idle, "Oturum bitti")
+                    return false
+                }
+                fail(gen, "Soruyu duyamadım. Mikrofonu ve sesi kontrol edip yeniden deneyin.")
+                return false
+            case .done, .max:
                 break
             }
-            if result.outcome == .noSpeech || result.pcm.count < GeminiChat.minQuestionBytes {
-                return fail(gen, "Soruyu duyamadım. Mikrofonu ve sesi kontrol edip yeniden deneyin.")
+            if result.pcm.count < GeminiChat.minQuestionBytes {
+                // Öksürük, kısa tık sesi: oturumda dinlemeye devam, tek soruda hata
+                if session { return true }
+                fail(gen, "Soruyu duyamadım. Mikrofonu ve sesi kontrol edip yeniden deneyin.")
+                return false
             }
             audio = GeminiSupport.wav(fromPCM16: result.pcm)
         }
@@ -163,36 +298,70 @@ final class GeminiChat: ObservableObject {
         do {
             setPhase(.thinking, "Belgeler hazırlanıyor…")
             let fetched = try await docs.fetch(count: opts.docCount)
-            guard gen == generation else { return }
+            guard gen == generation else { return false }
             notes = fetched.notes
             docNames = fetched.docs.map { $0.name }
             if fetched.docs.isEmpty {
-                return fail(gen, "Okunacak belge bulunamadı. " + fetched.notes.joined(separator: " "))
+                fail(gen, "Okunacak belge bulunamadı. " + fetched.notes.joined(separator: " "))
+                return false
             }
+            seenDocs.formUnion(docNames)
             status = "Gemini düşünüyor…"
-            let reply = try await client.ask(questionText: typed, audioWAV: audio, docs: fetched.docs, history: history)
-            guard gen == generation else { return }
+            let reply = try await askWithFallback(gen: gen, opts: opts, text: typed, audio: audio, docs: fetched.docs)
+            guard gen == generation else { return false }
+            tokens = reply.totalTokens
+
+            if reply.switchModel {
+                // "Model değiştir": oturum biter, sesli model seçimi başlar
+                setPhase(.idle, "Model seçimi")
+                onModelChoice?()
+                return false
+            }
 
             let heard = reply.question.isEmpty ? typed : reply.question
-            let q = GeminiText.stripTrigger(heard, words: GeminiText.triggerList(for: options().callWords))
+            let q = GeminiText.stripTrigger(heard, words: GeminiText.triggerList(for: opts.callWords))
+            let spoken = GeminiText.cleanForSpeech(reply.answer)
+            if session && reply.close {
+                // "Oturumu kapat": vedalaşma okunur, "sonraki sorunuzu bekliyorum" denmez
+                _ = await speakAndWait(spoken.isEmpty ? "Oturum kapandı." : spoken, "Oturum kapanıyor")
+                guard gen == generation else { return false }
+                setPhase(.idle, "Oturum kapandı")
+                return false
+            }
+            if spoken.isEmpty {
+                // Soru olmayan ses (gürültü, başkalarının sohbeti): oturumda sessizce dinlemeye devam
+                if session { return true }
+                fail(gen, "Soruyu anlayamadım. Lütfen yeniden sorun.")
+                return false
+            }
+
             question = q
             answer = reply.answer
-            tokens = reply.totalTokens
             history.append(GeminiTurn(question: q.isEmpty ? "(sesli soru)" : q, answer: reply.answer))
             if history.count > GeminiConfig.maxHistory { history.removeFirst(history.count - GeminiConfig.maxHistory) }
             turns += 1
             error = ""
             tlog("[gemini] cevap geldi: \(reply.totalTokens) jeton, \(fetched.docs.count) belge")
+
+            if session {
+                let ok = await speakAndWait(spoken + " " + GeminiText.nextQuestionLine, "Cevap okunuyor")
+                guard gen == generation else { return false }
+                if !ok { setPhase(.idle) }
+                return ok
+            }
             setPhase(.speaking, "Cevap okunuyor")
-            if speak?(GeminiText.cleanForSpeech(reply.answer)) != true {
+            if speak?(spoken) != true {
                 setPhase(.idle)
             }
+            return false
         } catch is CancellationError {
-            return
+            return false
         } catch let e as GeminiError {
             fail(gen, e.message)
+            return false
         } catch {
             fail(gen, error.localizedDescription)
+            return false
         }
     }
 }

@@ -24,23 +24,42 @@ enum GeminiConfig {
             + "tahmin etme, okunamadığını söyle. Hangi belgeden ve (varsa) hangi sayfadan aldığını kısaca belirt.",
         "5. Belgeler 'Belge 1', 'Belge 2' diye numaralıdır; Belge 1 en son taranandır. Kullanıcı 'son belge', 'en son' derse "
             + "Belge 1'i, 'bir önceki' derse Belge 2'yi kastediyor demektir. Belgeleri karıştırma.",
+        "6. Belgeleri titizlikle oku: her PDF'in her sayfasını görüntü olarak incele; küçük yazıları, tabloları, soru "
+            + "numaralarını, şık harflerini (A, B, C…), el yazısını, damga ve notları atlama. Eğik ya da ters taranmış "
+            + "sayfaları düzelterek oku.",
+        "7. Bütün belgeleri bir bütün olarak değerlendir: bir sorunun metni, şıkları ya da ilgili bilgi farklı belgelerde ya "
+            + "da sayfalarda olabilir, hepsini birleştirerek cevapla. Aynı sayfa birden çok kez taranmış (mükerrer) olabilir: "
+            + "en temiz ve en okunaklı olanı esas al, diğerlerini yok say, aynı bilgiyi iki kez sayma.",
+        "8. Kullanıcı belgelerdeki numaralı bir soruyu istediğinde ('beşinci soruyu cevapla', '5. soru'), o soruyu belgelerde "
+            + "bul ve cevabı tam şu kalıpla ver: 'Beşinci sorunun cevabı, C, CEYHAN şıkkıdır.' Sıra sayısını yazıyla yaz "
+            + "(birinci, ikinci, … beşinci, onuncu), şıkkı belgedeki harfi ve metniyle söyle (şıklarda harf yoksa yalnız "
+            + "metni: 'CEYHAN şıkkıdır'). Bu kalıpta gerekçe, belge adı ya da sayfa numarası ekleme; kullanıcı 'neden' diye "
+            + "sorarsa kısaca açıkla. Aynı numaralı soru birden çok belgede ya da kitapçıkta varsa tahmin etme, hangisini kastettiğini sor (örn. 'Birden fazla belgede 5. soru var, hangisi?'). Soruyu bulamazsan ya da şıklar okunamıyorsa tahmin etme, bunu söyle. Cevabın sonuna "
+            + "'sonraki sorunuzu bekliyorum' gibi bir cümle ekleme; uygulama onu kendisi söyler.",
+        "9. Kullanıcı konuşmayı bitirmek istiyorsa ('oturumu kapat', 'yeter', 'bu kadar', 'görüşürüz' gibi) 'kapat' alanını "
+            + "true yap ve 'cevap' alanına kısa bir vedalaşma yaz; aksi hâlde 'kapat' false olsun.",
+        "10. Ses bir soru ya da istek içermiyorsa (gürültü, öksürük, başkalarının sohbeti, kendi kendine konuşma, anlaşılmayan "
+            + "ses) 'soru' ve 'cevap' alanlarını boş bırak; tahmin yürütüp cevap uydurma.",
+        "11. Kullanıcı yapay zekâ modelini değiştirmek istiyorsa ('model değiştir', 'modeli değiştir') 'model_degistir' "
+            + "alanını true yap ve 'cevap' alanını boş bırak; aksi hâlde false olsun.",
         "Çıktı her zaman JSON olmalı: 'soru' alanına kullanıcının sorusunu (ses geldiyse duyduğun şekliyle yazarak) koy, "
-            + "'cevap' alanına cevabını."
+            + "'cevap' alanına cevabını, 'kapat' ve 'model_degistir' alanlarına true ya da false koy."
     ].joined(separator: "\n")
 
     /// Sesli sorunun yanında gönderilen yönerge
-    static let audioInstruction = "Yukarıdaki sesli soruyu yanıtla. Sesin başındaki 'Gemini' çağrı sözcüğü soruya dahil değildir, "
+    static let audioInstruction = "Yukarıdaki sesli soruyu yanıtla. Sesin başında bir çağrı sözcüğü ('Gemini', 'hey dostum' gibi) varsa soruya dahil değildir, "
         + "onu yok say. JSON'daki 'soru' alanına soruyu duyduğun gibi yaz."
 
     static let responseSchema: [String: Any] = [
         "type": "OBJECT",
-        "properties": ["soru": ["type": "STRING"], "cevap": ["type": "STRING"]],
+        "properties": ["soru": ["type": "STRING"], "cevap": ["type": "STRING"], "kapat": ["type": "BOOLEAN"],
+                       "model_degistir": ["type": "BOOLEAN"]],
         "required": ["soru", "cevap"]
     ]
 }
 
 enum GeminiErrorKind: String {
-    case key, quota, model, network, blocked, empty, tooBig, http, error
+    case key, quota, cap, model, network, blocked, empty, tooBig, http, error
 }
 
 struct GeminiError: LocalizedError {
@@ -74,6 +93,10 @@ struct GeminiAnswer: Equatable {
     var outputTokens = 0
     var totalTokens = 0
     var finish = ""
+    /// Kullanıcı oturumu kapatmak istedi
+    var close = false
+    /// Kullanıcı "model değiştir" dedi
+    var switchModel = false
 }
 
 /// Saf (ağsız) yardımcılar: istek kurma, cevap ayrıştırma, hata çevirisi, belge seçimi. Hepsi sınanabilir.
@@ -151,7 +174,7 @@ enum GeminiSupport {
             return (.tooBig, "İstek çok büyük. Daha az ya da daha küçük belge seçin.")
         }
         if status == 429 && low.contains("spending cap") {
-            return (.quota, "Aylık harcama sınırınız doldu. AI Studio'da Spend sayfasından sınırı yükseltin ya da ayın birinde sıfırlanmasını bekleyin.")
+            return (.cap, "Aylık harcama sınırınız doldu. AI Studio'da Spend sayfasından sınırı yükseltin ya da ayın birinde sıfırlanmasını bekleyin.")
         }
         if status == 429 {
             var wait = ""
@@ -208,7 +231,7 @@ enum GeminiSupport {
                 "temperature": 0.3,
                 "responseMimeType": "application/json",
                 "responseSchema": GeminiConfig.responseSchema,
-                "maxOutputTokens": 4096
+                "maxOutputTokens": 16384
             ] as [String: Any]
         ]
     }
@@ -267,11 +290,27 @@ enum GeminiSupport {
         let cleaned = stripFence(text)
         if let data = cleaned.data(using: .utf8),
            let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-           let reply = (json["cevap"] as? String)?.trimmed, !reply.isEmpty {
-            answer.answer = reply
+           json["cevap"] != nil {
+            // "cevap" boşsa soru olmayan ses (gürültü, başkalarının sohbeti) demektir; ham JSON okunmasın
+            answer.answer = ((json["cevap"] as? String) ?? "").trimmed
             answer.question = ((json["soru"] as? String) ?? "").trimmed
+            answer.close = (json["kapat"] as? Bool) == true
+            answer.switchModel = (json["model_degistir"] as? Bool) == true
         }
         return answer
+    }
+
+    /// /models cevabından generateContent destekleyen modellerin kısa adları ("models/" öneki atılır), sıralı
+    static func parseModelList(_ json: [String: Any]) -> [String] {
+        let models = (json["models"] as? [[String: Any]]) ?? []
+        var names: [String] = []
+        for m in models {
+            let methods = (m["supportedGenerationMethods"] as? [String]) ?? []
+            guard methods.contains("generateContent"), let name = m["name"] as? String else { continue }
+            let short = name.hasPrefix("models/") ? String(name.dropFirst("models/".count)) : name
+            if !short.isEmpty && !names.contains(short) { names.append(short) }
+        }
+        return names.sorted()
     }
 
     /// ```json ... ``` çitlerini atar
@@ -338,6 +377,34 @@ final class GeminiClient: GeminiAsking {
         let name = model.addingPercentEncoding(withAllowedCharacters: GeminiClient.pathAllowed) ?? model
         let object = try await post(path: "/models/\(name):generateContent", body: body)
         return try GeminiSupport.parseAnswer(object)
+    }
+
+    /// Anahtarın görebildiği, metin üretebilen modellerin adları (ayarlardaki "Modelleri listele")
+    func listModels() async throws -> [String] {
+        let key = keyProvider().trimmed
+        guard !key.isEmpty else {
+            throw GeminiError("Gemini API anahtarı girilmemiş. Ayarlardan yapıştırın.", .key)
+        }
+        guard let url = URL(string: baseURL + "/models?pageSize=200") else {
+            throw GeminiError("Gemini adresi geçersiz.", .error)
+        }
+        var request = URLRequest(url: url)
+        request.setValue(key, forHTTPHeaderField: "x-goog-api-key")
+        let status: Int
+        let data: Data
+        do {
+            let (d, response) = try await session.data(for: request)
+            status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            data = d
+        } catch {
+            throw GeminiError("İnternete ulaşılamadı: \(error.localizedDescription)", .network)
+        }
+        let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
+        guard (200..<300).contains(status) else {
+            let (kind, message) = GeminiSupport.describeError(status: status, json: json, model: "")
+            throw GeminiError(message, kind, status: status)
+        }
+        return GeminiSupport.parseModelList(json)
     }
 
     /// POST + bir kez yeniden deneme (ağ hatası ve 500/502/503/504 için, 1,5 sn sonra)

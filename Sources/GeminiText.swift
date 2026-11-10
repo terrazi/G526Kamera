@@ -7,6 +7,22 @@ enum GeminiText {
     static let defaultCallWord = "gemini"
     /// Çağrı sözcüğü "gemini" ise konuşma tanımanın onu yazabileceği başka biçimler de kabul edilir
     private static let geminiVariants = ["cimini", "geminay", "ceminay", "cemini", "jemini"]
+    /// Oturumda her cevabın sonuna uygulama ekler (Gemini'ye bunu söyletmiyoruz)
+    static let nextQuestionLine = "Sonraki sorunuzu bekliyorum."
+
+    /// Oturum başında söylenen hazırlık cümlesi. `new`: önceki hazırlıktan beri gelen yeni belge sayısı (ilkinde nil).
+    /// `warnings`: atlanan belge gibi sorulara etki eden uyarılar (sesle de söylenir).
+    static func readyLine(count: Int, new: Int?, warnings: [String] = []) -> String {
+        var line = "\(count) belge hazır"
+        if let n = new, n > 0 {
+            line += n >= count ? ", hepsi yeni" : ", \(n) tanesi yeni"
+        }
+        line += "."
+        let warn = warnings.map { $0.trimmed }.filter { !$0.isEmpty }.joined(separator: " ")
+        if !warn.isEmpty { line += " Dikkat: " + warn }
+        return line + " Sorunuzu bekliyorum."
+    }
+
     /// Bundan kısa sözcükler çağrı sözcüğü sayılmaz (sohbette kendiliğinden tetikler)
     static let minCallWordLength = 3
 

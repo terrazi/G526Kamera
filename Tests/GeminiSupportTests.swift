@@ -164,7 +164,7 @@ final class GeminiSupportTests: XCTestCase {
         XCTAssertEqual(describe(413, "x").0, .tooBig)
         XCTAssertEqual(describe(400, "User location is not supported for the API use.").0, .key)
         let cap = describe(429, "Your project has exceeded its monthly spending cap.")
-        XCTAssertEqual(cap.0, .quota)
+        XCTAssertEqual(cap.0, .cap)
         XCTAssertTrue(cap.1.contains("harcama sınırınız doldu"), cap.1)
         XCTAssertFalse(cap.1.contains("Ücretsiz"))
         let quota = describe(429, "Quota exceeded. Please retry in 31.2s.")
@@ -354,6 +354,129 @@ final class EndpointDetectorTests: XCTestCase {
         _ = run(&d, lead(1.0))
         _ = run(&d, silence(2.0))
         XCTAssertEqual(d.feed(loud(0.5)), .done)
+    }
+
+    func testUnlimitedWaitNeverGivesUpButStillCatchesTheQuestion() {
+        var d = EndpointDetector(noSpeech: .infinity)
+        XCTAssertEqual(run(&d, silence(60)), .wait)
+        XCTAssertFalse(d.started)
+        XCTAssertEqual(run(&d, lead(1.0)), .speech)
+        XCTAssertEqual(run(&d, silence(2.0)), .done)
+    }
+
+    func testMaximumLengthCountsFromTheStartOfSpeech() {
+        var d = EndpointDetector(noSpeech: .infinity)
+        XCTAssertEqual(run(&d, silence(40)), .wait, "uzun bekleme konuşma süresinden sayılmamalı")
+        XCTAssertEqual(run(&d, bursts(33)), .max)
+        XCTAssertTrue(d.started)
+    }
+
+    func testScatteredShortSoundsDoNotAddUpToSpeech() {
+        var d = EndpointDetector(noSpeech: .infinity)
+        for _ in 0..<10 {
+            _ = run(&d, silence(0.6))
+            _ = run(&d, loud(0.1))
+        }
+        XCTAssertFalse(d.started, "kapı / tuş sesleri birikip konuşma sayılmamalı")
+        XCTAssertEqual(run(&d, lead(1.0)), .speech)
+        XCTAssertTrue(d.started)
+    }
+}
+
+final class GeminiSessionTextTests: XCTestCase {
+    func testReadyLine() {
+        XCTAssertEqual(GeminiText.readyLine(count: 3, new: nil), "3 belge hazır. Sorunuzu bekliyorum.")
+        XCTAssertEqual(GeminiText.readyLine(count: 3, new: 3), "3 belge hazır, hepsi yeni. Sorunuzu bekliyorum.")
+        XCTAssertEqual(GeminiText.readyLine(count: 3, new: 1), "3 belge hazır, 1 tanesi yeni. Sorunuzu bekliyorum.")
+        XCTAssertEqual(GeminiText.readyLine(count: 3, new: 0), "3 belge hazır. Sorunuzu bekliyorum.")
+    }
+
+    func testReadyLineAnnouncesWarnings() {
+        let line = GeminiText.readyLine(count: 2, new: nil, warnings: ["3 belge boyut sınırı nedeniyle atlandı."])
+        XCTAssertEqual(line, "2 belge hazır. Dikkat: 3 belge boyut sınırı nedeniyle atlandı. Sorunuzu bekliyorum.")
+    }
+
+    func testParsesCloseAndModelSwitchFlags() throws {
+        func reply(_ json: String) -> [String: Any] {
+            return ["candidates": [["content": ["parts": [["text": json]]]]]]
+        }
+        let close = try GeminiSupport.parseAnswer(reply("{\"soru\":\"yeter\",\"cevap\":\"Görüşürüz.\",\"kapat\":true}"))
+        XCTAssertTrue(close.close)
+        XCTAssertFalse(close.switchModel)
+        let model = try GeminiSupport.parseAnswer(reply("{\"soru\":\"model değiştir\",\"cevap\":\"\",\"model_degistir\":true}"))
+        XCTAssertTrue(model.switchModel)
+        XCTAssertEqual(model.answer, "")
+        let plain = try GeminiSupport.parseAnswer(reply("{\"soru\":\"a\",\"cevap\":\"b\"}"))
+        XCTAssertFalse(plain.close)
+        XCTAssertFalse(plain.switchModel)
+    }
+
+    func testEmptyAnswerFieldStaysEmptyInsteadOfShowingRawJson() throws {
+        let object: [String: Any] = ["candidates": [["content": ["parts": [["text": "{\"soru\":\"\",\"cevap\":\"\"}"]]]]]]
+        let a = try GeminiSupport.parseAnswer(object)
+        XCTAssertEqual(a.answer, "")
+        XCTAssertEqual(a.question, "")
+    }
+
+    func testModelListKeepsOnlyGenerateContentModels() {
+        let json: [String: Any] = ["models": [
+            ["name": "models/gemini-3.8-pro", "supportedGenerationMethods": ["generateContent", "countTokens"]],
+            ["name": "models/embedding-001", "supportedGenerationMethods": ["embedContent"]],
+            ["name": "models/gemini-3.8-flash", "supportedGenerationMethods": ["generateContent"]],
+            ["name": "models/gemini-3.8-flash", "supportedGenerationMethods": ["generateContent"]]
+        ]]
+        XCTAssertEqual(GeminiSupport.parseModelList(json), ["gemini-3.8-flash", "gemini-3.8-pro"])
+        XCTAssertEqual(GeminiSupport.parseModelList([:]), [])
+    }
+}
+
+final class GeminiProfilesTests: XCTestCase {
+    private func info(_ slot: Int, _ name: String, key: String = "k", model: String = "m", free: Bool = false) -> GeminiProfileInfo {
+        return GeminiProfileInfo(slot: slot, name: name, model: model, key: key, free: free)
+    }
+
+    func testUsableNeedsKeyAndModel() {
+        let list = [info(1, "Flash"), info(2, "Pro", key: ""), info(3, "Ücretsiz", model: "")]
+        XCTAssertEqual(GeminiProfiles.usable(list).map { $0.slot }, [1])
+    }
+
+    func testActiveFallsBackToTheFirstUsableProfile() {
+        let list = [info(1, "Flash"), info(2, "Pro", key: ""), info(3, "Ücretsiz", free: true)]
+        XCTAssertEqual(GeminiProfiles.active(list, active: 3).slot, 3)
+        XCTAssertEqual(GeminiProfiles.active(list, active: 2).slot, 1, "seçili profil boşsa ilk dolu profil")
+    }
+
+    func testFallbackTargetIsTheFirstUsableFreeProfileAndOnlyFromPaid() {
+        let list = [info(1, "Flash"), info(2, "Pro"), info(3, "Ücretsiz", free: true)]
+        XCTAssertEqual(GeminiProfiles.fallbackTarget(list, from: list[1], auto: true)?.slot, 3)
+        XCTAssertNil(GeminiProfiles.fallbackTarget(list, from: list[1], auto: false))
+        XCTAssertNil(GeminiProfiles.fallbackTarget(list, from: list[2], auto: true), "ücretsizden yine ücretsize geçilmez")
+        let noKey = [info(1, "Flash"), info(3, "Ücretsiz", key: "", free: true)]
+        XCTAssertNil(GeminiProfiles.fallbackTarget(noKey, from: noKey[0], auto: true))
+    }
+
+    func testChoiceAnnouncementListsUsableProfiles() {
+        let list = [info(1, "Flash"), info(2, "Pro", key: ""), info(3, "Ücretsiz", free: true)]
+        XCTAssertEqual(GeminiProfiles.choiceAnnouncement(list),
+                       "Model seçimi yapınız. 1. model: Flash, ücretli. 3. model: Ücretsiz, ücretsiz. Hangisini istiyorsunuz?")
+    }
+
+    func testPickPhrases() {
+        XCTAssertEqual(GeminiProfiles.pickPhrases(slot: 2, name: "Pro"), "ikinci model, 2 model, 2 numaralı model, Pro")
+        XCTAssertEqual(GeminiProfiles.pickPhrases(slot: 1, name: "A"), "birinci model, 1 model, 1 numaralı model")
+    }
+
+    func testKeychainNamesKeepTheOldFirstName() {
+        XCTAssertEqual(GeminiProfiles.keychainName(slot: 1), "geminiApiKey")
+        XCTAssertEqual(GeminiProfiles.keychainName(slot: 2), "geminiApiKey2")
+        XCTAssertEqual(GeminiProfiles.keychainName(slot: 3), "geminiApiKey3")
+    }
+
+    func testMonthKey() {
+        var c = DateComponents()
+        c.year = 2026; c.month = 11; c.day = 10; c.hour = 12
+        let date = Calendar(identifier: .gregorian).date(from: c) ?? Date()
+        XCTAssertEqual(GeminiProfiles.monthKey(date), "202611")
     }
 }
 
