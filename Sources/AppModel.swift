@@ -91,7 +91,8 @@ final class AppModel: ObservableObject {
                 return GeminiOptions(privacyOK: s.geminiPrivacyOK, hasKey: !active.key.isEmpty, docCount: s.geminiDocCount,
                                      callWords: s.geminiCallWord, session: s.geminiSession,
                                      sessionTimeout: s.geminiSessionTimeout, profiles: s.geminiProfileInfos(),
-                                     active: active.slot, autoFallback: s.geminiAutoFallback)
+                                     active: active.slot, autoFallback: s.geminiAutoFallback,
+                                     overloadFallback: s.geminiOverloadFallback)
             },
             memory: memory)
         // Toplu cevap kullanıcıya sonuna kadar okunup ulaşınca kalıcı sıra ilerler

@@ -16,6 +16,8 @@ struct GeminiOptions {
     var profiles: [GeminiProfileInfo] = []
     var active: Int = 1
     var autoFallback: Bool = false
+    /// Seçili model yoğunken (503) ya da kotası dolunca (429) aynı anahtarla hesabın başka bir hızlı modeline geç
+    var overloadFallback: Bool = false
 }
 
 /// Gemini ile belge sohbeti: sesli soru → Drive'daki son PDF'ler + Gemini → sesli cevap.
@@ -76,6 +78,13 @@ final class GeminiChat: ObservableObject {
     private var seenDocs: Set<String> = []
     /// Oturumda art arda yaşanan geçici hata sayısı (üstünde oturum biter)
     private var softErrors = 0
+    /// Yedek model (yoğunluk/kota): çalıştıysa kısa süre sonraki sorular doğrudan ona gider, her soruda bekletilmez
+    private var backupModel = ""
+    private var backupFor = ""
+    private var backupWhy = ""
+    private var backupUntil = Date.distantPast
+    private var backupList: (model: String, at: Date, names: [String])?
+    static let backupSticky: TimeInterval = 300
     /// Bu hatalar oturumu bitirmez: hata söylenir, dinlemeye devam edilir (anahtar, model, kota ve harcama sınırı bitirir)
     static let softErrorKinds: Set<GeminiErrorKind> = [.network, .http, .empty, .blocked, .error]
     static let maxSoftErrors = 2
@@ -326,12 +335,10 @@ final class GeminiChat: ObservableObject {
 
     /// Soruyu sorar. Önbellek ya da yüklü dosya artık geçerli değilse (süresi dolmuş) önce önbelleksiz, sonra eksik dosyaları
     /// yeniden yükleyerek dener; sorun belgelerden değilse ilk hatayı olduğu gibi verir.
-    private func askRobust(text: String, audio: Data?, docs: [GeminiDoc], cache: String) async throws -> GeminiAnswer {
+    private func askRobust(text: String, audio: Data?, docs: [GeminiDoc], cache: String, retries: Int? = nil) async throws -> GeminiAnswer {
         func go(_ list: [GeminiDoc], _ cached: String) async throws -> GeminiAnswer {
-            if cached.isEmpty {
-                return try await client.ask(questionText: text, audioWAV: audio, docs: list, history: history)
-            }
-            return try await client.ask(questionText: text, audioWAV: audio, docs: list, history: history, cached: cached)
+            return try await client.ask(questionText: text, audioWAV: audio, docs: list, history: history, cached: cached,
+                                        model: nil, serverRetries: retries)
         }
         func retryable(_ e: GeminiError) -> Bool { return e.status == 400 || e.status == 403 || e.status == 404 }
         func serverFault(_ e: GeminiError) -> Bool { return e.status == 500 || e.status == 502 || e.status == 503 || e.status == 504 }
@@ -342,7 +349,8 @@ final class GeminiChat: ObservableObject {
             guard GeminiSupport.allRemote(docs) else { throw e }
             if serverFault(e) {
                 // Önbellekli istek sunucu hatasında takılıyorsa (yeniden denemelerden sonra bile) önbelleksiz, dosya adresli dene
-                guard !cache.isEmpty else { throw e }
+                // Model yoğunluğu önbellekten kaynaklanmaz: önbellek korunur (yedek model denenir)
+                guard !cache.isEmpty, !GeminiSupport.isOverload(e), retries != 0 else { throw e }
                 tlog("[gemini] önbellekli istek sunucu hatası verdi (\(e.message)), önbelleksiz deneniyor")
                 await memory?.dropCache()
                 return try await go(docs, "")
@@ -371,7 +379,7 @@ final class GeminiChat: ObservableObject {
     private func askWithFallback(gen: Int, opts: GeminiOptions, text: String, audio: Data?, docs: [GeminiDoc], cache: String,
                                  session: Bool) async throws -> GeminiAnswer {
         do {
-            return try await askRobust(text: text, audio: audio, docs: docs, cache: cache)
+            return try await askResilient(opts: opts, text: text, audio: audio, docs: docs, cache: cache)
         } catch let e as GeminiError where e.kind == .cap {
             let current = GeminiProfiles.active(opts.profiles, active: opts.active)
             guard let target = GeminiProfiles.fallbackTarget(opts.profiles, from: current, auto: opts.autoFallback) else { throw e }
@@ -385,8 +393,85 @@ final class GeminiChat: ObservableObject {
             var dropped: [String] = []
             let reset = docs.map { var d = $0; d.uri = ""; d.remote = ""; return d }
             let again = try await memorize(docs: reset, notes: &dropped, session: session)
-            return try await askRobust(text: text, audio: audio, docs: again.docs, cache: again.cache)
+            return try await askResilient(opts: opts, text: text, audio: audio, docs: again.docs, cache: again.cache)
         }
+    }
+
+    /// Yedek modelin işe yarayacağı hatalar: sunucu hatası / yoğunluk ya da kota (ücretsiz katmanda kota modele özeldir).
+    /// Harcama sınırı, anahtar ve istek hataları yedek modelle düzelmez.
+    static func backupWorthy(_ e: GeminiError) -> Bool {
+        return e.status == 500 || e.status == 502 || e.status == 503 || e.status == 504 || (e.status == 429 && e.kind == .quota)
+    }
+
+    /// Seçili model yoğunken ya da kotası doluyken hesabın yedek modeline geçer. Ücretsiz anahtarda günlük istek sayısı çok az
+    /// olabilir (ör. 20): aynı modele art arda yeniden istek atılmaz, tek hatada doğrudan yedek modele geçilir; yedek model yakın
+    /// zamanda çalıştıysa sonraki sorular doğrudan ona gider.
+    private func askResilient(opts: GeminiOptions, text: String, audio: Data?, docs: [GeminiDoc], cache: String) async throws -> GeminiAnswer {
+        guard opts.overloadFallback else {
+            return try await askRobust(text: text, audio: audio, docs: docs, cache: cache)
+        }
+        let primary = client.currentModel
+        if Date() < backupUntil && backupFor == primary && !backupModel.isEmpty {
+            do {
+                return try await askBackup(model: backupModel, why: backupWhy, text: text, audio: audio, docs: docs)
+            } catch let e as GeminiError {
+                tlog("[gemini] yedek model artık çalışmıyor (\(e.message)), seçili model deneniyor")
+                backupUntil = Date.distantPast
+            }
+        }
+        var first = GeminiError("", .error)
+        do {
+            return try await askRobust(text: text, audio: audio, docs: docs, cache: cache, retries: 0)
+        } catch let e as GeminiError {
+            guard GeminiChat.backupWorthy(e) else { throw e }
+            first = e
+        }
+        let models = await backupModels(for: primary)
+        if models.isEmpty {
+            if first.kind == .quota { throw first }
+            tlog("[gemini] yedek model bulunamadı, seçili model bir kez daha deneniyor")
+            return try await askRobust(text: text, audio: audio, docs: docs, cache: cache, retries: 1)
+        }
+        let why = first.kind == .quota ? "kotası dolu" : "şu an yoğun"
+        var errors = [first]
+        for model in models {
+            guard !Task.isCancelled else { throw CancellationError() }
+            tlog("[gemini] \(primary) yanıt vermedi (\(first.status)), yedek model deneniyor: \(model)")
+            do {
+                let reply = try await askBackup(model: model, why: why, text: text, audio: audio, docs: docs)
+                backupModel = model
+                backupFor = primary
+                backupWhy = why
+                // Günlük kota dolduysa saatlerce dolu kalır: her soruda boşuna denemeyelim
+                let daily = first.kind == .quota && first.message.contains("günlük")
+                backupUntil = Date().addingTimeInterval(daily ? 3600 : GeminiChat.backupSticky)
+                return reply
+            } catch let e as GeminiError {
+                tlog("[gemini] yedek model \(model) de olmadı: \(e.message)")
+                errors.append(e)
+            }
+        }
+        // Hiçbiri olmadı: en yol gösterici hatayı ver (kota mesajı "ne yapmalı" der; 503 yalnızca "sonra dene" der)
+        throw errors.first(where: { $0.kind == .quota }) ?? first
+    }
+
+    /// Yedek modelle sorar (önbellek modele bağlı olduğundan önbelleksiz, belge dosya adresleriyle) ve cevabın nereden geldiğini not düşer
+    private func askBackup(model: String, why: String, text: String, audio: Data?, docs: [GeminiDoc]) async throws -> GeminiAnswer {
+        let reply = try await client.ask(questionText: text, audioWAV: audio, docs: docs, history: history, cached: "",
+                                         model: model, serverRetries: 0)
+        let note = "Cevap yedek modelden geldi (\(model)): \(client.currentModel) \(why.isEmpty ? "şu an yoğun" : why)."
+        if !notes.contains(note) { notes.append(note) }
+        return reply
+    }
+
+    /// Yedek model listesi 10 dakika önbellekte tutulur (her hatada model listesi istenmesin)
+    private func backupModels(for primary: String) async -> [String] {
+        if let cached = backupList, cached.model == primary, Date().timeIntervalSince(cached.at) < 600 {
+            return cached.names
+        }
+        let names = await client.fallbackModels()
+        if !names.isEmpty { backupList = (model: primary, at: Date(), names: names) }
+        return names
     }
 
     // MARK: - Son yanıtı tekrarla

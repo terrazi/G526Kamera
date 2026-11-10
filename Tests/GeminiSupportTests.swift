@@ -426,6 +426,66 @@ final class GeminiSessionTextTests: XCTestCase {
                        "Gemini şu an yanıt vermiyor (503). Biraz sonra yeniden deneyin.")
     }
 
+    // MARK: Kota mesajı, yoğunluk, yedek model seçimi
+
+    private func quotaDescribe(_ message: String, ids: [String] = []) -> String {
+        let violations: [[String: Any]] = ids.map {
+            ["quotaId": $0, "quotaMetric": "generativelanguage.googleapis.com/generate_content_free_tier_requests"]
+        }
+        let err: [String: Any] = ["message": message, "details": [["violations": violations]]]
+        return GeminiSupport.describeError(status: 429, json: ["error": err], model: "m").1
+    }
+
+    func testQuotaMessageNamesTheDailyLimit() {
+        let text = quotaDescribe("You exceeded your current quota. Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-3.8-flash\nPlease retry in 41s.",
+                                 ids: ["GenerateRequestsPerDayPerProjectPerModel-FreeTier"])
+        XCTAssertTrue(text.contains("günlük kotası doldu"), text)
+        XCTAssertTrue(text.contains("sınır: 20"), text)
+        XCTAssertTrue(text.contains("10:00-11:00"), text)
+        XCTAssertTrue(text.contains("Quota exceeded for metric"), text)
+        XCTAssertFalse(text.contains("saniye"), text)
+    }
+
+    func testQuotaMessageNamesTheMinuteTokenLimit() {
+        let text = quotaDescribe("Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_input_token_count, limit: 250000\nPlease retry in 20.4s.",
+                                 ids: ["GenerateContentInputTokensPerMinutePerProjectPerModel-FreeTier"])
+        XCTAssertTrue(text.contains("Dakikalık token sınırı"), text)
+        XCTAssertTrue(text.contains("sınır: 250000"), text)
+        XCTAssertTrue(text.contains("21 saniye"), text)
+    }
+
+    func testQuotaMessageNamesTheMinuteRequestLimit() {
+        let text = quotaDescribe("Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 5, model: gemini-3.8-flash\nPlease retry in 12s.",
+                                 ids: ["GenerateRequestsPerMinutePerProjectPerModel-FreeTier"])
+        XCTAssertTrue(text.contains("Dakikalık istek sınırı"), text)
+        XCTAssertTrue(text.contains("sınır: 5"), text)
+        XCTAssertTrue(text.contains("13 saniye"), text)
+    }
+
+    func testQuotaMessageWithoutDetailsStaysGeneric() {
+        let text = quotaDescribe("Resource exhausted.")
+        XCTAssertTrue(text.hasPrefix("Kota ya da hız sınırı aşıldı"), text)
+        XCTAssertFalse(text.contains("Google:"), text)
+    }
+
+    func testOnlyBusyMessagesOn503CountAsOverload() {
+        XCTAssertTrue(GeminiSupport.isOverload(GeminiError("Sunucunun mesajı: This model is currently experiencing high demand.", .http, status: 503)))
+        XCTAssertTrue(GeminiSupport.isOverload(GeminiError("The model is overloaded.", .http, status: 503)))
+        XCTAssertFalse(GeminiSupport.isOverload(GeminiError("Backend Error", .http, status: 503)))
+        XCTAssertFalse(GeminiSupport.isOverload(GeminiError("high demand", .http, status: 500)))
+        XCTAssertFalse(GeminiSupport.isOverload(GeminiError("", .http, status: 503)))
+    }
+
+    func testPickFallbackModelsPrefersNewestStableFlashThenLite() {
+        let names = ["gemini-3.8-flash", "gemini-3.10-flash", "gemini-3.9-flash", "gemini-3.8-flash-lite", "gemini-3.9-flash-lite",
+                     "gemini-3.9-flash-preview-05-20", "gemini-3.9-flash-image", "gemini-3.9-pro", "gemini-3.9-flash-live", "gemma-3-27b-it"]
+        XCTAssertEqual(GeminiSupport.pickFallbackModels(names, current: "gemini-3.8-flash"), ["gemini-3.10-flash", "gemini-3.9-flash"])
+        XCTAssertEqual(GeminiSupport.pickFallbackModels(names, current: "gemini-3.8-flash", limit: 4),
+                       ["gemini-3.10-flash", "gemini-3.9-flash", "gemini-3.9-flash-lite", "gemini-3.8-flash-lite"])
+        XCTAssertEqual(GeminiSupport.pickFallbackModels(["gemini-3.8-flash"], current: "gemini-3.8-flash"), [])
+        XCTAssertEqual(GeminiSupport.pickFallbackModels(["gemini-2.5-flash", "gemini-3-flash"], current: "x"), ["gemini-3-flash", "gemini-2.5-flash"])
+    }
+
     func testTruncatedJsonSalvagesAnswerInsteadOfReadingRawJson() throws {
         func response(_ text: String, finish: String) -> [String: Any] {
             return ["candidates": [["finishReason": finish, "content": ["parts": [["text": text]]]]]]
@@ -972,6 +1032,34 @@ final class GeminiClientTests: XCTestCase {
         XCTAssertEqual(error?.status, 503)
         XCTAssertEqual(sleeps.values, [1.5, 4.0, 8.0])
         XCTAssertEqual(FakeGeminiProtocol.urls.count, 4)
+    }
+
+    func testBackupModelRequestUsesItsOwnUrlAndIsNotRetried() async {
+        let bad = FakeGeminiProtocol.Reply(status: 503, body: errorBody("This model is currently experiencing high demand."), error: nil)
+        queue(bad, bad)
+        let error = await failure {
+            _ = try await self.makeClient(model: "gemini-3.8-flash").ask(questionText: "x", audioWAV: nil, docs: [], history: [],
+                                                                         cached: "", model: "gemini-3.7-flash", serverRetries: 0)
+        }
+        XCTAssertEqual(error?.status, 503)
+        XCTAssertEqual(FakeGeminiProtocol.urls.count, 1)
+        XCTAssertTrue(FakeGeminiProtocol.urls[0].absoluteString.contains("/models/gemini-3.7-flash:generateContent"),
+                      FakeGeminiProtocol.urls[0].absoluteString)
+        XCTAssertTrue(sleeps.values.isEmpty, "\(sleeps.values)")
+    }
+
+    func testFallbackModelsComeFromTheAccountsOwnModelList() async throws {
+        func entry(_ name: String) -> [String: Any] { return ["name": "models/" + name, "supportedGenerationMethods": ["generateContent"]] }
+        let list: [String: Any] = ["models": [entry("gemini-3.8-flash"), entry("gemini-3.7-flash"), entry("gemini-3.8-flash-lite"),
+                                              entry("gemini-3.8-flash-image"), entry("gemini-3.8-pro")]]
+        queue(.init(status: 200, body: try JSONSerialization.data(withJSONObject: list), error: nil))
+        let names = await makeClient(model: "gemini-3.8-flash").fallbackModels()
+        XCTAssertEqual(names, ["gemini-3.7-flash", "gemini-3.8-flash-lite"])
+
+        FakeGeminiProtocol.reset()
+        queue(.init(status: 500, body: Data(), error: nil))
+        let none = await makeClient(model: "gemini-3.8-flash").fallbackModels()
+        XCTAssertEqual(none, [])
     }
 
     func testQuotaErrorMentionsWait() async {

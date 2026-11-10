@@ -10,6 +10,10 @@ private final class FakeClient: GeminiAsking {
         var docs: [String]
         var history: [GeminiTurn]
         var cached: String
+        /// nil = seçili model; dolu = yedek model
+        var model: String? = nil
+        /// nil = varsayılan yeniden deneme sayısı
+        var retries: Int? = nil
     }
 
     var replies: [Result<GeminiAnswer, Error>] = []
@@ -18,8 +22,27 @@ private final class FakeClient: GeminiAsking {
     var transcripts: [String] = []
     var transcribeCalls = 0
 
+    /// Seçili model adı ve yedek model listesi (GeminiChat yedek model mantığı için)
+    var current = "gemini-3.8-flash"
+    var fallback: [String] = []
+    var fallbackCalls = 0
+
+    var currentModel: String { return current }
+
+    func fallbackModels() async -> [String] {
+        fallbackCalls += 1
+        return fallback
+    }
+
     func ask(questionText: String, audioWAV: Data?, docs: [GeminiDoc], history: [GeminiTurn], cached: String) async throws -> GeminiAnswer {
-        calls.append(Call(text: questionText, audio: audioWAV, docs: docs.map { $0.name }, history: history, cached: cached))
+        return try await ask(questionText: questionText, audioWAV: audioWAV, docs: docs, history: history, cached: cached,
+                             model: nil, serverRetries: nil)
+    }
+
+    func ask(questionText: String, audioWAV: Data?, docs: [GeminiDoc], history: [GeminiTurn], cached: String,
+             model: String?, serverRetries: Int?) async throws -> GeminiAnswer {
+        calls.append(Call(text: questionText, audio: audioWAV, docs: docs.map { $0.name }, history: history, cached: cached,
+                          model: model, retries: serverRetries))
         if replies.isEmpty { return GeminiAnswer(question: questionText, answer: "Cevap \(calls.count).") }
         return try replies.removeFirst().get()
     }
@@ -936,6 +959,132 @@ final class GeminiChatTests: XCTestCase {
         XCTAssertEqual(client.calls.count, 1)
         XCTAssertEqual(memory.revalidated, 0)
         XCTAssertEqual(chat.error, "Sunucu hatası.")
+    }
+
+    // MARK: Yedek model (yoğunluk / kota)
+
+    private let busy503 = GeminiError("Gemini şu an yanıt vermiyor (503). Sunucunun mesajı: This model is currently experiencing high demand. Biraz sonra yeniden deneyin.", .http, status: 503)
+    private let dailyQuota = GeminiError("Bu modelin günlük kotası doldu (sınır: 20).", .quota, status: 429)
+    private let minuteQuota = GeminiError("Dakikalık istek sınırı aşıldı. Yaklaşık 20 saniye bekleyip yeniden deneyin.", .quota, status: 429)
+
+    private func askAndWait(_ text: String = "toplam nedir") async {
+        XCTAssertTrue(chat.ask(text: text))
+        _ = await waitUntil { self.chat.phase == .speaking }
+    }
+
+    func testBusyModelFallsBackToBackupWithoutRetryingTheSelectedModel() async {
+        options.overloadFallback = true
+        client.fallback = ["gemini-3.7-flash", "gemini-3.8-flash-lite"]
+        client.replies = [.failure(busy503), .success(GeminiAnswer(question: "q", answer: "Yedek cevap."))]
+        await askAndWait()
+        XCTAssertEqual(client.calls.map { $0.model ?? "-" }, ["-", "gemini-3.7-flash"])
+        XCTAssertEqual(client.calls.map { $0.retries ?? -1 }, [0, 0])
+        XCTAssertEqual(chat.answer, "Yedek cevap.")
+        XCTAssertEqual(chat.error, "")
+        XCTAssertTrue(chat.notes.contains { $0.contains("gemini-3.7-flash") && $0.contains("gemini-3.8-flash") && $0.contains("şu an yoğun") },
+                      "\(chat.notes)")
+    }
+
+    func testQuotaExceededFallsBackToBackupAndSaysSo() async {
+        options.overloadFallback = true
+        client.fallback = ["gemini-3.7-flash"]
+        client.replies = [.failure(minuteQuota), .success(GeminiAnswer(question: "q", answer: "Yedek cevap."))]
+        await askAndWait()
+        XCTAssertEqual(client.calls.map { $0.model ?? "-" }, ["-", "gemini-3.7-flash"])
+        XCTAssertEqual(chat.answer, "Yedek cevap.")
+        XCTAssertTrue(chat.notes.contains { $0.contains("kotası dolu") }, "\(chat.notes)")
+    }
+
+    func testBackupModelStaysInUseForTheNextQuestions() async {
+        options.overloadFallback = true
+        client.fallback = ["gemini-3.7-flash"]
+        client.replies = [.failure(busy503), .success(GeminiAnswer(question: "q", answer: "Bir.")),
+                          .success(GeminiAnswer(question: "q", answer: "İki."))]
+        await askAndWait()
+        chat.speakingChanged(false)
+        XCTAssertEqual(chat.phase, .idle)
+        await askAndWait("kdv orani kac")
+        XCTAssertEqual(client.calls.map { $0.model ?? "-" }, ["-", "gemini-3.7-flash", "gemini-3.7-flash"])
+        XCTAssertEqual(client.fallbackCalls, 1)
+        XCTAssertEqual(chat.answer, "İki.")
+    }
+
+    func testBackupStopsBeingUsedWhenTheSelectedModelChanges() async {
+        options.overloadFallback = true
+        client.fallback = ["gemini-3.7-flash"]
+        client.replies = [.failure(busy503), .success(GeminiAnswer(question: "q", answer: "Bir."))]
+        await askAndWait()
+        chat.speakingChanged(false)
+        XCTAssertEqual(chat.phase, .idle)
+        client.current = "gemini-3.9-flash"
+        await askAndWait("kdv orani kac")
+        XCTAssertEqual(client.calls.map { $0.model ?? "-" }, ["-", "gemini-3.7-flash", "-"])
+        XCTAssertEqual(client.calls.last?.retries, 0)
+    }
+
+    func testBusyModelWithoutAnyBackupIsRetriedOnceMore() async {
+        options.overloadFallback = true
+        client.fallback = []
+        client.replies = [.failure(busy503), .success(GeminiAnswer(question: "q", answer: "İkinci denemede."))]
+        await askAndWait()
+        XCTAssertEqual(client.calls.map { $0.model ?? "-" }, ["-", "-"])
+        XCTAssertEqual(client.calls.map { $0.retries ?? -1 }, [0, 1])
+        XCTAssertEqual(chat.answer, "İkinci denemede.")
+    }
+
+    func testQuotaWithoutAnyBackupIsNotRetried() async {
+        options.overloadFallback = true
+        client.fallback = []
+        client.replies = [.failure(dailyQuota)]
+        await askAndWait()
+        XCTAssertEqual(client.calls.count, 1)
+        XCTAssertEqual(chat.error, dailyQuota.message)
+    }
+
+    func testWhenEveryModelFailsTheQuotaMessageWins() async {
+        options.overloadFallback = true
+        client.fallback = ["gemini-3.7-flash", "gemini-3.8-flash-lite"]
+        client.replies = [.failure(busy503), .failure(dailyQuota), .failure(busy503)]
+        await askAndWait()
+        XCTAssertEqual(client.calls.count, 3)
+        XCTAssertEqual(chat.error, dailyQuota.message)
+    }
+
+    func testSpendingCapAndKeyErrorsNeverTriggerTheBackupModel() async {
+        options.overloadFallback = true
+        client.fallback = ["gemini-3.7-flash"]
+        client.replies = [.failure(GeminiError("Aylık harcama sınırınız doldu.", .cap, status: 429))]
+        await askAndWait()
+        XCTAssertEqual(client.calls.count, 1)
+        XCTAssertEqual(client.fallbackCalls, 0)
+        XCTAssertEqual(chat.error, "Aylık harcama sınırınız doldu.")
+    }
+
+    func testBackupIsOffWhenTheOptionIsOff() async {
+        options.overloadFallback = false
+        client.fallback = ["gemini-3.7-flash"]
+        client.replies = [.failure(busy503)]
+        await askAndWait()
+        XCTAssertEqual(client.calls.count, 1)
+        XCTAssertEqual(client.fallbackCalls, 0)
+        XCTAssertEqual(chat.error, busy503.message)
+    }
+
+    func testBusyModelKeepsTheDocumentCacheAndAsksTheBackupWithoutIt() async {
+        let memory = FakeMemory()
+        chat = makeChat(memory: memory)
+        log.autoFinish = true
+        options.session = true
+        options.overloadFallback = true
+        client.fallback = ["gemini-3.7-flash"]
+        client.replies = [.failure(busy503), .success(GeminiAnswer(question: "q", answer: "Tamam."))]
+        docs.result = .success((docs: [GeminiDoc(name: "a.pdf", fileURL: URL(fileURLWithPath: "/tmp/yok.pdf"), size: 10, pages: 40, key: "k1")], notes: []))
+        recorder.results = [(Data(count: 32000), .done), noSpeech]
+        chat.ask()
+        _ = await waitUntil { self.chat.status == "Oturum bitti" }
+        XCTAssertEqual(client.calls.map { $0.cached }, ["cachedContents/1", ""])
+        XCTAssertEqual(client.calls.map { $0.model ?? "-" }, ["-", "gemini-3.7-flash"])
+        XCTAssertEqual(memory.dropped, 0)
     }
 }
 

@@ -243,6 +243,11 @@ struct SettingsView: View {
                     Toggle("Ücretsiz anahtar", isOn: profileFree(i))
                 }
             }
+            Toggle("Model yoğunsa ya da kotası dolunca yedek modele geç", isOn: $settings.geminiOverloadFallback)
+            if settings.geminiOverloadFallback {
+                Text("“Bu model yoğun talep görüyor” (503) ya da kota dolu (429) derse, aynı anahtarla hesabınızdaki başka bir hızlı model (ör. bir önceki flash sürümü) denenir; cevabın hangi modelden geldiği yazılır. Ücretsiz anahtarda günlük istek sayısı düşük olabilir: aynı modele art arda yeniden deneme yapılmaz.")
+                    .font(.footnote).foregroundColor(.secondary)
+            }
             Toggle("Harcama sınırı dolunca ücretsiz modele geç", isOn: $settings.geminiAutoFallback)
             if settings.geminiAutoFallback {
                 Text("Ücretsiz katmanda içeriğiniz Google tarafından ürün geliştirmede kullanılabilir.")

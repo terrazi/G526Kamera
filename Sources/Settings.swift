@@ -89,6 +89,8 @@ final class AppSettings: ObservableObject {
     @Published var geminiActive: Int { didSet { d.set(geminiActive, forKey: "geminiActive") } }
     /// Aylık harcama sınırı dolunca "ücretsiz" işaretli profile geç
     @Published var geminiAutoFallback: Bool { didSet { d.set(geminiAutoFallback, forKey: "geminiAutoFallback") } }
+    /// Seçili model yoğunken (503) ya da kotası dolunca (429) aynı anahtarla hesabın başka bir hızlı modeline geç
+    @Published var geminiOverloadFallback: Bool { didSet { d.set(geminiOverloadFallback, forKey: "geminiOverloadFallback") } }
     /// Harcama sınırı yüzünden yedeğe geçilen ay ("202611"); yeni ayda eski profile dönülür
     @Published var geminiCapMonth: String { didSet { d.set(geminiCapMonth, forKey: "geminiCapMonth") } }
     /// Yedeğe geçmeden önceki profil
@@ -192,6 +194,7 @@ final class AppSettings: ObservableObject {
         }
         geminiActive = min(max(d.object(forKey: "geminiActive") as? Int ?? 1, 1), GeminiProfiles.slotCount)
         geminiAutoFallback = d.object(forKey: "geminiAutoFallback") as? Bool ?? true
+        geminiOverloadFallback = d.object(forKey: "geminiOverloadFallback") as? Bool ?? true
         geminiCapMonth = d.string(forKey: "geminiCapMonth") ?? ""
         geminiCapPrev = min(max(d.object(forKey: "geminiCapPrev") as? Int ?? 1, 1), GeminiProfiles.slotCount)
         geminiSessionTimeout = min(max(d.object(forKey: "geminiSessionTimeout") as? Int ?? 0, 0), 86400)

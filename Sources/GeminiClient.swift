@@ -253,6 +253,81 @@ enum GeminiSupport {
         return ["error": ["message": String(flat.prefix(200))]]
     }
 
+    /// 429 (kota / hız sınırı) için hangi sınırın aşıldığını ve ne yapılacağını söyleyen mesaj.
+    /// Google'ın ayrıntıları: details[].violations[].quotaId / quotaMetric ve "Please retry in 12s".
+    static func quotaMessage(message: String, details: [[String: Any]]?) -> String {
+        var ids: [String] = []
+        for d in details ?? [] {
+            if let violations = d["violations"] as? [[String: Any]] {
+                for v in violations {
+                    let quotaId = (v["quotaId"] as? String) ?? ""
+                    let quotaMetric = (v["quotaMetric"] as? String) ?? ""
+                    ids.append(quotaId + " " + quotaMetric)
+                }
+            }
+        }
+        let blob = (ids.joined(separator: " ") + " " + message).lowercased()
+            .replacingOccurrences(of: "_", with: "").replacingOccurrences(of: " ", with: "")
+        var wait = 0
+        if let regex = try? NSRegularExpression(pattern: "retry in ([0-9.]+)s", options: [.caseInsensitive]),
+           let m = regex.firstMatch(in: message, range: NSRange(message.startIndex..., in: message)),
+           m.numberOfRanges > 1, let r = Range(m.range(at: 1), in: message), let seconds = Double(message[r]) {
+            wait = Int(seconds + 1)
+        }
+        var limit = ""
+        if let regex = try? NSRegularExpression(pattern: "limit: ?(\\d+)", options: [.caseInsensitive]),
+           let m = regex.firstMatch(in: message, range: NSRange(message.startIndex..., in: message)),
+           m.numberOfRanges > 1, let r = Range(m.range(at: 1), in: message) {
+            limit = " (sınır: \(message[r]))"
+        }
+        let waitSeconds = wait > 0 ? wait : 60
+        var text: String
+        if blob.contains("perday") {
+            text = "Bu modelin günlük kotası doldu\(limit). Günlük kota her gün Pasifik saatiyle gece yarısı (Türkiye'de yaklaşık 10:00-11:00) sıfırlanır. Başka bir model seçebilir ya da faturalandırmalı anahtar kullanabilirsiniz."
+        } else if blob.contains("token") && blob.contains("perminute") {
+            text = "Dakikalık token sınırı aşıldı\(limit): gönderilen belgeler çok yer tutuyor. Yaklaşık \(waitSeconds) saniye bekleyin ya da belge sayısını azaltın."
+        } else if blob.contains("perminute") {
+            text = "Dakikalık istek sınırı aşıldı\(limit). Yaklaşık \(waitSeconds) saniye bekleyip yeniden deneyin."
+        } else {
+            let waitText = wait > 0 ? " Yaklaşık \(wait) saniye sonra yeniden deneyin." : ""
+            text = "Kota ya da hız sınırı aşıldı\(limit)." + waitText + " Ücretsiz katmanda sınırlar düşüktür."
+        }
+        if let regex = try? NSRegularExpression(pattern: "Quota exceeded for metric:[^\\n]*"),
+           let m = regex.firstMatch(in: message, range: NSRange(message.startIndex..., in: message)),
+           let r = Range(m.range, in: message) {
+            text += " (Google: \(String(String(message[r]).trimmed.prefix(160))))"
+        }
+        return text
+    }
+
+    /// 503 ve sunucunun mesajı yoğunluk / geçici sorun diyorsa true: sorun istekte ya da önbellekte değil, modelin kendisinde.
+    static func isOverload(_ e: GeminiError) -> Bool {
+        guard e.status == 503 else { return false }
+        return e.message.range(of: "high demand|overload|temporarily|try again later|unavailable|yoğun",
+                               options: [.regularExpression, .caseInsensitive]) != nil
+    }
+
+    /// Yoğun / kotası dolu modelin yerine denenecek modeller: yalnız kararlı "flash" ve "flash-lite" adları (önizleme, ses, görsel yok),
+    /// seçili model hariç; önce flash (yeni sürümden eskiye), sonra flash-lite.
+    static func pickFallbackModels(_ names: [String], current: String, limit: Int = 2) -> [String] {
+        guard let regex = try? NSRegularExpression(pattern: "^gemini-(\\d+(?:\\.\\d+)?)-flash(-lite)?$") else { return [] }
+        var flash: [(version: [Int], name: String)] = []
+        var lite: [(version: [Int], name: String)] = []
+        for n in names where n != current {
+            guard let m = regex.firstMatch(in: n, range: NSRange(n.startIndex..., in: n)),
+                  let vr = Range(m.range(at: 1), in: n) else { continue }
+            let version = n[vr].split(separator: ".").compactMap { Int($0) }
+            if m.range(at: 2).location != NSNotFound {
+                lite.append((version: version, name: n))
+            } else {
+                flash.append((version: version, name: n))
+            }
+        }
+        flash.sort { $1.version.lexicographicallyPrecedes($0.version) }
+        lite.sort { $1.version.lexicographicallyPrecedes($0.version) }
+        return Array((flash + lite).map { $0.name }.prefix(limit))
+    }
+
     static func describeError(status: Int, json: [String: Any], model: String) -> (GeminiErrorKind, String) {
         var message = ""
         var reason = ""
@@ -284,13 +359,8 @@ enum GeminiSupport {
             return (.cap, "Aylık harcama sınırınız doldu. AI Studio'da Spend sayfasından sınırı yükseltin ya da ayın birinde sıfırlanmasını bekleyin.")
         }
         if status == 429 {
-            var wait = ""
-            if let regex = try? NSRegularExpression(pattern: "retry in ([0-9.]+)s", options: [.caseInsensitive]),
-               let m = regex.firstMatch(in: message, range: NSRange(message.startIndex..., in: message)),
-               m.numberOfRanges > 1, let r = Range(m.range(at: 1), in: message), let seconds = Double(message[r]) {
-                wait = " Yaklaşık \(Int(seconds + 1)) saniye sonra yeniden deneyin."
-            }
-            return (.quota, "Kota ya da hız sınırı aşıldı." + wait + " Ücretsiz katmanda sınırlar düşüktür.")
+            let details = (json["error"] as? [String: Any])?["details"] as? [[String: Any]]
+            return (.quota, quotaMessage(message: message, details: details))
         }
         if status == 400 {
             return (.http, "Gemini isteği kabul etmedi (400): " + (message.isEmpty ? "bilinmeyen neden" : message))
@@ -703,12 +773,25 @@ enum GeminiSupport {
 protocol GeminiAsking: AnyObject {
     /// cached: açık önbellek adı (belgeler önbellekte); boş = önbelleksiz
     func ask(questionText: String, audioWAV: Data?, docs: [GeminiDoc], history: [GeminiTurn], cached: String) async throws -> GeminiAnswer
+    /// Yedek model (nil = seçili model) ve sunucu hatasında yeniden deneme sayısı (nil = varsayılan) belirterek sorar
+    func ask(questionText: String, audioWAV: Data?, docs: [GeminiDoc], history: [GeminiTurn], cached: String,
+             model: String?, serverRetries: Int?) async throws -> GeminiAnswer
+    /// Seçili modelin adı
+    var currentModel: String { get }
+    /// Seçili model yoğunken ya da kotası doluyken denenecek yedek modeller (hesabın gerçek model listesinden); alınamazsa boş
+    func fallbackModels() async -> [String]
     /// Kısa sesi belgesiz yazıya döker ("son yanıtı tekrarla" ön kontrolü)
     func transcribe(audioWAV: Data) async throws -> String
 }
 
 extension GeminiAsking {
     func transcribe(audioWAV: Data) async throws -> String { return "" }
+    var currentModel: String { return "" }
+    func fallbackModels() async -> [String] { return [] }
+    func ask(questionText: String, audioWAV: Data?, docs: [GeminiDoc], history: [GeminiTurn], cached: String,
+             model: String?, serverRetries: Int?) async throws -> GeminiAnswer {
+        return try await ask(questionText: questionText, audioWAV: audioWAV, docs: docs, history: history, cached: cached)
+    }
     func ask(questionText: String, audioWAV: Data?, docs: [GeminiDoc], history: [GeminiTurn]) async throws -> GeminiAnswer {
         return try await ask(questionText: questionText, audioWAV: audioWAV, docs: docs, history: history, cached: "")
     }
@@ -788,15 +871,35 @@ final class GeminiClient: GeminiAsking, GeminiRemote {
     private var systemPrompt: String { return GeminiSupport.systemPrompt(codesText: codesProvider()) }
 
     func ask(questionText: String, audioWAV: Data?, docs: [GeminiDoc], history: [GeminiTurn], cached: String) async throws -> GeminiAnswer {
+        return try await ask(questionText: questionText, audioWAV: audioWAV, docs: docs, history: history, cached: cached,
+                             model: nil, serverRetries: nil)
+    }
+
+    var currentModel: String { return model }
+
+    func ask(questionText: String, audioWAV: Data?, docs: [GeminiDoc], history: [GeminiTurn], cached: String,
+             model overrideModel: String?, serverRetries: Int?) async throws -> GeminiAnswer {
         if questionText.trimmed.isEmpty && audioWAV == nil {
             throw GeminiError("Soru boş.", .error)
         }
         let body = try GeminiSupport.buildRequest(questionText: questionText, audioWAV: audioWAV, docs: docs, history: history,
                                                   system: systemPrompt, cached: cached, batchLast: batchProvider())
-        let name = model.addingPercentEncoding(withAllowedCharacters: GeminiClient.pathAllowed) ?? model
+        var useModel = model
+        if let m = overrideModel, !m.trimmed.isEmpty { useModel = m.trimmed }
+        let name = useModel.addingPercentEncoding(withAllowedCharacters: GeminiClient.pathAllowed) ?? useModel
         let object = try await post(path: "/models/\(name):generateContent", body: body,
-                                    serverRetries: GeminiClient.askServerRetries)
+                                    serverRetries: serverRetries ?? GeminiClient.askServerRetries)
         return try GeminiSupport.parseAnswer(object)
+    }
+
+    func fallbackModels() async -> [String] {
+        do {
+            let names = try await listModels()
+            return GeminiSupport.pickFallbackModels(names, current: model)
+        } catch {
+            tlog("[gemini] yedek model listesi alınamadı: \(error.localizedDescription)")
+            return []
+        }
     }
 
     /// Kısa bir sesi (belgesiz) yazıya döker: 'son yanıtı tekrarla' gibi isteklerin tekrar mı yeni soru mu olduğunu anlamak için.
