@@ -123,8 +123,9 @@ final class GeminiMemory: GeminiMemoryProviding {
             }
         }
         for i in stale {
+            // try? iç içe Optional'ı düzleştirir: erişim hatası da "yok" sayılır ve dosya yeniden yüklenir
             let info = try? await remote.getFile(name: list[i].remote)
-            if let file = info ?? nil, file.state == "ACTIVE" { continue }
+            if let file = info, file.state == "ACTIVE" { continue }
             list[i].uri = ""
             list[i].remote = ""
             todo.append(i)
@@ -184,9 +185,11 @@ final class GeminiMemory: GeminiMemoryProviding {
         var index = loadIndex()
         var entries = index[fp] ?? [:]
         for i in list.indices where !list[i].uri.isEmpty {
-            let info = try? await remote.getFile(name: list[i].remote)
-            if let file = info ?? nil, file.state == "ACTIVE" { continue }
-            if info == nil { continue }      // erişim hatası (kota, ağ): dosyanın kaybolduğu kanıtlanmadı
+            do {
+                if let file = try await remote.getFile(name: list[i].remote), file.state == "ACTIVE" { continue }
+            } catch {
+                continue                     // erişim hatası (kota, ağ): dosyanın kaybolduğu kanıtlanmadı
+            }
             entries[key(list[i])] = nil
             list[i].uri = ""
             list[i].remote = ""
