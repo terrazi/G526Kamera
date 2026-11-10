@@ -600,8 +600,47 @@ enum GeminiSupport {
             answer.close = (json["kapat"] as? Bool) == true
             answer.switchModel = (json["model_degistir"] as? Bool) == true
             answer.lastQuestion = min(max(intValue(json["son_soru"]), 0), 100_000)
+        } else if cleaned.trimmed.hasPrefix("{") {
+            // JSON gibi ama bozuk/yarım (genelde uzunluk sınırı): ham metin okunmasın, kurtarılabilen cevap okunsun
+            guard let saved = salvageAnswer(cleaned) else {
+                throw GeminiError("Gemini cevabı yarım kaldı. Soruyu yeniden sorun.", .empty)
+            }
+            answer.question = saved.question
+            answer.answer = saved.answer + (finish == "MAX_TOKENS" ? truncatedNote : "")
+            tlog("[gemini] bozuk/yarım JSON'dan cevap kurtarıldı (\(finish.isEmpty ? "?" : finish))")
         }
         return answer
+    }
+
+    static let truncatedNote = " Cevabın devamı uzunluk sınırı nedeniyle kesildi."
+
+    /// Tırnaksız JSON dizgesi içeriğini çözer; sonda yarım kalmış kaçış (\ ya da \u12) varsa onu keser.
+    private static func decodeJSONString(_ raw: String) -> String? {
+        var text = raw
+        for _ in 0..<2 {
+            if let data = ("\"" + text + "\"").data(using: .utf8),
+               let value = (try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])) as? String {
+                return value
+            }
+            guard let cut = text.lastIndex(of: "\\") else { return nil }
+            text = String(text[text.startIndex..<cut])
+        }
+        return nil
+    }
+
+    private static func firstGroup(_ pattern: String, in text: String) -> String? {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]),
+              let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+              let range = Range(match.range(at: 1), in: text) else { return nil }
+        return String(text[range])
+    }
+
+    /// Yarım kalmış JSON'dan "cevap" ve "soru" metnini kurtarır; cevap yoksa nil.
+    static func salvageAnswer(_ text: String) -> (question: String, answer: String)? {
+        guard let rawAnswer = firstGroup("\"cevap\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)", in: text),
+              let answer = decodeJSONString(rawAnswer)?.trimmed, !answer.isEmpty else { return nil }
+        let question = firstGroup("\"soru\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"", in: text).flatMap { decodeJSONString($0) } ?? ""
+        return (question.trimmed, answer)
     }
 
     /// Tek sayfa fotoğrafını metne çeviren istek (görsel önce, yönerge sonra)

@@ -253,6 +253,15 @@ final class AppModel: ObservableObject {
                 .store(in: &cancellables)
         }
 
+        // Drive'a giriş yapılınca (daha önce çekilip bekleyen fotoğraflar için) yükleme kuyruğu hemen uyandırılır;
+        // aksi halde bir sonraki çekime ya da "Şimdi gönder"e kadar beklerlerdi
+        auth.$phase
+            .sink { [weak self] phase in
+                guard phase == .signedIn else { return }
+                Task { @MainActor in self?.queue.kick() }
+            }
+            .store(in: &cancellables)
+
         // Pil tasarrufu ayarları anında uygulanır
         Publishers.CombineLatest(settings.$previewOff, settings.$dimWhenPreviewOff)
             .sink { [weak self] _, _ in

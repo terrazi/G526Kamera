@@ -416,6 +416,21 @@ final class GeminiSessionTextTests: XCTestCase {
         XCTAssertFalse(plain.switchModel)
     }
 
+    func testTruncatedJsonSalvagesAnswerInsteadOfReadingRawJson() throws {
+        let cut = response("{\"soru\":\"ilk on\",\"cevap\":\"1) Adana. 2) \\\"Bursa\\\". 3) Cey", finish: "MAX_TOKENS")
+        let answer = try GeminiSupport.parseAnswer(cut)
+        XCTAssertTrue(answer.answer.hasPrefix("1) Adana. 2) \"Bursa\". 3) Cey"), answer.answer)
+        XCTAssertTrue(answer.answer.hasSuffix(GeminiSupport.truncatedNote), answer.answer)
+        XCTAssertFalse(answer.answer.contains("{"))
+        XCTAssertEqual(answer.question, "ilk on")
+        XCTAssertEqual(answer.lastQuestion, 0)
+        let halfEscape = try GeminiSupport.parseAnswer(response("{\"soru\":\"x\",\"cevap\":\"ü \\u00", finish: "MAX_TOKENS"))
+        XCTAssertTrue(halfEscape.answer.hasPrefix("ü"), halfEscape.answer)
+        XCTAssertFalse(halfEscape.answer.contains("\\u"))
+        XCTAssertThrowsError(try GeminiSupport.parseAnswer(response("{\"soru\":\"x\"", finish: "MAX_TOKENS")))
+        XCTAssertEqual(try GeminiSupport.parseAnswer(response("Merhaba dünya")).answer, "Merhaba dünya")
+    }
+
     func testEmptyAnswerFieldStaysEmptyInsteadOfShowingRawJson() throws {
         let object: [String: Any] = ["candidates": [["content": ["parts": [["text": "{\"soru\":\"\",\"cevap\":\"\"}"]]]]]]
         let a = try GeminiSupport.parseAnswer(object)

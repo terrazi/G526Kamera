@@ -254,7 +254,10 @@ final class UploadQueue: ObservableObject {
                     await OcrCenter.shared.waitFor(group, timeout: OcrCenter.shared.uploadWait)
                 }
             }
-            guard let job = prepareJob(files: files, batch: batch) else { continue }
+            guard let job = prepareJob(files: files, batch: batch) else {
+                try? await Task.sleep(nanoseconds: 500_000_000)   // hepsi bozuktu/taşınamadı: ana iş parçacığını meşgul etmesin
+                continue
+            }
             inFlight = Set(job.files.map { $0.lastPathComponent })
             defer { inFlight = [] }
             do {
