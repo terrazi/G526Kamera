@@ -65,6 +65,8 @@ final class GeminiChat: ObservableObject {
     /// Bundan uzun sesli istek "tekrarla" olamaz, doğrudan soru sayılır (5 sn, 16 kHz 16 bit + WAV başlığı)
     static let repeatMaxBytes = 16000 * 2 * 5 + 44
     private var generation = 0
+    /// En son BAŞLATILAN çalışmanın numarası (cancel() değiştirmez): eski çalışma yenisinin oturum önbelleğini silmesin
+    private var startedGeneration = 0
     private var task: Task<Void, Never>?
     /// Okuma bitişini bekleyen akış (oturumda cevap bitmeden mikrofon açılmaz)
     private var waitingForSpeech = false
@@ -105,6 +107,7 @@ final class GeminiChat: ObservableObject {
         }
         generation += 1
         let gen = generation
+        startedGeneration = gen
         let question = typed
         pendingReceived = nil
         error = ""
@@ -236,7 +239,7 @@ final class GeminiChat: ObservableObject {
         let session = opts.session && text == nil
         softErrors = 0
         await runLoop(gen: gen, text: text, session: session, opts: opts)
-        if session, let memory = memory {
+        if session, let memory = memory, gen == startedGeneration {
             // Oturum bitti: önbellek silinir (saklama ücreti işlemesin). İptal edilen görevden bağımsız çalışsın diye ayrı görev.
             Task { @MainActor in await memory.release() }
         }
@@ -536,7 +539,7 @@ final class GeminiChat: ObservableObject {
 
             question = q
             answer = reply.answer
-            history.append(GeminiTurn(question: q.isEmpty ? "(sesli soru)" : q, answer: reply.answer))
+            history.append(GeminiTurn(question: q.isEmpty ? "(sesli soru)" : q, answer: reply.answer, batch: reply.lastQuestion))
             if history.count > GeminiConfig.maxHistory { history.removeFirst(history.count - GeminiConfig.maxHistory) }
             turns += 1
             error = ""

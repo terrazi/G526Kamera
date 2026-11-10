@@ -505,6 +505,45 @@ final class GeminiOcrTextTests: XCTestCase {
         XCTAssertFalse(plain.contains { ($0["text"] as? String)?.contains("Uygulama notu") == true })
     }
 
+    func testUnheardBatchInHistoryAddsTheNoGroupReachedNote() throws {
+        let history = [GeminiTurn(question: "ilk on", answer: "Birinci sorunun cevabı BURSA, yetmiş.", batch: 10)]
+        let object = GeminiSupport.requestObject(questionText: "sıradaki on soru", audioWAV: nil, docs: [], history: history, batchLast: 0)
+        let contents = try XCTUnwrap(object["contents"] as? [[String: Any]])
+        let parts = try XCTUnwrap(contents.last?["parts"] as? [[String: Any]])
+        XCTAssertTrue(parts.contains { ($0["text"] as? String)?.contains("ulaşan grup yok") == true })
+        // geçmişteki model cevabı bütün şema alanlarını (son_soru dahil) taşır
+        let modelText = try XCTUnwrap(((contents[1]["parts"] as? [[String: Any]])?.first?["text"]) as? String)
+        let decoded = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(modelText.utf8)) as? [String: Any])
+        XCTAssertEqual(decoded["son_soru"] as? Int, 10)
+        XCTAssertEqual(decoded["kapat"] as? Bool, false)
+        XCTAssertEqual(decoded["model_degistir"] as? Bool, false)
+        // toplu cevap yoksa not eklenmez
+        let plain = GeminiSupport.requestObject(questionText: "x", audioWAV: nil, docs: [],
+                                                history: [GeminiTurn(question: "a", answer: "b")], batchLast: 0)
+        let plainParts = try XCTUnwrap(((plain["contents"] as? [[String: Any]])?.last?["parts"]) as? [[String: Any]])
+        XCTAssertFalse(plainParts.contains { ($0["text"] as? String)?.contains("Uygulama notu") == true })
+    }
+
+    func testSchemaRequiresEveryFieldSoTheModelCannotSkipTheBatchNumber() {
+        let required = (GeminiConfig.responseSchema["required"] as? [String]) ?? []
+        XCTAssertEqual(Set(required), ["soru", "cevap", "kapat", "model_degistir", "son_soru"])
+        XCTAssertTrue(GeminiConfig.systemPrompt.contains("N sıfırsa"))
+    }
+
+    func testLastQuestionAcceptsANumberWrittenAsText() throws {
+        let inner = "{\"soru\":\"ilk on\",\"cevap\":\"x\",\"son_soru\":\"10\"}"
+        let object: [String: Any] = ["candidates": [["finishReason": "STOP", "content": ["parts": [["text": inner]]]]]]
+        XCTAssertEqual(try GeminiSupport.parseAnswer(object).lastQuestion, 10)
+    }
+
+    func testSpelledOutQuestionNumbersAreNotRepeatRequests() {
+        for text in ["üçüncü soruyu tekrar anlat", "sekizinci soruyu bir daha oku", "beşinci soruyu yeniden oku", "iki soruyu tekrar oku"] {
+            XCTAssertFalse(GeminiSupport.isRepeatRequest(text), text)
+        }
+        XCTAssertTrue(GeminiSupport.isRepeatRequest("sonuncu yanıtı tekrar et"))
+        XCTAssertTrue(GeminiSupport.isRepeatRequest("son yanıtı tekrarla"))
+    }
+
     func testLastQuestionIsParsedFromTheAnswer() throws {
         let inner = "{\"soru\":\"ilk on\",\"cevap\":\"x\",\"son_soru\":10}"
         let object: [String: Any] = ["candidates": [["finishReason": "STOP", "content": ["parts": [["text": inner]]]]]]

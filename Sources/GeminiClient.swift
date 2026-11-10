@@ -29,6 +29,9 @@ enum GeminiConfig {
     static let transcribeSystem = "Sesi Türkçe olarak aynen yazıya dök. Başındaki çağrı sözcüğünü ('Gemini' gibi) yazma. Yorum ekleme."
     static let transcribeMarker = "Bu sesi yazıya dök."
     static let batchNote = "[Uygulama notu] Toplu cevapta en son verilen soru numarası: "
+    /// Toplu cevap verildi ama kullanıcıya ulaşmadı (kalıcı sıra 0): model geçmişe bakıp bir sonraki grubu vermesin
+    static let batchNoteNone = "[Uygulama notu] Toplu cevapta kullanıcıya ulaşan grup yok (en son verilen soru numarası: 0); "
+        + "'sıradaki' denirse 1. sorudan başla, konuşma geçmişindeki ulaşmamış grubu sayma."
 
     /// Şık kodlarına göre tamamlanan yönerge (varsayılan kodlarla)
     static var systemPrompt: String { return GeminiSupport.systemPrompt(codesText: defaultOptionCodes) }
@@ -83,7 +86,7 @@ enum GeminiConfig {
         "type": "OBJECT",
         "properties": ["soru": ["type": "STRING"], "cevap": ["type": "STRING"], "kapat": ["type": "BOOLEAN"],
                        "model_degistir": ["type": "BOOLEAN"], "son_soru": ["type": "INTEGER"]],
-        "required": ["soru", "cevap"]
+        "required": ["soru", "cevap", "kapat", "model_degistir", "son_soru"]
     ]
 }
 
@@ -163,6 +166,14 @@ struct GeminiDoc {
 struct GeminiTurn: Equatable {
     let question: String
     let answer: String
+    /// Bu turdaki toplu cevabın son soru numarası (0 = toplu cevap değil)
+    let batch: Int
+
+    init(question: String, answer: String, batch: Int = 0) {
+        self.question = question
+        self.answer = answer
+        self.batch = batch
+    }
 }
 
 struct GeminiAnswer: Equatable {
@@ -372,7 +383,7 @@ enum GeminiSupport {
         text += "'sıradaki', 'sonraki', 'devam', 'diğer on' denirse bu konuşmada en son verdiğin grubun hemen devamından 10 soru ver (önceki cevaplarına "
         text += "bak; kullanıcı aralık söylerse onu uygula). Uygulama sana 'Toplu cevapta en son verilen soru numarası: N' notunu verebilir: "
         text += "'sıradaki', 'sonraki' ya da 'devam' denirse konuşma geçmişine değil bu nota bakıp N+1'den başla (oturum kapanıp açılmış, internet kopmuş "
-        text += "olabilir). Toplu cevap verdiğinde 'son_soru' alanına verdiğin gruptaki en büyük soru numarasını yaz; toplu cevap değilse 0 yaz. "
+        text += "olabilir; N sıfırsa kullanıcıya hiçbir grup ulaşmamıştır, 1'den başla). Toplu cevap verdiğinde 'son_soru' alanına verdiğin gruptaki en büyük soru numarasını yaz; toplu cevap değilse 0 yaz. "
         text += "Her soru için 8. kuraldaki kalıpla ayrı bir cümle kur ('\(ex.sentence)' gibi). "
         text += "Soruları sırayla say, aralara başka söz ve gerekçe ekleme; 1. kuraldaki cümle sınırı bu durumda geçerli değildir. "
         text += "Okunamayan ya da belgelerde bulunamayan soru için 'Üçüncü soru okunamadı.' de ve sıraya devam et. Grubun sonunda hangi "
@@ -418,13 +429,22 @@ enum GeminiSupport {
         return out.split(separator: " ").joined(separator: " ")
     }
 
+    private static let numberWords: Set<String> = ["iki", "uc", "dort", "bes", "alti", "yedi", "sekiz", "dokuz", "yirmi", "otuz", "kirk", "elli"]
+
+    /// Rakam ya da yazıyla sayı/sıra sayısı ('3', 'üç', 'üçüncü', 'sekizinci'): belirli bir soruyu işaret eder. 'sonuncu' (son) sayılmaz.
+    static func isNumberWord(_ w: String) -> Bool {
+        if w.isEmpty { return false }
+        if w.allSatisfy({ $0.isNumber }) || numberWords.contains(w) { return true }
+        return (w.hasSuffix("inci") || w.hasSuffix("uncu")) && w != "sonuncu"
+    }
+
     /// 'Son yanıtı tekrarla', 'bir daha söyle', 'yeniden oku' gibi isteği tanır. Yeni bir soruyu ('ilk on soruyu tekrar cevapla',
     /// 'sıradaki on soru') tekrar isteği saymaz.
     static func isRepeatRequest(_ text: String) -> Bool {
         let words = foldTR(text).split(separator: " ").map(String.init)
         if words.isEmpty || words.count > 9 { return false }
         let notRepeat = ["cevapla", "yanitla", "sirad", "sonrak", "ilk", "kadar", "arasi", "baslat"]
-        if words.contains(where: { w in notRepeat.contains(where: { w.hasPrefix($0) }) || w.allSatisfy({ $0.isNumber }) }) { return false }
+        if words.contains(where: { w in notRepeat.contains(where: { w.hasPrefix($0) }) || isNumberWord(w) }) { return false }
         let repeating = words.contains(where: { $0.hasPrefix("tekrar") || $0.hasPrefix("yinele") })
         let again = words.contains("daha") && words.contains("bir")
         let redo = words.contains("yeniden") || words.contains("bastan")
@@ -481,6 +501,8 @@ enum GeminiSupport {
         }
         if batchLast > 0 {
             current.append(["text": GeminiConfig.batchNote + "\(batchLast)."])
+        } else if history.contains(where: { $0.batch > 0 }) {
+            current.append(["text": GeminiConfig.batchNoteNone])
         }
         contents.append(["role": "user", "parts": current])
 
@@ -521,7 +543,8 @@ enum GeminiSupport {
     }
 
     private static func modelTurnText(_ turn: GeminiTurn) -> String {
-        let object: [String: Any] = ["soru": turn.question, "cevap": turn.answer]
+        let object: [String: Any] = ["soru": turn.question, "cevap": turn.answer, "kapat": false, "model_degistir": false,
+                                     "son_soru": turn.batch]
         if let data = try? JSONSerialization.data(withJSONObject: object, options: [.withoutEscapingSlashes]),
            let text = String(data: data, encoding: .utf8) {
             return text
@@ -532,6 +555,7 @@ enum GeminiSupport {
     // MARK: Cevap ayrıştırma
 
     private static func intValue(_ any: Any?) -> Int {
+        if let text = any as? String { return Int(text.trimmed) ?? 0 }
         return (any as? NSNumber)?.intValue ?? 0
     }
 

@@ -835,6 +835,23 @@ final class GeminiChatTests: XCTestCase {
         XCTAssertTrue(released, "oturum bitince önbellek silinmeli")
     }
 
+    func testRestartingASessionDoesNotLetTheOldRunDeleteTheNewCache() async {
+        let memory = FakeMemory()
+        chat = makeChat(memory: memory)
+        log.autoFinish = true
+        options.session = true
+        recorder.hold = true
+        chat.ask()
+        _ = await waitUntil { self.recorder.waits.count == 1 }
+        chat.cancel()
+        chat.ask()                                  // durdurup hemen yeniden sorulur: eski çalışma henüz sonlanmadı
+        _ = await waitUntil { self.recorder.waits.count == 2 }
+        chat.cancel()
+        _ = await waitUntil { memory.released >= 1 }
+        try? await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(memory.released, 1, "yalnız son başlatılan çalışma önbelleği siler")
+    }
+
     func testSingleQuestionUsesFilesButNoCache() async {
         let memory = FakeMemory()
         chat = makeChat(memory: memory)
