@@ -33,6 +33,14 @@ private final class FakePorts: ExamPorts {
     /// Her teyit isteğinde bildirilecek okunamayan sayfa sayıları (bitince 0)
     var unreadPages: [Int] = []
     var fileTime: Double = 1001
+    /// İkinci çözümün cevabı: no → (şık, değer, durum); yoksa ilkiyle aynı
+    var alt: [Int: (String, String, String)] = [:]
+    /// Sıradaki ikinci çözüm isteklerinde fırlatılacak hatalar
+    var failRecheck: [Error] = []
+    var recheckCalls = 0
+    /// Drive'a yüklenen cevap anahtarları
+    var keys: [(name: String, text: String)] = []
+    var keyLink = "https://drive.example/anahtar"
 
     func preflight(needCamera: Bool) -> String { return preflightText }
 
@@ -92,11 +100,22 @@ private final class FakePorts: ExamPorts {
 
     func release() async { released += 1 }
 
+    func saveKey(_ name: String, _ text: String) async -> String {
+        keys.append((name: name, text: text))
+        return keyLink
+    }
+
     // MARK: Sahte Gemini
 
     func ask(_ task: ExamTask, docs: [GeminiDoc]) async throws -> String {
         asks.append(task.prompt)
-        if !failAsk.isEmpty { throw failAsk.removeFirst() }
+        let recheck = task.prompt.hasPrefix("Şu soruları SIFIRDAN")
+        if recheck {
+            recheckCalls += 1
+            if !failRecheck.isEmpty { throw failRecheck.removeFirst() }
+        } else if !failAsk.isEmpty {
+            throw failAsk.removeFirst()
+        }
         if !rawReplies.isEmpty { return rawReplies.removeFirst() }
         if task.prompt.hasPrefix("Belgelerdeki") {
             let pages = sentFiles.reduce(0) { $0 + $1.photos }
@@ -112,7 +131,11 @@ private final class FakePorts: ExamPorts {
         var out: [[String: Any]] = []
         for line in task.prompt.components(separatedBy: "\n").dropFirst() {
             guard line.hasPrefix("no: "), let n = Int(line.dropFirst(4)) else { continue }
-            out.append(FakePorts.answer(n, unread: unreadNos.contains(n), unsure: unsureNos.contains(n)))
+            if recheck, let a = alt[n] {
+                out.append(["bolum": "", "no": n, "durum": a.2, "sik": a.0, "deger": a.1, "gerekce": ""])
+            } else {
+                out.append(FakePorts.answer(n, unread: unreadNos.contains(n), unsure: unsureNos.contains(n) && !recheck))
+            }
         }
         return json(["cevaplar": out])
     }
@@ -593,6 +616,113 @@ final class ExamModeTests: XCTestCase {
         await finish(exam)
     }
 
+    // MARK: İkinci çözüm ("emin değilim")
+
+    func testUnsureQuestionsAreSolvedAgainAndBothAnswersAreSpoken() async {
+        let p = FakePorts()
+        p.questionNos = Array(1...12)
+        p.unsureNos = [3, 7, 11]
+        p.alt[3] = ("B", "99", "tamam")             // farklı çıkar
+        p.alt[11] = ("", "", "okunamadi")           // ikinci çözüm okunamadı
+        // 7: ikinci çözüm ilkiyle aynı
+        let exam = make(p)
+        XCTAssertTrue(exam.start())
+        await scanPages(exam, p, ["a.jpg", "b.jpg", "c.jpg"])
+        exam.command("scan_done")
+        let reached = await until(15) { exam.status == "Soru numarası bekleniyor" }
+        XCTAssertTrue(reached, "\(p.spoken.suffix(4))")
+        XCTAssertEqual(p.recheckCalls, 1, "ikinci çözüm yalnız emin olunmayan sorular için, tek istekle yapılır")
+        let recheckPrompt = p.asks.first(where: { $0.hasPrefix("Şu soruları SIFIRDAN") }) ?? ""
+        XCTAssertTrue(recheckPrompt.contains("no: 3") && recheckPrompt.contains("no: 7") && recheckPrompt.contains("no: 11"))
+        XCTAssertFalse(recheckPrompt.contains("no: 4"))
+        let l3 = "Üçüncü sorunun cevabı Edirne, 30 metre. Emin değilim. İkinci çözümde cevap Bursa, 99 çıktı."
+        XCTAssertEqual(p.spoken.filter { $0 == l3 }.count, 2, "\(p.spoken.filter { $0.contains("Üçüncü") })")
+        let l7 = "Yedinci sorunun cevabı Edirne, 70 metre. Emin değilim. İkinci çözümde de aynı çıktı."
+        XCTAssertEqual(p.spoken.filter { $0 == l7 }.count, 2, "\(p.spoken.filter { $0.contains("Yedinci") })")
+        let l11 = "On birinci sorunun cevabı Edirne, 110 metre. Emin değilim."
+        XCTAssertEqual(p.spoken.filter { $0 == l11 }.count, 2, "\(p.spoken.filter { $0.contains("On birinci") })")
+        let before = p.asks.count
+        await settle()
+        XCTAssertTrue(exam.hear("üçüncü soru"))
+        let again = await until { p.spoken.filter { $0 == l3 }.count == 3 }
+        XCTAssertTrue(again)
+        XCTAssertEqual(p.asks.count, before, "kayıttan tekrar Gemini'ye gitmez")
+        await finish(exam)
+    }
+
+    func testSecondSolveFailureDoesNotStopTheExam() async {
+        let p = FakePorts()
+        p.questionNos = [1, 2]
+        p.unsureNos = [2]
+        p.failRecheck = [GeminiError("Kota doldu.", .quota, status: 429)]
+        let exam = make(p)
+        XCTAssertTrue(exam.start())
+        await scanPages(exam, p, ["a.jpg", "b.jpg"])
+        exam.command("scan_done")
+        let reached = await until { exam.status == "Soru numarası bekleniyor" }
+        XCTAssertTrue(reached, "\(p.spoken)")
+        XCTAssertTrue(p.spoken.contains("İkinci sorunun cevabı Denizli, 20 metre. Emin değilim."), "\(p.spoken.filter { $0.contains("İkinci") })")
+        XCTAssertFalse(p.spoken.contains(where: { $0.contains("Sorun giderilince") }))
+        XCTAssertEqual(p.recheckCalls, 1, "başarısız ikinci çözüm bir kez denenir, sonra vazgeçilir")
+        await finish(exam)
+    }
+
+    // MARK: Cevap anahtarı
+
+    func testAnswerKeyIsListedAndUploadedWhenTheExamEnds() async {
+        let p = FakePorts()
+        p.questionNos = [1, 2, 3, 4]
+        p.unsureNos = [2]
+        p.alt[2] = ("C", "29", "tamam")
+        p.unreadNos = [3]
+        let exam = make(p)
+        XCTAssertTrue(exam.start())
+        await scanPages(exam, p, ["a.jpg", "b.jpg"])
+        exam.command("scan_done")
+        let reached = await until { exam.status == "Soru numarası bekleniyor" }
+        XCTAssertTrue(reached, "\(p.spoken)")
+        let rows = exam.key
+        XCTAssertEqual(rows.map { $0.no }, [1, 2, 3, 4])
+        XCTAssertEqual(rows[0].sik, "B")
+        XCTAssertEqual(rows[0].word, "Bursa")
+        XCTAssertEqual(rows[0].deger, "10 metre")
+        XCTAssertEqual(rows[1].durum, ExamStatus.unsure)
+        XCTAssertEqual(rows[1].altSik, "C")
+        XCTAssertEqual(rows[1].altWord, "Denizli")
+        XCTAssertEqual(rows[2].durum, ExamStatus.unread)
+        let text = exam.answerKeyText()
+        XCTAssertTrue(text.hasPrefix("Deneme sınavı cevap anahtarı\n"), text)
+        XCTAssertTrue(text.contains("Soru sayısı: 4 (okunamayan ya da alınamayan: 1)"), text)
+        XCTAssertTrue(text.contains("1. soru: B - Bursa, 10 metre"), text)
+        XCTAssertTrue(text.contains("2. soru: C - Denizli, 20 metre (emin değil; ikinci çözüm: C - Denizli, 29)"), text)
+        XCTAssertTrue(text.contains("3. soru: okunamadı"), text)
+        XCTAssertTrue(p.keys.isEmpty, "sınav sürerken Drive'a yüklenmez")
+
+        exam.command("end", source: "ui")
+        let done = await exam.waitDone(timeout: 8)
+        XCTAssertTrue(done)
+        XCTAssertEqual(p.spoken.last, "Deneme sınavı tamamlandı.")
+        _ = await exam.keyTask?.value
+        XCTAssertEqual(p.keys.count, 1)
+        XCTAssertTrue(p.keys.first?.name.hasPrefix("Cevap_Anahtari_") == true)
+        XCTAssertTrue(p.keys.first?.name.hasSuffix(".txt") == true)
+        XCTAssertEqual(p.keys.first?.text, text)
+        XCTAssertEqual(exam.keyLink, "https://drive.example/anahtar")
+        XCTAssertEqual(exam.key.count, 4, "sınav bittikten sonra da anahtar görünür")
+    }
+
+    func testUnfinishedExamDoesNotUploadAKey() async {
+        let p = FakePorts()
+        let exam = make(p)
+        XCTAssertTrue(exam.start())
+        await scanPages(exam, p, ["a.jpg"])
+        await finish(exam)
+        XCTAssertNil(exam.keyTask)
+        XCTAssertTrue(p.keys.isEmpty)
+        XCTAssertTrue(exam.key.isEmpty)
+        XCTAssertEqual(exam.answerKeyText(), "")
+    }
+
     // MARK: Yardımcılar
 
     func testNormalizeAndFormattingHelpers() {
@@ -632,6 +762,17 @@ final class ExamModeTests: XCTestCase {
         let back = try JSONDecoder().decode(ExamState.self, from: data)
         XCTAssertEqual(back.id, "abc")
         XCTAssertEqual(back.answers["|1"]?.sik, "A")
+        // ikinci çözüm alanları olmayan eski kayıt okunur
+        let legacy = "{\"v\":1,\"id\":\"z\",\"answers\":{\"|1\":{\"bolum\":\"\",\"no\":1,\"durum\":\"tamam\",\"sik\":\"A\",\"deger\":\"x\",\"gerekce\":\"g\"}}}"
+        let legacyState = try JSONDecoder().decode(ExamState.self, from: Data(legacy.utf8))
+        XCTAssertEqual(legacyState.answers["|1"]?.sik, "A")
+        XCTAssertNil(legacyState.answers["|1"]?.alt)
+        var withAlt = ExamState()
+        withAlt.answers["|2"] = ExamAnswer(bolum: "", no: 2, durum: "belirsiz", sik: "B", deger: "", gerekce: "",
+                                           alt: ExamAlt(sik: "C", deger: "5", durum: "tamam"), altTried: true)
+        let altBack = try JSONDecoder().decode(ExamState.self, from: try JSONEncoder().encode(withAlt))
+        XCTAssertEqual(altBack.answers["|2"]?.alt, ExamAlt(sik: "C", deger: "5", durum: "tamam"))
+        XCTAssertEqual(altBack.answers["|2"]?.altTried, true)
         let old = try JSONDecoder().decode(ExamState.self, from: Data("{\"v\":1,\"id\":\"z\"}".utf8))
         XCTAssertEqual(old.id, "z")
         XCTAssertEqual(old.stage, "scan")

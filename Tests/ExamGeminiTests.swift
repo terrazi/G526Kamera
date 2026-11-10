@@ -129,6 +129,14 @@ final class ExamGeminiRequestTests: XCTestCase {
         XCTAssertTrue(text.hasPrefix("Şu soruları cevapla"))
     }
 
+    func testRecheckPromptAsksForAFreshIndependentSolution() {
+        let text = ExamPrompts.recheckPrompt([(bolum: "", no: 3), (bolum: "Test 2", no: 7)])
+        XCTAssertTrue(text.hasPrefix("Şu soruları SIFIRDAN"))
+        XCTAssertTrue(text.contains("no: 3"))
+        XCTAssertTrue(text.contains("bolum: 'Test 2', no: 7"))
+        XCTAssertNotEqual(text, ExamPrompts.answerPrompt([(bolum: "", no: 3), (bolum: "Test 2", no: 7)]))
+    }
+
     func testParseTaskReturnsTextAndSkipsThoughts() throws {
         let object: [String: Any] = ["candidates": [["finishReason": "STOP", "content": ["parts": [
             ["text": "düşünce", "thought": true], ["text": "{\"cevaplar\":"], ["text": "[]}"]]]]]]

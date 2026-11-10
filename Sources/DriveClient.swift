@@ -4,11 +4,14 @@ import Foundation
 enum UploadPayload {
     case jpeg(URL)
     case pdf([URL], title: String, texts: [String])
+    /// Düz metin dosyası (deneme sınavı cevap anahtarı): PDF olmadığı için Gemini belge sohbetine karışmaz
+    case text(URL)
 
     var mime: String {
         switch self {
         case .jpeg: return "image/jpeg"
         case .pdf: return "application/pdf"
+        case .text: return "text/plain"
         }
     }
 }
@@ -150,7 +153,7 @@ final class DriveClient {
         try handle.write(contentsOf: meta)
         try handle.write(contentsOf: Data("\r\n--\(boundary)\r\nContent-Type: \(payload.mime)\r\n\r\n".utf8))
         switch payload {
-        case .jpeg(let file):
+        case .jpeg(let file), .text(let file):
             let source = try FileHandle(forReadingFrom: file)
             defer { try? source.close() }
             while true {

@@ -85,6 +85,20 @@ enum ExamPrompts {
     }
 }
 
+extension ExamPrompts {
+    /// Emin olunmayan soruları bağımsız olarak, özenle yeniden çözdürür (keys: (bölüm, numara))
+    static func recheckPrompt(_ keys: [(bolum: String, no: Int)]) -> String {
+        var lines: [String] = []
+        for k in keys {
+            lines.append(k.bolum.isEmpty ? "no: \(k.no)" : "bolum: '\(k.bolum)', no: \(k.no)")
+        }
+        let head: String = "Şu soruları SIFIRDAN, adım adım ve çok dikkatli yeniden çöz: daha önce bir cevap vermedin, "
+            + "kendini tekrar etme. Hesap varsa hesabı baştan yap ve her şıkkı tek tek eleyerek ilerle; sayfa görüntüsündeki "
+            + "soru ve şıkları yeniden oku. Her biri için 'cevaplar' listesine tam bir kayıt yaz, sırayı koru, hiçbirini atlama:\n"
+        return head + lines.joined(separator: "\n")
+    }
+}
+
 extension GeminiSupport {
     /// Belgeler üzerinde yapılandırılmış (JSON şemalı) görev isteği. Geçmiş kullanılmaz. Dosya adresli belgeler Files API'den,
     /// diğerleri inline gider.

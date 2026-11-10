@@ -155,4 +155,19 @@ final class ExamPortsReal: ExamPorts {
     func release() async {
         queue.setExam(hold: false, exam: false)
     }
+
+    func saveKey(_ name: String, _ text: String) async -> String {
+        guard auth.isSignedIn else { return "" }
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("anahtar-\(UUID().uuidString).txt")
+        defer { try? FileManager.default.removeItem(at: file) }
+        do {
+            try Data(text.utf8).write(to: file, options: .atomic)
+            let result = try await DriveClient(auth: auth).uploadFile(.text(file), name: name)
+            tlog("[sinav] cevap anahtarı Drive'a yüklendi: \(name)")
+            return result.id.isEmpty ? "" : "https://drive.google.com/file/d/\(result.id)/view"
+        } catch {
+            tlog("[sinav] cevap anahtarı yüklenemedi: \(error.localizedDescription)")
+            return ""
+        }
+    }
 }

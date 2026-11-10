@@ -346,6 +346,26 @@ struct ExamRow: View {
         }
     }
 
+    /// Cevap anahtarı satırının yazısı
+    static func keyText(_ r: ExamKeyRow) -> String {
+        let head = r.bolum.isEmpty ? "\(r.no). soru" : "\(r.bolum), \(r.no). soru"
+        if r.durum == ExamStatus.unread { return "\(head): okunamadı" }
+        if r.durum == ExamStatus.missing { return "\(head): alınamadı" }
+        func part(_ sik: String, _ word: String, _ deger: String) -> String {
+            var out = [sik, word].filter { !$0.isEmpty }.joined(separator: " - ")
+            if !deger.isEmpty { out = out.isEmpty ? deger : "\(out), \(deger)" }
+            return out
+        }
+        let main = part(r.sik, r.word, r.deger)
+        var text = "\(head): \(main.isEmpty ? "-" : main)"
+        if r.durum == ExamStatus.unsure {
+            text += " (emin değil"
+            if !r.altSik.isEmpty || !r.altDeger.isEmpty { text += "; ikinci çözüm: \(part(r.altSik, r.altWord, r.altDeger))" }
+            text += ")"
+        }
+        return text
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Label(headline, systemImage: "list.number")
@@ -361,6 +381,21 @@ struct ExamRow: View {
             }
             if let last = exam.said.last {
                 Text(last).font(.footnote)
+            }
+            if !exam.key.isEmpty {
+                DisclosureGroup("Cevap anahtarı (\(exam.key.count) soru)") {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(exam.key) { row in
+                            Text(ExamRow.keyText(row))
+                                .font(.footnote)
+                                .foregroundColor(row.durum == ExamStatus.ok ? .primary : .orange)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                    .padding(.top, 4)
+                }
+                .font(.footnote)
+                .accessibilityIdentifier("sinav-anahtar")
             }
             HStack(spacing: 12) {
                 Button(exam.info.active ? "Sınavı kapat" : "Deneme sınavı modu") {

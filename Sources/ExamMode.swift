@@ -37,6 +37,13 @@ struct ExamQuestion: Codable, Equatable {
     var no: Int
 }
 
+/// "Emin değilim" sorusunun bağımsız ikinci çözümü
+struct ExamAlt: Codable, Equatable {
+    var sik: String
+    var deger: String
+    var durum: String
+}
+
 struct ExamAnswer: Codable, Equatable {
     var bolum: String
     var no: Int
@@ -44,6 +51,24 @@ struct ExamAnswer: Codable, Equatable {
     var sik: String
     var deger: String
     var gerekce: String
+    /// İkinci çözüm (yalnız "belirsiz" cevaplarda, varsa)
+    var alt: ExamAlt?
+    /// İkinci çözüm denendi (başarısız olsa da bir kez denenir)
+    var altTried: Bool?
+}
+
+/// Cevap anahtarı satırı (ekranda gösterilir, Drive'a yazılı dosya olur)
+struct ExamKeyRow: Equatable, Identifiable {
+    var id: String
+    var bolum: String
+    var no: Int
+    var durum: String
+    var sik: String
+    var word: String
+    var deger: String
+    var altSik: String
+    var altWord: String
+    var altDeger: String
 }
 
 enum ExamStatus {
@@ -144,6 +169,8 @@ protocol ExamPorts: AnyObject {
     /// [(harf, kod sözcüğü)]
     func codes() -> [(letter: String, word: String)]
     func release() async
+    /// Cevap anahtarı metnini Drive'a düz metin dosyası olarak yükler; bağlantı (yoksa boş) döndürür. Başarısızlık sınavı etkilemez.
+    func saveKey(_ name: String, _ text: String) async -> String
 }
 
 @MainActor
@@ -157,6 +184,11 @@ final class ExamMode: ObservableObject {
     @Published private(set) var status = ""
     @Published private(set) var said: [String] = []
     @Published private(set) var info = ExamInfo()
+    /// Cevap anahtarı (kayıtlı cevaplardan; sınav sırasıyla)
+    @Published private(set) var key: [ExamKeyRow] = []
+    /// Cevap anahtarı Drive'a yüklendiyse bağlantısı
+    private(set) var keyLink = ""
+    private(set) var keyTask: Task<Void, Never>?
 
     /// Konuşma bitince bu kadar sn içindeki sesli komutlar yok sayılır (kendi sesimizin yankısı)
     var echoGuard: Double = 1.0
@@ -219,6 +251,8 @@ final class ExamMode: ObservableObject {
                         scanned: hasState ? st.scanned : 0, files: hasState ? st.sent.count : 0,
                         questions: hasState ? st.questions.count : 0, answered: hasState ? st.answers.count : 0,
                         saved: savedSummary() != nil)
+        let rows = answerKey()
+        if rows != key { key = rows }
     }
 
     private func fresh() -> ExamState {
@@ -243,6 +277,72 @@ final class ExamMode: ObservableObject {
         if hasState && !st.answers.isEmpty && !st.questions.isEmpty { return st }
         if let d = loadState(), !d.answers.isEmpty, !d.questions.isEmpty { return d }
         return nil
+    }
+
+    // MARK: Cevap anahtarı
+
+    /// Cevap anahtarı satırları (sınav sırasıyla). Yalnız kayıtlı cevaplardan üretilir (Gemini'ye gitmez); cevabı henüz gelmemiş sorular yok.
+    func answerKey() -> [ExamKeyRow] {
+        guard let d = lastAnswers() else { return [] }
+        var codes: [String: String] = [:]
+        for c in ports.codes() { codes[c.letter] = c.word }
+        var rows: [ExamKeyRow] = []
+        for q in d.questions {
+            let k = ExamMode.qkey(q.bolum, q.no)
+            guard let a = d.answers[k] else { continue }
+            let alt = a.alt
+            rows.append(ExamKeyRow(id: k, bolum: q.bolum, no: q.no, durum: a.durum, sik: a.sik, word: codes[a.sik] ?? "",
+                                   deger: a.deger, altSik: alt?.sik ?? "", altWord: codes[alt?.sik ?? ""] ?? "",
+                                   altDeger: alt?.deger ?? ""))
+        }
+        return rows
+    }
+
+    private static func keyPart(_ sik: String, _ word: String, _ deger: String) -> String {
+        var out = [sik, word].filter { !$0.isEmpty }.joined(separator: " - ")
+        if !deger.isEmpty { out = out.isEmpty ? deger : "\(out), \(deger)" }
+        return out
+    }
+
+    /// Cevap anahtarının yazılı hali (Drive'a yüklenen dosya); cevap yoksa boş
+    func answerKeyText() -> String {
+        let rows = answerKey()
+        if rows.isEmpty { return "" }
+        let started = lastAnswers()?.started ?? now()
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd HH:mm"
+        var bad = 0
+        var lines: [String] = []
+        for r in rows {
+            let head = r.bolum.isEmpty ? "\(r.no). soru" : "\(r.bolum), \(r.no). soru"
+            if r.durum == ExamStatus.unread || r.durum == ExamStatus.missing {
+                bad += 1
+                lines.append("\(head): \(r.durum == ExamStatus.unread ? "okunamadı" : "alınamadı")")
+                continue
+            }
+            let ans = ExamMode.keyPart(r.sik, r.word, r.deger)
+            var line = "\(head): \(ans.isEmpty ? "-" : ans)"
+            if r.durum == ExamStatus.unsure {
+                line += " (emin değil"
+                if !r.altSik.isEmpty || !r.altDeger.isEmpty {
+                    line += "; ikinci çözüm: \(ExamMode.keyPart(r.altSik, r.altWord, r.altDeger))"
+                }
+                line += ")"
+            }
+            lines.append(line)
+        }
+        let count = "Soru sayısı: \(rows.count)" + (bad > 0 ? " (okunamayan ya da alınamayan: \(bad))" : "")
+        let header = ["Deneme sınavı cevap anahtarı", "Tarih: " + f.string(from: Date(timeIntervalSince1970: started)), count, ""]
+        return (header + lines).joined(separator: "\n") + "\n"
+    }
+
+    /// Sınav bitince cevap anahtarını Drive'a yükler (en iyi gayret)
+    private func uploadKey() async {
+        let text = answerKeyText()
+        if text.isEmpty { return }
+        let id = hasState && !st.id.isEmpty ? st.id : "sinav"
+        keyLink = await ports.saveKey("Cevap_Anahtari_\(id).txt", text)
     }
 
     // MARK: Dışarıdan gelenler
@@ -573,6 +673,11 @@ final class ExamMode: ObservableObject {
         let held = (hasState && st.stage == "scan") ? st.photos.count : 0
         if finished {
             await sayNow("Deneme sınavı tamamlandı.")
+            keyLink = ""
+            keyTask = Task { [weak self] in
+                guard let self = self else { return }
+                await self.uploadKey()
+            }
         } else if held > 0 {
             await sayNow("Deneme sınavı kapatıldı. Taranan \(held) sayfa, ayarlarınızdaki yöntemle Drive'a gönderilecek.")
         } else {
@@ -864,7 +969,10 @@ final class ExamMode: ObservableObject {
         let want = keys.filter { qmap[$0] != nil }
         for _ in 0..<2 {
             let todo = want.filter { st.answers[$0] == nil || st.answers[$0]?.durum == ExamStatus.missing }
-            if todo.isEmpty { return }
+            if todo.isEmpty {
+                try await secondSolve(want)
+                return
+            }
             var byNo: [Int: [String]] = [:]
             for k in todo {
                 if let q = qmap[k] { byNo[q.no, default: []].append(k) }
@@ -894,6 +1002,46 @@ final class ExamMode: ObservableObject {
             if let q = qmap[k] {
                 st.answers[k] = ExamAnswer(bolum: q.bolum, no: q.no, durum: ExamStatus.missing, sik: "", deger: "", gerekce: "")
             }
+        }
+        save()
+        try await secondSolve(want)
+    }
+
+    /// "Emin değilim" diye işaretlenen soruları bağımsız bir ikinci istekle, özenli bir yönergeyle yeniden çözdürür; sonuç cevabın
+    /// `alt` alanına yazılır (okunurken iki cevap da söylenir). En iyi gayret: başarısız olursa sınav aksamaz.
+    private func secondSolve(_ keys: [String]) async throws {
+        var qmap: [String: ExamQuestion] = [:]
+        for q in st.questions { qmap[ExamMode.qkey(q.bolum, q.no)] = q }
+        let todo = keys.filter { qmap[$0] != nil && st.answers[$0]?.durum == ExamStatus.unsure && st.answers[$0]?.altTried != true }
+        for k in todo { st.answers[k]?.altTried = true }          // bir kez denenir (kota/bozuk cevapta her grupta tekrarlanmasın)
+        if todo.isEmpty { return }
+        var byNo: [Int: [String]] = [:]
+        for k in todo {
+            if let q = qmap[k] { byNo[q.no, default: []].append(k) }
+        }
+        let asked = todo.compactMap { k -> (bolum: String, no: Int)? in
+            guard let q = qmap[k] else { return nil }
+            return (bolum: q.bolum, no: q.no)
+        }
+        let task = ExamTask(prompt: ExamPrompts.recheckPrompt(asked), schema: ExamPrompts.answerSchema)
+        let data: [String: Any]
+        do {
+            data = try await askJSON(task, key: "cevaplar")
+        } catch {
+            if isStop(error) { throw error }
+            tlog("[sinav] ikinci çözüm alınamadı: \(message(error))")
+            save()
+            return
+        }
+        for item in (data["cevaplar"] as? [Any]) ?? [] {
+            guard let entry = item as? [String: Any], let b = ExamMode.normalize(entry), b.durum != ExamStatus.unread else { continue }
+            var k = ExamMode.qkey(b.bolum, b.no)
+            if !todo.contains(k) {
+                let cands = byNo[b.no] ?? []
+                if cands.count != 1 { continue }
+                k = cands[0]
+            }
+            st.answers[k]?.alt = ExamAlt(sik: b.sik, deger: b.deger, durum: b.durum)
         }
         save()
     }
@@ -965,9 +1113,26 @@ final class ExamMode: ObservableObject {
         var text = "\(pre)\(label) sorunun cevabı \(word)"
         if !ans.deger.isEmpty { text += ", \(ans.deger)" }
         text += "."
-        if ans.durum == ExamStatus.unsure { text += " Emin değilim." }
+        if ans.durum == ExamStatus.unsure {
+            text += " Emin değilim."
+            if let alt = ans.alt {
+                if ExamMode.sameAnswer(ans, alt) {
+                    text += " İkinci çözümde de aynı çıktı."
+                } else {
+                    let aw = codes[alt.sik] ?? alt.sik
+                    let av = (!aw.isEmpty && !alt.deger.isEmpty) ? "\(aw), \(alt.deger)" : (aw.isEmpty ? alt.deger : aw)
+                    text += " İkinci çözümde cevap \(av) çıktı."
+                }
+            }
+        }
         if reason && !ans.gerekce.isEmpty { text += " Gerekçe: \(ans.gerekce)" }
         return ExamMode.cap(text)
+    }
+
+    /// İkinci çözüm ilkiyle aynı mı: şık varsa şık, yoksa değer karşılaştırılır
+    static func sameAnswer(_ a: ExamAnswer, _ alt: ExamAlt) -> Bool {
+        if !a.sik.isEmpty || !alt.sik.isEmpty { return a.sik == alt.sik }
+        return ExamText.fold(a.deger) == ExamText.fold(alt.deger)
     }
 
     /// Cümlenin ilk harfini büyütür (Türkçe: i → İ, ı → I)
