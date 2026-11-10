@@ -327,7 +327,7 @@ final class ExamModeTests: XCTestCase {
         exam.command("scan_done")
         let reached = await until { exam.status == "Soru numarası bekleniyor" }
         XCTAssertTrue(reached)
-        XCTAssertTrue(p.spoken.contains(FakePorts.line(1) + " Emin değilim."), "\(p.spoken)")
+        XCTAssertTrue(p.spoken.contains(FakePorts.line(1) + " Emin değilim. İkinci çözümde de aynı çıktı."), "\(p.spoken)")
         await finish(exam)
     }
 
