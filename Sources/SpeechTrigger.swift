@@ -206,9 +206,16 @@ final class SpeechTrigger {
         }
     }
     private(set) var commands: [Command] = []
+    /// Konuşma tanımaya ek bağlam ipuçları (deneme sınavı komutları gibi); tanıma yeniden başlayınca geçerli olur
+    var extraHints: [String] = []
 
     func setCommands(_ list: [Command]) {
         commands = list
+    }
+
+    /// Tanıma görevini yeniden başlatır: o ana kadar biriken yazı sıfırlanır (serbest metin okuyan sınav akışı için)
+    func restartListening() {
+        restartTask(after: 0.15)
     }
 
     private let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "tr-TR"))
@@ -423,6 +430,7 @@ final class SpeechTrigger {
                 hints.append(phrase.capitalized)
             }
         }
+        hints.append(contentsOf: extraHints)
         // Seçim sözcüklerinin ASR'nin tanıyacağı biçimleri (aksanlı yazım) bağlam ipucu olur
         hints.append(contentsOf: ["sol", "sağ", "orta", "sol taraf", "sağ taraf", "sol sütun", "sağ sütun",
                                   "sol sayfa", "sağ sayfa", "soldaki", "sağdaki", "ortadaki", "ikisi", "ikisi birden"])

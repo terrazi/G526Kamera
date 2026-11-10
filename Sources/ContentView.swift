@@ -15,6 +15,7 @@ struct ContentView: View {
                     VoiceRow(status: model.speechStatus, heard: model.heardText,
                              enabled: settings.voiceEnabled || settings.guidanceEnabled)
                     if settings.geminiEnabled { GeminiRow(chat: model.gemini) }
+                    ExamRow(exam: model.exam)
                     Toggle(isOn: $settings.motionEnabled) {
                         Label("Görüntü değişince otomatik çek", systemImage: "wand.and.rays")
                     }
@@ -320,6 +321,62 @@ struct GeminiRow: View {
                 Text("Sohbette \(chat.turns) soru · son cevap \(chat.tokens) jeton")
                     .font(.caption2)
                     .foregroundColor(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(Color(UIColor.secondarySystemBackground))
+        .cornerRadius(12)
+    }
+}
+
+
+/// Deneme sınavı kartı: adım, sayaçlar, son söylenen cümle ve başlat / kapat düğmeleri
+struct ExamRow: View {
+    @ObservedObject var exam: ExamMode
+
+    private var headline: String {
+        switch exam.stage {
+        case "scan": return "Deneme sınavı: tarama"
+        case "send": return "Deneme sınavı: Drive’a gönderim"
+        case "prepare", "verify": return "Deneme sınavı: belgeler okunuyor"
+        case "answer": return "Deneme sınavı: cevaplar"
+        case "review": return "Deneme sınavı: soru numarası bekleniyor"
+        default: return exam.info.saved ? "Deneme sınavı: yarım kalan sınav var" : "Deneme sınavı"
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(headline, systemImage: "list.number")
+                .font(.subheadline.weight(.semibold))
+                .accessibilityIdentifier("sinav-durum")
+            if !exam.status.isEmpty {
+                Text(exam.status).font(.caption).foregroundColor(.secondary)
+            }
+            if exam.info.active || exam.info.questions > 0 {
+                Text("\(exam.info.scanned) sayfa · \(exam.info.files) PDF · \(exam.info.questions) soru · \(exam.info.answered) cevap")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+            if let last = exam.said.last {
+                Text(last).font(.footnote)
+            }
+            HStack(spacing: 12) {
+                Button(exam.info.active ? "Sınavı kapat" : "Deneme sınavı modu") {
+                    if exam.info.active {
+                        exam.stop()
+                    } else {
+                        _ = exam.start()
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .accessibilityIdentifier("sinav-dugme")
+                if exam.info.active && exam.stage == "scan" {
+                    Button("Tarama tamamlandı") { _ = exam.command("scan_done", source: "ui") }
+                        .buttonStyle(.bordered)
+                        .accessibilityIdentifier("sinav-tarama-tamam")
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

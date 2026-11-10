@@ -146,6 +146,16 @@ final class GeminiDocStore: GeminiDocProviding, @unchecked Sendable {
         if listing.isEmpty {
             return ([], ["Drive klasöründe PDF bulunamadı. Belgeler bu uygulamayla ve aynı Google kimliğiyle PDF olarak yüklenmiş olmalı; Drive’da elle açılan klasör ya da elle atılan dosyalar görünmez."])
         }
+        return try await build(listing)
+    }
+
+    /// Verilen PDF'lerin belgeleri, verilen sırayla (deneme sınavı: tarama sırası; Belge 1 ilk taranandır)
+    func docs(for files: [DriveFileInfo]) async throws -> (docs: [GeminiDoc], notes: [String]) {
+        if files.isEmpty { return ([], ["Gönderilmiş belge bulunamadı."]) }
+        return try await build(files)
+    }
+
+    private func build(_ listing: [DriveFileInfo]) async throws -> (docs: [GeminiDoc], notes: [String]) {
         var index = loadPages()
         let todo = listing.filter { index[pkey($0)] == nil }
         if !todo.isEmpty {

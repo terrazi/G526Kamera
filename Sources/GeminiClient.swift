@@ -964,6 +964,12 @@ final class GeminiClient: GeminiAsking, GeminiRemote {
         return GeminiSupport.parseModelList(json)
     }
 
+    /// Deneme sınavı görevleri (ExamGemini.swift): verilen (seçili ya da yedek) modele generateContent isteği gönderir
+    func postTask(model name: String, body: Data, serverRetries: Int) async throws -> Any {
+        let escaped = name.addingPercentEncoding(withAllowedCharacters: GeminiClient.pathAllowed) ?? name
+        return try await post(path: "/models/\(escaped):generateContent", body: body, serverRetries: serverRetries)
+    }
+
     /// Sunucu hatalarında (500/502/503/504) yeniden denemeden önce beklenecek süreler (sn). Gemini'nin geçici
     /// "yoğunluk" (503) hataları genelde birkaç saniyede geçer.
     static let serverBackoff: [TimeInterval] = [1.5, 4.0, 8.0]

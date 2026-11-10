@@ -239,6 +239,11 @@ final class DriveClient {
     /// Klasöre yükler, dosya kimliğini döndürür.
     @discardableResult
     func upload(_ payload: UploadPayload, name: String) async throws -> String {
+        return try await uploadFile(payload, name: name).id
+    }
+
+    /// Klasöre yükler; dosya kimliğini ve (Drive'ın bildirdiği) boyutunu döndürür.
+    func uploadFile(_ payload: UploadPayload, name: String) async throws -> (id: String, size: Int) {
         var folder = try await ensureFolder()
         var attempt = 0
         while true {
@@ -252,7 +257,7 @@ final class DriveClient {
                 try DriveClient.buildBody(payload: payload, name: name, folder: folderID, boundary: boundary, to: bodyURL)
             }.value
 
-            let url = URL(string: uploadURL + "?uploadType=multipart&fields=id")!
+            let url = URL(string: uploadURL + "?uploadType=multipart&fields=id,size")!
             let (status, data) = try await authorized({ token in
                 var r = URLRequest(url: url)
                 r.httpMethod = "POST"
@@ -262,7 +267,11 @@ final class DriveClient {
             }, bodyFile: bodyURL)
 
             if (200..<300).contains(status) {
-                return Http.jsonObject(data)["id"] as? String ?? ""
+                let json = Http.jsonObject(data)
+                var size = 0
+                if let text = json["size"] as? String { size = Int(text) ?? 0 }
+                else if let number = json["size"] as? NSNumber { size = number.intValue }
+                return (id: json["id"] as? String ?? "", size: size)
             }
             if status == 404 && attempt == 0 {
                 // Klasör silinmiş olabilir: yeniden oluştur ve bir kez daha dene

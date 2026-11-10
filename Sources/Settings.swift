@@ -112,6 +112,16 @@ final class AppSettings: ObservableObject {
     /// Toplu cevapta (10'arlı gruplar) kullanıcıya ulaşan son soru numarası; kalıcıdır, "ilk on soru" deyince yeniden başlar
     @Published var geminiBatchLast: Int { didSet { d.set(geminiBatchLast, forKey: "geminiBatchLast") } }
 
+    // MARK: Deneme sınavı
+    /// Cevaplar bu kadarlık gruplar halinde okunur (3-20)
+    @Published var examGroup: Int { didSet { d.set(examGroup, forKey: "examGroup") } }
+    /// Gemini'den bir seferde en çok bu kadar sorunun cevabı istenir (5-40)
+    @Published var examFetch: Int { didSet { d.set(examFetch, forKey: "examFetch") } }
+    /// "Tarama tamamlandı"dan sonra gönderimden önce vazgeçme süresi, sn (0-15)
+    @Published var examCancelWindow: Int { didSet { d.set(examCancelWindow, forKey: "examCancelWindow") } }
+    /// Cevap grupları arasındaki duraklama, sn (0-10); bu sürede "duraklat" denebilir
+    @Published var examGap: Int { didSet { d.set(examGap, forKey: "examGap") } }
+
     // MARK: Drive
     @Published var driveFolderName: String { didSet { d.set(driveFolderName, forKey: "driveFolderName") } }
     @Published var driveFolderID: String { didSet { d.set(driveFolderID, forKey: "driveFolderID") } }
@@ -205,6 +215,10 @@ final class AppSettings: ObservableObject {
         geminiMemory = d.object(forKey: "geminiMemory") as? Bool ?? true
         geminiOptionCodes = d.string(forKey: "geminiOptionCodes") ?? GeminiConfig.defaultOptionCodes
         geminiBatchLast = min(max(d.object(forKey: "geminiBatchLast") as? Int ?? 0, 0), 100000)
+        examGroup = min(max(d.object(forKey: "examGroup") as? Int ?? 10, 3), 20)
+        examFetch = min(max(d.object(forKey: "examFetch") as? Int ?? 20, 5), 40)
+        examCancelWindow = min(max(d.object(forKey: "examCancelWindow") as? Int ?? 5, 0), 15)
+        examGap = min(max(d.object(forKey: "examGap") as? Int ?? 3, 0), 10)
         previewOff = d.object(forKey: "previewOff") as? Bool ?? false
         dimWhenPreviewOff = d.object(forKey: "dimWhenPreviewOff") as? Bool ?? true
     }

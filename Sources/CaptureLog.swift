@@ -21,6 +21,11 @@ struct CaptureLog {
         if names.count > 50 { names.removeFirst(names.count - 50) }
     }
 
+    /// Belirli bir fotoğraf (başka yoldan silindi) sıradan çıkar
+    mutating func forget(_ name: String) {
+        names.removeAll { $0 == name }
+    }
+
     /// Son çekilen fotoğrafı silmeye çalışır. `pending`: diskte bekleyen dosya adları, `inFlight`: yüklenmekte olanlar.
     mutating func takeLast(pending: Set<String>, inFlight: Set<String>) -> Outcome {
         guard let last = names.last else { return .none }

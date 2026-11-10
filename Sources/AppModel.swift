@@ -131,6 +131,13 @@ final class AppModel: ObservableObject {
     private let pipeline = FramePipeline()
     private let decodeClock = DecodeClock()
     private let speech = SpeechTrigger()
+    /// Deneme sınavı (sesli rehberli tarama → Drive → Gemini cevapları); ilk kullanımda kurulur
+    private var examStore: ExamMode?
+    /// Sınav sırasında sesli konumlandırmayı zorla açar (true) / kapatır (false); nil = ayara uy
+    private var examGuide: Bool?
+    private var examSpeechWaiter: CheckedContinuation<Void, Never>?
+    private var examHeardText = ""
+    private var examHeardWork: DispatchWorkItem?
     private var videoHeight = 0
     private var started = false
     private var lastVoice: TimeInterval = 0
@@ -185,7 +192,10 @@ final class AppModel: ObservableObject {
             }
         }
         speech.onHeard = { [weak self] text in
-            Task { @MainActor in self?.heardText = text }
+            Task { @MainActor in
+                self?.heardText = text
+                self?.examHeard(text)
+            }
         }
         speech.onCommand = { [weak self] id, text in
             Task { @MainActor in self?.voiceCommand(id, heard: text) }
@@ -201,6 +211,7 @@ final class AppModel: ObservableObject {
             Task { @MainActor in
                 self?.speech.suppressed = speaking
                 self?.gemini.speakingChanged(speaking, completed: clean)
+                self?.examSpeechEnded(speaking)
             }
         }
         // Gemini sorusu sürerken sürekli dinleyen sesli komut durur (mikrofonu tek kayıtçı kullanır), bitince geri açılır
@@ -334,6 +345,7 @@ final class AppModel: ObservableObject {
         client.stop()
         decoder.reset()
         gemini.cancel()
+        examStore?.stop()
         endModelChoice()
         speech.stop()
         speaker.stop()
@@ -360,7 +372,7 @@ final class AppModel: ObservableObject {
             speechKey = sKey
             restartSpeech()
         }
-        pipeline.configureMotion(enabled: settings.motionEnabled && !settings.guidanceEnabled,
+        pipeline.configureMotion(enabled: settings.motionEnabled && !guidanceWanted,
                                  sensitivity: settings.motionSensitivity)
     }
 
@@ -415,7 +427,7 @@ final class AppModel: ObservableObject {
                                               intent: GuidanceVocabulary.deleteLastIntent))
         commands.append(SpeechTrigger.Command(id: "retake", phrases: GuidanceVocabulary.retake,
                                               intent: GuidanceVocabulary.retakeIntent))
-        if settings.guidanceEnabled {
+        if guidanceWanted {
             commands.append(SpeechTrigger.Command(id: "rechoose", phrases: GuidanceVocabulary.rechoose,
                                                   intent: GuidanceVocabulary.rechooseIntent))
             for c in ColumnChoice.allCases {
@@ -433,8 +445,9 @@ final class AppModel: ObservableObject {
                 commands.append(SpeechTrigger.Command(id: "pick.\(p.slot)", phrases: GeminiProfiles.pickPhrases(slot: p.slot, name: p.name)))
             }
         }
+        speech.extraHints = ExamText.hints
         speech.setCommands(commands)
-        guard settings.voiceEnabled || settings.guidanceEnabled else {
+        guard settings.voiceEnabled || guidanceWanted else {
             speechActive = false
             speechStatus = "Sesli komut kapalı"
             return
@@ -488,7 +501,7 @@ final class AppModel: ObservableObject {
 
     /// Kendiliğinden gelen durum haberi: sıraya girer, dinleyiciyi yormayacak anda söylenir (NoticeQueue)
     private func notify(_ text: String, _ priority: NoticeQueue.Priority, group: String) {
-        guard started, settings.guidanceEnabled, settings.statusNotices else { return }
+        guard started, guidanceWanted, settings.statusNotices, !examActive else { return }
         notices.add(text, priority, group: group, now: ProcessInfo.processInfo.systemUptime)
     }
 
@@ -556,12 +569,14 @@ final class AppModel: ObservableObject {
             AudioServicesPlaySystemSound(1108)      // deklanşör sesi: yalnız fotoğraf gerçekten çekilince
             lastPhoto = UIImage(data: photo.jpeg)
             lastPhotoInfo = "\(photo.width)×\(photo.height) · \(photo.jpeg.count / 1024) KB · \(reason)"
-            if queue.enqueue(jpeg: photo.jpeg, date: photo.date) == nil {
+            let queued = queue.enqueue(jpeg: photo.jpeg, date: photo.date)
+            if queued == nil {
                 flash("Fotoğraf kaydedilemedi (depolama dolu olabilir)", seconds: 5)
                 if guidanceWasOn { say("Fotoğraf kaydedilemedi. Depolama dolu olabilir.", interrupt: true) }
             } else {
                 capturedCount += 1
                 DailyStatsStore.shared.recordCapture()
+                if let name = queued { exam.notePhoto(name) }
                 flash("Fotoğraf çekildi")
                 if guidanceWasOn && !finishRequested { announceCapture() }
             }
@@ -615,7 +630,7 @@ final class AppModel: ObservableObject {
     }
 
     private func updateGuidance() {
-        let on = started && settings.guidanceEnabled
+        let on = started && guidanceWanted
         pipeline.guidanceOn = on
         guidance.flip = settings.guidanceFlip
         guidance.autoCapture = settings.guidanceAutoCapture
@@ -623,7 +638,7 @@ final class AppModel: ObservableObject {
         let floors = [0.30, 0.45, 0.60]
         guidance.sharpFloor = floors[min(max(settings.guidanceSharpness, 0), 2)]
         guidance.config.glareLimit = settings.guidanceGlare ? 0.04 : 2
-        pipeline.configureMotion(enabled: settings.motionEnabled && !settings.guidanceEnabled,
+        pipeline.configureMotion(enabled: settings.motionEnabled && !guidanceWanted,
                                  sensitivity: settings.motionSensitivity)
         if on != guidanceWasOn {
             guidanceWasOn = on
@@ -632,7 +647,7 @@ final class AppModel: ObservableObject {
             guidanceAwaiting = false
             guidanceNotice = ""
             speech.choiceMode = false
-            if on { say(SpokenReport.startup(signedIn: auth.isSignedIn, waiting: queue.pending)) }
+            if on && examGuide != true { say(SpokenReport.startup(signedIn: auth.isSignedIn, waiting: queue.pending)) }
         }
     }
 
@@ -640,8 +655,10 @@ final class AppModel: ObservableObject {
     private func say(_ text: String, interrupt: Bool = false, force: Bool = false) {
         // Gemini sorusu / cevabı sürerken kendiliğinden yönlendirme cümleleri araya girmez
         if gemini.isActive && !force { return }
+        // Sınav kendi cümlelerini okur; yalnız tarama adımında (sesli konumlandırma zorla açıkken) yönlendirme cümleleri de söylenir
+        if examActive && examGuide != true && !force { return }
         guidanceSaid = text
-        guard force || settings.guidanceVoice else { return }
+        guard force || settings.guidanceVoice || examGuide == true else { return }
         lastSpeechAt = ProcessInfo.processInfo.systemUptime
         speaker.needsPlaybackSession = !speechActive
         speaker.voiceID = settings.speechVoiceID
@@ -662,6 +679,107 @@ final class AppModel: ObservableObject {
         speaker.speak(text, interrupt: true)
         tlog("[gemini] okunuyor: \(text.count) karakter")
         return true
+    }
+
+    // MARK: - Deneme sınavı
+
+    /// Deneme sınavı (ilk kullanımda kurulur)
+    var exam: ExamMode {
+        if let e = examStore { return e }
+        let e = makeExam()
+        examStore = e
+        return e
+    }
+
+    private var examActive: Bool { return examStore?.active ?? false }
+
+    /// Sesli konumlandırma açık mı: sınav zorlamışsa o, değilse ayar
+    private var guidanceWanted: Bool { return examGuide ?? settings.guidanceEnabled }
+
+    private func makeExam() -> ExamMode {
+        let client = GeminiClient(key: { AppSettings.shared.activeGeminiProfile.key },
+                                  model: { AppSettings.shared.activeGeminiProfile.model },
+                                  codes: { AppSettings.shared.geminiOptionCodes })
+        let memory = GeminiMemory(remote: client, enabled: { true })
+        let asker = ExamAsker(client: client, memory: memory,
+                              overloadFallback: { AppSettings.shared.geminiOverloadFallback })
+        let hooks = ExamPortsReal.Hooks(
+            speak: { [weak self] text in await self?.speakExam(text) },
+            stopSpeaking: { [weak self] in self?.speaker.stop() },
+            setGuide: { [weak self] on in self?.setExamGuide(on) },
+            cameraLive: { [weak self] in self?.isLive ?? false },
+            speechOn: { [weak self] in self?.speechActive ?? false },
+            pageRemoved: { [weak self] in self?.examPageRemoved() })
+        let ports = ExamPortsReal(hooks: hooks, queue: queue, settings: settings, auth: auth,
+                                  docStore: GeminiDocStore(source: DriveClient(auth: GoogleAuth.shared)), asker: asker)
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("G526", isDirectory: true)
+        let s = settings
+        return ExamMode(ports: ports,
+                        settings: { ExamSettings(group: s.examGroup, fetch: s.examFetch, cancelWindow: s.examCancelWindow, gap: s.examGap) },
+                        directory: base)
+    }
+
+    /// Sınav cümlesini okutur ve okuma bitene kadar bekler
+    private func speakExam(_ text: String) async {
+        guard !text.trimmed.isEmpty else { return }
+        if let old = examSpeechWaiter {
+            examSpeechWaiter = nil
+            old.resume()
+        }
+        guidanceSaid = text
+        lastSpeechAt = ProcessInfo.processInfo.systemUptime
+        speaker.needsPlaybackSession = true
+        speaker.voiceID = settings.speechVoiceID
+        speaker.rateFactor = settings.speechRate
+        speech.suppressed = true
+        speaker.speak(text, interrupt: true)
+        tlog("[sinav] okunuyor: \(text.count) karakter")
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            examSpeechWaiter = continuation
+        }
+    }
+
+    /// Okuma bitince (ya da kesilince) bekleyen sınav cümlesi serbest kalır
+    private func examSpeechEnded(_ speaking: Bool) {
+        guard !speaking, let waiter = examSpeechWaiter else { return }
+        examSpeechWaiter = nil
+        waiter.resume()
+    }
+
+    /// Ses tanımanın serbest metni (kısmi sonuçlar dahil): 1 sn değişmeyince sınav komutu / soru numarası olarak yorumlanır
+    private func examHeard(_ text: String) {
+        // Uygulama konuşurken kendi sesini duymasın
+        if speech.suppressed { return }
+        examHeardText = text
+        examHeardWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self = self, !self.speech.suppressed else { return }
+            let heard = self.examHeardText
+            self.examHeardText = ""
+            guard !heard.trimmed.isEmpty else { return }
+            let wasActive = self.examActive
+            let used = self.exam.hear(heard)
+            // Biriken yazı sıfırlansın (sonraki söz eskisine eklenmesin)
+            if used || wasActive { self.speech.restartListening() }
+        }
+        examHeardWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.1, execute: work)
+    }
+
+    /// Sınav sesli konumlandırmayı açıp kapatır (ayarı değiştirmeden)
+    private func setExamGuide(_ on: Bool?) {
+        guard examGuide != on else { return }
+        let before = guidanceWanted
+        examGuide = on
+        updateGuidance()
+        if before != guidanceWanted { restartSpeech() }
+    }
+
+    /// Sınav bekleyen bir sayfayı sildi
+    private func examPageRemoved() {
+        capturedCount = max(0, capturedCount - 1)
+        DailyStatsStore.shared.undoCapture()
     }
 
     // MARK: - Sesli model seçimi
@@ -731,7 +849,7 @@ final class AppModel: ObservableObject {
     }
 
     private func guidanceSample(_ sample: FramePipeline.GuidanceSample) {
-        guard started, settings.guidanceEnabled, isLive else { return }
+        guard started, guidanceWanted, isLive else { return }
         if capturing || pipeline.engine.isBusy { return }
         let out = guidance.step(sample.metrics, time: sample.time, stillFor: sample.stillFor,
                                 diffToCapture: sample.diffToCapture)
@@ -764,9 +882,17 @@ final class AppModel: ObservableObject {
     }
 
     private func voiceCommand(_ id: String, heard: String) {
+        // Sınav sürerken gönder / sil / rapor gibi olağan komutlar yok sayılır: sınav bunları kendi anlamıyla (serbest metinden) işler.
+        // Yalnız sesli konumlandırmanın bölüm seçimi (sol / sağ) çalışmaya devam eder.
+        if examActive && !id.hasPrefix("choice.") && id != "rechoose" { return }
         switch id {
         case "finish":
-            finishAll()
+            // "Tarama tamamlandı" sınav sözüyse ve taranmış sayfa varsa sınav açılır; olağan "hepsi tamamlandı" gönderimi sürer
+            if exam.wouldAdopt(heard) {
+                exam.command("scan_done", text: heard)
+            } else {
+                finishAll()
+            }
         case "report":
             giveReport()
         case "battery":
@@ -783,7 +909,7 @@ final class AppModel: ObservableObject {
         case "retake":
             deleteLast(retake: true)
         case "rechoose":
-            guard settings.guidanceEnabled else { return }
+            guard guidanceWanted else { return }
             guidanceNotice = ""
             say(guidance.clearChoice(), interrupt: true)
         default:
@@ -791,7 +917,7 @@ final class AppModel: ObservableObject {
                 if let slot = Int(id.dropFirst("pick.".count)) { pickModel(slot: slot) }
                 return
             }
-            guard id.hasPrefix("choice."), settings.guidanceEnabled else { return }
+            guard id.hasPrefix("choice."), guidanceWanted else { return }
             voiceChoice(String(id.dropFirst("choice.".count)))
         }
     }
@@ -849,6 +975,10 @@ final class AppModel: ObservableObject {
 
     /// Çekim bitti: ne çekildi, dosya gönderiliyor mu / bekliyor mu (sayfa çevrilebilir)
     private func announceCapture() {
+        if examActive {
+            say("Sayfa çekildi. Toplam \(exam.info.photos) sayfa.")
+            return
+        }
         let batch = settings.sendMode == "batch"
         let signedIn = auth.isSignedIn
         say(SpokenReport.afterCapture(part: capturePart?.title, waiting: queue.pending,
@@ -859,7 +989,7 @@ final class AppModel: ObservableObject {
 
     /// Soru beklenirken komut olmayan konuşma duyuldu: açıkça belirt
     private func voiceUnrecognized(_ text: String) {
-        guard settings.guidanceEnabled, guidance.awaitingChoice else { return }
+        guard guidanceWanted, guidance.awaitingChoice else { return }
         let now = ProcessInfo.processInfo.systemUptime
         if now - lastUnrecognizedAt < 3 { return }
         lastUnrecognizedAt = now

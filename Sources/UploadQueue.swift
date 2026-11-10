@@ -30,6 +30,15 @@ final class UploadQueue: ObservableObject {
     private let monitor = NWPathMonitor()
     private var captureLog = CaptureLog()
     private var inFlight = Set<String>()
+    /// Deneme sınavı taraması: fotoğraflar gönderilmeden birikir
+    private(set) var examHold = false
+    /// Deneme sınavı: dosyalar ayardan bağımsız olarak PDF'e çevrilip toplu gönderilir
+    private(set) var examMode = false
+    /// Drive'a giden PDF'ler (eskiden yeniye; diskte tutulur, en çok 200)
+    private(set) var sentLog: [ExamSentFile] = []
+    private let sentLogURL: URL
+    /// Art arda başarısız yükleme sayısı
+    var failureCount: Int { return failures }
 
     init() {
         let manager = FileManager.default
@@ -41,6 +50,11 @@ final class UploadQueue: ObservableObject {
         try? manager.createDirectory(at: localURL, withIntermediateDirectories: true)
         pendingDir = pendingURL
         localDir = localURL
+        sentLogURL = support.appendingPathComponent("G526/gonderilenler.json")
+        if let data = try? Data(contentsOf: sentLogURL),
+           let list = try? JSONDecoder().decode([ExamSentFile].self, from: data) {
+            sentLog = list
+        }
         pending = pendingFiles().count
         status = pending > 0 ? "\(pending) fotoğraf yüklenmeyi bekliyor" : ""
 
@@ -122,7 +136,7 @@ final class UploadQueue: ObservableObject {
 
     /// Gemini'ye sormadan önce: biriken (toplu modda bekleyen) fotoğrafları şimdi gönderir ve yüklenmelerini bekler.
     /// En fazla `timeout` sn bekler; art arda 2 yeni hata olursa (internet yok) vazgeçer. Hâlâ yüklenmeyen sayıyı döndürür.
-    func flushAndWait(timeout: TimeInterval = 90) async -> Int {
+    func flushAndWait(timeout: TimeInterval = 90, aborted: () -> Bool = { false }) async -> Int {
         guard !pendingFiles().isEmpty, GoogleAuth.shared.isSignedIn else {
             pending = pendingFiles().count
             return pending
@@ -130,7 +144,7 @@ final class UploadQueue: ObservableObject {
         let failuresAtStart = failures
         retry()
         let end = Date().addingTimeInterval(max(0, timeout))
-        while Date() < end && !Task.isCancelled {
+        while Date() < end && !Task.isCancelled && !aborted() {
             if pendingFiles().isEmpty { break }
             if failures >= failuresAtStart + 2 { break }
             try? await Task.sleep(nanoseconds: 250_000_000)
@@ -138,6 +152,52 @@ final class UploadQueue: ObservableObject {
         pending = pendingFiles().count
         return pending
     }
+
+    // MARK: Deneme sınavı
+
+    /// Deneme sınavı taramasında fotoğraflar gönderilmeden birikir (hold); exam: PDF'e çevrilip toplu gönderilir
+    func setExam(hold: Bool, exam: Bool) {
+        examHold = hold
+        examMode = exam
+        if !hold { kick() }
+    }
+
+    /// Gönderilmeyi bekleyen fotoğraf adları (eskiden yeniye)
+    func pendingNames() -> [String] {
+        return pendingFiles().map { $0.lastPathComponent }
+    }
+
+    /// Bekleyen belirli bir fotoğrafı (ve OCR metnini) siler; yüklenmekte olansa ya da yoksa false
+    func removePending(_ name: String) -> Bool {
+        guard !inFlight.contains(name) else { return false }
+        let url = pendingDir.appendingPathComponent(name)
+        guard fm.fileExists(atPath: url.path) else { return false }
+        OcrCenter.shared.forget(url)
+        remove(url)
+        captureLog.forget(name)
+        try? fm.removeItem(at: localDir.appendingPathComponent(name))
+        pending = pendingFiles().count
+        status = pending > 0 ? "\(pending) fotoğraf yüklenmeyi bekliyor" : ""
+        tlog("[kuyruk] silindi: \(name)")
+        return true
+    }
+
+    /// since'ten (Unix saniyesi) sonra Drive'a giden PDF'ler, eskiden yeniye
+    func sent(since: Double) -> [ExamSentFile] {
+        return sentLog.filter { $0.time >= since }
+    }
+
+    private func recordSent(id: String, name: String, size: Int, photos: Int) {
+        guard !id.isEmpty else { return }
+        sentLog.append(ExamSentFile(id: id, name: name, size: size, photos: photos, time: Date().timeIntervalSince1970))
+        if sentLog.count > 200 { sentLog.removeFirst(sentLog.count - 200) }
+        if let data = try? JSONEncoder().encode(sentLog) {
+            try? data.write(to: sentLogURL, options: .atomic)
+        }
+    }
+
+    /// Deneme sınavında dosyalar PDF olarak gider
+    private var usePDF: Bool { return settings.uploadFormat == "pdf" || examMode }
 
     func kick() {
         if worker != nil { return }
@@ -173,7 +233,7 @@ final class UploadQueue: ObservableObject {
     /// Sıradaki yüklemeyi hazırlar. PDF modunda toplu gönderimde birçok fotoğraf tek PDF olur
     /// (en çok ayarlanan sayıda ve 15 MB'a kadar); tek tek modda her fotoğraf kendi PDF'i olur.
     private func prepareJob(files: [URL], batch: Bool) -> Job? {
-        if settings.uploadFormat != "pdf" {
+        if !usePDF {
             guard let first = files.first else { return nil }
             return Job(files: [first], name: first.lastPathComponent, payload: .jpeg(first))
         }
@@ -217,12 +277,16 @@ final class UploadQueue: ObservableObject {
                 status = uploaded > 0 ? "Tüm fotoğraflar yüklendi" : ""
                 return
             }
+            if examHold {
+                status = "Deneme sınavı: \(files.count) sayfa tarandı, gönderim bekletiliyor"
+                return
+            }
             guard GoogleAuth.shared.isSignedIn else {
                 status = "Drive'a giriş yapılmadı — \(files.count) fotoğraf bekliyor"
                 return
             }
 
-            let batch = settings.sendMode == "batch"
+            let batch = settings.sendMode == "batch" || examMode
             if batch && !draining {
                 let size = settings.batchSize
                 let idle = settings.batchIdle
@@ -246,7 +310,7 @@ final class UploadQueue: ObservableObject {
 
             status = "Yükleniyor… (\(files.count) bekliyor)"
             retryNow = false
-            if settings.ocrEnabled && settings.uploadFormat == "pdf" {
+            if settings.ocrEnabled && usePDF {
                 let count = batch ? (settings.batchSize > 0 ? settings.batchSize : 30) : 1
                 let group = Array(files.prefix(count))
                 if group.contains(where: { OcrCenter.shared.isPending($0) }) {
@@ -261,10 +325,11 @@ final class UploadQueue: ObservableObject {
             inFlight = Set(job.files.map { $0.lastPathComponent })
             defer { inFlight = [] }
             do {
-                try await drive.upload(job.payload, name: job.name)
+                let result = try await drive.uploadFile(job.payload, name: job.name)
                 for file in job.files { remove(file) }
                 uploaded += job.files.count
                 uploadedDocs += 1
+                recordSent(id: result.id, name: job.name, size: result.size, photos: job.files.count)
                 DailyStatsStore.shared.recordSent(photos: job.files.count, docs: 1)
                 failures = 0
                 lastError = ""
