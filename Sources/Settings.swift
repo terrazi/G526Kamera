@@ -120,6 +120,8 @@ final class AppSettings: ObservableObject {
     @Published var uploadFormat: String { didSet { d.set(uploadFormat, forKey: "uploadFormat") } }
     /// Fotoğraftaki yazıyı oku (OCR) ve PDF'in sonuna ayrı metin sayfaları olarak ekle (varsayılan kapalı)
     @Published var ocrEnabled: Bool { didSet { d.set(ocrEnabled, forKey: "ocrEnabled") } }
+    /// OCR'ı Gemini yapsın (anahtar + gizlilik onayı varsa); yoksa cihazdaki Vision OCR'ı kullanılır
+    @Published var ocrUseGemini: Bool { didSet { d.set(ocrUseGemini, forKey: "ocrUseGemini") } }
 
     init() {
         uid = d.string(forKey: "uid") ?? ""
@@ -160,6 +162,7 @@ final class AppSettings: ObservableObject {
         batchIdle = d.object(forKey: "batchIdle") as? Int ?? 0
         uploadFormat = d.string(forKey: "uploadFormat") ?? "pdf"
         ocrEnabled = d.object(forKey: "ocrEnabled") as? Bool ?? false
+        ocrUseGemini = d.object(forKey: "ocrUseGemini") as? Bool ?? true
         guidanceEnabled = d.object(forKey: "guidanceEnabled") as? Bool ?? false
         guidanceVoice = d.object(forKey: "guidanceVoice") as? Bool ?? true
         speechVoiceID = d.string(forKey: "speechVoiceID") ?? ""

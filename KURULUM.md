@@ -42,6 +42,13 @@ Menü adları zamanla değişebilir; mantık aynıdır.
 Uygulama yalnızca kendi oluşturduğu klasöre ve dosyalara erişir (`drive.file`); Drive'ınızın
 geri kalanını göremez. Google parolanızı uygulamaya hiç yazmazsınız.
 
+**Önemli — Drive klasörü paylaşımı (iPhone + Windows birlikte kullanılacaksa):** `drive.file` izni "istemci kimliği"
+başınadır. İki program da **aynı İstemci Kimliği ve Sırrını** kullanırsa aynı "G526 Belgeler" klasörünü görür ve Gemini
+iPhone'dan da Windows'tan da yüklenen PDF'leri okur. Farklı kimlik girerseniz her biri kendi klasörünü açar ve birbirinin
+dosyasını göremez. Klasörü Drive'da **elle açmayın**, dosyaları da **elle atmayın**: uygulamanın oluşturmadığı klasör ve
+dosyalar görünmez. Emin olmak için iki programda da **Bağlantıyı sına** deyin: klasör adı, kimlik parmak izi (iki yerde
+aynı olmalı), aynı adlı klasör sayısı ve bulunan PDF sayısı yazılır.
+
 ## 4) Uygulamada ayar
 
 1. Telefonu **kameranın Wi-Fi ağına** bağlayın.
@@ -112,6 +119,18 @@ Drive'a gönderdiğiniz son PDF'ler hakkında sesle soru sorarsınız; cevap iPh
    Dikkat: ücretsiz anahtarda Google içeriğinizi ürünlerini geliştirmek için kullanabilir; gizli belgeleriniz varsa
    **Harcama sınırı dolunca ücretsiz modele geç** kutusunu kapatın.
 10. Her soruda ses kaydınız ve seçilen PDF'ler (en çok ~14 MB) hücresel veriyle Google'a gider.
+11. **Şık cevapları:** şık verirken harfle birlikte şıkkın metni de okunur ("C, CEYHAN şıkkıdır"); harf tek başına söylenmez.
+    Aynı numaralı soru birden çok belgede varsa program tahmin etmez, "hangisi?" diye sorar.
+
+### Akıllı OCR (Gemini ile)
+
+Cihazın kendi OCR'ı bozuk ya da silik yazıda zayıf kalır. **Dişli > Metni oku (OCR)** açıkken **OCR'ı Gemini ile yap**
+kutusu açıksa her sayfanın fotoğrafını Gemini okur ve metni PDF'in sonuna ekler (soru numaraları, şık harfleri, tablolar
+korunur). Şartlar: Gemini API anahtarı girilmiş ve "Google'a gönderilmesini onaylıyorum" kutusu işaretli olmalı; aksi
+hâlde cihazın kendi OCR'ı çalışır. Dikkat: sayfa fotoğrafları Google'a gider ve sayfa başına küçük bir ücret çıkar
+(tahminen yarım cent mertebesinde). Art arda 3 hata olursa OCR o oturumda kendini kapatır; fotoğraf çekme
+ve Drive'a gönderme etkilenmez. Not: Gemini sohbeti PDF'in sayfa görüntülerini zaten kendisi okur; OCR metni PDF'in
+sonundaki metin sayfalarını ve Drive'daki aranabilir metni iyileştirir.
 
 ## Sorun giderme
 
@@ -119,6 +138,9 @@ Drive'a gönderdiğiniz son PDF'ler hakkında sesle soru sorarsınız; cevap iPh
   UID doğru mu?
 - **Okey duyulmuyor:** Ayarlar > Gizlilik > Mikrofon / Konuşma Tanıma izinleri; ana ekranda
   "Duyulan:" satırında ne anladığı görünür. Tetikleme sözcüğünü değiştirebilirsiniz.
+- **Gemini "Drive klasöründe PDF bulunamadı" diyor:** iki programda da aynı İstemci Kimliği/Sırrı girili mi? Klasörü elle
+  açmadınız, dosyaları elle atmadınız değil mi? **Bağlantıyı sına** hangi klasörü, kaç aynı adlı klasörü ve kaç PDF'i
+  gördüğünü yazar; "AYNI kimlik" uyarısı çıkıyorsa kimlikleri eşitleyin.
 - **Drive'a yüklenmiyor:** Ayarlar > Google Drive'da durumu görün; İstemci türü "TV ve Sınırlı
   Giriş Cihazları" olmalı; yayınlama durumu *Üretimde* olmalı.
 - **Gemini cevap vermiyor:** cevap kutusundaki turuncu mesaj nedeni söyler (anahtar geçersiz, kota doldu, Drive'da

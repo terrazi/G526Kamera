@@ -232,7 +232,7 @@ final class UploadQueue: ObservableObject {
                 let group = Array(files.prefix(count))
                 if group.contains(where: { OcrCenter.shared.isPending($0) }) {
                     status = "Metin okunuyor (OCR)…"
-                    await OcrCenter.shared.waitFor(group, timeout: OcrConfig.uploadWait)
+                    await OcrCenter.shared.waitFor(group, timeout: OcrCenter.shared.uploadWait)
                 }
             }
             guard let job = prepareJob(files: files, batch: batch) else { continue }
@@ -271,8 +271,18 @@ final class UploadQueue: ObservableObject {
     /// Ayarlar ekranındaki "bağlantıyı sına" düğmesi.
     func testConnection() async -> String {
         do {
-            _ = try await drive.ensureFolder()
-            return "Bağlantı tamam. Klasör hazır: “\(settings.driveFolderName)”"
+            let info = try await drive.diagnose()
+            var lines = ["Bağlantı tamam. Klasör hazır: “\(info.folderName)” (kimlik \(info.folderID.prefix(8)))."]
+            lines.append("İstemci kimliği: \(DriveClient.clientTag(settings.googleClientID)). Windows programında da AYNI kimlik girilmeli; farklıysa iki program birbirinin PDF’lerini göremez.")
+            if info.folders > 1 {
+                lines.append("Dikkat: bu kimlikle aynı adlı \(info.folders) klasör görünüyor; en eskisi kullanılıyor. Diğerlerini Drive’dan silin.")
+            }
+            if info.pdfs.isEmpty {
+                lines.append("Klasörde henüz PDF görünmüyor. PDF’ler bu uygulamayla ya da AYNI Google kimliğiyle çalışan Windows programıyla yüklenmeli; Drive’da elle açılan klasör ve elle atılan dosyalar görünmez.")
+            } else {
+                lines.append("Klasörde \(info.pdfs.count) PDF görünüyor (Gemini bunları okur): " + info.pdfs.prefix(3).map { $0.name }.joined(separator: ", "))
+            }
+            return lines.joined(separator: "\n")
         } catch {
             return error.localizedDescription
         }

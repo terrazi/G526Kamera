@@ -69,7 +69,7 @@ final class GeminiDocStore: GeminiDocProviding {
     func fetch(count: Int) async throws -> (docs: [GeminiDoc], notes: [String]) {
         let listing = try await source.listPDFs(count: count)
         if listing.isEmpty {
-            return ([], ["Drive klasöründe PDF bulunamadı. Gönderme biçimi PDF olmalı ve en az bir belge gönderilmiş olmalı."])
+            return ([], ["Drive klasöründe PDF bulunamadı. Belgeler bu uygulamayla ve aynı Google kimliğiyle PDF olarak yüklenmiş olmalı; Drive’da elle açılan klasör ya da elle atılan dosyalar görünmez."])
         }
         let picked = GeminiSupport.selectDocs(listing.map { (name: $0.name, size: $0.size) }, budget: budget)
         var notes: [String] = []

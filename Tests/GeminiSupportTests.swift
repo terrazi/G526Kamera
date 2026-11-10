@@ -430,6 +430,32 @@ final class GeminiSessionTextTests: XCTestCase {
     }
 }
 
+final class GeminiOcrTextTests: XCTestCase {
+    func testOcrTextCleaning() {
+        XCTAssertEqual(GeminiSupport.cleanOCRText("```\n1. A\n```"), "1. A")
+        XCTAssertEqual(GeminiSupport.cleanOCRText("[yazı yok]"), "")
+        XCTAssertEqual(GeminiSupport.cleanOCRText(" [YAZI YOK] "), "")
+        XCTAssertEqual(GeminiSupport.cleanOCRText("5. Hangisi?\nA) ADANA"), "5. Hangisi?\nA) ADANA")
+    }
+
+    func testOcrPromptKeepsQuestionNumbersAndOptions() {
+        let p = GeminiConfig.ocrPrompt
+        for word in ["Soru numaralarını", "şık harflerini", "Tabloları", "tahmin etme", "[okunamadı]", "[yazı yok]"] {
+            XCTAssertTrue(p.contains(word), word)
+        }
+    }
+
+    func testClientTagIsShortAndComparable() {
+        XCTAssertEqual(DriveClient.clientTag("123456789012-abcdefghijklmnop.apps.googleusercontent.com"), "123456...klmnop")
+        XCTAssertEqual(DriveClient.clientTag("CID-123"), "CID-123")
+        XCTAssertEqual(DriveClient.clientTag("  "), "(girilmemiş)")
+    }
+
+    func testPromptNeverSaysOnlyTheLetterOfAnOption() {
+        XCTAssertTrue(GeminiConfig.systemPrompt.contains("ASLA tek başına"))
+    }
+}
+
 final class GeminiProfilesTests: XCTestCase {
     private func info(_ slot: Int, _ name: String, key: String = "k", model: String = "m", free: Bool = false) -> GeminiProfileInfo {
         return GeminiProfileInfo(slot: slot, name: name, model: model, key: key, free: free)
@@ -628,6 +654,24 @@ final class GeminiClientTests: XCTestCase {
         queue(.init(status: 200, body: okBody(), error: nil))
         _ = try await makeClient(model: "gemini-test-model").ask(questionText: "x", audioWAV: nil, docs: [], history: [])
         XCTAssertTrue(FakeGeminiProtocol.urls[0].absoluteString.hasSuffix("/models/gemini-test-model:generateContent"))
+    }
+
+    func testOcrImageReturnsPlainTextAndSendsThePicture() async throws {
+        let object: [String: Any] = ["candidates": [["finishReason": "STOP",
+                                                      "content": ["parts": [["text": "5. Soru\nA) ADANA\nB) ANKARA"]]]]]]
+        queue(.init(status: 200, body: try JSONSerialization.data(withJSONObject: object), error: nil))
+        let text = try await makeClient().ocrImage(Data([0xFF, 0xD8, 0xFF, 0xE0]))
+        XCTAssertEqual(text, "5. Soru\nA) ADANA\nB) ANKARA")
+        let body = try XCTUnwrap(JSONSerialization.jsonObject(with: FakeGeminiProtocol.bodies[0]) as? [String: Any])
+        let contents = try XCTUnwrap(body["contents"] as? [[String: Any]])
+        let parts = try XCTUnwrap(contents[0]["parts"] as? [[String: Any]])
+        let inline = try XCTUnwrap(parts[0]["inlineData"] as? [String: String])
+        XCTAssertEqual(inline["mimeType"], "image/jpeg")
+        XCTAssertEqual(inline["data"], Data([0xFF, 0xD8, 0xFF, 0xE0]).base64EncodedString())
+        XCTAssertEqual(parts[1]["text"] as? String, GeminiConfig.ocrPrompt)
+        let config = try XCTUnwrap(body["generationConfig"] as? [String: Any])
+        XCTAssertEqual(config["temperature"] as? Double, 0.0)
+        XCTAssertNil(config["responseMimeType"], "OCR düz metin ister, JSON değil")
     }
 
     func testMissingKeyIsRejectedWithoutRequest() async {

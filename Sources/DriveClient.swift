@@ -53,11 +53,28 @@ final class DriveClient {
         return name.isEmpty ? "G526 Belgeler" : name
     }
 
+    /// Klasör önbelleği anahtarı: ad + istemci kimliği. `drive.file` kapsamında her istemci kimliği yalnız kendi oluşturduğu
+    /// klasör ve dosyaları görür; kimlik değişirse eski klasör kimliği geçersizdir.
+    private func folderTag(_ name: String) -> String {
+        return name + "|" + settings.googleClientID.trimmed
+    }
+
+    /// İstemci kimliğinin kısa parmak izi (iki programda aynı mı diye karşılaştırmak için; gizli bir bilgi değildir)
+    static func clientTag(_ clientID: String) -> String {
+        let id = clientID.trimmed
+        let head = id.components(separatedBy: ".apps.googleusercontent.com").first ?? id
+        if head.isEmpty { return "(girilmemiş)" }
+        return head.count <= 14 ? head : String(head.prefix(6)) + "..." + String(head.suffix(6))
+    }
+
+    /// Son aramada görünen aynı adlı klasör sayısı
+    private(set) var lastFolderCount = 0
+
     private func rememberFolder(id: String, name: String) async {
         await MainActor.run {
             self.settings.driveFolderID = id
         }
-        UserDefaults.standard.set(name, forKey: resolvedNameKey)
+        UserDefaults.standard.set(folderTag(name), forKey: resolvedNameKey)
     }
 
     private func forgetFolder() async {
@@ -72,7 +89,7 @@ final class DriveClient {
     func ensureFolder() async throws -> String {
         let name = folderName
         let known = settings.driveFolderID
-        if !known.isEmpty && UserDefaults.standard.string(forKey: resolvedNameKey) == name {
+        if !known.isEmpty && UserDefaults.standard.string(forKey: resolvedNameKey) == folderTag(name) {
             return known
         }
 
@@ -80,8 +97,9 @@ final class DriveClient {
         var components = URLComponents(string: filesURL)!
         components.queryItems = [
             URLQueryItem(name: "q", value: "name = '\(escaped)' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"),
-            URLQueryItem(name: "fields", value: "files(id,name)"),
+            URLQueryItem(name: "fields", value: "files(id,name,createdTime)"),
             URLQueryItem(name: "spaces", value: "drive"),
+            URLQueryItem(name: "orderBy", value: "createdTime"),
             URLQueryItem(name: "pageSize", value: "10")
         ]
         let searchURL = components.url!
@@ -93,8 +111,12 @@ final class DriveClient {
         guard (200..<300).contains(status) else {
             throw DriveError.http(status, DriveClient.errorMessage(data))
         }
-        if let files = Http.jsonObject(data)["files"] as? [[String: Any]],
-           let id = files.first?["id"] as? String {
+        let found = (Http.jsonObject(data)["files"] as? [[String: Any]]) ?? []
+        lastFolderCount = found.count
+        if found.count > 1 {
+            tlog("[drive] '\(name)' adlı \(found.count) klasör görünüyor; en eskisi kullanılıyor")
+        }
+        if let id = found.first?["id"] as? String {
             await rememberFolder(id: id, name: name)
             return id
         }
@@ -139,6 +161,22 @@ final class DriveClient {
             try PDFWrap.write(jpegs: files, title: title, texts: texts, to: handle)
         }
         try handle.write(contentsOf: Data("\r\n--\(boundary)--\r\n".utf8))
+    }
+
+    struct Diagnosis {
+        let folderID: String
+        let folderName: String
+        let folders: Int
+        let pdfs: [DriveFileInfo]
+        var link: String { return "https://drive.google.com/drive/folders/" + folderID }
+    }
+
+    /// Klasör durumu: kaç aynı adlı klasör görünüyor, hangisi kullanılıyor, içinde hangi PDF'ler var (taze arama yapar)
+    func diagnose(count: Int = 10) async throws -> Diagnosis {
+        await forgetFolder()
+        let id = try await ensureFolder()
+        let pdfs = try await listPDFs(count: count)
+        return Diagnosis(folderID: id, folderName: folderName, folders: lastFolderCount, pdfs: pdfs)
     }
 
     /// Klasördeki en yeni PDF'ler (yeniden eskiye). Gemini sohbeti için; drive.file kapsamı yalnız uygulamanın kendi yüklediklerini görür.

@@ -8,6 +8,10 @@ enum OcrConfig {
     static let maxSlow = 2                      // bu kadar yavaş iş olursa OCR kapanır
     static let maxFailures = 3                  // art arda bu kadar hata olursa OCR kapanır
     static let maxQueue = 4
+    // Gemini ile okurken: iş başına birkaç saniye sürer, kuyruk uzun olabilir (bir PDF en çok 30 sayfa)
+    static let geminiQueue = 40
+    static let geminiSlowSeconds: TimeInterval = 75
+    static let geminiUploadWait: TimeInterval = 120
     static let uploadWait: TimeInterval = 25    // yükleme, OCR bitsin diye en fazla bu kadar bekler
     static let minimumTextHeight: Float = 0.008 // okunacak en küçük yazı: görüntü yüksekliğinin %0,8'i (1080 satırda ~9 piksel)
 }
@@ -119,6 +123,19 @@ final class OcrCenter: ObservableObject {
 
     var enabled: Bool { settings.ocrEnabled && disabledReason.isEmpty }
 
+    private lazy var gemini = GeminiClient(key: { AppSettings.shared.activeGeminiProfile.key },
+                                           model: { AppSettings.shared.activeGeminiProfile.model })
+
+    /// Gemini ile okuma: ayar açık, gizlilik onayı verilmiş ve anahtar var
+    var geminiReady: Bool {
+        return settings.ocrUseGemini && settings.geminiPrivacyOK && !settings.activeGeminiProfile.key.isEmpty
+    }
+
+    /// PDF yüklenmeden önce OCR'in bitmesi için en çok beklenecek süre
+    var uploadWait: TimeInterval {
+        return geminiReady ? OcrConfig.geminiUploadWait : OcrConfig.uploadWait
+    }
+
     func reset() {
         disabledReason = ""
         failures = 0
@@ -128,7 +145,8 @@ final class OcrCenter: ObservableObject {
 
     func submit(_ url: URL) {
         guard enabled else { return }
-        while queue.count >= OcrConfig.maxQueue {
+        let limit = geminiReady ? OcrConfig.geminiQueue : OcrConfig.maxQueue
+        while queue.count >= limit {
             let dropped = queue.removeFirst()
             tlog("[ocr] kuyruk dolu, atlandı: \(dropped.lastPathComponent)")
         }
@@ -161,7 +179,8 @@ final class OcrCenter: ObservableObject {
     private func updateStatus() {
         if !settings.ocrEnabled { status = ""; return }
         if !disabledReason.isEmpty { status = "OCR kapalı: " + disabledReason; return }
-        status = (current != nil || !queue.isEmpty) ? "OCR: metin okunuyor…" : "OCR açık"
+        let engine = geminiReady ? " (Gemini)" : ""
+        status = (current != nil || !queue.isEmpty) ? "OCR\(engine): metin okunuyor…" : "OCR açık\(engine)"
     }
 
     private func disable(_ reason: String) {
@@ -183,8 +202,38 @@ final class OcrCenter: ObservableObject {
         updateStatus()
     }
 
+    /// Sayfa fotoğrafını Gemini'ye okutur; hata sayacı ve yavaşlık denetimi Vision yolundakiyle aynıdır
+    private func processWithGemini(_ url: URL) async {
+        let started = Date()
+        do {
+            let data = try Data(contentsOf: url)
+            let raw = try await gemini.ocrImage(data)
+            failures = 0
+            let text = OcrCenter.clean(raw)
+            guard FileManager.default.fileExists(atPath: url.path) else { return }
+            try text.write(to: OcrCenter.sidecar(url), atomically: true, encoding: .utf8)
+            let elapsed = Date().timeIntervalSince(started)
+            tlog("[ocr] Gemini \(url.lastPathComponent): \(text.count) karakter, \(String(format: "%.1f", elapsed)) sn")
+            if elapsed > OcrConfig.geminiSlowSeconds {
+                slow += 1
+                if slow >= OcrConfig.maxSlow { disable("Gemini çok yavaş (\(OcrConfig.maxSlow) kez \(Int(OcrConfig.geminiSlowSeconds)) sn'den uzun)") }
+            }
+        } catch is CancellationError {
+            return
+        } catch {
+            failures += 1
+            let message = (error as? GeminiError)?.message ?? error.localizedDescription
+            tlog("[ocr] Gemini \(url.lastPathComponent) okunamadı: \(message)")
+            if failures >= OcrConfig.maxFailures { disable("Gemini ile okunamadı (\(message))") }
+        }
+    }
+
     private func process(_ url: URL) async {
         guard enabled, FileManager.default.fileExists(atPath: url.path) else { return }
+        if geminiReady {
+            await processWithGemini(url)
+            return
+        }
         let thermal = ProcessInfo.processInfo.thermalState
         if thermal == .serious || thermal == .critical || ProcessInfo.processInfo.isLowPowerModeEnabled {
             tlog("[ocr] cihaz ısınmış ya da düşük güç modunda, atlandı: \(url.lastPathComponent)")

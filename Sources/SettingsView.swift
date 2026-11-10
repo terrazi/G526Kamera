@@ -44,6 +44,7 @@ struct SettingsView: View {
             .onChange(of: settings.batchIdle) { _ in model.queue.kick() }
             .onChange(of: settings.uploadFormat) { _ in model.queue.kick() }
             .onChange(of: settings.ocrEnabled) { _ in OcrCenter.shared.reset() }
+            .onChange(of: settings.ocrUseGemini) { _ in OcrCenter.shared.reset() }
             .onChange(of: settings.geminiSessionTimeout) { value in
                 if value < 0 { settings.geminiSessionTimeout = 0 }
                 if value > 86400 { settings.geminiSessionTimeout = 86400 }
@@ -344,6 +345,12 @@ struct SettingsView: View {
             }
             .pickerStyle(.segmented)
             Toggle("Metni oku (OCR), PDF sonuna ekle", isOn: $settings.ocrEnabled)
+            Toggle("OCR’ı Gemini ile yap (daha akıllı; sayfalar Google’a gider)", isOn: $settings.ocrUseGemini)
+                .accessibilityIdentifier("ocr-gemini")
+            if settings.ocrEnabled && settings.ocrUseGemini {
+                Text("Soru numaralarını, şıkları, tabloları ve küçük yazıyı telefondaki OCR’dan çok daha doğru okur; her sayfa için küçük bir Gemini ücreti çıkar. Gemini bölümünde gizlilik onayı ve anahtar gerekir, yoksa telefondaki OCR kullanılır.")
+                    .font(.footnote).foregroundColor(.secondary)
+            }
             Toggle("Telefonda da kopya sakla (Dosyalar uygulaması)", isOn: $settings.keepLocalCopies)
         }
     }
