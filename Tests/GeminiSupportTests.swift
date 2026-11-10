@@ -417,6 +417,9 @@ final class GeminiSessionTextTests: XCTestCase {
     }
 
     func testTruncatedJsonSalvagesAnswerInsteadOfReadingRawJson() throws {
+        func response(_ text: String, finish: String) -> [String: Any] {
+            return ["candidates": [["finishReason": finish, "content": ["parts": [["text": text]]]]]]
+        }
         let cut = response("{\"soru\":\"ilk on\",\"cevap\":\"1) Adana. 2) \\\"Bursa\\\". 3) Cey", finish: "MAX_TOKENS")
         let answer = try GeminiSupport.parseAnswer(cut)
         XCTAssertTrue(answer.answer.hasPrefix("1) Adana. 2) \"Bursa\". 3) Cey"), answer.answer)
@@ -428,7 +431,7 @@ final class GeminiSessionTextTests: XCTestCase {
         XCTAssertTrue(halfEscape.answer.hasPrefix("ü"), halfEscape.answer)
         XCTAssertFalse(halfEscape.answer.contains("\\u"))
         XCTAssertThrowsError(try GeminiSupport.parseAnswer(response("{\"soru\":\"x\"", finish: "MAX_TOKENS")))
-        XCTAssertEqual(try GeminiSupport.parseAnswer(response("Merhaba dünya")).answer, "Merhaba dünya")
+        XCTAssertEqual(try GeminiSupport.parseAnswer(response("Merhaba dünya", finish: "STOP")).answer, "Merhaba dünya")
     }
 
     func testEmptyAnswerFieldStaysEmptyInsteadOfShowingRawJson() throws {
