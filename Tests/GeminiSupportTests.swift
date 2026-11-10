@@ -451,6 +451,13 @@ final class GeminiOcrTextTests: XCTestCase {
         XCTAssertEqual(DriveClient.clientTag("  "), "(girilmemiş)")
     }
 
+    func testDriveListSizeFollowsTheDocumentCountSetting() {
+        XCTAssertEqual(DriveClient.listPageSize(3), 3)
+        XCTAssertEqual(DriveClient.listPageSize(30), 30, "belge sayısı 30 olabilir; 10'da kesilmemeli")
+        XCTAssertEqual(DriveClient.listPageSize(0), 1)
+        XCTAssertEqual(DriveClient.listPageSize(500), 50)
+    }
+
     func testPromptNeverSaysOnlyTheLetterOfAnOption() {
         XCTAssertTrue(GeminiConfig.systemPrompt.contains("ASLA tek başına"))
     }

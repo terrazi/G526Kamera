@@ -180,6 +180,11 @@ final class DriveClient {
     }
 
     /// Klasördeki en yeni PDF'ler (yeniden eskiye). Gemini sohbeti için; drive.file kapsamı yalnız uygulamanın kendi yüklediklerini görür.
+    /// Drive'dan istenecek PDF sayısı (Gemini ayarındaki belge sayısı, en çok 50)
+    static func listPageSize(_ count: Int) -> Int {
+        return min(max(count, 1), 50)
+    }
+
     func listPDFs(count: Int) async throws -> [DriveFileInfo] {
         let folder = try await ensureFolder()
         var components = URLComponents(string: filesURL)!
@@ -187,7 +192,7 @@ final class DriveClient {
             URLQueryItem(name: "q", value: "'\(folder)' in parents and mimeType = 'application/pdf' and trashed = false"),
             URLQueryItem(name: "fields", value: "files(id,name,size,createdTime)"),
             URLQueryItem(name: "orderBy", value: "createdTime desc"),
-            URLQueryItem(name: "pageSize", value: String(min(max(count, 1), 10)))
+            URLQueryItem(name: "pageSize", value: String(DriveClient.listPageSize(count)))
         ]
         let listURL = components.url!
         let (status, data) = try await authorized({ token in
