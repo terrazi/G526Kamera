@@ -840,9 +840,11 @@ final class AppModel: ObservableObject {
         let session = AVAudioSession.sharedInstance()
         let volume = Int((session.outputVolume * 100).rounded())
         let outputs = session.currentRoute.outputs.map { $0.portName }
-        var lines = ["Medya ses seviyesi: %\(volume)",
+        let inputs = session.currentRoute.inputs.map { $0.portName }
+        var lines: [String] = ["Medya ses seviyesi: %\(volume)",
                      "Ses oturumu: " + session.category.rawValue.replacingOccurrences(of: "AVAudioSessionCategory", with: ""),
-                     "Ses çıkışı: " + (outputs.isEmpty ? "bilinmiyor" : outputs.joined(separator: ", "))]
+                     "Ses çıkışı: " + (outputs.isEmpty ? "bilinmiyor" : outputs.joined(separator: ", ")),
+                     "Mikrofon: " + (inputs.isEmpty ? "bilinmiyor" : inputs.joined(separator: ", "))]
         if volume < 10 { lines.append("Ses seviyesi çok düşük: yan ses artırma tuşuyla yükseltin.") }
         if AVSpeechSynthesisVoice(language: "tr-TR") == nil {
             lines.append("Türkçe ses yüklü değil: Ayarlar > Erişilebilirlik > Konuşulan İçerik > Sesler > Türkçe.")

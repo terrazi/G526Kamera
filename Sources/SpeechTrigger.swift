@@ -321,7 +321,7 @@ final class SpeechTrigger {
         guard running else { return }
         do {
             let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playAndRecord, mode: .default, options: [.mixWithOthers, .defaultToSpeaker])
+            try session.setCategory(.playAndRecord, mode: .default, options: [.mixWithOthers, .defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP])
             try session.setActive(true)
 
             if engine.isRunning { engine.stop() }
