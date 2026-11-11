@@ -850,6 +850,14 @@ final class ExamMode: ObservableObject {
         ports.hold(false)
         ports.guide(nil)
         await ports.release()
+        if finished {
+            // Anahtar yüklemesi, mod kapandı görünmeden önce başlatılır (dışarıdan beklenirken görev hazır olsun)
+            keyLink = ""
+            keyTask = Task { [weak self] in
+                guard let self = self else { return }
+                await self.uploadKey()
+            }
+        }
         running = false
         stage = "idle"
         setStatus("")
@@ -857,11 +865,6 @@ final class ExamMode: ObservableObject {
         let held = (hasState && st.stage == "scan") ? st.photos.count : 0
         if finished {
             await sayNow("Deneme sınavı tamamlandı.")
-            keyLink = ""
-            keyTask = Task { [weak self] in
-                guard let self = self else { return }
-                await self.uploadKey()
-            }
         } else if held > 0 {
             await sayNow("Deneme sınavı kapatıldı. Taranan \(held) sayfa, ayarlarınızdaki yöntemle Drive'a gönderilecek.")
         } else {
