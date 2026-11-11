@@ -188,16 +188,22 @@ struct VoiceRow: View {
     let enabled: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Label(enabled ? (status.isEmpty ? "Sesli komut başlatılıyor…" : status) : "Sesli komut kapalı",
-                  systemImage: enabled ? "mic.fill" : "mic.slash")
-                .font(.subheadline)
-            if enabled && !heard.isEmpty {
-                Text("Duyulan: “\(heard)”")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .lineLimit(2)
+        HStack(alignment: .center, spacing: 8) {
+            VStack(alignment: .leading, spacing: 4) {
+                Label(enabled ? (status.isEmpty ? "Sesli komut başlatılıyor…" : status) : "Sesli komut kapalı",
+                      systemImage: enabled ? "mic.fill" : "mic.slash")
+                    .font(.subheadline)
+                if enabled && !heard.isEmpty {
+                    Text("Duyulan: “\(heard)”")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .lineLimit(2)
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            // Ses çıkışı (kulaklık) seçimi: iOS'un kendi listesi açılır
+            RoutePickerButton()
+                .frame(width: 36, height: 36)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)

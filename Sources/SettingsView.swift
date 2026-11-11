@@ -309,6 +309,12 @@ struct SettingsView: View {
             Toggle("Kamera ve gönderim durumunu da söyle", isOn: $settings.statusNotices)
             Button("Sesi dene") { voiceTestResult = model.testVoice() }
                 .accessibilityIdentifier("sesi-dene")
+            HStack {
+                Text("Ses çıkışını seç (kulaklık)")
+                Spacer()
+                RoutePickerButton()
+                    .frame(width: 36, height: 36)
+            }
             if !voiceTestResult.isEmpty {
                 Text(voiceTestResult).font(.footnote).foregroundColor(.secondary)
             }

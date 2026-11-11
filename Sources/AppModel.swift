@@ -875,6 +875,8 @@ final class AppModel: ObservableObject {
                      "Ses çıkışı: " + (outputs.isEmpty ? "bilinmiyor" : outputs.joined(separator: ", ")),
                      "Mikrofon: " + (inputs.isEmpty ? "bilinmiyor" : inputs.joined(separator: ", "))]
         if volume < 10 { lines.append("Ses seviyesi çok düşük: yan ses artırma tuşuyla yükseltin.") }
+        let routeHint = AudioRoute.outputHint(session.currentRoute.outputs.map { $0.portType })
+        if !routeHint.isEmpty { lines.append(routeHint) }
         if AVSpeechSynthesisVoice(language: "tr-TR") == nil {
             lines.append("Türkçe ses yüklü değil: Ayarlar > Erişilebilirlik > Konuşulan İçerik > Sesler > Türkçe.")
         }
