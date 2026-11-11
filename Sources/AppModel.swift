@@ -58,6 +58,8 @@ final class AppModel: ObservableObject {
     private var lowBattery = LowBatteryWatcher()
     /// Kameradan gelen görüntü gerçekten çözülüp ekrana veriliyor mu (son 3 sn içinde kare var mı)
     @Published private(set) var decoding = false
+    /// Video kaydı açık mı
+    @Published private(set) var videoRecording = false
 
     // Sesli konumlandırma ve rapor
     @Published private(set) var guidanceStatus = ""
@@ -146,6 +148,9 @@ final class AppModel: ObservableObject {
 
     private let client = CameraClient()
     private let decoder = H264Decoder()
+    /// Kısa video kaydı (en çok 30 sn): çözülen kareler küçük H.264 MP4'e yazılır, bitince Drive'a gider
+    private let videoRecorder = VideoRecorder()
+    private var videoStopWork: DispatchWorkItem?
     private let pipeline = FramePipeline()
     private let decodeClock = DecodeClock()
     private let speech = SpeechTrigger()
@@ -173,9 +178,11 @@ final class AppModel: ObservableObject {
         let decoder = self.decoder
         let clock = self.decodeClock
 
+        let recorder = self.videoRecorder
         decoder.onDecoded = { pixelBuffer, time in
             clock.mark()
             pipeline.handle(pixelBuffer, time: time)
+            recorder.append(pixelBuffer, time: time)
         }
         decoder.onResolution = { [weak self] width, height in
             Task { @MainActor in self?.resolutionChanged(width: width, height: height) }
@@ -339,6 +346,7 @@ final class AppModel: ObservableObject {
             return
         }
         started = true
+        VideoOutbox.shared.flush()
         seenUploaded = queue.uploaded
         UIApplication.shared.isIdleTimerDisabled = true
         applySettings(force: true)
@@ -447,6 +455,8 @@ final class AppModel: ObservableObject {
                                               intent: GuidanceVocabulary.deleteLastIntent))
         commands.append(SpeechTrigger.Command(id: "retake", phrases: GuidanceVocabulary.retake,
                                               intent: GuidanceVocabulary.retakeIntent))
+        commands.append(SpeechTrigger.Command(id: "videoStart", phrases: VideoVocabulary.start))
+        commands.append(SpeechTrigger.Command(id: "videoStop", phrases: VideoVocabulary.stop))
         if guidanceWanted {
             commands.append(SpeechTrigger.Command(id: "rechoose", phrases: GuidanceVocabulary.rechoose,
                                                   intent: GuidanceVocabulary.rechooseIntent))
@@ -926,6 +936,11 @@ final class AppModel: ObservableObject {
             deleteLast(retake: false)
         case "retake":
             deleteLast(retake: true)
+        case "videoStart":
+            startVideo()
+        case "videoStop":
+            // Yalnız kayıt açıkken anlamı var; değilse ("kapat" başka bağlamda geçebilir) yok sayılır
+            if videoRecording { stopVideo(reason: "kapat") }
         case "rechoose":
             guard guidanceWanted else { return }
             guidanceNotice = ""
@@ -1119,6 +1134,79 @@ final class AppModel: ObservableObject {
     }
 
     /// "Batarya kontrol" / "şarj durumu nedir": telefon ve kamera şarjını söyler
+    // MARK: - Video kaydı
+
+    /// Ekrandaki düğme: kayıt kapalıysa açar, açıksa kapatır.
+    func toggleVideo() {
+        if videoRecording { stopVideo(reason: "kapat") } else { startVideo() }
+    }
+
+    /// Video kaydını açar: en çok `VideoRecorder.maxSeconds` sürer, "kapat" denince ya da süre dolunca biter.
+    func startVideo() {
+        guard !videoRecording else { return }
+        guard !examActive, !gemini.isActive else {
+            flash("Şu an video kaydı açılamaz (Gemini / sınav sürüyor)", seconds: 4)
+            return
+        }
+        guard isLive else {
+            flash("Kamera görüntüsü yok: video kaydı açılamadı", seconds: 5)
+            say("Kamera görüntüsü yok, video kaydı açılamadı.", interrupt: true, force: true)
+            return
+        }
+        videoRecorder.start(to: VideoOutbox.shared.newFileURL(date: Date()))
+        videoRecording = true
+        flash("● Video kaydı açık (en çok 30 sn)", seconds: 5)
+        say("Video kaydı açık.", interrupt: true, force: true)
+        let work = DispatchWorkItem { [weak self] in
+            Task { @MainActor in self?.stopVideo(reason: "süre") }
+        }
+        videoStopWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + VideoRecorder.maxSeconds, execute: work)
+    }
+
+    /// Kaydı kapatır, dosyayı bitirir ve Drive'a gönderir.
+    func stopVideo(reason: String) {
+        guard videoRecording else { return }
+        videoRecording = false
+        videoStopWork?.cancel()
+        videoStopWork = nil
+        videoRecorder.finish { [weak self] result in
+            Task { @MainActor in self?.videoFinished(result, reason: reason) }
+        }
+    }
+
+    private func videoFinished(_ result: Result<VideoRecorder.Output, VideoRecorder.Failure>, reason: String) {
+        switch result {
+        case .failure(let failure):
+            let text: String
+            switch failure {
+            case .noFrames: text = "Video kaydı boş kaldı: kameradan görüntü gelmedi."
+            case .writer(let message): text = "Video kaydedilemedi: \(message)"
+            }
+            tlog("[video] \(text)")
+            flash(text, seconds: 6)
+            say(text, interrupt: true, force: true)
+        case .success(let output):
+            let seconds = Int(output.seconds.rounded())
+            let mb = String(format: "%.1f", Double(output.bytes) / 1_048_576).replacingOccurrences(of: ".", with: ",")
+            let head = reason == "süre" ? "Otuz saniye doldu, kayıt kapandı." : "Kayıt kapandı."
+            tlog("[video] \(output.url.lastPathComponent): \(seconds) sn, \(output.frames) kare, \(output.bytes) bayt")
+            flash("Video \(seconds) sn, \(mb) MB: Drive'a gönderiliyor", seconds: 6)
+            say("\(head) \(seconds) saniye, \(mb) megabayt. Drive'a gönderiliyor.", interrupt: true, force: true)
+            VideoOutbox.shared.submit(output.url) { [weak self] ok, message in
+                guard let self = self else { return }
+                if ok {
+                    self.flash("Video Drive'a gönderildi", seconds: 5)
+                    self.say("Video Drive'a gönderildi.", interrupt: false, force: true)
+                } else {
+                    let why = message.isEmpty ? "" : " (\(message))"
+                    self.flash("Video gönderilemedi\(why); sonra yeniden denenecek", seconds: 8)
+                    self.say("Video gönderilemedi. Telefonda saklandı, bağlantı gelince yeniden denenecek.", interrupt: false, force: true)
+                }
+            }
+        }
+    }
+
     func giveBattery() {
         let phone = phoneBattery()
         let text = SpokenReport.battery(phone: phone.percent, charging: phone.charging, camera: cameraBatteryMonitor.current(now: ProcessInfo.processInfo.systemUptime))

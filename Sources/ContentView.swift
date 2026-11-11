@@ -11,6 +11,7 @@ struct ContentView: View {
                 VStack(spacing: 14) {
                     preview
                     captureButton
+                    videoButton
                     if settings.guidanceEnabled { GuidanceRow() }
                     VoiceRow(status: model.speechStatus, heard: model.heardText,
                              enabled: settings.voiceEnabled || settings.guidanceEnabled)
@@ -135,6 +136,26 @@ struct ContentView: View {
             .cornerRadius(12)
         }
         .disabled(model.capturing || !model.isLive)
+    }
+
+    /// Video kaydı: açıkken kırmızı; en çok 30 sn sürer, "kapat" denince ya da süre dolunca biter ve Drive'a gider
+    private var videoButton: some View {
+        Button {
+            model.toggleVideo()
+        } label: {
+            HStack {
+                Image(systemName: model.videoRecording ? "stop.circle.fill" : "video.fill")
+                Text(model.videoRecording ? "Kaydı kapat" : "Video kaydı (en çok 30 sn)")
+                    .fontWeight(.semibold)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .background(model.videoRecording ? Color.red : (model.isLive ? Color.accentColor : Color.gray))
+            .foregroundColor(.white)
+            .cornerRadius(12)
+        }
+        .disabled(!model.isLive && !model.videoRecording)
+        .accessibilityIdentifier("videoKaydi")
     }
 
     @ViewBuilder
