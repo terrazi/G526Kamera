@@ -13,16 +13,21 @@ struct SettingsView: View {
         NavigationView {
             Form {
                 cameraSection
-                voiceSection
-                readingVoiceSection
-                geminiSection
-                geminiModelsSection
-                examSection
-                guidanceSection
-                photoSection
-                powerSection
-                motionSection
-                driveSection
+                Section(header: Text("Bağlantılar"),
+                        footer: Text("Drive hesabınızı ve Gemini API anahtarınızı buradan girersiniz. Diğer bütün ayarlar “Gelişmiş ayarlar” içindedir; varsayılan değerlerle çalışır, değiştirmeniz gerekmez.")) {
+                    NavigationLink(destination: DriveSetupView(auth: model.auth, queue: model.queue)) {
+                        Text("Google Drive hesabı ve bağlantı")
+                    }
+                    NavigationLink(destination: geminiPage) {
+                        Text("Gemini ve API anahtarları")
+                    }
+                }
+                soundSection
+                Section {
+                    NavigationLink(destination: advancedPage) {
+                        Text("Gelişmiş ayarlar")
+                    }
+                }
                 Section {
                     NavigationLink(destination: DiagnosticsView()) {
                         Text("Tanı ve günlük")
@@ -64,6 +69,50 @@ struct SettingsView: View {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Bitti") { presentation.wrappedValue.dismiss() }
                 }
+            }
+        }
+    }
+
+    /// Gemini bölümleri (sesle soru, model profilleri ve API anahtarları)
+    private var geminiPage: some View {
+        Form {
+            geminiSection
+            geminiModelsSection
+        }
+        .navigationTitle("Gemini")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    /// Eski ayarların hepsi (değerleri aynen korunur); ilk ekranda görünmesin diye burada toplanır
+    private var advancedPage: some View {
+        Form {
+            voiceSection
+            readingVoiceSection
+            examSection
+            guidanceSection
+            photoSection
+            powerSection
+            motionSection
+            driveSection
+        }
+        .navigationTitle("Gelişmiş ayarlar")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    /// Ses çıkışı (kulaklık) seçimi ve ses denemesi
+    private var soundSection: some View {
+        Section(header: Text("Ses"),
+                footer: Text("Kulaklıktan dinlemek için ses çıkışı düğmesine basıp kulaklığınızı seçin. “Sesi dene” sesin hangi çıkışa ve hangi mikrofona gittiğini yazar.")) {
+            HStack {
+                Text("Ses çıkışını seç (kulaklık)")
+                Spacer()
+                RoutePickerButton()
+                    .frame(width: 36, height: 36)
+            }
+            Button("Sesi dene") { voiceTestResult = model.testVoice() }
+                .accessibilityIdentifier("sesi-dene")
+            if !voiceTestResult.isEmpty {
+                Text(voiceTestResult).font(.footnote).foregroundColor(.secondary)
             }
         }
     }
@@ -307,17 +356,6 @@ struct SettingsView: View {
                 .accessibilityIdentifier("konumlandirma-ac")
             Toggle("Uyarıları sesli söyle", isOn: $settings.guidanceVoice)
             Toggle("Kamera ve gönderim durumunu da söyle", isOn: $settings.statusNotices)
-            Button("Sesi dene") { voiceTestResult = model.testVoice() }
-                .accessibilityIdentifier("sesi-dene")
-            HStack {
-                Text("Ses çıkışını seç (kulaklık)")
-                Spacer()
-                RoutePickerButton()
-                    .frame(width: 36, height: 36)
-            }
-            if !voiceTestResult.isEmpty {
-                Text(voiceTestResult).font(.footnote).foregroundColor(.secondary)
-            }
             Toggle("Konum uygunsa kendiliğinden çek", isOn: $settings.guidanceAutoCapture)
             Toggle("Kamera ters takılı (yönleri çevir)", isOn: $settings.guidanceFlip)
             Picker("Netlik isteği", selection: $settings.guidanceSharpness) {
