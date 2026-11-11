@@ -25,6 +25,8 @@ enum AudioRoute {
         let wanted: [AVAudioSession.Port] = [.usbAudio, .headsetMic, .lineIn]
         let inputs = session.availableInputs ?? []
         let external = inputs.first(where: { wanted.contains($0.portType) })
+        // Zaten seçiliyse dokunma: gereksiz yönlendirme değişikliği ses motorunu yeniden başlatma döngüsüne sokabilir
+        if session.preferredInput?.uid == external?.uid { return }
         try? session.setPreferredInput(external)
     }
 }

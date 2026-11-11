@@ -236,6 +236,8 @@ final class SpeechTrigger {
     private var lastCount = 0
     private var failures = 0
     private var token = 0
+    /// Son yeniden başlatmaların zamanı (sık sık yeniden başlıyorsa bekleme uzatılır)
+    private var restartTimes: [TimeInterval] = []
     private var startWork: DispatchWorkItem?
     private var refreshTimer: Timer?
     private var observers: [NSObjectProtocol] = []
@@ -355,8 +357,19 @@ final class SpeechTrigger {
         scheduleStart(after: 0)
     }
 
-    private func restartAll(after delay: TimeInterval, reason: String) {
+    /// Son 10 saniyede 3'ten çok yeniden başlatma olduysa bekleme her seferinde 1,5 sn uzar (en çok 8 sn):
+    /// ses yönlendirmesi durmadan değişen cihazlarda (USB mikrofon alıcısı) döngü ana iş parçacığını yormasın.
+    static func restartDelay(base: TimeInterval, recentRestarts: Int) -> TimeInterval {
+        guard recentRestarts > 3 else { return base }
+        return max(base, min(Double(recentRestarts - 3) * 1.5, 8))
+    }
+
+    private func restartAll(after requested: TimeInterval, reason: String) {
         guard running else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        restartTimes = restartTimes.filter { now - $0 < 10 } + [now]
+        let delay = SpeechTrigger.restartDelay(base: requested, recentRestarts: restartTimes.count)
+        if delay > requested { tlog("[ses] sık yeniden başlatma: bekleme \(delay) sn'ye uzatıldı") }
         tlog("[ses] yeniden başlatılıyor: \(reason)")
         startWork?.cancel()
         token += 1

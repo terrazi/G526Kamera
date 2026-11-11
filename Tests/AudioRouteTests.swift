@@ -25,4 +25,13 @@ final class AudioRouteTests: XCTestCase {
     func testReceiverWinsOverSpeakerWhenBothListed() {
         XCTAssertTrue(AudioRoute.outputHint([.builtInSpeaker, .usbAudio]).contains("mikrofon alıcısına"))
     }
+
+    func testRestartDelayGrowsOnlyWhenRestartsPileUp() {
+        XCTAssertEqual(SpeechTrigger.restartDelay(base: 0.4, recentRestarts: 1), 0.4)
+        XCTAssertEqual(SpeechTrigger.restartDelay(base: 0.4, recentRestarts: 3), 0.4)
+        XCTAssertEqual(SpeechTrigger.restartDelay(base: 0.4, recentRestarts: 4), 1.5, accuracy: 0.001)
+        XCTAssertEqual(SpeechTrigger.restartDelay(base: 0.4, recentRestarts: 6), 4.5, accuracy: 0.001)
+        XCTAssertEqual(SpeechTrigger.restartDelay(base: 0.4, recentRestarts: 50), 8, accuracy: 0.001)
+        XCTAssertEqual(SpeechTrigger.restartDelay(base: 10, recentRestarts: 5), 10, "istenen bekleme kısaltılmaz")
+    }
 }
