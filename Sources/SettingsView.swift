@@ -581,6 +581,16 @@ struct DiagnosticsView: View {
                     .font(.system(.footnote, design: .monospaced))
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
+            DisclosureGroup("Sağlık raporu (ısı, bellek, takılma)") {
+                TimelineView(.periodic(from: Date(), by: 5.0)) { _ in
+                    Text(HealthMonitor.shared.report())
+                        .font(.system(.caption2, design: .monospaced))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                Button("Sağlık raporunu kopyala") {
+                    UIPasteboard.general.string = HealthMonitor.shared.report()
+                }
+            }
             Button("Kameradan pil / şarj bilgisi ara") { model.probeCamera() }
                 .accessibilityIdentifier("kamera-sorgula")
             if !model.probeText.isEmpty {

@@ -67,6 +67,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var micNotice = ""
     @Published private(set) var routeNotice = ""
     @Published private(set) var thermalNotice = ""
+    @Published private(set) var crashNotice = ""
 
     // Sesli konumlandırma ve rapor
     @Published private(set) var guidanceStatus = ""
@@ -167,6 +168,10 @@ final class AppModel: ObservableObject {
     private var memoryObserver: NSObjectProtocol?
     /// Telefon çok ısındı: canlı önizleme ve ağır inceleme kendiliğinden kısılır
     private var thermalHot = false
+    /// Ekran sık takıldıysa yük bu ana kadar (sistem çalışma süresi, sn) azaltılmış kalır
+    private var stallShedUntil = 0.0
+    private var lastMemoryTrim = -1000.0
+    private var loadShed: Bool { return thermalHot || ProcessInfo.processInfo.systemUptime < stallShedUntil }
     // Sınavın video aşaması (normal video kaydından ayrı: kayıt düğmesi / "kapat" komutu bunu etkilemez)
     private var examVideoState: ExamVideoPhase = .idle
     private var examVideoOutput: VideoRecorder.Output?
@@ -387,7 +392,7 @@ final class AppModel: ObservableObject {
 
     /// Önizleme kapalıysa kare gönderimi ve analiz seyrekleşir, istenirse ekran kısılır.
     func updatePowerSaving() {
-        pipeline.saving = settings.previewOff || thermalHot
+        pipeline.saving = settings.previewOff || loadShed
         ScreenDimmer.shared.update(dim: started && settings.previewOff && settings.dimWhenPreviewOff)
     }
 
@@ -1291,7 +1296,7 @@ final class AppModel: ObservableObject {
 
     // MARK: - Kendi kendini denetleme (internet, ses çıkışı)
 
-    private enum NoticeKind { case network, mic, route, thermal }
+    private enum NoticeKind { case network, mic, route, thermal, crash }
 
     /// Ana ekran uyarısını yazar (yalnız ekranda görünür; titreşim ya da ek ses yok)
     private func setNotice(_ kind: NoticeKind, _ text: String) {
@@ -1301,6 +1306,7 @@ final class AppModel: ObservableObject {
         case .mic: old = micNotice; micNotice = text
         case .route: old = routeNotice; routeNotice = text
         case .thermal: old = thermalNotice; thermalNotice = text
+        case .crash: old = crashNotice; crashNotice = text
         }
         if old.isEmpty && !text.isEmpty { tlog("[uyarı] \(text)") }
     }
@@ -1328,24 +1334,77 @@ final class AppModel: ObservableObject {
                 forName: UIApplication.didReceiveMemoryWarningNotification, object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor in
                     tlog("[bellek] bellek uyarısı: kare belleği boşaltıldı")
+                    HealthMonitor.shared.event("bellek uyarısı: kare belleği boşaltıldı")
                     self?.pipeline.store.clear()
                 }
             }
         }
+        let monitor = HealthMonitor.shared
+        monitor.onSample = { [weak self] sample, stalls in
+            Task { @MainActor in self?.healthSample(sample, stalls: stalls) }
+        }
+        monitor.onPreviousUnclean = { [weak self] text in
+            Task { @MainActor in self?.previousUncleanFound(text) }
+        }
+        monitor.start()
         checkRoute()
         thermalChanged()
         netTick()
+    }
+
+    /// 10 saniyede bir gelen sağlık örneği: bellek şişerse kare belleği boşaltılır, ekran sık takılırsa yük azaltılır
+    private func healthSample(_ sample: HealthSample, stalls: Int) {
+        guard started else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        if LoadGuard.shedForStalls(count: stalls) {
+            if !loadShed {
+                tlog("[sağlık] ekran 1 dakikada \(stalls) kez takıldı: yük azaltıldı")
+                HealthMonitor.shared.event("ekran \(stalls) kez takıldı: yük azaltıldı")
+            }
+            stallShedUntil = now + LoadGuard.holdSeconds
+        }
+        if LoadGuard.shouldTrimMemory(memoryMB: sample.memoryMB, sinceLastTrim: now - lastMemoryTrim) {
+            lastMemoryTrim = now
+            tlog("[sağlık] bellek \(sample.memoryMB) MB: kare belleği boşaltıldı")
+            HealthMonitor.shared.event("bellek \(sample.memoryMB) MB: kare belleği boşaltıldı")
+            pipeline.store.clear()
+        }
+        refreshLoadNotice()
+    }
+
+    private func previousUncleanFound(_ report: String) {
+        tlog("[sağlık] \(report)")
+        setNotice(.crash, "Program son kullanımda beklenmedik kapanmış. Ayrıntı: Ayarlar → Tanı ve günlük → Sağlık raporu.")
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 90_000_000_000)
+            self?.setNotice(.crash, "")
+        }
     }
 
     /// Telefon "ciddi" ya da "kritik" ısındıysa önizleme kapatılır ve inceleme seyreltilir; soğuyunca geri açılır
     private func thermalChanged() {
         guard started else { return }
         let hot = ThermalGuard.isHot(ProcessInfo.processInfo.thermalState)
-        guard hot != thermalHot else { return }
-        thermalHot = hot
+        if hot != thermalHot {
+            thermalHot = hot
+            tlog("[ısı] telefon \(hot ? "çok ısındı: yük azaltıldı" : "soğudu: normale dönüldü")")
+            HealthMonitor.shared.event(hot ? "telefon çok ısındı: yük azaltıldı" : "telefon soğudu: normale dönüldü")
+        }
+        refreshLoadNotice()
+    }
+
+    /// Yük azaltma durumuna göre canlı önizleme/inceleme ayarını ve ekran uyarısını günceller
+    private func refreshLoadNotice() {
         updatePowerSaving()
-        tlog("[ısı] telefon \(hot ? "çok ısındı: yük azaltıldı" : "soğudu: normale dönüldü")")
-        setNotice(.thermal, hot ? "Telefon çok ısındı: yükü azaltmak için canlı önizleme kapatıldı; soğuyunca kendiliğinden açılır." : "")
+        let text: String
+        if thermalHot {
+            text = "Telefon çok ısındı: yükü azaltmak için canlı önizleme kapatıldı; soğuyunca kendiliğinden açılır."
+        } else if loadShed {
+            text = "Program takılıyor: yükü azaltmak için canlı önizleme kapatıldı; takılmalar durunca kendiliğinden açılır."
+        } else {
+            text = ""
+        }
+        if text != thermalNotice { setNotice(.thermal, text) }
     }
 
     private func stopSelfChecks() {
@@ -1357,6 +1416,8 @@ final class AppModel: ObservableObject {
         setNotice(.route, "")
         setNotice(.thermal, "")
         thermalHot = false
+        stallShedUntil = 0
+        HealthMonitor.shared.pause()
     }
 
     /// Ses yalnız mikrofon alıcısına gidiyorsa uyarı yazar (program bunu kendisi değiştiremez)
