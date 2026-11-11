@@ -48,6 +48,16 @@ private final class FakePorts: ExamPorts {
     /// Gemini'ye doğrudan giden ses kayıtları
     var freeAudio: [Data] = []
 
+    /// Açılış sınaması
+    var checkOn = false
+    var systemProblem = ""
+    var systemChecks = 0
+    func selfCheckOn() -> Bool { return checkOn }
+    func checkSystem() async -> String {
+        systemChecks += 1
+        return systemProblem
+    }
+
     /// Video aşaması
     var videoOn = false
     var videoPhaseValue: ExamVideoPhase = .idle
@@ -843,6 +853,97 @@ final class ExamModeTests: XCTestCase {
         XCTAssertFalse(p.spoken.contains(where: { $0.contains("Sorun giderilince") }))
         XCTAssertEqual(p.recheckCalls, 1, "başarısız ikinci çözüm bir kez denenir, sonra vazgeçilir")
         await finish(exam)
+    }
+
+    // MARK: Açılış sınaması
+
+    func testSelfCheckPassesThenStartsExam() async {
+        let p = FakePorts()
+        p.checkOn = true
+        let exam = make(p)
+        XCTAssertTrue(exam.start())
+        let asked = await until { self.spoke(p, "Hazırlık sınaması başlıyor") }
+        XCTAssertTrue(asked, "\(p.spoken)")
+        await say(exam, "tamam")
+        let ready = await until { exam.status == "Tarama: 0 sayfa" }
+        XCTAssertTrue(ready, "\(p.spoken) / \(exam.status)")
+        XCTAssertTrue(spoke(p, "Ses, internet ve Gemini hazır."))
+        XCTAssertEqual(p.systemChecks, 1)
+        await finish(exam)
+    }
+
+    func testSelfCheckAsksAgainAndAcceptsSecondReply() async {
+        let p = FakePorts()
+        p.checkOn = true
+        let exam = make(p)
+        exam.checkTimeouts = (0.3, 5)
+        XCTAssertTrue(exam.start())
+        let again = await until { self.spoke(p, "Sizi duyamadım") }
+        XCTAssertTrue(again, "\(p.spoken)")
+        await say(exam, "tamam")
+        let ready = await until { exam.status == "Tarama: 0 sayfa" }
+        XCTAssertTrue(ready, "\(p.spoken) / \(exam.status)")
+        await finish(exam)
+    }
+
+    func testSelfCheckWithoutReplyStopsAndSavesNothing() async {
+        let p = FakePorts()
+        p.checkOn = true
+        let exam = make(p)
+        exam.checkTimeouts = (0.2, 0.2)
+        XCTAssertTrue(exam.start())
+        let done = await exam.waitDone(timeout: 8)
+        XCTAssertTrue(done)
+        XCTAssertTrue(exam.status.contains("Ses sınaması başarısız"), exam.status)
+        XCTAssertTrue(spoke(p, "Ses sınaması başarısız"))
+        XCTAssertFalse(spoke(p, "hazır."))
+        XCTAssertNil(exam.savedSummary(), "yarım kalan boş sınav kaydedilmemeli")
+        XCTAssertFalse(spoke(p, "Deneme sınavı kapatıldı"), "sorun zaten okundu")
+    }
+
+    func testSelfCheckReportsInternetOrGeminiProblem() async {
+        let p = FakePorts()
+        p.checkOn = true
+        p.systemProblem = "İnternet yok. Hücresel veriyi kontrol edin."
+        let exam = make(p)
+        XCTAssertTrue(exam.start())
+        _ = await until { self.spoke(p, "Hazırlık sınaması başlıyor") }
+        await say(exam, "tamam")
+        let done = await exam.waitDone(timeout: 8)
+        XCTAssertTrue(done)
+        XCTAssertEqual(exam.status, "İnternet yok. Hücresel veriyi kontrol edin.")
+        XCTAssertTrue(spoke(p, "İnternet yok."))
+        XCTAssertFalse(spoke(p, "hazır."))
+        XCTAssertNil(exam.savedSummary())
+    }
+
+    func testEndingDuringSelfCheckSavesNothing() async {
+        let p = FakePorts()
+        p.checkOn = true
+        let exam = make(p)
+        XCTAssertTrue(exam.start())
+        _ = await until { self.spoke(p, "Hazırlık sınaması başlıyor") }
+        await finish(exam)
+        XCTAssertNil(exam.savedSummary())
+        XCTAssertTrue(spoke(p, "Deneme sınavı kapatıldı."))
+    }
+
+    func testSelfCheckIsSkippedWhenResuming() async {
+        let p = FakePorts()
+        let dir = tmpDir()
+        let first = make(p, dir: dir)
+        XCTAssertTrue(first.start())
+        _ = await until { first.status == "Tarama: 0 sayfa" }
+        p.pendingList = ["a.jpg"]
+        await finish(first)
+        p.checkOn = true
+        p.spoken.removeAll()
+        let again = make(p, dir: dir)
+        XCTAssertTrue(again.start())
+        let asked = await until { self.spoke(p, "Yarım kalan bir deneme sınavı var") }
+        XCTAssertTrue(asked, "\(p.spoken)")
+        XCTAssertFalse(spoke(p, "Hazırlık sınaması"), "devam eden sınavda yeniden sınanmaz")
+        await finish(again)
     }
 
     // MARK: Cevap anahtarı

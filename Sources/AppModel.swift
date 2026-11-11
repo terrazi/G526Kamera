@@ -792,7 +792,8 @@ final class AppModel: ObservableObject {
             videoPhase: { [weak self] in self?.examVideoPhase() ?? .idle },
             videoStop: { [weak self] in self?.examVideoStopRecording() },
             videoDiscard: { [weak self] in self?.examVideoDiscard() },
-            videoSend: { [weak self] in await self?.examVideoSend() ?? "video yok" })
+            videoSend: { [weak self] in await self?.examVideoSend() ?? "video yok" },
+            checkSystem: { [weak self] in await self?.examSystemCheck() ?? "" })
         let ports = ExamPortsReal(hooks: hooks, queue: queue, settings: settings, auth: auth,
                                   docStore: GeminiDocStore(source: DriveClient(auth: GoogleAuth.shared)), asker: asker)
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -1292,6 +1293,24 @@ final class AppModel: ObservableObject {
         tlog("[video] Gemini cevabı: \(result.model), \(result.promptTokens) giriş token'ı, \(result.text.count) karakter")
         videoAnswer = result.text
         _ = speakGemini("Gemini cevabı. " + result.text)
+    }
+
+    // MARK: - Sınav açılış sınaması
+
+    /// İnternet ve Gemini'ye ulaşılıyor mu (anahtar ve bağlantı birlikte sınanır; ücretsiz "modelleri listele" çağrısı)
+    private func examSystemCheck() async -> String {
+        var online = await InternetProbe.isOnline()
+        if !online { online = await InternetProbe.isOnline() }
+        if !online {
+            return "İnternet yok. Hücresel veriyi kontrol edin; internet gelince deneme sınavı modu deyin."
+        }
+        let key = settings.activeGeminiProfile.key
+        do {
+            _ = try await GeminiClient(key: { key }, model: { "" }).listModels()
+        } catch {
+            return "Gemini'ye ulaşılamadı: \(error.localizedDescription)"
+        }
+        return ""
     }
 
     // MARK: - Kendi kendini denetleme (internet, ses çıkışı)

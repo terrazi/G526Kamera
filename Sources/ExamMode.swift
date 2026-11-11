@@ -169,6 +169,10 @@ protocol ExamPorts: AnyObject {
     func flush(aborted: () -> Bool) async -> Int
     /// Sesli konumlandırma kullanılabilir mi
     func canGuide() -> Bool
+    /// Sınav açılırken ses, internet ve Gemini sınansın mı
+    func selfCheckOn() -> Bool
+    /// Açılış sınaması: internet ve Gemini'ye ulaşılıyor mu. Boş = sorun yok, doluysa okunacak sorun metni
+    func checkSystem() async -> String
     func sendError() -> String
     /// since'ten sonra Drive'a giden PDF'ler (eskiden yeniye)
     func sent(since: Double) -> [ExamSentFile]
@@ -208,6 +212,8 @@ extension ExamPorts {
     func videoStop() {}
     func videoDiscard() {}
     func videoSend() async -> String { return "" }
+    func selfCheckOn() -> Bool { return false }
+    func checkSystem() async -> String { return "" }
 }
 
 @MainActor
@@ -250,6 +256,11 @@ final class ExamMode: ObservableObject {
     private var lastEnd: Double = 0
     /// Bu oturumda video aşaması yapıldı (tarama aşaması "Deneme sınavı modu açık" demeden başlasın)
     private var videoDone = false
+    /// Açılış sınaması sürüyor (bu sırada kapanırsa boş sınav kaydedilmez)
+    private var checking = false
+    /// Açılış sınamasında "tamam" beklenen süreler (sn): ilk deneme, ikinci deneme
+    var checkTimeouts: (first: Double, second: Double) = (15, 12)
+    private var checkProblem = ""
     /// "Dinle": sınav sırasında her an Gemini ile serbest sesli konuşma
     private var freeActive = false
     private var freeRestart = false
@@ -726,6 +737,8 @@ final class ExamMode: ObservableObject {
     private func launch(resume: Bool) {
         aborted = false
         videoDone = false
+        checking = false
+        checkProblem = ""
         cmds.removeAll()
         docs = nil
         prefetch = nil
@@ -803,7 +816,17 @@ final class ExamMode: ObservableObject {
 
     private func run(resume: Bool) async {
         do {
-            if resume { try await resumePrompt() }
+            if resume {
+                try await resumePrompt()
+            } else if !st.adopted && ports.selfCheckOn() {
+                checking = true
+                let problem = try await stageCheck()
+                if !problem.isEmpty {
+                    checkProblem = problem
+                    throw ExamStop()
+                }
+                checking = false
+            }
             while true {
                 try check()
                 let current = st.stage
@@ -834,6 +857,9 @@ final class ExamMode: ObservableObject {
     }
 
     private func close() async {
+        let quiet = !checkProblem.isEmpty
+        let leftDuringCheck = checking && !quiet
+        if checking { hasState = false; checking = false }
         let finished = hasState && (st.stage == "review" || st.stage == "done")
         if hasState {
             if finished {
@@ -863,7 +889,12 @@ final class ExamMode: ObservableObject {
         setStatus("")
         refreshInfo()
         let held = (hasState && st.stage == "scan") ? st.photos.count : 0
-        if finished {
+        if quiet {
+            // Sorun zaten okundu; ekranda da kalsın
+            setStatus(checkProblem)
+        } else if leftDuringCheck {
+            await sayNow("Deneme sınavı kapatıldı.")
+        } else if finished {
             await sayNow("Deneme sınavı tamamlandı.")
         } else if held > 0 {
             await sayNow("Deneme sınavı kapatıldı. Taranan \(held) sayfa, ayarlarınızdaki yöntemle Drive'a gönderilecek.")
@@ -892,6 +923,38 @@ final class ExamMode: ObservableObject {
 
     /// Sınavın ilk aşaması: evrak kadraja girince kayıt başlar (en çok 30 sn). "durdur" ya da süre dolması videoyu Drive'a gönderir,
     /// "sil" göndermeden siler, "atla" video aşamasını geçer. Her videodan sonra "devam edeyim mi?": evet → yeni video, hayır → fotoğraf taraması.
+    /// Açılış sınaması: ses çıkışı ve mikrofon (kullanıcı "tamam" der), internet ve Gemini (arka planda).
+    /// Boş döner: her şey hazır. Doluysa okunan sorun metni.
+    private func stageCheck() async throws -> String {
+        setStatus("Hazırlık: ses, internet ve Gemini sınanıyor")
+        let system = Task { await self.ports.checkSystem() }
+        var heard = false
+        do {
+            try await say("Hazırlık sınaması başlıyor. Beni duyuyorsanız tamam deyin.")
+            heard = try await wait(["yes"], timeout: checkTimeouts.first).name != nil
+            if !heard {
+                try await say("Sizi duyamadım. Beni duyuyorsanız bir kez daha tamam deyin.")
+                heard = try await wait(["yes"], timeout: checkTimeouts.second).name != nil
+            }
+        } catch {
+            system.cancel()
+            throw error
+        }
+        let systemProblem = await system.value
+        var problems: [String] = []
+        if !heard {
+            problems.append("Ses sınaması başarısız: sesinizi alamadım ya da sesimi duyamadınız. Ses çıkışı düğmesinden kulaklığı seçin, mikrofon alıcısının bağlı olduğunu kontrol edin; sonra deneme sınavı modu deyin.")
+        }
+        if !systemProblem.isEmpty { problems.append(systemProblem) }
+        if !problems.isEmpty {
+            let text = problems.joined(separator: " ")
+            try await say(text)
+            return text
+        }
+        try await say("Ses, internet ve Gemini hazır.")
+        return ""
+    }
+
     private func stageVideo() async throws -> String? {
         // Kamera ya da ayar video için hazır değilse (kaydedilmiş sınav devam ediyorsa) doğrudan fotoğraf taramasına geçilir
         if !ports.videoEnabled() {

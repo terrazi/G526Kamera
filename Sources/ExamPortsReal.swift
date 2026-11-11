@@ -87,6 +87,8 @@ final class ExamPortsReal: ExamPorts {
         var videoDiscard: () -> Void = {}
         /// Hazır videoyu Drive'a gönderir, bitene kadar bekler; hata metni ("" = gönderildi)
         var videoSend: () async -> String = { "" }
+        /// Açılış sınaması: internet ve Gemini (boş = sorun yok)
+        var checkSystem: () async -> String = { "" }
     }
 
     private let hooks: Hooks
@@ -145,6 +147,8 @@ final class ExamPortsReal: ExamPorts {
     func videoStop() { hooks.videoStop() }
     func videoDiscard() { hooks.videoDiscard() }
     func videoSend() async -> String { return await hooks.videoSend() }
+    func selfCheckOn() -> Bool { return settings.examSelfCheck }
+    func checkSystem() async -> String { return await hooks.checkSystem() }
 
     func sendError() -> String {
         if !auth.isSignedIn { return "Drive'a giriş yapılmamış" }

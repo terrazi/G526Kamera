@@ -139,6 +139,8 @@ final class AppSettings: ObservableObject {
     @Published var examGap: Int { didSet { d.set(examGap, forKey: "examGap") } }
     /// Deneme sınavı önce video çeker (evrak görününce başlar, en çok 30 sn); kapalıysa sınav doğrudan fotoğraf taramasıyla başlar
     @Published var examVideoFirst: Bool { didSet { d.set(examVideoFirst, forKey: "examVideoFirst") } }
+    /// Sınav açılırken ses, mikrofon, internet ve Gemini sınanır
+    @Published var examSelfCheck: Bool { didSet { d.set(examSelfCheck, forKey: "examSelfCheck") } }
     /// İnternet gidince kullanıcının yaptığı "hücresel yenileme" kestirmesini (Kestirmeler uygulaması) çalıştır; varsayılan kapalı
     @Published var cellularShortcutOn: Bool { didSet { d.set(cellularShortcutOn, forKey: "cellularShortcutOn") } }
     @Published var cellularShortcutName: String { didSet { d.set(cellularShortcutName, forKey: "cellularShortcutName") } }
@@ -252,6 +254,7 @@ final class AppSettings: ObservableObject {
         examCancelWindow = min(max(d.object(forKey: "examCancelWindow") as? Int ?? 5, 0), 15)
         examGap = min(max(d.object(forKey: "examGap") as? Int ?? 3, 0), 10)
         examVideoFirst = d.object(forKey: "examVideoFirst") as? Bool ?? true
+        examSelfCheck = d.object(forKey: "examSelfCheck") as? Bool ?? true
         cellularShortcutOn = d.object(forKey: "cellularShortcutOn") as? Bool ?? false
         cellularShortcutName = d.string(forKey: "cellularShortcutName") ?? CellularShortcut.defaultName
         previewOff = d.object(forKey: "previewOff") as? Bool ?? false

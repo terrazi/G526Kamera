@@ -397,6 +397,7 @@ struct SettingsView: View {
                 Text("Gruplar arası duraklama: \(settings.examGap) sn")
             }
             Toggle("Sınav önce video çeksin", isOn: $settings.examVideoFirst)
+            Toggle("Sınav başlarken ses, internet ve Gemini'yi sına", isOn: $settings.examSelfCheck)
         }
     }
 
