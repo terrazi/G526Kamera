@@ -86,9 +86,9 @@ final class ProfileDefaultsTests: XCTestCase {
         let list = GeminiProfiles.defaults()
         XCTAssertEqual(GeminiProfiles.slotCount, 6)
         XCTAssertEqual(list.map { $0.model }, ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-2.5-pro", "gemini-3.5-flash-lite",
-                                                "gemini-3.1-flash-lite", "gemini-3.8-flash"])
+                                                "gemini-3.1-flash-lite", "gemini-3.1-flash-lite"])
         XCTAssertEqual(list.map { $0.name }, ["Gemini 3.8 Flash", "Gemini 3.6 Flash", "Gemini 2.5 Pro", "Gemini 3.5 Flash-Lite",
-                                               "Gemini 3.1 Flash-Lite", "Ücretli Gemini 3.8 Flash"])
+                                               "Gemini 3.1 Flash-Lite", "Ücretli Gemini 3.1 Flash-Lite"])
         XCTAssertEqual(list.map { $0.free }, [true, true, true, true, true, false])
         XCTAssertEqual(GeminiConfig.defaultModel, "gemini-3.8-flash")
         XCTAssertEqual(GeminiProfiles.defaultNames, list.map { $0.name })
@@ -104,11 +104,11 @@ final class ProfileDefaultsTests: XCTestCase {
         XCTAssertEqual(list[0].name, "Flash")
         XCTAssertFalse(list[0].free, "kullanıcının ücretsiz bayrağı korunur")
         XCTAssertEqual(list.map { $0.model }, ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-2.5-pro", "gemini-3.5-flash-lite",
-                                                "gemini-3.1-flash-lite", "gemini-3.8-flash"])
+                                                "gemini-3.1-flash-lite", "gemini-3.1-flash-lite"])
         XCTAssertEqual(list[1].name, "Gemini 3.6 Flash")
         XCTAssertEqual(list[2].name, "Gemini 2.5 Pro")
         XCTAssertTrue(list[2].free, "boş modelli profil varsayılan bayrağını alır")
-        XCTAssertEqual(list[5].name, "Ücretli Gemini 3.8 Flash")
+        XCTAssertEqual(list[5].name, "Ücretli Gemini 3.1 Flash-Lite")
         XCTAssertFalse(list[5].free)
     }
 

@@ -32,13 +32,13 @@ enum GeminiProfiles {
 
     /// Varsayılan sıra = model zincirinin sırası = PERFORMANS sırası (kota dolunca / hata olunca / cevap gecikince bir sonrakine geçilir):
     /// 1. Gemini 3.8 Flash, 2. Gemini 3.6 Flash, 3. Gemini 2.5 Pro, 4. Gemini 3.5 Flash-Lite, 5. Gemini 3.1 Flash-Lite (hepsi ücretsiz katmanda),
-    /// 6. ücretli Gemini 3.8 Flash (kendi ücretli anahtarı, günlük sınırı yok, en sonda). Kullanıcı Ayarlardan ya da "model değiştir" ile değiştirir.
+    /// 6. ücretli Gemini 3.1 Flash-Lite (kendi ücretli anahtarı; ucuz: ≈0,25 $ / 1,50 $ milyon belirteç; günlük sınırı yok, en sonda). Kullanıcı Ayarlardan ya da "model değiştir" ile değiştirir.
     static let defaultSecondModel = "gemini-3.6-flash"
     static let defaultThirdModel = "gemini-2.5-pro"
     static let defaultLiteModel = "gemini-3.5-flash-lite"
     static let defaultOldLiteModel = "gemini-3.1-flash-lite"
     static let defaultNames = ["Gemini 3.8 Flash", "Gemini 3.6 Flash", "Gemini 2.5 Pro", "Gemini 3.5 Flash-Lite",
-                               "Gemini 3.1 Flash-Lite", "Ücretli Gemini 3.8 Flash"]
+                               "Gemini 3.1 Flash-Lite", "Ücretli Gemini 3.1 Flash-Lite"]
 
     static func defaults() -> [GeminiProfile] {
         return [GeminiProfile(name: defaultNames[0], model: GeminiConfig.defaultModel, free: true),
@@ -46,7 +46,7 @@ enum GeminiProfiles {
                 GeminiProfile(name: defaultNames[2], model: defaultThirdModel, free: true),
                 GeminiProfile(name: defaultNames[3], model: defaultLiteModel, free: true),
                 GeminiProfile(name: defaultNames[4], model: defaultOldLiteModel, free: true),
-                GeminiProfile(name: defaultNames[5], model: GeminiConfig.defaultModel, free: false)]
+                GeminiProfile(name: defaultNames[5], model: defaultOldLiteModel, free: false)]
     }
 
     /// Kaydedilmiş profillerde eksik yuvalar varsayılanla tamamlanır, boş kalan modeller varsayılanla dolar (anahtar girilene kadar etkisizdir);

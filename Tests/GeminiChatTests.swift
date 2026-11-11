@@ -865,16 +865,15 @@ final class GeminiChatTests: XCTestCase {
 
     func testChainEndsWithThePaidProfileUsingItsOwnKeyAndNoWaitLimit() async {
         setUpChain()
-        for (id, _) in [("-|gemini-3.8-flash", 0), ("k2|gemini-3.6-flash", 0), ("k3|gemini-2.5-pro", 0),
-                        ("k4|gemini-3.5-flash-lite", 0), ("k5|gemini-3.1-flash-lite", 0)] {
+        for id in ["-|gemini-3.8-flash", "k2|gemini-3.6-flash", "k3|gemini-2.5-pro", "k4|gemini-3.5-flash-lite", "k5|gemini-3.1-flash-lite"] {
             client.failModels[id] = dailyQuota
         }
         await askChain()
         XCTAssertEqual(client.calls.map { $0.model ?? "-" },
-                       ["-", "gemini-3.6-flash", "gemini-2.5-pro", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3.8-flash"])
+                       ["-", "gemini-3.6-flash", "gemini-2.5-pro", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3.1-flash-lite"])
         XCTAssertEqual(client.calls.map { $0.key ?? "-" }, ["-", "k2", "k3", "k4", "k5", "k6"])
         XCTAssertEqual(client.calls.map { $0.timeout }, [30, 30, 30, 30, 30, nil], "son modele bekleme sınırı konmaz")
-        XCTAssertTrue(log.spoken.contains("Gemini 3.1 Flash-Lite kotası doldu. Sorunuz Ücretli Gemini 3.8 Flash modeline gönderiliyor."), "\(log.spoken)")
+        XCTAssertTrue(log.spoken.contains("Gemini 3.1 Flash-Lite kotası doldu. Sorunuz Ücretli Gemini 3.1 Flash-Lite modeline gönderiliyor."), "\(log.spoken)")
         XCTAssertEqual(chat.answer, "Cevap 6.")
         XCTAssertEqual(chat.error, "")
     }
