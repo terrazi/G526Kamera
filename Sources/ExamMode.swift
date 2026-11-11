@@ -171,6 +171,15 @@ protocol ExamPorts: AnyObject {
     func release() async
     /// Cevap anahtarı metnini Drive'a düz metin dosyası olarak yükler; bağlantı (yoksa boş) döndürür. Başarısızlık sınavı etkilemez.
     func saveKey(_ name: String, _ text: String) async -> String
+    /// "Dinle": mikrofonu açıp "tamam" denene (ya da ayardaki sessizlik süresi dolana) kadar kaydeder; 16 kHz WAV. nil: duyulmadı / kesildi.
+    func listen() async -> Data?
+    /// Sürmekte olan "dinle" kaydını keser (listen() nil döner)
+    func stopListening()
+}
+
+extension ExamPorts {
+    func listen() async -> Data? { return nil }
+    func stopListening() {}
 }
 
 @MainActor
@@ -211,6 +220,12 @@ final class ExamMode: ObservableObject {
     private var prefetch: Task<Void, Never>?
     private var docs: [GeminiDoc]?
     private var lastEnd: Double = 0
+    /// "Dinle": sınav sırasında her an Gemini ile serbest sesli konuşma
+    private var freeActive = false
+    private var freeRestart = false
+    private var freeTask: Task<Void, Never>?
+    /// "Dinle" etkinken true: akıştaki sonraki cümleler konuşma bitene kadar bekler
+    var freeSpeaking: Bool { return freeActive }
 
     init(ports: ExamPorts, settings: @escaping () -> ExamSettings, directory: URL?,
          now: @escaping () -> Double = { Date().timeIntervalSince1970 },
@@ -358,6 +373,7 @@ final class ExamMode: ObservableObject {
         if name == "end" {
             aborted = true
             ports.stopSpeaking()
+            ports.stopListening()
         }
         cmds.append((name: name, text: text))
         return true
@@ -458,8 +474,139 @@ final class ExamMode: ObservableObject {
         }
     }
 
+    // MARK: "Dinle": her an Gemini ile serbest konuşma
+
+    /// "Dinle" sözcüğü / düğme: sınav açıkken her an Gemini'ye serbest sesli istek. Akıştaki konuşma kesilir; program "Dinliyorum" der,
+    /// "tamam" denene kadar kaydeder ve ses dosyasını (belgeler ve kayıtlı cevaplarla) doğrudan Gemini'ye gönderir.
+    /// Cevap okunur ya da işlem yapılır ("12. soruyu tekrar oku", "sıradaki on soru", "sınavı bitir"); sonra akış sürer.
+    @discardableResult
+    func listenRequest(source: String = "ui") -> Bool {
+        guard running else { return false }
+        if source == "voice" && echoGuard > 0 && uptime() - saidAt < echoGuard { return false }
+        if freeActive {
+            // Zaten sürüyor: okunan cevabı ya da kaydı keser, yeni isteği dinler
+            freeRestart = true
+            ports.stopListening()
+            ports.stopSpeaking()
+            return true
+        }
+        freeActive = true
+        freeRestart = false
+        ports.stopSpeaking()
+        freeTask = Task { [weak self] in
+            await self?.freeAsk()
+        }
+        return true
+    }
+
+    private func freeAsk() async {
+        let before = status
+        while !aborted && !Task.isCancelled {
+            freeRestart = false
+            await freeOnce()
+            if !freeRestart { break }
+        }
+        freeActive = false
+        freeTask = nil
+        if running { status = before }
+    }
+
+    /// Dinle akışı sürerken sınav akışının sonraki cümleleri bekler
+    private func waitFloor() async {
+        while freeActive && !aborted && !Task.isCancelled {
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+    }
+
+    private func speakFree(_ text: String) async {
+        said.append(text)
+        if said.count > 30 { said.removeFirst(said.count - 30) }
+        await ports.say(text)
+        saidAt = uptime()
+    }
+
+    private func freeLines(_ lines: [String]) async {
+        for l in lines {
+            if freeRestart || aborted { return }
+            if !l.isEmpty { await speakFree(l) }
+        }
+    }
+
+    /// Sınav belgeleri hazırsa onlar, gönderilmişse hazırlanıp onlar; gönderilmiş belge yoksa belgesiz sorulur
+    private func freeDocs() async throws -> [GeminiDoc] {
+        if docs == nil && hasState && !st.sent.isEmpty {
+            let r = try await ports.docs(for: st.sent)
+            if !r.docs.isEmpty && docs == nil { docs = try await ports.prepare(r.docs) }
+        }
+        return docs ?? []
+    }
+
+    private func recordText() -> String {
+        return answerKeyText().trimmed
+    }
+
+    private func freeOnce() async {
+        setStatus("Dinliyorum…")
+        await speakFree("Dinliyorum.")
+        if freeRestart || aborted { return }
+        let audio = await ports.listen()
+        if freeRestart || aborted { return }
+        guard let wav = audio, !wav.isEmpty else {
+            await speakFree("Sizi duyamadım. Tekrar denemek için dinle deyin.")
+            return
+        }
+        setStatus("Gemini düşünüyor…")
+        let data: [String: Any]
+        do {
+            let list = try await freeDocs()
+            let task = ExamTask(prompt: ExamPrompts.freePrompt(record: recordText()), schema: ExamPrompts.freeSchema,
+                                maxTokens: 2048, audio: wav)
+            let raw = try await ports.ask(task, docs: list)
+            guard let obj = ExamMode.loads(raw) else { throw ExamBadReply(message: "Cevabı anlayamadım.") }
+            data = obj
+        } catch {
+            if freeRestart || aborted || isStop(error) { return }
+            let why = (error is ExamBadReply) ? "Cevabı anlayamadım." : message(error).trimmed
+            await speakFree("\(why) Tekrar denemek için dinle deyin.")
+            return
+        }
+        if freeRestart || aborted { return }
+        await freeAct(data)
+    }
+
+    private func freeAct(_ data: [String: Any]) async {
+        let islem = (data["islem"] as? String) ?? ""
+        let reply = ((data["cevap"] as? String) ?? "").trimmed
+        let saved = lastAnswers()
+        switch islem {
+        case "tekrar" where saved != nil:
+            let nums = ((data["numaralar"] as? [Any]) ?? []).compactMap { ExamMode.intValue($0) }
+            let lines = nums.isEmpty ? [] : linesFrom(saved!, all: false, nums: nums, reason: false)
+            await freeLines(lines.isEmpty ? [reply.isEmpty ? "Bu sorunun kayıtlı cevabı yok." : ExamMode.cap(reply)] : lines)
+        case "hepsi" where saved != nil:
+            let lines = linesFrom(saved!, all: true, nums: [], reason: false)
+            await freeLines(lines.isEmpty ? ["Henüz kayıtlı cevap yok."] : lines)
+        case "devam":
+            if valid.contains("continue") {
+                cmds.append((name: "continue", text: ""))
+                await speakFree("Devam ediyorum.")
+            } else {
+                await speakFree("Şu an devam edilecek bir duraklama yok.")
+            }
+        case "bitir":
+            command("end", source: "ui")
+        case "cevap" where !reply.isEmpty:
+            await freeLines([reply])
+        case "tekrar", "hepsi":
+            await speakFree("Henüz kayıtlı cevap yok.")
+        default:
+            await speakFree("Anlayamadım. Tekrar denemek için dinle deyin.")
+        }
+    }
+
     /// Cümleyi (kapanış dahil her durumda) okutur
     func sayNow(_ text: String) async {
+        await waitFloor()
         said.append(text)
         if said.count > 30 { said.removeFirst(said.count - 30) }
         await ports.say(text)
@@ -1208,15 +1355,21 @@ final class ExamMode: ObservableObject {
 
     /// Söylenene göre kayıttan okunacak cümleler: hepsi, aralık ya da tek tek numaralar. Gemini'ye gitmez.
     func linesFor(_ d: ExamState, _ text: String) -> [String] {
-        let qs = d.questions
         let reason = ExamMode.wantsReason(text)
+        if ExamText.wantsAll(text) { return linesFrom(d, all: true, nums: [], reason: reason) }
+        var nums = ExamText.numberRange(text)
+        if nums.isEmpty { nums = ExamText.parseNumbers(text) }
+        return linesFrom(d, all: false, nums: nums, reason: reason)
+    }
+
+    /// Kayıttan okunacak cümleler: hepsi ya da verilen soru numaraları (bulunamayan numara için "… soru bulunamadı")
+    func linesFrom(_ d: ExamState, all: Bool, nums: [Int], reason: Bool) -> [String] {
+        let qs = d.questions
         var keys: [String] = []
         var missing: [Int] = []
-        if ExamText.wantsAll(text) {
+        if all {
             keys = qs.map { ExamMode.qkey($0.bolum, $0.no) }
         } else {
-            var nums = ExamText.numberRange(text)
-            if nums.isEmpty { nums = ExamText.parseNumbers(text) }
             for n in nums {
                 let ks = qs.filter { $0.no == n }.map { ExamMode.qkey($0.bolum, $0.no) }
                 if ks.isEmpty { missing.append(n) } else { keys.append(contentsOf: ks) }

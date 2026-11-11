@@ -1,6 +1,7 @@
 import Foundation
 import AVFoundation
 import AudioToolbox
+import Speech
 
 /// 16 kHz, 16 bit, tek kanal ses akışında konuşmanın başını ve sonunu (sessizlik) bulur.
 /// Windows sürümündeki talk.py `EndpointDetector` ile aynı mantık: 20 ms'lik pencerelerin enerjisi,
@@ -97,7 +98,8 @@ struct EndpointDetector {
 }
 
 enum QuestionOutcome: Equatable {
-    case done, noSpeech, max, stopped
+    /// done: konuşma bitti (sessizlik); word: kullanıcı "tamam" dedi
+    case done, word, noSpeech, max, stopped
     case failed(String)
 }
 
@@ -106,7 +108,18 @@ protocol QuestionRecording: AnyObject {
     /// Mikrofonu açar, konuşma bitince (sessizlikte) ya da hata / iptalde döner. pcm: 16 kHz, 16 bit, tek kanal.
     /// `waitForSpeech`: konuşma başlamazsa en çok bu kadar saniye beklenir (.infinity = süresiz).
     func record(waitForSpeech: TimeInterval, onStatus: @escaping (String) -> Void) async -> (pcm: Data, outcome: QuestionOutcome)
+    /// "Dinle … tamam": `endWord` true ise kayıt, kullanıcı "tamam" deyince biter (konuşma tanıma çalışabiliyorsa);
+    /// konuşmadan sonra `silenceEnd` saniye sessizlik de bitirir. `endWord` false ise eski düzen (kısa sessizlikte biter).
+    func record(waitForSpeech: TimeInterval, endWord: Bool, silenceEnd: TimeInterval,
+                onStatus: @escaping (String) -> Void) async -> (pcm: Data, outcome: QuestionOutcome)
     func cancel()
+}
+
+extension QuestionRecording {
+    func record(waitForSpeech: TimeInterval, endWord: Bool, silenceEnd: TimeInterval,
+                onStatus: @escaping (String) -> Void) async -> (pcm: Data, outcome: QuestionOutcome) {
+        return await record(waitForSpeech: waitForSpeech, onStatus: onStatus)
+    }
 }
 
 /// Kendi AVAudioEngine'ini açıp soruyu kaydeder. Sürekli dinleyen `SpeechTrigger` bu sırada durdurulmuş olmalıdır
@@ -124,6 +137,19 @@ final class QuestionRecorder: QuestionRecording {
     private var watchdog: Timer?
     private var cancelled = false
     private var waitLimit: TimeInterval = 7
+    /// "Tamam" ile bitirme (yalnız ana iş parçacığında değişir)
+    private var endWordMode = false
+    private var endSilence: TimeInterval = 1.3
+    private var wordRecognizer: SFSpeechRecognizer?
+    private var wordTask: SFSpeechRecognitionTask?
+    private var wordWork: DispatchWorkItem?
+    private var wordRestarts = 0
+    private let wordLock = NSLock()
+    private var wordRequest: SFSpeechAudioBufferRecognitionRequest?
+    /// Son kısmi yazıdan sonra "tamam" bu kadar süre değişmeden kalırsa kayıt biter (cümle arasındaki "tamam"ı kesmesin diye)
+    static let endWordHold: TimeInterval = 0.7
+    /// "Tamam" modunda tek kaydın en uzun süresi (sn)
+    static let endWordMaxLength: Double = 120
 
     // Aşağıdakiler yalnızca `queue` üzerinde değişir
     private var detector = EndpointDetector()
@@ -137,9 +163,16 @@ final class QuestionRecorder: QuestionRecording {
     private static let silentMicLimit: TimeInterval = 6
 
     func record(waitForSpeech: TimeInterval, onStatus: @escaping (String) -> Void) async -> (pcm: Data, outcome: QuestionOutcome) {
+        return await record(waitForSpeech: waitForSpeech, endWord: false, silenceEnd: 1.3, onStatus: onStatus)
+    }
+
+    func record(waitForSpeech: TimeInterval, endWord: Bool, silenceEnd: TimeInterval,
+                onStatus: @escaping (String) -> Void) async -> (pcm: Data, outcome: QuestionOutcome) {
         return await withCheckedContinuation { continuation in
             DispatchQueue.main.async {
                 self.waitLimit = waitForSpeech
+                self.endWordMode = endWord
+                self.endSilence = silenceEnd
                 self.begin(onStatus: onStatus) { pcm, outcome in
                     continuation.resume(returning: (pcm, outcome))
                 }
@@ -175,17 +208,33 @@ final class QuestionRecorder: QuestionRecording {
                     self.finish(.failed("Mikrofon izni verilmedi. iPhone Ayarlar bölümünden G526 Kamera için mikrofonu açın."))
                     return
                 }
-                if self.playCue { AudioServicesPlaySystemSound(1113) }
-                let delay = self.playCue ? 0.4 : 0.0
-                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-                    guard let self = self, self.completion != nil else { return }
-                    if self.cancelled {
-                        self.finish(.stopped)
-                        return
+                if self.endWordMode {
+                    // "Tamam" tanıma izni (sürekli dinleyen komut kapalıysa daha önce istenmemiş olabilir); verilmezse sessizlikle biter
+                    SFSpeechRecognizer.requestAuthorization { [weak self] _ in
+                        DispatchQueue.main.async { self?.beginAfterPermission(onStatus: onStatus) }
                     }
-                    self.startEngine(onStatus: onStatus)
+                } else {
+                    self.beginAfterPermission(onStatus: onStatus)
                 }
             }
+        }
+    }
+
+    private func beginAfterPermission(onStatus: @escaping (String) -> Void) {
+        guard completion != nil else { return }
+        if cancelled {
+            finish(.stopped)
+            return
+        }
+        if playCue { AudioServicesPlaySystemSound(1113) }
+        let delay = playCue ? 0.4 : 0.0
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self = self, self.completion != nil else { return }
+            if self.cancelled {
+                self.finish(.stopped)
+                return
+            }
+            self.startEngine(onStatus: onStatus)
         }
     }
 
@@ -206,8 +255,13 @@ final class QuestionRecorder: QuestionRecording {
             self.target = target
             self.converter = converter
             let limit = waitLimit
+            // "Tamam" ile bitirme: konuşma tanıma kullanılabilirse; değilse eski düzen (kısa sessizlikte biter)
+            let byWord = endWordMode && startWordRecognition()
+            let silence = byWord ? endSilence : 1.3
             queue.sync {
-                detector = EndpointDetector(noSpeech: limit)
+                detector = byWord
+                    ? EndpointDetector(silenceEnd: silence, noSpeech: limit, maxLen: QuestionRecorder.endWordMaxLength)
+                    : EndpointDetector(noSpeech: limit)
                 pcm = Data()
                 signaled = false
                 lastBuffer = Date()
@@ -218,6 +272,10 @@ final class QuestionRecorder: QuestionRecording {
             }
             input.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak self] buffer, _ in
                 guard let self = self else { return }
+                self.wordLock.lock()
+                let word = self.wordRequest
+                self.wordLock.unlock()
+                word?.append(buffer)
                 let samples = self.convert(buffer)
                 if samples.isEmpty { return }
                 self.queue.async { self.consume(samples) }
@@ -225,7 +283,7 @@ final class QuestionRecorder: QuestionRecording {
             tapInstalled = true
             engine.prepare()
             try engine.start()
-            onStatus("Dinliyorum — sorunuzu söyleyin")
+            onStatus(wordRecognizer != nil ? "Dinliyorum — bitirince “tamam” deyin" : "Dinliyorum — sorunuzu söyleyin")
 
             // Mikrofon sessizce durduysa (başka uygulama aldı, arama geldi) süresiz beklemeye takılmasın
             watchdog?.invalidate()
@@ -246,6 +304,7 @@ final class QuestionRecorder: QuestionRecording {
         completion = nil
         watchdog?.invalidate()
         watchdog = nil
+        stopWordRecognition()
         if tapInstalled {
             engine.inputNode.removeTap(onBus: 0)
             tapInstalled = false
@@ -253,6 +312,88 @@ final class QuestionRecorder: QuestionRecording {
         if engine.isRunning { engine.stop() }
         let recorded: Data = queue.sync { self.pcm }
         done(recorded, outcome)
+    }
+
+    // MARK: - "Tamam" tanıma (ana iş parçacığı)
+
+    /// Konuşma tanımayı açar; açılamazsa (izin yok, tanıyıcı kapalı) false: kayıt sessizlikle biter
+    private func startWordRecognition() -> Bool {
+        stopWordRecognition()
+        wordRestarts = 0
+        guard SFSpeechRecognizer.authorizationStatus() == .authorized,
+              let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "tr-TR")), recognizer.isAvailable else {
+            tlog("[dinle] konuşma tanıma kullanılamıyor, kayıt sessizlikle bitecek")
+            return false
+        }
+        wordRecognizer = recognizer
+        beginWordTask()
+        return true
+    }
+
+    private func beginWordTask() {
+        guard let recognizer = wordRecognizer, completion != nil else { return }
+        let request = SFSpeechAudioBufferRecognitionRequest()
+        request.shouldReportPartialResults = true
+        request.taskHint = .dictation
+        wordLock.lock()
+        wordRequest = request
+        wordLock.unlock()
+        wordTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
+            let text = result?.bestTranscription.formattedString
+            let final = result?.isFinal ?? false
+            let failed = error != nil
+            DispatchQueue.main.async { self?.handleWord(text, isFinal: final, failed: failed, request: request) }
+        }
+    }
+
+    private func handleWord(_ text: String?, isFinal: Bool, failed: Bool, request: SFSpeechAudioBufferRecognitionRequest) {
+        guard completion != nil, wordRecognizer != nil else { return }
+        wordLock.lock()
+        let current = wordRequest === request
+        wordLock.unlock()
+        guard current else { return }       // eski görevin geç gelen sonucu
+        wordWork?.cancel()
+        wordWork = nil
+        if let t = text, SpeechMatcher.endsWith(t, words: GeminiText.endWords) {
+            if isFinal {
+                finish(.word)
+            } else {
+                // "tamam" son sözcük; bir süre daha söz gelmezse kayıt biter
+                let work = DispatchWorkItem { [weak self] in
+                    guard let self = self, self.completion != nil else { return }
+                    self.finish(.word)
+                }
+                wordWork = work
+                DispatchQueue.main.asyncAfter(deadline: .now() + QuestionRecorder.endWordHold, execute: work)
+            }
+            return
+        }
+        if isFinal || failed {
+            // Tanıma görevi bitti (iPhone görevleri yaklaşık bir dakikada kapatır): yenisi açılır, kayıt sürer
+            guard wordRestarts < 40 else { return }
+            wordRestarts += 1
+            wordLock.lock()
+            let old = wordRequest
+            wordRequest = nil
+            wordLock.unlock()
+            old?.endAudio()
+            wordTask?.cancel()
+            wordTask = nil
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in self?.beginWordTask() }
+        }
+    }
+
+    private func stopWordRecognition() {
+        wordWork?.cancel()
+        wordWork = nil
+        wordLock.lock()
+        let request = wordRequest
+        wordRequest = nil
+        wordLock.unlock()
+        request?.endAudio()
+        wordTask?.cancel()
+        wordTask = nil
+        wordRecognizer = nil
     }
 
     // MARK: - Ses işleme

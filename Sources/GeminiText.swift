@@ -5,6 +5,10 @@ import Foundation
 enum GeminiText {
     /// Ayarlarda hiçbir şey yazılı değilse kullanılan çağrı sözcüğü
     static let defaultCallWord = "gemini"
+    /// Ayarda yeni kurulumdaki çağrı sözcükleri: "dinle" kaydı başlatır ("tamam" bitirir), "gemini" eskisi gibi çalışır
+    static let defaultCallSetting = "dinle, gemini"
+    /// Kayıt sırasında kaydı bitiren sözcükler (`SpeechMatcher.words` biçiminde)
+    static let endWords = ["tamam", "tamamdir"]
     /// Çağrı sözcüğü "gemini" ise konuşma tanımanın onu yazabileceği başka biçimler de kabul edilir
     private static let geminiVariants = ["cimini", "geminay", "ceminay", "cemini", "jemini"]
     /// Oturumda her cevabın sonuna uygulama ekler (Gemini'ye bunu söyletmiyoruz)
@@ -112,7 +116,7 @@ enum GeminiText {
     }
 
     /// Ayardaki çağrı sözcüklerini ("dostum, gemini" gibi, virgülle) temiz listeye çevirir: çok kısa ve yinelenen
-    /// girdiler atılır, boşsa "gemini" kullanılır, "gemini" varsa tanıma varyantları eklenir.
+    /// girdiler atılır, boşsa "dinle" ve "gemini" kullanılır, "gemini" varsa tanıma varyantları eklenir.
     static func callWordList(_ setting: String) -> [String] {
         var list: [String] = []
         for part in setting.split(whereSeparator: { $0 == "," || $0 == ";" }) {
@@ -120,7 +124,7 @@ enum GeminiText {
             let key = fold(w)
             if key.count >= minCallWordLength && !list.contains(where: { fold($0) == key }) { list.append(w) }
         }
-        if list.isEmpty { list = [defaultCallWord] }
+        if list.isEmpty { list = ["dinle", defaultCallWord] }
         if list.contains(where: { fold($0) == defaultCallWord }) {
             for v in geminiVariants where !list.contains(where: { fold($0) == v }) { list.append(v) }
         }

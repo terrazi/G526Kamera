@@ -14,6 +14,10 @@ private final class FakeClient: GeminiAsking {
         var model: String? = nil
         /// nil = varsayılan yeniden deneme sayısı
         var retries: Int? = nil
+        /// Model zinciri: nil = seçili profilin anahtarı; dolu = başka profilin anahtarı
+        var key: String? = nil
+        /// Model zinciri: en çok bu kadar sn cevap beklenir (nil = sınırsız)
+        var timeout: TimeInterval? = nil
     }
 
     var replies: [Result<GeminiAnswer, Error>] = []
@@ -26,6 +30,11 @@ private final class FakeClient: GeminiAsking {
     var current = "gemini-3.8-flash"
     var fallback: [String] = []
     var fallbackCalls = 0
+
+    /// Model zinciri: kalıcı hata. Anahtar "anahtar|model" ("-" = seçili profilin anahtarı) ya da yalnız "model"
+    var failModels: [String: Error] = [:]
+    /// Model zinciri: bu modeller (yalnız cevap bekleme sınırı verilmişse) cevap vermez → zaman aşımı hatası
+    var timeoutModels: Set<String> = []
 
     var currentModel: String { return current }
 
@@ -41,8 +50,22 @@ private final class FakeClient: GeminiAsking {
 
     func ask(questionText: String, audioWAV: Data?, docs: [GeminiDoc], history: [GeminiTurn], cached: String,
              model: String?, serverRetries: Int?) async throws -> GeminiAnswer {
+        return try await ask(questionText: questionText, audioWAV: audioWAV, docs: docs, history: history, cached: cached,
+                             model: model, serverRetries: serverRetries, key: nil, timeout: nil)
+    }
+
+    func ask(questionText: String, audioWAV: Data?, docs: [GeminiDoc], history: [GeminiTurn], cached: String,
+             model: String?, serverRetries: Int?, key: String?, timeout: TimeInterval?) async throws -> GeminiAnswer {
         calls.append(Call(text: questionText, audio: audioWAV, docs: docs.map { $0.name }, history: history, cached: cached,
-                          model: model, retries: serverRetries))
+                          model: model, retries: serverRetries, key: key, timeout: timeout))
+        let name = model ?? current
+        let id = "\(key ?? "-")|\(name)"
+        if let e = failModels[id] ?? failModels[name] { throw e }
+        if timeout != nil, timeoutModels.contains(id) || timeoutModels.contains(name) {
+            var e = GeminiError("Gemini cevap vermedi (zaman aşımı).", .network)
+            e.timedOut = true
+            throw e
+        }
         if replies.isEmpty { return GeminiAnswer(question: questionText, answer: "Cevap \(calls.count).") }
         return try replies.removeFirst().get()
     }
@@ -75,6 +98,17 @@ private final class FakeRecorder: QuestionRecording {
     var entered = false
     var cancelled = 0
     private var pending: CheckedContinuation<(pcm: Data, outcome: QuestionOutcome), Never>?
+
+    /// "Tamam ile bitir" isteği ve sessizlik süresi (yeni kayıt çağrısı)
+    var endWords: [Bool] = []
+    var silences: [TimeInterval] = []
+
+    func record(waitForSpeech: TimeInterval, endWord: Bool, silenceEnd: TimeInterval,
+                onStatus: @escaping (String) -> Void) async -> (pcm: Data, outcome: QuestionOutcome) {
+        endWords.append(endWord)
+        silences.append(silenceEnd)
+        return await record(waitForSpeech: waitForSpeech, onStatus: onStatus)
+    }
 
     func record(waitForSpeech: TimeInterval, onStatus: @escaping (String) -> Void) async -> (pcm: Data, outcome: QuestionOutcome) {
         entered = true
@@ -442,6 +476,68 @@ final class GeminiChatTests: XCTestCase {
         XCTAssertEqual(chat.error, "")
     }
 
+    func testDinleSaysListeningThenRecordsUntilTamam() async {
+        log.autoFinish = true
+        options.listenByWord = true
+        options.listenSilence = 15
+        options.announceListening = true
+        recorder.result = (Data(count: 32000), .word)
+        XCTAssertTrue(chat.ask())
+        let done = await waitUntil { self.chat.phase == .idle && self.client.calls.count == 1 && self.log.spoken.count == 2 }
+        XCTAssertTrue(done)
+        XCTAssertEqual(log.spoken, ["Dinliyorum.", "Cevap 1."], "kayıttan önce program Dinliyorum der")
+        XCTAssertEqual(recorder.endWords, [true])
+        XCTAssertEqual(recorder.silences, [15])
+        XCTAssertEqual(recorder.waits, [15], "tamam modunda bekleme en az sessizlik süresi kadar")
+        XCTAssertNotNil(client.calls[0].audio, "ses dosyası doğrudan Gemini'ye gider")
+    }
+
+    func testDinleSilenceSecondsFollowSetting() async {
+        log.autoFinish = true
+        options.listenByWord = true
+        options.listenSilence = 30
+        recorder.result = (Data(count: 32000), .done)
+        chat.ask()
+        _ = await waitUntil { self.client.calls.count == 1 }
+        XCTAssertEqual(recorder.silences, [30])
+        XCTAssertEqual(recorder.waits, [30])
+    }
+
+    func testListenByWordOffKeepsSilenceRecording() async {
+        options.listenByWord = false
+        chat.ask()
+        _ = await waitUntil { self.chat.phase == .speaking }
+        XCTAssertEqual(recorder.endWords, [false])
+        XCTAssertEqual(recorder.waits, [7])
+        XCTAssertEqual(log.spoken, ["Cevap 1."], "ayar kapalıyken Dinliyorum denmez")
+    }
+
+    func testSessionTimeoutIsNotStretchedByTamamMode() async {
+        log.autoFinish = true
+        options.session = true
+        options.sessionTimeout = 10
+        options.listenByWord = true
+        options.listenSilence = 15
+        recorder.results = [noSpeech]
+        chat.ask()
+        _ = await waitUntil { self.chat.status == "Oturum bitti" }
+        XCTAssertEqual(recorder.waits, [10], "kullanıcının oturum süresi korunur")
+        XCTAssertEqual(recorder.silences, [15])
+    }
+
+    func testSessionTurnsAlsoEndOnTamam() async {
+        log.autoFinish = true
+        options.session = true
+        options.listenByWord = true
+        options.announceListening = true
+        recorder.results = [(Data(count: 32000), .word), noSpeech]
+        chat.ask()
+        _ = await waitUntil { self.chat.status == "Oturum bitti" }
+        XCTAssertEqual(recorder.endWords, [true, true])
+        XCTAssertEqual(log.spoken.first, "1 belge hazır. Sorunuzu bekliyorum.", "oturumda hazırlık cümlesi Dinliyorum yerine geçer")
+        XCTAssertFalse(log.spoken.contains("Dinliyorum."))
+    }
+
     func testSingleVoiceQuestionStillWaitsOnlyBriefly() async {
         recorder.result = (Data(), .noSpeech)
         chat.ask()
@@ -701,6 +797,143 @@ final class GeminiChatTests: XCTestCase {
         XCTAssertEqual(chat.error, "Aylık harcama sınırınız doldu.")
     }
 
+
+    // MARK: Model zinciri (performans sırası): kota / hata / gecikme → aynı soru sıradaki profilin modeline
+
+    private func chainProfiles() -> [GeminiProfileInfo] {
+        let names = GeminiProfiles.defaultNames
+        let models = GeminiProfiles.defaults().map { $0.model }
+        return (1...6).map { GeminiProfileInfo(slot: $0, name: names[$0 - 1], model: models[$0 - 1], key: "k\($0)", free: $0 != 6) }
+    }
+
+    private func setUpChain(active: Int = 1, waitLimit: TimeInterval = 30) {
+        log.autoFinish = true
+        options.profiles = chainProfiles()
+        options.active = active
+        options.chainFallback = true
+        options.waitLimit = waitLimit
+        options.overloadFallback = false
+    }
+
+    private func askChain(_ text: String = "toplam nedir", until answer: String? = nil) async {
+        XCTAssertTrue(chat.ask(text: text))
+        _ = await waitUntil(5) { answer != nil ? self.chat.answer == answer : (!self.chat.answer.isEmpty || !self.chat.error.isEmpty) }
+    }
+
+    func testChainQuotaGoesToTheSecondModelAndSaysSo() async {
+        setUpChain()
+        client.failModels["-|gemini-3.8-flash"] = dailyQuota
+        await askChain()
+        XCTAssertEqual(client.calls.map { $0.model ?? "-" }, ["-", "gemini-3.6-flash"])
+        XCTAssertEqual(client.calls.map { $0.key ?? "-" }, ["-", "k2"])
+        XCTAssertEqual(client.calls.map { $0.text }, ["toplam nedir", "toplam nedir"], "aynı soru yinelenmeli")
+        XCTAssertEqual(client.calls.map { $0.timeout }, [30, 30])
+        XCTAssertEqual(log.spoken.first, "Gemini 3.8 Flash kotası doldu. Sorunuz Gemini 3.6 Flash modeline gönderiliyor.")
+        XCTAssertEqual(chat.answer, "Cevap 2.")
+        XCTAssertEqual(chat.error, "")
+        XCTAssertTrue(chat.notes.contains { $0.contains("Gemini 3.6 Flash modelinden geldi") && $0.contains("kotası doldu") }, "\(chat.notes)")
+    }
+
+    func testChainSkipsAModelWhoseDailyQuotaIsFullOnTheNextQuestion() async {
+        setUpChain()
+        client.failModels["-|gemini-3.8-flash"] = dailyQuota
+        await askChain()
+        _ = await waitUntil { self.chat.phase == .idle }
+        let spokenBefore = log.spoken.count
+        await askChain("başka soru", until: "Cevap 3.")
+        XCTAssertEqual(client.calls.map { $0.model ?? "-" }, ["-", "gemini-3.6-flash", "gemini-3.6-flash"], "kotası dolu model atlanır")
+        XCTAssertFalse(log.spoken.dropFirst(spokenBefore).contains { $0.contains("Sorunuz") }, "tekrar bildirim yok")
+    }
+
+    func testChainMovesOnWhenTheModelTakesTooLong() async {
+        setUpChain(waitLimit: 2)
+        client.timeoutModels = ["-|gemini-3.8-flash"]
+        await askChain()
+        XCTAssertEqual(client.calls.first?.timeout, chat.waitMin, "çok kısa sınır en az waitMin sayılır")
+        XCTAssertEqual(client.calls.map { $0.model ?? "-" }, ["-", "gemini-3.6-flash"])
+        XCTAssertEqual(log.spoken.first, "Gemini 3.8 Flash uzun süre cevap vermedi. Sorunuz Gemini 3.6 Flash modeline gönderiliyor.")
+        XCTAssertEqual(chat.error, "")
+    }
+
+    func testChainServerErrorAlsoMovesOn() async {
+        setUpChain()
+        client.failModels["-|gemini-3.8-flash"] = busy503
+        await askChain()
+        XCTAssertEqual(client.calls.map { $0.model ?? "-" }, ["-", "gemini-3.6-flash"])
+        XCTAssertEqual(log.spoken.first, "Gemini 3.8 Flash şu an çok yoğun. Sorunuz Gemini 3.6 Flash modeline gönderiliyor.")
+    }
+
+    func testChainEndsWithThePaidProfileUsingItsOwnKeyAndNoWaitLimit() async {
+        setUpChain()
+        for (id, _) in [("-|gemini-3.8-flash", 0), ("k2|gemini-3.6-flash", 0), ("k3|gemini-2.5-pro", 0),
+                        ("k4|gemini-3.5-flash-lite", 0), ("k5|gemini-3.1-flash-lite", 0)] {
+            client.failModels[id] = dailyQuota
+        }
+        await askChain()
+        XCTAssertEqual(client.calls.map { $0.model ?? "-" },
+                       ["-", "gemini-3.6-flash", "gemini-2.5-pro", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3.8-flash"])
+        XCTAssertEqual(client.calls.map { $0.key ?? "-" }, ["-", "k2", "k3", "k4", "k5", "k6"])
+        XCTAssertEqual(client.calls.map { $0.timeout }, [30, 30, 30, 30, 30, nil], "son modele bekleme sınırı konmaz")
+        XCTAssertTrue(log.spoken.contains("Gemini 3.1 Flash-Lite kotası doldu. Sorunuz Ücretli Gemini 3.8 Flash modeline gönderiliyor."), "\(log.spoken)")
+        XCTAssertEqual(chat.answer, "Cevap 6.")
+        XCTAssertEqual(chat.error, "")
+    }
+
+    func testChainWhenEveryModelFailsSaysWhichOnesWereTried() async {
+        setUpChain()
+        for p in chainProfiles() { client.failModels["\(p.slot == 1 ? "-" : p.key)|\(p.model)"] = dailyQuota }
+        await askChain()
+        XCTAssertEqual(client.calls.count, 6)
+        XCTAssertTrue(chat.error.hasPrefix("Tüm modeller denendi"), chat.error)
+        XCTAssertTrue(chat.error.contains("günlük kotası doldu"), chat.error)
+        XCTAssertTrue(chat.answer.isEmpty)
+    }
+
+    func testChainRotatesFromTheActiveProfile() {
+        setUpChain(active: 4)
+        XCTAssertEqual(chat.chainOthers(options).map { $0.slot }, [5, 6, 1, 2, 3])
+    }
+
+    func testChainIgnoresProfilesWithoutKeysAndIsOffWhenAloneOrDisabled() async {
+        setUpChain()
+        options.profiles = chainProfiles().map { var p = $0; if p.slot > 2 { p.key = "" }; return p }
+        XCTAssertEqual(chat.chainOthers(options).map { $0.slot }, [2])
+        options.profiles = chainProfiles().map { var p = $0; if p.slot > 1 { p.key = "" }; return p }
+        XCTAssertTrue(chat.chainOthers(options).isEmpty)
+        options.profiles = chainProfiles()
+        options.chainFallback = false
+        client.failModels["-|gemini-3.8-flash"] = dailyQuota
+        await askChain()
+        XCTAssertEqual(client.calls.count, 1, "zincir kapalıyken yalnız seçili model sorulur")
+        XCTAssertEqual(chat.error, dailyQuota.message)
+    }
+
+    func testChainDoesNotChaseBlockedContentSpendingCapOrOfflineErrors() {
+        for kind in [GeminiErrorKind.blocked, .empty, .tooBig, .cap] {
+            XCTAssertFalse(GeminiChat.chainWorthy(GeminiError("x", kind)), "\(kind)")
+        }
+        XCTAssertFalse(GeminiChat.chainWorthy(GeminiError("x", .network)))
+        var timedOut = GeminiError("x", .network); timedOut.timedOut = true
+        XCTAssertTrue(GeminiChat.chainWorthy(timedOut))
+        XCTAssertTrue(GeminiChat.chainWorthy(GeminiError("x", .quota, status: 429)))
+        XCTAssertTrue(GeminiChat.chainWorthy(GeminiError("x", .http, status: 503)))
+        XCTAssertTrue(GeminiChat.chainWorthy(GeminiError("x", .key, status: 400)))
+        XCTAssertTrue(GeminiChat.chainWorthy(GeminiError("x", .model, status: 404)))
+    }
+
+    func testChainDocsOfAnotherKeyAreSentInlineWithoutFileAddresses() {
+        let act = chainProfiles()[0], other = chainProfiles()[5]
+        var d = GeminiDoc(name: "a.pdf", data: Data("%PDF-1.4 a".utf8))
+        d.uri = "https://files/a"
+        d.remote = "files/a"
+        var sameKey = chainProfiles()[1]
+        sameKey.key = act.key
+        XCTAssertEqual(chat.chainDocs([d], to: sameKey, from: act).first?.uri, "https://files/a", "aynı anahtar: adres korunur")
+        let moved = chat.chainDocs([d], to: other, from: act)
+        XCTAssertEqual(moved.count, 1)
+        XCTAssertEqual(moved.first?.uri, "", "başka anahtar: dosya adresi atılır")
+        XCTAssertEqual(moved.first?.remote, "")
+    }
 
     // MARK: Toplu cevap sırası, tekrar, hafıza
 

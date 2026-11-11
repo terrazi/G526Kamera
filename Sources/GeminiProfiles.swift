@@ -23,17 +23,46 @@ struct GeminiProfileInfo: Equatable {
 }
 
 enum GeminiProfiles {
-    static let slotCount = 3
+    static let slotCount = 6
 
     /// Keychain adı: 1. profil eski "geminiApiKey" adını korur
     static func keychainName(slot: Int) -> String {
         return slot == 1 ? "geminiApiKey" : "geminiApiKey\(slot)"
     }
 
+    /// Varsayılan sıra = model zincirinin sırası = PERFORMANS sırası (kota dolunca / hata olunca / cevap gecikince bir sonrakine geçilir):
+    /// 1. Gemini 3.8 Flash, 2. Gemini 3.6 Flash, 3. Gemini 2.5 Pro, 4. Gemini 3.5 Flash-Lite, 5. Gemini 3.1 Flash-Lite (hepsi ücretsiz katmanda),
+    /// 6. ücretli Gemini 3.8 Flash (kendi ücretli anahtarı, günlük sınırı yok, en sonda). Kullanıcı Ayarlardan ya da "model değiştir" ile değiştirir.
+    static let defaultSecondModel = "gemini-3.6-flash"
+    static let defaultThirdModel = "gemini-2.5-pro"
+    static let defaultLiteModel = "gemini-3.5-flash-lite"
+    static let defaultOldLiteModel = "gemini-3.1-flash-lite"
+    static let defaultNames = ["Gemini 3.8 Flash", "Gemini 3.6 Flash", "Gemini 2.5 Pro", "Gemini 3.5 Flash-Lite",
+                               "Gemini 3.1 Flash-Lite", "Ücretli Gemini 3.8 Flash"]
+
     static func defaults() -> [GeminiProfile] {
-        return [GeminiProfile(name: "Flash", model: GeminiConfig.defaultModel, free: false),
-                GeminiProfile(name: "Pro", model: "", free: false),
-                GeminiProfile(name: "Ücretsiz", model: "", free: true)]
+        return [GeminiProfile(name: defaultNames[0], model: GeminiConfig.defaultModel, free: true),
+                GeminiProfile(name: defaultNames[1], model: defaultSecondModel, free: true),
+                GeminiProfile(name: defaultNames[2], model: defaultThirdModel, free: true),
+                GeminiProfile(name: defaultNames[3], model: defaultLiteModel, free: true),
+                GeminiProfile(name: defaultNames[4], model: defaultOldLiteModel, free: true),
+                GeminiProfile(name: defaultNames[5], model: GeminiConfig.defaultModel, free: false)]
+    }
+
+    /// Kaydedilmiş profillerde eksik yuvalar varsayılanla tamamlanır, boş kalan modeller varsayılanla dolar (anahtar girilene kadar etkisizdir);
+    /// yalnız adı da eski varsayılansa ("Pro", "Ücretsiz", "Model N") ad yenilenir. Kullanıcının yazdığı model ve ad korunur.
+    static func migrated(_ saved: [GeminiProfile]) -> [GeminiProfile] {
+        var list = saved
+        let defs = defaults()
+        while list.count < defs.count { list.append(defs[list.count]) }
+        let oldNames: [[String]] = [["Flash"], ["Pro"], ["Ücretsiz"], [], [], []]
+        for i in list.indices where i < defs.count && saved.indices.contains(i) && list[i].model.trimmed.isEmpty {
+            list[i].model = defs[i].model
+            list[i].free = defs[i].free
+            let name = list[i].name.trimmed
+            if name.isEmpty || oldNames[i].contains(name) || name == "Model \(i + 1)" { list[i].name = defs[i].name }
+        }
+        return list
     }
 
     /// Anahtarı ve modeli dolu olan profiller (yuva sırasıyla)
@@ -46,7 +75,7 @@ enum GeminiProfiles {
         if let p = list.first(where: { $0.slot == active }), p.usable { return p }
         if let p = usable(list).first { return p }
         return list.first(where: { $0.slot == active }) ?? list.first
-            ?? GeminiProfileInfo(slot: 1, name: "Flash", model: GeminiConfig.defaultModel, key: "", free: false)
+            ?? GeminiProfileInfo(slot: 1, name: defaultNames[0], model: GeminiConfig.defaultModel, key: "", free: false)
     }
 
     /// Aylık harcama sınırı dolunca geçilecek profil: şimdikisi ücretli olmalı, yedek ücretsiz ve kullanılabilir olmalı
@@ -61,19 +90,5 @@ enum GeminiProfiles {
         calendar.timeZone = TimeZone.current
         let c = calendar.dateComponents([.year, .month], from: date)
         return String(format: "%04d%02d", c.year ?? 0, c.month ?? 0)
-    }
-
-    /// Model seçiminde söylenen cümle: "Model seçimi yapınız. 1. model: Flash, ücretli. ..."
-    static func choiceAnnouncement(_ list: [GeminiProfileInfo]) -> String {
-        let items = usable(list).map { "\($0.slot). model: \($0.spokenName)." }
-        return "Model seçimi yapınız. " + items.joined(separator: " ") + " Hangisini istiyorsunuz?"
-    }
-
-    /// Seçim sırasında söylenen "ikinci model", "2 model" ya da profil adı için sesli komut söylenişleri
-    static func pickPhrases(slot: Int, name: String) -> String {
-        let ordinals = ["birinci", "ikinci", "üçüncü"]
-        var parts = ["\(ordinals[min(max(slot, 1), 3) - 1]) model", "\(slot) model", "\(slot) numaralı model"]
-        if name.trimmed.count >= 3 { parts.append(name.trimmed) }
-        return parts.joined(separator: ", ")
     }
 }

@@ -184,10 +184,31 @@ struct SettingsView: View {
                  ? "0: oturum hiç kapanmaz, siz kapatana kadar soru beklenir."
                  : "\(settings.geminiSessionTimeout) sn soru gelmezse oturum kapanır.")
                 .font(.footnote).foregroundColor(.secondary)
-            TextField("Çağrı sözcüğü (boşsa \(GeminiText.defaultCallWord))", text: $settings.geminiCallWord)
+            TextField("Çağrı sözcüğü (boşsa dinle ve gemini)", text: $settings.geminiCallWord)
                 .textInputAutocapitalization(.never)
                 .disableAutocorrection(true)
                 .accessibilityIdentifier("gemini-cagri-sozcugu")
+            Text("“Dinle” deyince program “Dinliyorum” der ve kaydeder; “tamam” deyince kayıt Gemini’ye gider (baştaki “dinle” gönderilmez). Deneme sınavında da her an çalışır. Program konuşurken “dinle” duyulmaz: konuşmayı kesmek için “Gemini’ye sor” düğmesine basın.")
+                .font(.footnote).foregroundColor(.secondary)
+            Picker("Dinle: kaydı ne bitirsin", selection: $settings.listenEnd) {
+                Text("“Tamam” deyince").tag("word")
+                Text("Sustuğumda").tag("silence")
+            }
+            .accessibilityIdentifier("dinle-bitirme")
+            if settings.listenEnd == "word" {
+                Stepper(value: $settings.listenSilence, in: 5...60) {
+                    Text("“Tamam” denmezse sessizlikte bitme: \(settings.listenSilence) sn")
+                }
+                .accessibilityIdentifier("dinle-sessizlik")
+            }
+            Picker("Düşünme modu (thinking)", selection: $settings.geminiThinking) {
+                Text("Otomatik (Gemma’da açık)").tag("auto")
+                Text("Hep yüksek (daha doğru, yavaş)").tag("high")
+                Text("En az (hızlı)").tag("minimal")
+            }
+            .accessibilityIdentifier("gemini-dusunme")
+            Text("Gemma modellerinde (ör. gemma-4-31b-it) düşünme ancak “yüksek” ile açılır; otomatikte kendiliğinden açılır. ALES/YDS gibi soru çözümünde doğruluğu artırır, cevap birkaç sn gecikir. Gemini 2.x modelleri bu ayarı almaz.")
+                .font(.footnote).foregroundColor(.secondary)
             if !callWordClashes.isEmpty {
                 Text("Bu sözcük başka bir komutla aynı: \(callWordClashes.joined(separator: ", ")). Farklı bir sözcük seçin.")
                     .font(.footnote).foregroundColor(.orange)
@@ -221,8 +242,8 @@ struct SettingsView: View {
     }
 
     private var geminiModelsSection: some View {
-        Section(header: Text("Gemini modelleri (Flash / Pro / ücretsiz)"),
-                footer: Text("Her profilin kendi API anahtarı vardır (aistudio.google.com); anahtarlar yalnız bu telefonun Keychain’inde saklanır, kimseyle paylaşmayın. Ücretli ya da ücretsiz olmak modelin değil anahtarın özelliğidir: faturalandırma bağlı projenin anahtarı ücretli, bağlı olmayan ücretsizdir; “Ücretsiz anahtar” kutusunu buna göre işaretleyin. “Model değiştir” deyince uygulama modelleri sıralar; “ikinci model” ya da profil adını söylersiniz. AI Studio’da Spend sayfasından aylık harcama sınırı (ör. 20 dolar) koyabilirsiniz; sınır dolunca ücretli profilden “ücretsiz” işaretli profile kendiliğinden geçilir, yeni ayda eski profile dönülür. Google harcamayı yaklaşık 10 dakika gecikmeyle saydığı için sınır biraz aşılabilir. Dikkat: ücretsiz katmanda Google gönderdiğiniz içeriği ürünlerini geliştirmek için kullanabilir; gizli belgeleriniz varsa bu geçişi kapatın.")) {
+        Section(header: Text("Gemini modelleri (6 profil)"),
+                footer: Text("Her profilin kendi API anahtarı vardır (aistudio.google.com); anahtarlar yalnız bu telefonun Keychain’inde saklanır, kimseyle paylaşmayın. Ücretli ya da ücretsiz olmak modelin değil anahtarın özelliğidir: faturalandırma bağlı projenin anahtarı ücretli, bağlı olmayan ücretsizdir; “Ücretsiz anahtar” kutusunu buna göre işaretleyin. Varsayılanlar ücretsiz katmanda kullanılabilen modellerdir: performans sırasıyla 1. Gemini 3.8 Flash, 2. Gemini 3.6 Flash, 3. Gemini 2.5 Pro, 4. Gemini 3.5 Flash-Lite, 5. Gemini 3.1 Flash-Lite, 6. ücretli Gemini 3.8 Flash (kendi ücretli anahtarıyla; en sonda). Model adları hesabınızda yoksa ya da ücretsiz hakkı yoksa (ör. 2.5 Pro) değiştirin ya da boş bırakın: kota hatasında program sıradakine geçer. Günlük ücretsiz haklar Google’da değişebilir; en güçlü modellerde azdır (≈20). “Model değiştir” deyince uygulama hesabınızdaki modellerden en çok 7’sini sıralar; “birinci model”, “ikinci model” diye seçersiniz, “tekrarla” listeyi yineler, “vazgeç” bırakır. “Birinci alternatif model seç” 2. profil, “ikinci…” 3., “üçüncü…” 4., “dördüncü…” 5., “beşinci alternatif model seç” 6. profil için aynısını yapar. Anahtarı girilmiş profil seçilince hemen kullanılır. AI Studio’da Spend sayfasından aylık harcama sınırı (ör. 20 dolar) koyabilirsiniz; sınır dolunca ücretli profilden “ücretsiz” işaretli profile kendiliğinden geçilir, yeni ayda eski profile dönülür. Google harcamayı yaklaşık 10 dakika gecikmeyle saydığı için sınır biraz aşılabilir. Dikkat: ücretsiz katmanda Google gönderdiğiniz içeriği ürünlerini geliştirmek için kullanabilir; gizli belgeleriniz varsa bu geçişi kapatın.")) {
             Picker("Kullanılan model", selection: $settings.geminiActive) {
                 ForEach(0..<GeminiProfiles.slotCount, id: \.self) { i in
                     Text(settings.geminiProfiles[i].name.trimmed.isEmpty ? "Model \(i + 1)" : settings.geminiProfiles[i].name).tag(i + 1)
@@ -232,7 +253,7 @@ struct SettingsView: View {
             ForEach(0..<GeminiProfiles.slotCount, id: \.self) { i in
                 VStack(alignment: .leading, spacing: 6) {
                     Text("\(i + 1). model").font(.footnote).foregroundColor(.secondary)
-                    TextField("Ad (ör. Pro)", text: profileName(i))
+                    TextField("Ad (ör. \(GeminiProfiles.defaultNames[i]))", text: profileName(i))
                         .disableAutocorrection(true)
                     TextField("Model (ör. \(GeminiConfig.defaultModel))", text: profileModel(i))
                         .textInputAutocapitalization(.never)
@@ -243,6 +264,16 @@ struct SettingsView: View {
                         .accessibilityIdentifier("gemini-anahtar-\(i + 1)")
                     Toggle("Ücretsiz anahtar", isOn: profileFree(i))
                 }
+            }
+            Toggle("Model zinciri: kota dolunca / hata olunca / geç cevap gelince sıradaki modele geç", isOn: $settings.geminiChainFallback)
+            if settings.geminiChainFallback {
+                Text("Seçili modelin kotası dolarsa, sunucu hata verirse ya da cevap gecikirse aynı soru kendiliğinden 1→2→…→6 sırasındaki bir sonraki modele (kendi anahtarıyla) gönderilir; nedeni ve yeni modeli kısaca sesle söylenir. Kotası dolan model bir süre atlanır. Yalnız anahtarı girilmiş profiller kullanılır. Bağlantı hiç yoksa ya da içerik engellenirse model değişmez.")
+                    .font(.footnote).foregroundColor(.secondary)
+                Stepper(value: $settings.geminiWaitLimit, in: 0...600, step: 5) {
+                    Text(settings.geminiWaitLimit == 0 ? "Cevap bekleme sınırı: yok" : "Cevap bekleme sınırı: \(settings.geminiWaitLimit) sn")
+                }
+                Text("Model bu süre içinde cevap vermezse sıradaki modele geçilir (en az 10 sn sayılır; son modele sınır konmaz). Kesilen istek Google tarafında yine de sayılabilir; düşünme modu açık modeller (ör. Gemma) uzun sürebilir, gerekirse süreyi artırın.")
+                    .font(.footnote).foregroundColor(.secondary)
             }
             Toggle("Model yoğunsa ya da kotası dolunca yedek modele geç", isOn: $settings.geminiOverloadFallback)
             if settings.geminiOverloadFallback {

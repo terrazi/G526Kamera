@@ -18,6 +18,16 @@ struct GeminiOptions {
     var autoFallback: Bool = false
     /// Seçili model yoğunken (503) ya da kotası dolunca (429) aynı anahtarla hesabın başka bir hızlı modeline geç
     var overloadFallback: Bool = false
+    /// "Dinle … tamam": kayıt "tamam" denince biter (false: konuşma bitince = sessizlikte). Uygulama ayardan verir.
+    var listenByWord: Bool = false
+    /// "Tamam" modunda konuşmadan sonra bu kadar saniye sessizlikte kayıt kendiliğinden biter
+    var listenSilence: TimeInterval = 15
+    /// Oturum dışı sesli soruda kayıttan önce "Dinliyorum." denir. Uygulama true verir.
+    var announceListening: Bool = false
+    /// Model zinciri: kota dolunca / hata olunca / cevap gecikince aynı soru sıradaki profilin modeline gider (uygulama ayardan verir)
+    var chainFallback: Bool = false
+    /// Model bu kadar saniyede cevap vermezse sıradaki modele geç; 0 = sınırsız. Son modele sınır konmaz.
+    var waitLimit: TimeInterval = 0
 }
 
 /// Gemini ile belge sohbeti: sesli soru → Drive'daki son PDF'ler + Gemini → sesli cevap.
@@ -335,8 +345,13 @@ final class GeminiChat: ObservableObject {
 
     /// Soruyu sorar. Önbellek ya da yüklü dosya artık geçerli değilse (süresi dolmuş) önce önbelleksiz, sonra eksik dosyaları
     /// yeniden yükleyerek dener; sorun belgelerden değilse ilk hatayı olduğu gibi verir.
-    private func askRobust(text: String, audio: Data?, docs: [GeminiDoc], cache: String, retries: Int? = nil) async throws -> GeminiAnswer {
+    private func askRobust(text: String, audio: Data?, docs: [GeminiDoc], cache: String, retries: Int? = nil,
+                           timeout: TimeInterval? = nil) async throws -> GeminiAnswer {
         func go(_ list: [GeminiDoc], _ cached: String) async throws -> GeminiAnswer {
+            if let limit = timeout {
+                return try await client.ask(questionText: text, audioWAV: audio, docs: list, history: history, cached: cached,
+                                            model: nil, serverRetries: retries, key: nil, timeout: limit)
+            }
             return try await client.ask(questionText: text, audioWAV: audio, docs: list, history: history, cached: cached,
                                         model: nil, serverRetries: retries)
         }
@@ -379,6 +394,12 @@ final class GeminiChat: ObservableObject {
     private func askWithFallback(gen: Int, opts: GeminiOptions, text: String, audio: Data?, docs: [GeminiDoc], cache: String,
                                  session: Bool) async throws -> GeminiAnswer {
         do {
+            if opts.chainFallback {
+                let others = chainOthers(opts)
+                if !others.isEmpty {
+                    return try await askChain(gen: gen, opts: opts, others: others, text: text, audio: audio, docs: docs, cache: cache)
+                }
+            }
             return try await askResilient(opts: opts, text: text, audio: audio, docs: docs, cache: cache)
         } catch let e as GeminiError where e.kind == .cap {
             let current = GeminiProfiles.active(opts.profiles, active: opts.active)
@@ -395,6 +416,121 @@ final class GeminiChat: ObservableObject {
             let again = try await memorize(docs: reset, notes: &dropped, session: session)
             return try await askResilient(opts: opts, text: text, audio: audio, docs: again.docs, cache: again.cache)
         }
+    }
+
+    // MARK: - Model zinciri
+
+    /// Bu profiller bu zamana kadar denenmez (kotası dolu / cevap vermedi); her soruda boşuna beklenmesin
+    private var chainDown: [Int: Date] = [:]
+    /// Cevap bekleme sınırı en az bu kadar sn sayılır (çok kısa sınır her soruyu bir sonraki modele iter)
+    var waitMin: TimeInterval = 10
+
+    /// Seçili profilden sonra sıradaki kullanılabilir (anahtarı ve modeli dolu) profiller: 1→2→…→6→1 döngüsü
+    func chainOthers(_ opts: GeminiOptions) -> [GeminiProfileInfo] {
+        let act = GeminiProfiles.active(opts.profiles, active: opts.active)
+        let usable = GeminiProfiles.usable(opts.profiles)
+        guard usable.contains(where: { $0.slot == act.slot }) else { return [] }
+        let n = GeminiProfiles.slotCount
+        return (1..<n).compactMap { (k: Int) -> GeminiProfileInfo? in
+            let slot = (act.slot - 1 + k) % n + 1
+            return usable.first(where: { $0.slot == slot })
+        }
+    }
+
+    /// Sıradaki modelin işe yarayacağı hatalar: kota, sunucu hatası/yoğunluk, cevap gecikmesi, anahtar ya da model adı sorunu.
+    /// Harcama sınırı (ayrı yedeği var), içerik engeli, boş/çok büyük istek ve internetin hiç olmaması başka modelle düzelmez.
+    static func chainWorthy(_ e: GeminiError) -> Bool {
+        switch e.kind {
+        case .cap, .blocked, .empty, .tooBig: return false
+        case .network: return e.timedOut
+        default: return [500, 502, 503, 504].contains(e.status) || e.kind == .quota || e.kind == .key || e.kind == .model
+        }
+    }
+
+    /// Kullanıcıya sesle söylenen kısa bilgi: neden başka modele geçildi
+    static func switchText(from prev: GeminiProfileInfo, error e: GeminiError, to next: GeminiProfileInfo) -> String {
+        let why: String
+        if e.kind == .quota {
+            why = "\(prev.name) kotası doldu."
+        } else if e.timedOut {
+            why = "\(prev.name) uzun süre cevap vermedi."
+        } else if e.kind == .key {
+            why = "\(prev.name) için API anahtarı geçersiz."
+        } else if e.kind == .model {
+            why = "\(prev.name) modeli bulunamadı."
+        } else if GeminiSupport.isOverload(e) {
+            why = "\(prev.name) şu an çok yoğun."
+        } else {
+            why = "\(prev.name) cevap veremedi."
+        }
+        return "\(why) Sorunuz \(next.name) modeline gönderiliyor."
+    }
+
+    private func chainMark(_ p: GeminiProfileInfo, _ e: GeminiError) {
+        let daily = e.kind == .quota && e.message.contains("günlük")
+        let seconds: TimeInterval = daily ? 3600 : (e.kind == .key || e.kind == .model) ? 900 : GeminiChat.backupSticky
+        chainDown[p.slot] = Date().addingTimeInterval(seconds)
+    }
+
+    /// Başka bir anahtarın yüklediği dosya adresleri bu profilde geçmez: belgeler doğrudan (14 MB'a sığacak kadarı) gönderilir
+    func chainDocs(_ docs: [GeminiDoc], to p: GeminiProfileInfo, from act: GeminiProfileInfo) -> [GeminiDoc] {
+        guard !docs.isEmpty, p.key != act.key, GeminiSupport.allRemote(docs) else { return docs }
+        let copies = docs.map { d -> GeminiDoc in var c = d; c.uri = ""; c.remote = ""; return c }
+        let picked = GeminiSupport.selectDocs(copies.map { (name: $0.name, size: $0.size) })
+        return picked.chosen.map { copies[$0] }
+    }
+
+    private func askChain(gen: Int, opts: GeminiOptions, others: [GeminiProfileInfo], text: String, audio: Data?,
+                          docs: [GeminiDoc], cache: String) async throws -> GeminiAnswer {
+        let act = GeminiProfiles.active(opts.profiles, active: opts.active)
+        let now = Date()
+        let order = [act] + others
+        let seq = order.filter { (chainDown[$0.slot] ?? .distantPast) <= now } + order.filter { (chainDown[$0.slot] ?? .distantPast) > now }
+        let limit = opts.waitLimit > 0 ? max(waitMin, opts.waitLimit) : 0
+        var errors: [(profile: GeminiProfileInfo, error: GeminiError)] = []
+        var prev: (profile: GeminiProfileInfo, error: GeminiError)?
+        for (i, p) in seq.enumerated() {
+            guard gen == generation, !Task.isCancelled else { throw CancellationError() }
+            if let previous = prev {
+                tlog("[gemini] \(previous.profile.name) → \(p.name): \(previous.error.message)")
+                _ = await speakAndWait(GeminiChat.switchText(from: previous.profile, error: previous.error, to: p), "Model değişiyor")
+                guard gen == generation, !Task.isCancelled else { throw CancellationError() }
+                setPhase(.thinking, "\(p.name) modeline soruluyor…")
+            }
+            let last = i == seq.count - 1
+            let timeout: TimeInterval? = (limit > 0 && !last) ? limit : nil
+            do {
+                let reply: GeminiAnswer
+                if p.slot == act.slot {
+                    reply = try await askRobust(text: text, audio: audio, docs: docs, cache: cache, retries: last ? nil : 0, timeout: timeout)
+                } else {
+                    reply = try await client.ask(questionText: text, audioWAV: audio, docs: chainDocs(docs, to: p, from: act),
+                                                 history: history, cached: "", model: p.model, serverRetries: last ? nil : 0,
+                                                 key: p.key, timeout: timeout)
+                }
+                chainDown[p.slot] = nil
+                if !errors.isEmpty {
+                    let why = errors.map { x in
+                        "\(x.profile.name) \(x.error.kind == .quota ? "kotası doldu" : x.error.timedOut ? "cevap vermedi" : "yanıt vermedi")"
+                    }.joined(separator: "; ")
+                    let note = "Cevap \(p.name) modelinden geldi (\(p.model)): \(why)."
+                    if !notes.contains(note) { notes.append(note) }
+                }
+                return reply
+            } catch let e as GeminiError {
+                guard GeminiChat.chainWorthy(e) else { throw e }
+                tlog("[gemini] \(p.name) (\(p.model)) olmadı: \(e.message)")
+                chainMark(p, e)
+                errors.append((p, e))
+                prev = (p, e)
+            }
+        }
+        // Hiçbiri olmadı: en yol gösterici hata (kota mesajı "ne yapmalı" der), hangi modellerin denendiğiyle
+        let best = errors.first(where: { $0.error.kind == .quota })?.error ?? errors.last?.error ?? GeminiError("Cevap alınamadı.", .error)
+        let names = errors.map { $0.profile.name }.joined(separator: ", ")
+        var out = GeminiError("Tüm modeller denendi (\(names)), cevap alınamadı. \(best.message)", best.kind, status: best.status)
+        out.timedOut = best.timedOut
+        throw out
     }
 
     /// Yedek modelin işe yarayacağı hatalar: sunucu hatası / yoğunluk ya da kota (ücretsiz katmanda kota modele özeldir).
@@ -539,10 +675,17 @@ final class GeminiChat: ObservableObject {
         if let t = text {
             typed = t
         } else {
-            if phase != .listening { setPhase(.listening, "Dinliyorum") }
             // Oturumda bekleme süresini kullanıcı belirler (0 = hiç kapanmaz); oturum dışı tek soruda 7 sn
-            let wait: TimeInterval = session ? (opts.sessionTimeout > 0 ? TimeInterval(opts.sessionTimeout) : .infinity) : 7
-            let result = await recorder.record(waitForSpeech: wait) { [weak self] line in
+            var wait: TimeInterval = session ? (opts.sessionTimeout > 0 ? TimeInterval(opts.sessionTimeout) : .infinity) : 7
+            let byWord = opts.listenByWord
+            if byWord && !session { wait = max(wait, opts.listenSilence) }   // oturumda kullanıcının belirlediği süre geçerli
+            if !session && opts.announceListening {
+                // Oturumda "N belge hazır, sorunuzu bekliyorum" zaten söylendi; oturum dışında program "Dinliyorum" der
+                _ = await speakAndWait("Dinliyorum.", "Dinliyorum")
+                guard gen == generation, !Task.isCancelled else { return false }
+            }
+            if phase != .listening { setPhase(.listening, "Dinliyorum") }
+            let result = await recorder.record(waitForSpeech: wait, endWord: byWord, silenceEnd: opts.listenSilence) { [weak self] line in
                 Task { @MainActor in self?.recorderStatus(gen, line) }
             }
             guard gen == generation else { return false }
@@ -561,7 +704,7 @@ final class GeminiChat: ObservableObject {
                 }
                 fail(gen, "Soruyu duyamadım. Mikrofonu ve sesi kontrol edip yeniden deneyin.")
                 return false
-            case .done, .max:
+            case .done, .max, .word:
                 break
             }
             if result.pcm.count < GeminiChat.minQuestionBytes {

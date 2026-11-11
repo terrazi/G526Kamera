@@ -685,17 +685,6 @@ final class GeminiProfilesTests: XCTestCase {
         XCTAssertNil(GeminiProfiles.fallbackTarget(noKey, from: noKey[0], auto: true))
     }
 
-    func testChoiceAnnouncementListsUsableProfiles() {
-        let list = [info(1, "Flash"), info(2, "Pro", key: ""), info(3, "Ücretsiz", free: true)]
-        XCTAssertEqual(GeminiProfiles.choiceAnnouncement(list),
-                       "Model seçimi yapınız. 1. model: Flash, ücretli. 3. model: Ücretsiz, ücretsiz. Hangisini istiyorsunuz?")
-    }
-
-    func testPickPhrases() {
-        XCTAssertEqual(GeminiProfiles.pickPhrases(slot: 2, name: "Pro"), "ikinci model, 2 model, 2 numaralı model, Pro")
-        XCTAssertEqual(GeminiProfiles.pickPhrases(slot: 1, name: "A"), "birinci model, 1 model, 1 numaralı model")
-    }
-
     func testKeychainNamesKeepTheOldFirstName() {
         XCTAssertEqual(GeminiProfiles.keychainName(slot: 1), "geminiApiKey")
         XCTAssertEqual(GeminiProfiles.keychainName(slot: 2), "geminiApiKey2")

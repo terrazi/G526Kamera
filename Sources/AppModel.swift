@@ -77,7 +77,8 @@ final class AppModel: ObservableObject {
         let client = GeminiClient(key: { AppSettings.shared.activeGeminiProfile.key },
                                   model: { AppSettings.shared.activeGeminiProfile.model },
                                   codes: { AppSettings.shared.geminiOptionCodes },
-                                  batchLast: { AppSettings.shared.geminiBatchLast })
+                                  batchLast: { AppSettings.shared.geminiBatchLast },
+                                  thinking: { AppSettings.shared.geminiThinking })
         let memory = GeminiMemory(remote: client, enabled: { AppSettings.shared.geminiMemory })
         let chat = GeminiChat(
             client: client,
@@ -92,7 +93,10 @@ final class AppModel: ObservableObject {
                                      callWords: s.geminiCallWord, session: s.geminiSession,
                                      sessionTimeout: s.geminiSessionTimeout, profiles: s.geminiProfileInfos(),
                                      active: active.slot, autoFallback: s.geminiAutoFallback,
-                                     overloadFallback: s.geminiOverloadFallback)
+                                     overloadFallback: s.geminiOverloadFallback,
+                                     listenByWord: s.listenEnd == "word", listenSilence: TimeInterval(s.listenSilence),
+                                     announceListening: true,
+                                     chainFallback: s.geminiChainFallback, waitLimit: TimeInterval(s.geminiWaitLimit))
             },
             memory: memory)
         // Toplu cevap kullanıcıya sonuna kadar okunup ulaşınca kalıcı sıra ilerler
@@ -102,8 +106,22 @@ final class AppModel: ObservableObject {
     private var guidanceWasOn = false
     private var speechActive = false
     /// Sesli model seçimi sürüyor ("model değiştir" denildi)
-    private var modelChoosing = false
-    private var modelChoiceWork: DispatchWorkItem?
+    /// Sesli model seçimi ("model değiştir", "birinci model", "tekrarla", "vazgeç")
+    private lazy var modelChooser: ModelChooser = ModelChooser(
+        profiles: { AppSettings.shared.geminiProfileInfos() },
+        activeKey: { AppSettings.shared.activeGeminiProfile.key },
+        lister: { key in try await GeminiClient(key: { key }, model: { "" }).listModels() },
+        apply: { slot, model, activate in
+            let s = AppSettings.shared
+            guard slot >= 1, slot <= s.geminiProfiles.count else { return }
+            s.geminiProfiles[slot - 1].model = model
+            if activate {
+                s.geminiActive = slot
+                s.geminiCapMonth = ""
+            }
+            tlog("[gemini] sesle model seçildi: \(slot). profil = \(model)\(activate ? " (etkin)" : "")")
+        },
+        say: { [weak self] text in _ = self?.speakGemini(text) })
     private var finishRequested = false
     private var lastUnrecognizedAt: TimeInterval = 0
     /// Sesli konumlandırmanın çektiği bölüm (çekim bitince "Sol bölüm çekildi" demek için)
@@ -133,6 +151,8 @@ final class AppModel: ObservableObject {
     private let speech = SpeechTrigger()
     /// Deneme sınavı (sesli rehberli tarama → Drive → Gemini cevapları); ilk kullanımda kurulur
     private var examStore: ExamMode?
+    /// Sınavda "dinle" kaydı için kayıtçı (sohbetinkinden ayrı; ikisi aynı anda kayıt yapmaz)
+    private let examRecorder = QuestionRecorder()
     /// Sınav sırasında sesli konumlandırmayı zorla açar (true) / kapatır (false); nil = ayara uy
     private var examGuide: Bool?
     private var examSpeechWaiter: CheckedContinuation<Void, Never>?
@@ -244,7 +264,7 @@ final class AppModel: ObservableObject {
         }
         // Oturumda "model değiştir" denildi: sesli model seçimi başlar
         gemini.onModelChoice = { [weak self] in
-            self?.beginModelChoice()
+            self?.modelChooser.begin(slot: 1)
         }
 
         // "Canlı" yalnızca çözülmüş kare geliyorsa yazılsın (kare gelip çözülemiyorsa yanıltmasın)
@@ -346,7 +366,7 @@ final class AppModel: ObservableObject {
         decoder.reset()
         gemini.cancel()
         examStore?.stop()
-        endModelChoice()
+        modelChooser.end()
         speech.stop()
         speaker.stop()
         speechActive = false
@@ -439,11 +459,16 @@ final class AppModel: ObservableObject {
         }
         if settings.geminiEnabled {
             commands.append(SpeechTrigger.Command(id: "gemini", phrases: GeminiText.callPhrases(settings.geminiCallWord)))
-            commands.append(SpeechTrigger.Command(id: "model", phrases: "model değiştir, modeli değiştir, model seç, modeli seç"))
-            // "ikinci model", "2 model" ya da profil adı; yalnız model seçimi sürerken işlenir
-            for p in settings.geminiProfileInfos() {
-                commands.append(SpeechTrigger.Command(id: "pick.\(p.slot)", phrases: GeminiProfiles.pickPhrases(slot: p.slot, name: p.name)))
+            // Sesli model seçimi: "model değiştir", "birinci/ikinci alternatif model seç"; seçim sürerken "birinci model", "tekrarla", "vazgeç"
+            commands.append(SpeechTrigger.Command(id: "model", phrases: ModelChoice.changePhrases))
+            for slot in 2...GeminiProfiles.slotCount {
+                commands.append(SpeechTrigger.Command(id: "model\(slot)", phrases: ModelChoice.alternativePhrases(slot: slot)))
             }
+            for n in 1...ModelChoice.maxChoices {
+                commands.append(SpeechTrigger.Command(id: "pick.\(n)", phrases: ModelChoice.pickPhrases(n)))
+            }
+            commands.append(SpeechTrigger.Command(id: "modelRepeat", phrases: ModelChoice.repeatPhrases))
+            commands.append(SpeechTrigger.Command(id: "modelCancel", phrases: ModelChoice.cancelPhrases))
         }
         speech.extraHints = ExamText.hints
         speech.setCommands(commands)
@@ -699,7 +724,8 @@ final class AppModel: ObservableObject {
     private func makeExam() -> ExamMode {
         let client = GeminiClient(key: { AppSettings.shared.activeGeminiProfile.key },
                                   model: { AppSettings.shared.activeGeminiProfile.model },
-                                  codes: { AppSettings.shared.geminiOptionCodes })
+                                  codes: { AppSettings.shared.geminiOptionCodes },
+                                  thinking: { AppSettings.shared.geminiThinking })
         let memory = GeminiMemory(remote: client, enabled: { true })
         let asker = ExamAsker(client: client, memory: memory,
                               overloadFallback: { AppSettings.shared.geminiOverloadFallback })
@@ -709,7 +735,9 @@ final class AppModel: ObservableObject {
             setGuide: { [weak self] on in self?.setExamGuide(on) },
             cameraLive: { [weak self] in self?.isLive ?? false },
             speechOn: { [weak self] in self?.speechActive ?? false },
-            pageRemoved: { [weak self] in self?.examPageRemoved() })
+            pageRemoved: { [weak self] in self?.examPageRemoved() },
+            listen: { [weak self] in await self?.listenExam() },
+            stopListening: { [weak self] in self?.examRecorder.cancel() })
         let ports = ExamPortsReal(hooks: hooks, queue: queue, settings: settings, auth: auth,
                                   docStore: GeminiDocStore(source: DriveClient(auth: GoogleAuth.shared)), asker: asker)
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -718,6 +746,23 @@ final class AppModel: ObservableObject {
         return ExamMode(ports: ports,
                         settings: { ExamSettings(group: s.examGroup, fetch: s.examFetch, cancelWindow: s.examCancelWindow, gap: s.examGap) },
                         directory: base)
+    }
+
+    /// Sınavda "dinle": sürekli dinleyen komut durur (mikrofonu tek kayıtçı kullanır), "tamam" denene kadar kaydedilir, sonra komutlar geri açılır
+    private func listenExam() async -> Data? {
+        speech.stop()
+        let byWord = settings.listenEnd == "word"
+        let silence = TimeInterval(settings.listenSilence)
+        let result = await examRecorder.record(waitForSpeech: byWord ? max(7, silence) : 7, endWord: byWord, silenceEnd: silence) { [weak self] line in
+            Task { @MainActor in self?.speechStatus = line }
+        }
+        if started { restartSpeech() }
+        switch result.outcome {
+        case .done, .word, .max:
+            return result.pcm.count >= GeminiChat.minQuestionBytes ? GeminiSupport.wav(fromPCM16: result.pcm) : nil
+        case .noSpeech, .stopped, .failed:
+            return nil
+        }
     }
 
     /// Sınav cümlesini okutur ve okuma bitene kadar bekler
@@ -784,46 +829,6 @@ final class AppModel: ObservableObject {
 
     // MARK: - Sesli model seçimi
 
-    /// "Model değiştir": modelleri sıralar, "ikinci model" / profil adı bekler. 35 sn içinde seçilmezse model değişmez.
-    private func beginModelChoice() {
-        guard started, settings.geminiEnabled else { return }
-        if gemini.isActive { gemini.cancel() }
-        let usable = GeminiProfiles.usable(settings.geminiProfileInfos())
-        guard usable.count >= 2 else {
-            _ = speakGemini("Seçilebilecek başka model yok. Ayarlardan ikinci modeli ve anahtarını ekleyin.")
-            return
-        }
-        modelChoosing = true
-        _ = speakGemini(GeminiProfiles.choiceAnnouncement(usable))
-        modelChoiceWork?.cancel()
-        let work = DispatchWorkItem { [weak self] in
-            guard let self = self, self.modelChoosing else { return }
-            self.endModelChoice()
-            _ = self.speakGemini("Model değişmedi.")
-        }
-        modelChoiceWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 35, execute: work)
-    }
-
-    private func endModelChoice() {
-        modelChoosing = false
-        modelChoiceWork?.cancel()
-        modelChoiceWork = nil
-    }
-
-    private func pickModel(slot: Int) {
-        guard modelChoosing else { return }
-        guard let profile = settings.geminiProfileInfos().first(where: { $0.slot == slot }), profile.usable else {
-            _ = speakGemini("\(slot). model kullanılamıyor. Başka bir model söyleyin.")
-            return
-        }
-        endModelChoice()
-        settings.geminiActive = slot
-        settings.geminiCapMonth = ""
-        tlog("[gemini] model seçildi: \(profile.name) (\(profile.model))")
-        _ = speakGemini("\(profile.spokenName) modeline geçildi.")
-    }
-
     /// Okuma sesi ayarı: seçili sesle kısa bir örnek cümle söyler.
     func previewVoice() {
         say("Merhaba. Belgeniz kadraja alındı, çekim için hazırım.", interrupt: true, force: true)
@@ -882,6 +887,12 @@ final class AppModel: ObservableObject {
     }
 
     private func voiceCommand(_ id: String, heard: String) {
+        // Sınav sürerken de "dinle": her an Gemini ile serbest konuşma (sınavın konuşması kesilir)
+        if id == "gemini" && examActive {
+            guard settings.geminiEnabled else { return }
+            _ = exam.listenRequest(source: "voice")
+            return
+        }
         // Sınav sürerken gönder / sil / rapor gibi olağan komutlar yok sayılır: sınav bunları kendi anlamıyla (serbest metinden) işler.
         // Yalnız sesli konumlandırmanın bölüm seçimi (sol / sağ) çalışmaya devam eder.
         if examActive && !id.hasPrefix("choice.") && id != "rechoose" { return }
@@ -899,11 +910,16 @@ final class AppModel: ObservableObject {
             giveBattery()
         case "gemini":
             guard settings.geminiEnabled else { return }
-            endModelChoice()
+            modelChooser.end()
             gemini.ask()
-        case "model":
+        case _ where id == "model" || ModelChoice.isAlternativeID(id):
             guard settings.geminiEnabled else { return }
-            beginModelChoice()
+            if gemini.isActive { gemini.cancel() }
+            modelChooser.begin(slot: id == "model" ? 1 : (Int(id.dropFirst(5)) ?? 1))
+        case "modelRepeat":
+            modelChooser.repeatList()
+        case "modelCancel":
+            modelChooser.cancel()
         case "deleteLast":
             deleteLast(retake: false)
         case "retake":
@@ -914,7 +930,7 @@ final class AppModel: ObservableObject {
             say(guidance.clearChoice(), interrupt: true)
         default:
             if id.hasPrefix("pick.") {
-                if let slot = Int(id.dropFirst("pick.".count)) { pickModel(slot: slot) }
+                if let n = Int(id.dropFirst("pick.".count)) { modelChooser.pick(n) }
                 return
             }
             guard id.hasPrefix("choice."), guidanceWanted else { return }

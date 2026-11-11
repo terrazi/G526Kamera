@@ -6,12 +6,15 @@ struct ExamTask {
     let schema: [String: Any]
     let system: String
     let maxTokens: Int
+    /// Sesli istek (16 kHz WAV); varsa istemin önüne eklenir ("dinle … tamam" serbest konuşması)
+    let audio: Data?
 
-    init(prompt: String, schema: [String: Any], system: String = ExamPrompts.system, maxTokens: Int = 16384) {
+    init(prompt: String, schema: [String: Any], system: String = ExamPrompts.system, maxTokens: Int = 16384, audio: Data? = nil) {
         self.prompt = prompt
         self.schema = schema
         self.system = system
         self.maxTokens = maxTokens
+        self.audio = audio
     }
 }
 
@@ -86,6 +89,36 @@ enum ExamPrompts {
 }
 
 extension ExamPrompts {
+    /// "Dinle" ile gelen serbest sesli istek: Gemini ne istendiğini ve yapılacak işlemi bildirir
+    static let freeSchema: [String: Any] = [
+        "type": "OBJECT",
+        "properties": [
+            "anlasilan": ["type": "STRING"],
+            "islem": ["type": "STRING", "enum": ["cevap", "tekrar", "hepsi", "devam", "bitir", "anlasilmadi"]],
+            "numaralar": ["type": "ARRAY", "items": ["type": "INTEGER"]],
+            "cevap": ["type": "STRING"]
+        ],
+        "required": ["anlasilan", "islem"]
+    ]
+
+    /// Deneme sınavı sırasında "dinle" ile gelen serbest sesli soru/istek. record: o ana kadar verilen cevapların dökümü
+    static func freePrompt(record: String) -> String {
+        let lines: [String] = [
+            "Ekteki ses kaydı, deneme sınavı sırasında kullanıcıdan geldi (Türkçe). Kaydın sonundaki 'tamam' sözcüğü kaydı bitirme "
+                + "işaretidir; yok say. Önce söyleneni 'anlasilan' alanına yaz. Sonra 'islem' alanını seç:",
+            "- tekrar: kullanıcı belirli soruların kayıtlı cevaplarının yeniden okunmasını istiyor; 'numaralar'a soru numaralarını yaz.",
+            "- hepsi: bütün cevapların baştan okunmasını istiyor.",
+            "- devam: sıradaki sorulara geçilmesini istiyor.",
+            "- bitir: sınavı bitirmek istiyor.",
+            "- cevap: bunlardan başka bir şey söylüyor ya da soruyor (bir soruyu açıkla, neden bu şık, yeniden çöz, kontrol et, başka bir "
+                + "soru…). 'cevap' alanına sesle okunacak kısa, düz Türkçe bir cevap yaz (en çok yaklaşık altı cümle; madde işareti, sembol, "
+                + "kalın yazı yok). Belgelerdeki soruları ve aşağıdaki kayıtlı cevapları esas al; emin değilsen bunu söyle, uydurma.",
+            "- anlasilmadi: kayıt boş, anlaşılmaz ya da sınavla ilgisiz.",
+            "Şu ana kadar verilen cevaplar:"
+        ]
+        return lines.joined(separator: "\n") + "\n" + (record.isEmpty ? "(henüz yok)" : record)
+    }
+
     /// Emin olunmayan soruları bağımsız olarak, özenle yeniden çözdürür (keys: (bölüm, numara))
     static func recheckPrompt(_ keys: [(bolum: String, no: Int)]) -> String {
         var lines: [String] = []
@@ -118,7 +151,12 @@ extension GeminiSupport {
                 contents.append(["role": "model", "parts": [["text": taskAck()]]])
             }
         }
-        contents.append(["role": "user", "parts": [["text": task.prompt]]])
+        if let wav = task.audio {
+            contents.append(["role": "user", "parts": [["inlineData": ["mimeType": "audio/wav", "data": wav.base64EncodedString()]],
+                                                       ["text": task.prompt]]])
+        } else {
+            contents.append(["role": "user", "parts": [["text": task.prompt]]])
+        }
         return [
             "contents": contents,
             "systemInstruction": ["parts": [["text": task.system]]],
@@ -140,8 +178,9 @@ extension GeminiSupport {
         return GeminiConfig.docsAck
     }
 
-    static func buildTaskRequest(_ task: ExamTask, docs: [GeminiDoc]) throws -> Data {
-        return try JSONSerialization.data(withJSONObject: taskRequestObject(task, docs: docs), options: [.withoutEscapingSlashes])
+    static func buildTaskRequest(_ task: ExamTask, docs: [GeminiDoc], thinking: String? = nil) throws -> Data {
+        let object = applyThinking(taskRequestObject(task, docs: docs), level: thinking)
+        return try JSONSerialization.data(withJSONObject: object, options: [.withoutEscapingSlashes])
     }
 
     /// Görev cevabından ham JSON metnini çıkarır. Engellenmiş / boş cevapta GeminiError.
@@ -180,9 +219,10 @@ protocol GeminiTasking: AnyObject {
 
 extension GeminiClient: GeminiTasking {
     func runTask(_ task: ExamTask, docs: [GeminiDoc], model overrideModel: String?, serverRetries: Int?) async throws -> String {
-        let body = try GeminiSupport.buildTaskRequest(task, docs: docs)
         var useModel = model
         if let m = overrideModel, !m.trimmed.isEmpty { useModel = m.trimmed }
+        let body = try GeminiSupport.buildTaskRequest(task, docs: docs,
+                                                      thinking: GeminiSupport.thinkingLevel(model: useModel, setting: thinkingProvider()))
         let object = try await postTask(model: useModel, body: body, serverRetries: serverRetries ?? GeminiClient.askServerRetries)
         return try GeminiSupport.parseTask(object)
     }

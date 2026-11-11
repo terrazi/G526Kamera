@@ -93,6 +93,14 @@ enum SpeechMatcher {
         return count
     }
 
+    /// Metnin SON sözcüğü verilen sözcüklerden biri mi ("… tamam"): "dinle … tamam" kaydını bitirir.
+    /// Sözcükler `words` biçimindedir (küçük harf, aksansız, ı→i); "tamamdır" için "tamamdir" verilir.
+    static func endsWith(_ transcript: String, words targets: [String]) -> Bool {
+        guard let last = words(transcript).last else { return false }
+        // Tam eşleşme: "tamamı", "tamamen" gibi sözcükler kaydı bitirmesin
+        return targets.contains(last)
+    }
+
     /// Metinde tetikleme sözcüğünün kaç kez geçtiği.
     static func occurrences(in transcript: String, trigger: String, loose: Bool = false) -> Int {
         let heard = words(transcript)
@@ -524,6 +532,10 @@ final class SpeechTrigger {
             if editing {
                 ids = ids.filter { $0 != "finish" && $0 != "report" && $0 != "rechoose" }
                 if ids.contains("retake") { ids = ids.filter { $0 != "deleteLast" } }
+            }
+            // "Birinci alternatif model seç" içindeki "model seç" ve "birinci model" ana model komutu ya da model seçimi sayılmasın
+            if ids.contains(where: { ModelChoice.isAlternativeID($0) }) {
+                ids = ids.filter { $0 != "model" && !$0.hasPrefix("pick.") }
             }
             // "Şarj durumu nedir" içindeki "durum" rapor sayılmasın: batarya sorusu kendi başına geçer
             if ids.contains("battery") && !editing {

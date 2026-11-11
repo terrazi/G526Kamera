@@ -41,6 +41,20 @@ private final class FakePorts: ExamPorts {
     /// Drive'a yüklenen cevap anahtarları
     var keys: [(name: String, text: String)] = []
     var keyLink = "https://drive.example/anahtar"
+    /// "Dinle": sırayla verilecek kayıtlar (nil = duyulmadı); bitince nil
+    var listenResults: [Data?] = []
+    var listenCalls = 0
+    var listenStops = 0
+    /// Gemini'ye doğrudan giden ses kayıtları
+    var freeAudio: [Data] = []
+
+    func listen() async -> Data? {
+        listenCalls += 1
+        await Task.yield()
+        return listenResults.isEmpty ? nil : listenResults.removeFirst()
+    }
+
+    func stopListening() { listenStops += 1 }
 
     func preflight(needCamera: Bool) -> String { return preflightText }
 
@@ -109,6 +123,7 @@ private final class FakePorts: ExamPorts {
 
     func ask(_ task: ExamTask, docs: [GeminiDoc]) async throws -> String {
         asks.append(task.prompt)
+        if let a = task.audio { freeAudio.append(a) }
         let recheck = task.prompt.hasPrefix("Şu soruları SIFIRDAN")
         if recheck {
             recheckCalls += 1
@@ -208,6 +223,138 @@ final class ExamModeTests: XCTestCase {
         exam.command("end", source: "ui")
         let done = await exam.waitDone(timeout: 8)
         XCTAssertTrue(done, "sınav kapanmadı")
+    }
+
+    // MARK: "Dinle": her an Gemini ile serbest konuşma
+
+    private func freeReply(_ islem: String, say: String = "", nums: [Int] = []) -> String {
+        let obj: [String: Any] = ["anlasilan": "kullanıcı bir şey söyledi", "islem": islem, "numaralar": nums, "cevap": say]
+        let data = (try? JSONSerialization.data(withJSONObject: obj)) ?? Data()
+        return String(data: data, encoding: .utf8) ?? "{}"
+    }
+
+    private func reviewed(_ p: FakePorts, group: Int = 10) async -> ExamMode {
+        p.questionNos = [1, 2, 3]
+        let exam = make(p, group: group)
+        XCTAssertTrue(exam.start())
+        await scanPages(exam, p, ["a.jpg", "b.jpg"])
+        exam.command("scan_done")
+        let reached = await until { exam.status == "Soru numarası bekleniyor" }
+        XCTAssertTrue(reached, "gözden geçirmeye ulaşılamadı: \(p.spoken)")
+        await settle()
+        return exam
+    }
+
+    func testDinleIsIgnoredWhenNoExamIsRunning() {
+        let p = FakePorts()
+        let exam = make(p)
+        XCTAssertFalse(exam.listenRequest(source: "ui"))
+        XCTAssertEqual(p.listenCalls, 0)
+    }
+
+    func testDinleSaysListeningRecordsAndSendsTheAudioStraightToGemini() async {
+        let p = FakePorts()
+        let exam = await reviewed(p)
+        let before = p.asks.count
+        p.listenResults = [Data(count: 64)]
+        p.rawReplies = [freeReply("cevap", say: "Bunun nedeni şudur.")]
+        XCTAssertTrue(exam.listenRequest(source: "ui"))
+        let spoke = await until { p.spoken.contains("Bunun nedeni şudur.") }
+        XCTAssertTrue(spoke, "\(p.spoken.suffix(5))")
+        let i = p.spoken.lastIndex(of: "Dinliyorum.") ?? -1
+        let j = p.spoken.lastIndex(of: "Bunun nedeni şudur.") ?? -1
+        XCTAssertTrue(i >= 0 && j > i, "önce Dinliyorum, sonra cevap: \(p.spoken.suffix(5))")
+        XCTAssertEqual(p.listenCalls, 1)
+        XCTAssertEqual(p.freeAudio.count, 1)
+        XCTAssertEqual(p.freeAudio.first?.count, 64, "ses dosyası olduğu gibi gider (yazıya çevrilmez)")
+        XCTAssertEqual(p.asks.count, before + 1)
+        XCTAssertTrue(p.asks.last?.hasPrefix("Ekteki ses kaydı") ?? false)
+        XCTAssertTrue(p.asks.last?.contains("metre") ?? false, "kayıtlı cevaplar bağlam olarak gider")
+        XCTAssertTrue(p.asks.last?.contains("'tamam'") ?? false, "sondaki tamam yok sayılsın")
+        await finish(exam)
+    }
+
+    func testDinleRepeatsSavedAnswersFromRecord() async {
+        let p = FakePorts()
+        let exam = await reviewed(p)
+        p.listenResults = [Data(count: 64)]
+        p.rawReplies = [freeReply("tekrar", nums: [3])]
+        let before = p.spoken.filter { $0 == FakePorts.line(3) }.count
+        XCTAssertTrue(exam.listenRequest(source: "ui"))
+        let spoke = await until { p.spoken.filter { $0 == FakePorts.line(3) }.count > before }
+        XCTAssertTrue(spoke, "\(p.spoken.suffix(5))")
+        await finish(exam)
+    }
+
+    func testDinleCanReadAllAnswers() async {
+        let p = FakePorts()
+        let exam = await reviewed(p)
+        p.listenResults = [Data(count: 64)]
+        p.rawReplies = [freeReply("hepsi")]
+        let before = p.spoken.filter { $0 == FakePorts.line(2) }.count
+        XCTAssertTrue(exam.listenRequest(source: "ui"))
+        let spoke = await until { p.spoken.filter { $0 == FakePorts.line(2) }.count > before }
+        XCTAssertTrue(spoke, "\(p.spoken.suffix(6))")
+        await finish(exam)
+    }
+
+    func testDinleNotHeardSaysSoAndAsksNothing() async {
+        let p = FakePorts()
+        let exam = await reviewed(p)
+        let before = p.asks.count
+        p.listenResults = [nil]
+        XCTAssertTrue(exam.listenRequest(source: "ui"))
+        let spoke = await until { p.spoken.contains("Sizi duyamadım. Tekrar denemek için dinle deyin.") }
+        XCTAssertTrue(spoke, "\(p.spoken.suffix(4))")
+        XCTAssertEqual(p.asks.count, before)
+        await finish(exam)
+    }
+
+    func testDinleGeminiErrorIsSpokenAndTheExamGoesOn() async {
+        let p = FakePorts()
+        let exam = await reviewed(p)
+        p.listenResults = [Data(count: 64)]
+        p.failAsk = [GeminiError("Gemini şu an yanıt vermiyor.", .network)]
+        XCTAssertTrue(exam.listenRequest(source: "ui"))
+        let spoke = await until { p.spoken.contains("Gemini şu an yanıt vermiyor. Tekrar denemek için dinle deyin.") }
+        XCTAssertTrue(spoke, "\(p.spoken.suffix(4))")
+        XCTAssertTrue(exam.active)
+        await finish(exam)
+    }
+
+    func testDinleCanEndTheExam() async {
+        let p = FakePorts()
+        let exam = await reviewed(p)
+        p.listenResults = [Data(count: 64)]
+        p.rawReplies = [freeReply("bitir")]
+        XCTAssertTrue(exam.listenRequest(source: "ui"))
+        let done = await exam.waitDone(timeout: 8)
+        XCTAssertTrue(done, "sınav kapanmadı: \(p.spoken.suffix(4))")
+        XCTAssertEqual(p.spoken.last, "Deneme sınavı tamamlandı.")
+    }
+
+    func testDinleWorksAlreadyDuringScanning() async {
+        let p = FakePorts()
+        let exam = make(p)
+        XCTAssertTrue(exam.start())
+        let scanning = await until { exam.status == "Tarama: 0 sayfa" }
+        XCTAssertTrue(scanning)
+        p.listenResults = [Data(count: 64)]
+        p.rawReplies = [freeReply("cevap", say: "Henüz sınav sayfası taranmadı.")]
+        XCTAssertTrue(exam.listenRequest(source: "ui"))
+        let spoke = await until { p.spoken.contains("Henüz sınav sayfası taranmadı.") }
+        XCTAssertTrue(spoke, "\(p.spoken.suffix(4))")
+        XCTAssertEqual(p.freeAudio.count, 1)
+        await finish(exam)
+    }
+
+    func testEndingTheExamStopsTheRecording() async {
+        let p = FakePorts()
+        let exam = await reviewed(p)
+        let before = p.listenStops
+        exam.command("end", source: "ui")
+        _ = await exam.waitDone(timeout: 8)
+        XCTAssertGreaterThan(p.listenStops, before)
     }
 
     // MARK: Mutlu yol

@@ -14,7 +14,7 @@ struct ContentView: View {
                     if settings.guidanceEnabled { GuidanceRow() }
                     VoiceRow(status: model.speechStatus, heard: model.heardText,
                              enabled: settings.voiceEnabled || settings.guidanceEnabled)
-                    if settings.geminiEnabled { GeminiRow(chat: model.gemini) }
+                    if settings.geminiEnabled { GeminiRow(chat: model.gemini, exam: model.exam) }
                     ExamRow(exam: model.exam)
                     Toggle(isOn: $settings.motionEnabled) {
                         Label("Görüntü değişince otomatik çek", systemImage: "wand.and.rays")
@@ -262,6 +262,8 @@ struct GuidanceRow: View {
 /// Gemini ile belge sohbeti: durum, son soru ve cevap, "Gemini'ye sor" düğmesi.
 struct GeminiRow: View {
     @ObservedObject var chat: GeminiChat
+    /// Deneme sınavı açıkken düğme sınavın "dinle" akışını (her an Gemini ile serbest konuşma) başlatır / keser
+    @ObservedObject var exam: ExamMode
 
     private var headline: String {
         switch chat.phase {
@@ -307,8 +309,14 @@ struct GeminiRow: View {
                     .foregroundColor(.orange)
             }
             HStack(spacing: 12) {
-                Button(chat.isActive ? "Durdur" : "Gemini’ye sor") {
-                    if chat.isActive { chat.cancel() } else { chat.ask() }
+                Button(chat.isActive ? "Durdur" : (exam.info.active ? "Dinle (Gemini)" : "Gemini’ye sor")) {
+                    if exam.info.active {
+                        _ = exam.listenRequest(source: "ui")
+                    } else if chat.isActive {
+                        chat.cancel()
+                    } else {
+                        chat.ask()
+                    }
                 }
                 .buttonStyle(.borderedProminent)
                 .accessibilityIdentifier("gemini-sor")

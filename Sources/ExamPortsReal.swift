@@ -76,6 +76,9 @@ final class ExamPortsReal: ExamPorts {
         var speechOn: () -> Bool
         /// Bekleyen bir sayfa silindi (çekim sayacı düşer)
         var pageRemoved: () -> Void
+        /// "Dinle": "tamam" denene kadar kaydeder; 16 kHz WAV (nil: duyulmadı / kesildi)
+        var listen: () async -> Data? = { nil }
+        var stopListening: () -> Void = {}
     }
 
     private let hooks: Hooks
@@ -151,6 +154,10 @@ final class ExamPortsReal: ExamPorts {
     func codes() -> [(letter: String, word: String)] {
         return GeminiSupport.parseOptionCodes(settings.geminiOptionCodes)
     }
+
+    func listen() async -> Data? { return await hooks.listen() }
+
+    func stopListening() { hooks.stopListening() }
 
     func release() async {
         queue.setExam(hold: false, exam: false)

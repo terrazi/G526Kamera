@@ -77,7 +77,7 @@ final class AppSettings: ObservableObject {
     @Published var geminiProfiles: [GeminiProfile] {
         didSet { d.set(try? JSONEncoder().encode(geminiProfiles), forKey: "geminiProfiles") }
     }
-    /// Profillerin API anahtarları (Keychain: geminiApiKey, geminiApiKey2, geminiApiKey3); yalnız bu telefonda
+    /// Profillerin API anahtarları (Keychain: geminiApiKey … geminiApiKey6); yalnız bu telefonda
     @Published var geminiKeys: [String] {
         didSet {
             for (i, key) in geminiKeys.enumerated() {
@@ -85,12 +85,16 @@ final class AppSettings: ObservableObject {
             }
         }
     }
-    /// Kullanılan profil (1-3)
+    /// Kullanılan profil (1-6)
     @Published var geminiActive: Int { didSet { d.set(geminiActive, forKey: "geminiActive") } }
     /// Aylık harcama sınırı dolunca "ücretsiz" işaretli profile geç
     @Published var geminiAutoFallback: Bool { didSet { d.set(geminiAutoFallback, forKey: "geminiAutoFallback") } }
     /// Seçili model yoğunken (503) ya da kotası dolunca (429) aynı anahtarla hesabın başka bir hızlı modeline geç
     @Published var geminiOverloadFallback: Bool { didSet { d.set(geminiOverloadFallback, forKey: "geminiOverloadFallback") } }
+    /// Model zinciri: kota dolunca / hata olunca / cevap gecikince aynı soru sıradaki profilin modeline kendiliğinden gider (sesli bilgiyle)
+    @Published var geminiChainFallback: Bool { didSet { d.set(geminiChainFallback, forKey: "geminiChainFallback") } }
+    /// Bir model bu kadar saniyede cevap vermezse sıradaki modele geçilir (0-600; 0 = sınırsız). Son modele sınır konmaz.
+    @Published var geminiWaitLimit: Int { didSet { d.set(geminiWaitLimit, forKey: "geminiWaitLimit") } }
     /// Harcama sınırı yüzünden yedeğe geçilen ay ("202611"); yeni ayda eski profile dönülür
     @Published var geminiCapMonth: String { didSet { d.set(geminiCapMonth, forKey: "geminiCapMonth") } }
     /// Yedeğe geçmeden önceki profil
@@ -99,8 +103,14 @@ final class AppSettings: ObservableObject {
     @Published var geminiSessionTimeout: Int { didSet { d.set(geminiSessionTimeout, forKey: "geminiSessionTimeout") } }
     /// Oturum: çağrı sözcüğüyle "N belge hazır" der, her cevaptan sonra yeni soruyu kendiliğinden dinler
     @Published var geminiSession: Bool { didSet { d.set(geminiSession, forKey: "geminiSession") } }
-    /// Gemini'yi çağıran sözcük(ler), virgülle ("dostum, gemini"); boşsa "gemini"
+    /// Gemini'yi çağıran sözcük(ler), virgülle ("dostum, gemini"); boşsa "dinle" ve "gemini"
     @Published var geminiCallWord: String { didSet { d.set(geminiCallWord, forKey: "geminiCallWord") } }
+    /// Düşünme modu: "auto" (Gemma modellerinde açık, Gemini'de modelin kendi varsayılanı) | "high" | "minimal"
+    @Published var geminiThinking: String { didSet { d.set(geminiThinking, forKey: "geminiThinking") } }
+    /// "Dinle" kaydını ne bitirir: "word" ("tamam" deyince; sessizlik de bitirir) | "silence" (konuşma bitince)
+    @Published var listenEnd: String { didSet { d.set(listenEnd, forKey: "listenEnd") } }
+    /// "Tamam" modunda konuşmadan sonra bu kadar saniye sessizlik olursa kayıt kendiliğinden biter (5-60)
+    @Published var listenSilence: Int { didSet { d.set(listenSilence, forKey: "listenSilence") } }
     /// Belgelerin ve ses kaydının Google'a gönderileceğinin onayı (onay olmadan soru sorulmaz)
     @Published var geminiPrivacyOK: Bool { didSet { d.set(geminiPrivacyOK, forKey: "geminiPrivacyOK") } }
     /// Gemini'ye gönderilecek en yeni PDF sayısı
@@ -194,8 +204,9 @@ final class AppSettings: ObservableObject {
         geminiEnabled = d.object(forKey: "geminiEnabled") as? Bool ?? false
         geminiKeys = (1...GeminiProfiles.slotCount).map { Keychain.get(GeminiProfiles.keychainName(slot: $0)) ?? "" }
         if let data = d.data(forKey: "geminiProfiles"), let saved = try? JSONDecoder().decode([GeminiProfile].self, from: data),
-           saved.count == GeminiProfiles.slotCount {
-            geminiProfiles = saved
+           saved.count >= 3 && saved.count <= GeminiProfiles.slotCount {
+            // Boş kalmış profil modelleri varsayılanla dolar (anahtar girilene kadar etkisiz); kullanıcının yazdıkları korunur
+            geminiProfiles = GeminiProfiles.migrated(saved)
         } else {
             // Eski sürümden: tek model ayarı 1. profil olur
             var list = GeminiProfiles.defaults()
@@ -203,13 +214,20 @@ final class AppSettings: ObservableObject {
             geminiProfiles = list
         }
         geminiActive = min(max(d.object(forKey: "geminiActive") as? Int ?? 1, 1), GeminiProfiles.slotCount)
+        geminiChainFallback = d.object(forKey: "geminiChainFallback") as? Bool ?? true
+        geminiWaitLimit = min(max(d.object(forKey: "geminiWaitLimit") as? Int ?? 30, 0), 600)
         geminiAutoFallback = d.object(forKey: "geminiAutoFallback") as? Bool ?? true
         geminiOverloadFallback = d.object(forKey: "geminiOverloadFallback") as? Bool ?? true
         geminiCapMonth = d.string(forKey: "geminiCapMonth") ?? ""
         geminiCapPrev = min(max(d.object(forKey: "geminiCapPrev") as? Int ?? 1, 1), GeminiProfiles.slotCount)
         geminiSessionTimeout = min(max(d.object(forKey: "geminiSessionTimeout") as? Int ?? 0, 0), 86400)
         geminiSession = d.object(forKey: "geminiSession") as? Bool ?? true
-        geminiCallWord = d.string(forKey: "geminiCallWord") ?? GeminiText.defaultCallWord
+        // Eski varsayılan ("gemini") "dinle, gemini"ye yükselir; kullanıcının kendi yazdığı sözcükler korunur
+        let savedCall = d.string(forKey: "geminiCallWord")
+        geminiCallWord = AppSettings.migratedCallWord(savedCall)
+        geminiThinking = AppSettings.validThinking(d.string(forKey: "geminiThinking"))
+        listenEnd = (d.string(forKey: "listenEnd") == "silence") ? "silence" : "word"
+        listenSilence = min(max(d.object(forKey: "listenSilence") as? Int ?? 15, 5), 60)
         geminiPrivacyOK = d.object(forKey: "geminiPrivacyOK") as? Bool ?? false
         geminiDocCount = min(max(d.object(forKey: "geminiDocCount") as? Int ?? 3, 1), GeminiConfig.maxPages)
         geminiMemory = d.object(forKey: "geminiMemory") as? Bool ?? true
@@ -225,7 +243,19 @@ final class AppSettings: ObservableObject {
 }
 
 extension AppSettings {
-    /// Üç profil (anahtarlarıyla)
+    /// Kayıtlı çağrı sözcüğü: yok → yeni varsayılan; eski varsayılan ("gemini") → "dinle, gemini"; başka bir şey → olduğu gibi
+    static func migratedCallWord(_ saved: String?) -> String {
+        guard let saved = saved else { return GeminiText.defaultCallSetting }
+        if saved.trimmed.lowercased() == GeminiText.defaultCallWord { return GeminiText.defaultCallSetting }
+        return saved
+    }
+
+    static func validThinking(_ value: String?) -> String {
+        guard let v = value, ["auto", "high", "minimal"].contains(v) else { return "auto" }
+        return v
+    }
+
+    /// Altı profil (anahtarlarıyla)
     func geminiProfileInfos() -> [GeminiProfileInfo] {
         return geminiProfiles.enumerated().map { i, p in
             GeminiProfileInfo(slot: i + 1, name: p.name.trimmed.isEmpty ? "Model \(i + 1)" : p.name.trimmed,

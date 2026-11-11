@@ -80,7 +80,8 @@ enum GeminiConfig {
 
     /// Sesli sorunun yanında gönderilen yönerge
     static let audioInstruction = "Yukarıdaki sesli soruyu yanıtla. Sesin başında bir çağrı sözcüğü ('Gemini', 'hey dostum' gibi) varsa soruya dahil değildir, "
-        + "onu yok say. JSON'daki 'soru' alanına soruyu duyduğun gibi yaz."
+        + "onu yok say. Sesin sonunda 'tamam' varsa o, kaydı bitirme sözcüğüdür; soruya dahil değildir. "
+        + "JSON'daki 'soru' alanına soruyu duyduğun gibi yaz."
 
     static let responseSchema: [String: Any] = [
         "type": "OBJECT",
@@ -98,6 +99,8 @@ struct GeminiError: LocalizedError {
     let kind: GeminiErrorKind
     let message: String
     let status: Int
+    /// Cevap beklerken zaman aşımı (bağlantı kuruldu, yanıt gelmedi): sıradaki modele geçmek için
+    var timedOut = false
 
     init(_ message: String, _ kind: GeminiErrorKind = .error, status: Int = 0) {
         self.message = message
@@ -564,6 +567,28 @@ enum GeminiSupport {
                 "systemInstruction": ["parts": [["text": system]]], "ttl": "\(ttl)s"]
     }
 
+    /// İsteğe konacak thinkingLevel ya da nil. "auto": Gemma modellerinde "high" (Gemma düşünmeyi yalnız bu ayarla açar; ALES/YDS gibi
+    /// soru çözümünde doğruluk için gerekir), Gemini modellerinde modelin kendi varsayılanı. Gemini 2.x thinkingLevel tanımaz
+    /// (thinkingBudget kullanır) → ona hiç gönderilmez.
+    static func thinkingLevel(model: String, setting: String) -> String? {
+        let name = model.lowercased()
+        if setting != "high" && setting != "minimal" {
+            return name.contains("gemma") ? "high" : nil
+        }
+        if name.hasPrefix("gemini-2") || name.hasPrefix("models/gemini-2") { return nil }
+        return setting
+    }
+
+    /// generationConfig'e thinkingConfig ekler (level nil ise dokunmaz)
+    static func applyThinking(_ body: [String: Any], level: String?) -> [String: Any] {
+        guard let level = level else { return body }
+        var out = body
+        var config = (out["generationConfig"] as? [String: Any]) ?? [:]
+        config["thinkingConfig"] = ["thinkingLevel": level]
+        out["generationConfig"] = config
+        return out
+    }
+
     /// Belgeler Files API'ye yüklenmişse dosya adresiyle, değilse inline gönderilir (ilk kullanıcı turuna eklenir).
     /// cached: açık önbelleğin adı ("cachedContents/…"): belgeler ve sistem yönergesi önbellekte olduğundan isteğe konmaz.
     /// batchLast > 0: uygulamanın tuttuğu "toplu cevapta en son verilen soru numarası" notu soruya eklenir.
@@ -621,9 +646,9 @@ enum GeminiSupport {
 
     static func buildRequest(questionText: String, audioWAV: Data?, docs: [GeminiDoc],
                              history: [GeminiTurn], system: String = GeminiConfig.systemPrompt,
-                             cached: String = "", batchLast: Int = 0) throws -> Data {
-        let object = requestObject(questionText: questionText, audioWAV: audioWAV, docs: docs, history: history,
-                                   system: system, cached: cached, batchLast: batchLast)
+                             cached: String = "", batchLast: Int = 0, thinking: String? = nil) throws -> Data {
+        let object = applyThinking(requestObject(questionText: questionText, audioWAV: audioWAV, docs: docs, history: history,
+                                                 system: system, cached: cached, batchLast: batchLast), level: thinking)
         return try JSONSerialization.data(withJSONObject: object, options: [.withoutEscapingSlashes])
     }
 
@@ -776,6 +801,9 @@ protocol GeminiAsking: AnyObject {
     /// Yedek model (nil = seçili model) ve sunucu hatasında yeniden deneme sayısı (nil = varsayılan) belirterek sorar
     func ask(questionText: String, audioWAV: Data?, docs: [GeminiDoc], history: [GeminiTurn], cached: String,
              model: String?, serverRetries: Int?) async throws -> GeminiAnswer
+    /// Başka profilin anahtarıyla (nil = seçili profilin anahtarı) ve en çok `timeout` sn cevap bekleyerek sorar (model zinciri)
+    func ask(questionText: String, audioWAV: Data?, docs: [GeminiDoc], history: [GeminiTurn], cached: String,
+             model: String?, serverRetries: Int?, key: String?, timeout: TimeInterval?) async throws -> GeminiAnswer
     /// Seçili modelin adı
     var currentModel: String { get }
     /// Seçili model yoğunken ya da kotası doluyken denenecek yedek modeller (hesabın gerçek model listesinden); alınamazsa boş
@@ -794,6 +822,11 @@ extension GeminiAsking {
     }
     func ask(questionText: String, audioWAV: Data?, docs: [GeminiDoc], history: [GeminiTurn]) async throws -> GeminiAnswer {
         return try await ask(questionText: questionText, audioWAV: audioWAV, docs: docs, history: history, cached: "")
+    }
+    func ask(questionText: String, audioWAV: Data?, docs: [GeminiDoc], history: [GeminiTurn], cached: String,
+             model: String?, serverRetries: Int?, key: String?, timeout: TimeInterval?) async throws -> GeminiAnswer {
+        return try await ask(questionText: questionText, audioWAV: audioWAV, docs: docs, history: history, cached: cached,
+                             model: model, serverRetries: serverRetries)
     }
 }
 
@@ -827,6 +860,7 @@ final class GeminiClient: GeminiAsking, GeminiRemote {
     private let modelProvider: () -> String
     private let codesProvider: () -> String
     private let batchProvider: () -> Int
+    let thinkingProvider: () -> String
     private let sleep: (TimeInterval) async -> Void
 
     static func makeSession() -> URLSession {
@@ -843,6 +877,7 @@ final class GeminiClient: GeminiAsking, GeminiRemote {
          model: @escaping () -> String,
          codes: @escaping () -> String = { GeminiConfig.defaultOptionCodes },
          batchLast: @escaping () -> Int = { 0 },
+         thinking: @escaping () -> String = { "auto" },
          sleep: @escaping (TimeInterval) async -> Void = { seconds in
              try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
          }) {
@@ -852,6 +887,7 @@ final class GeminiClient: GeminiAsking, GeminiRemote {
         self.modelProvider = model
         self.codesProvider = codes
         self.batchProvider = batchLast
+        self.thinkingProvider = thinking
         self.sleep = sleep
     }
 
@@ -879,16 +915,24 @@ final class GeminiClient: GeminiAsking, GeminiRemote {
 
     func ask(questionText: String, audioWAV: Data?, docs: [GeminiDoc], history: [GeminiTurn], cached: String,
              model overrideModel: String?, serverRetries: Int?) async throws -> GeminiAnswer {
+        return try await ask(questionText: questionText, audioWAV: audioWAV, docs: docs, history: history, cached: cached,
+                             model: overrideModel, serverRetries: serverRetries, key: nil, timeout: nil)
+    }
+
+    func ask(questionText: String, audioWAV: Data?, docs: [GeminiDoc], history: [GeminiTurn], cached: String,
+             model overrideModel: String?, serverRetries: Int?, key overrideKey: String?, timeout: TimeInterval?) async throws -> GeminiAnswer {
         if questionText.trimmed.isEmpty && audioWAV == nil {
             throw GeminiError("Soru boş.", .error)
         }
-        let body = try GeminiSupport.buildRequest(questionText: questionText, audioWAV: audioWAV, docs: docs, history: history,
-                                                  system: systemPrompt, cached: cached, batchLast: batchProvider())
         var useModel = model
         if let m = overrideModel, !m.trimmed.isEmpty { useModel = m.trimmed }
+        let body = try GeminiSupport.buildRequest(questionText: questionText, audioWAV: audioWAV, docs: docs, history: history,
+                                                  system: systemPrompt, cached: cached, batchLast: batchProvider(),
+                                                  thinking: GeminiSupport.thinkingLevel(model: useModel, setting: thinkingProvider()))
         let name = useModel.addingPercentEncoding(withAllowedCharacters: GeminiClient.pathAllowed) ?? useModel
         let object = try await post(path: "/models/\(name):generateContent", body: body,
-                                    serverRetries: serverRetries ?? GeminiClient.askServerRetries)
+                                    serverRetries: serverRetries ?? GeminiClient.askServerRetries,
+                                    key: overrideKey, timeout: timeout, model: useModel)
         return try GeminiSupport.parseAnswer(object)
     }
 
@@ -977,8 +1021,38 @@ final class GeminiClient: GeminiAsking, GeminiRemote {
     static let askServerRetries = 3
 
     /// POST + yeniden deneme: ağ hatasında bir kez (1,5 sn sonra); 500/502/503/504'te `serverRetries` kez, artan aralıkla
-    private func post(path: String, body: Data, serverRetries: Int = 1) async throws -> Any {
-        let key = keyProvider().trimmed
+    private struct Reply: @unchecked Sendable { let value: Any? }
+
+    /// `timeout` verilirse cevap en çok o kadar beklenir (ağ hatasında yeniden denenmez); dolunca `timedOut` işaretli hata verilir.
+    private func post(path: String, body: Data, serverRetries: Int = 1, key: String? = nil, timeout: TimeInterval? = nil,
+                      model: String? = nil) async throws -> Any {
+        guard let limit = timeout, limit > 0 else {
+            return try await send(path: path, body: body, serverRetries: serverRetries, key: key, model: model, networkRetry: true)
+        }
+        let reply: Reply = try await withThrowingTaskGroup(of: Reply.self) { group in
+            group.addTask {
+                return Reply(value: try await self.send(path: path, body: body, serverRetries: serverRetries, key: key,
+                                                        model: model, networkRetry: false))
+            }
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(limit * 1_000_000_000))
+                return Reply(value: nil)
+            }
+            let first = try await group.next() ?? Reply(value: nil)
+            group.cancelAll()
+            return first
+        }
+        guard let value = reply.value else {
+            var e = GeminiError("Gemini \(Int(limit)) sn içinde cevap vermedi.", .network)
+            e.timedOut = true
+            throw e
+        }
+        return value
+    }
+
+    private func send(path: String, body: Data, serverRetries: Int, key override: String?, model overrideModel: String?,
+                      networkRetry: Bool) async throws -> Any {
+        let key = (override ?? keyProvider()).trimmed
         guard !key.isEmpty else {
             throw GeminiError("Gemini API anahtarı girilmemiş. Ayarlardan yapıştırın.", .key)
         }
@@ -1005,7 +1079,7 @@ final class GeminiClient: GeminiAsking, GeminiRemote {
                 throw error
             } catch {
                 if Task.isCancelled || (error as? URLError)?.code == .cancelled { throw CancellationError() }
-                if attempt < 1 {
+                if networkRetry && attempt < 1 {
                     attempt += 1
                     await sleep(1.5)
                     continue
@@ -1021,7 +1095,8 @@ final class GeminiClient: GeminiAsking, GeminiRemote {
                 tlog("[gemini] HTTP \(status), yeniden deneniyor (\(serverAttempt)/\(serverRetries))")
                 continue
             }
-            let (kind, message) = GeminiSupport.describeError(status: status, json: GeminiSupport.errorObject(from: data), model: model)
+            let (kind, message) = GeminiSupport.describeError(status: status, json: GeminiSupport.errorObject(from: data),
+                                                             model: overrideModel ?? model)
             tlog("[gemini] HTTP \(status) (\(path.split(separator: "?").first.map(String.init) ?? path)): \(message)")
             throw GeminiError(message, kind, status: status)
         }
