@@ -590,6 +590,7 @@ final class ExamModeTests: XCTestCase {
         let said = await until { p.spoken.contains("Kamera görüntüsü yok. Kameraya bağlanınca tekrar söyleyin.") }
         XCTAssertTrue(said)
         XCTAssertFalse(exam.active)
+        XCTAssertEqual(exam.status, "Kamera görüntüsü yok. Kameraya bağlanınca tekrar söyleyin.", "ses çıkmasa da neden ekranda görünmeli")
     }
 
     func testEndOutsideTheModeIsAnswered() async {

@@ -674,6 +674,8 @@ final class ExamMode: ObservableObject {
         }
         let why = ports.preflight(needCamera: true)
         if !why.isEmpty {
+            // Ses çıkmıyorsa da neden görülsün: ekrana da yazılır
+            setStatus(why)
             bg { await self.sayNow(why) }
             return false
         }
