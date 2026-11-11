@@ -137,6 +137,8 @@ final class AppSettings: ObservableObject {
     @Published var examCancelWindow: Int { didSet { d.set(examCancelWindow, forKey: "examCancelWindow") } }
     /// Cevap grupları arasındaki duraklama, sn (0-10); bu sürede "duraklat" denebilir
     @Published var examGap: Int { didSet { d.set(examGap, forKey: "examGap") } }
+    /// Deneme sınavı önce video çeker (evrak görününce başlar, en çok 30 sn); kapalıysa sınav doğrudan fotoğraf taramasıyla başlar
+    @Published var examVideoFirst: Bool { didSet { d.set(examVideoFirst, forKey: "examVideoFirst") } }
 
     // MARK: Drive
     @Published var driveFolderName: String { didSet { d.set(driveFolderName, forKey: "driveFolderName") } }
@@ -246,6 +248,7 @@ final class AppSettings: ObservableObject {
         examFetch = min(max(d.object(forKey: "examFetch") as? Int ?? 20, 5), 40)
         examCancelWindow = min(max(d.object(forKey: "examCancelWindow") as? Int ?? 5, 0), 15)
         examGap = min(max(d.object(forKey: "examGap") as? Int ?? 3, 0), 10)
+        examVideoFirst = d.object(forKey: "examVideoFirst") as? Bool ?? true
         previewOff = d.object(forKey: "previewOff") as? Bool ?? false
         dimWhenPreviewOff = d.object(forKey: "dimWhenPreviewOff") as? Bool ?? true
     }

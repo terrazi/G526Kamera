@@ -223,6 +223,8 @@ final class VideoOutbox {
 
     private let fm = FileManager.default
     private let pendingDir: URL
+    /// Çekilmekte olan kayıtlar burada durur; bitince gönderime alınırken bekleyenler klasörüne taşınır (yarım dosya yüklenmesin)
+    private let recordingDir: URL
     private let localDir: URL
     private lazy var drive = DriveClient(auth: GoogleAuth.shared)
     private var busy = false
@@ -233,8 +235,11 @@ final class VideoOutbox {
         let support = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         let docs = fm.urls(for: .documentDirectory, in: .userDomainMask)[0]
         pendingDir = support.appendingPathComponent("G526/BekleyenVideolar", isDirectory: true)
+        recordingDir = support.appendingPathComponent("G526/KayitVideolar", isDirectory: true)
         localDir = docs.appendingPathComponent("Videolar", isDirectory: true)
         try? fm.createDirectory(at: pendingDir, withIntermediateDirectories: true)
+        try? fm.removeItem(at: recordingDir)        // önceki oturumdan kalan yarım kayıtlar
+        try? fm.createDirectory(at: recordingDir, withIntermediateDirectories: true)
         monitor.pathUpdateHandler = { [weak self] path in
             guard path.status == .satisfied else { return }
             Task { @MainActor in self?.flush() }
@@ -250,11 +255,12 @@ final class VideoOutbox {
         let base = "Video_" + f.string(from: date)
         var name = base + ".mp4"
         var n = 2
-        while fm.fileExists(atPath: pendingDir.appendingPathComponent(name).path) {
+        while fm.fileExists(atPath: pendingDir.appendingPathComponent(name).path)
+            || fm.fileExists(atPath: recordingDir.appendingPathComponent(name).path) {
             name = "\(base)_\(n).mp4"
             n += 1
         }
-        return pendingDir.appendingPathComponent(name)
+        return recordingDir.appendingPathComponent(name)
     }
 
     var pendingCount: Int { return pendingFiles().count }
@@ -266,25 +272,45 @@ final class VideoOutbox {
 
     /// Biten videoyu gönderime alır; `done` gönderim bitince (başarı, hata metni) ile çağrılır.
     func submit(_ url: URL, done: ((Bool, String) -> Void)? = nil) {
+        var file = url
+        if url.deletingLastPathComponent().standardizedFileURL != pendingDir.standardizedFileURL {
+            let target = pendingDir.appendingPathComponent(url.lastPathComponent)
+            try? fm.removeItem(at: target)
+            if (try? fm.moveItem(at: url, to: target)) != nil { file = target }
+        }
         if AppSettings.shared.keepLocalCopies {
             try? fm.createDirectory(at: localDir, withIntermediateDirectories: true)
-            let copy = localDir.appendingPathComponent(url.lastPathComponent)
+            let copy = localDir.appendingPathComponent(file.lastPathComponent)
             try? fm.removeItem(at: copy)
-            try? fm.copyItem(at: url, to: copy)
+            try? fm.copyItem(at: file, to: copy)
         }
-        if let done = done { waiters[url.lastPathComponent] = done }
+        // Dosya bekleyenler arasına giremediyse (taşınamadı / silinmiş) bekleyen sonuçsuz kalmasın
+        guard fm.fileExists(atPath: file.path),
+              file.deletingLastPathComponent().standardizedFileURL == pendingDir.standardizedFileURL else {
+            tlog("[video] dosya gönderime alınamadı: \(file.lastPathComponent)")
+            done?(false, "dosya gönderime alınamadı")
+            return
+        }
+        if let done = done { waiters[file.lastPathComponent] = done }
         flush()
+    }
+
+    /// Gönderilmeyecek kaydı siler
+    func discard(_ url: URL) {
+        try? fm.removeItem(at: url)
     }
 
     /// Bekleyen tüm videoları sırayla yüklemeyi dener.
     func flush() {
         guard !busy else { return }
-        let files = pendingFiles()
-        guard !files.isEmpty else { return }
+        guard !pendingFiles().isEmpty else { return }
         busy = true
         Task { [weak self] in
-            for file in files {
-                guard let self = self else { return }
+            // Her turda klasör yeniden taranır: yükleme sürerken gelen yeni video da aynı turda gönderilir
+            var tried = Set<String>()
+            while let self = self {
+                guard let file = self.pendingFiles().first(where: { !tried.contains($0.lastPathComponent) }) else { break }
+                tried.insert(file.lastPathComponent)
                 await self.send(file)
             }
             self?.busy = false
@@ -293,7 +319,10 @@ final class VideoOutbox {
 
     private func send(_ file: URL) async {
         let name = file.lastPathComponent
-        guard fm.fileExists(atPath: file.path) else { return }
+        guard fm.fileExists(atPath: file.path) else {
+            finish(name, ok: false, message: "dosya bulunamadı")
+            return
+        }
         var message = ""
         for attempt in 0..<3 {
             do {

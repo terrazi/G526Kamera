@@ -255,6 +255,10 @@ enum ExamText {
         "devam", "surdur", "surdurun", "evet", "peki", "haydi", "hadi", "baslayalim", "basla", "baslat", "oldu", "olur",
         "tamam", "tamamdir", "tabi", "tabii", "tabiki", "elbette", "buyur", "hazirim", "hazir", "gec", "gecelim", "sonraki",
         "siradaki", "ileri", "ilerle", "ok", "okay", "kabul", "dogru", "aynen", "onay", "onayliyorum"]
+    private static let vdelWords: Set<String> = ["sil", "silin", "silelim", "sile", "silsene", "iptal", "vazgec", "vazgectim", "kaldir", "yanlis"]
+    private static let vskipWords: Set<String> = ["atla", "atlayalim", "atlayin", "atlasana", "gec", "gecelim", "istemiyorum", "yok"]
+    private static let vstopWords: Set<String> = ["durdur", "durdurun", "dur", "kapat", "kapa", "bitir", "bitti", "yeter", "tamam", "tamamdir", "stop"]
+    private static let noWords: Set<String> = ["hayir", "yok", "olmaz", "istemiyorum", "yeter", "gerek", "gerekmez"]
     private static let pauseStems = ["duraklat", "beklet", "durdur", "dakika", "saniye", "susun", "sessiz"]
     private static let pauseWords: Set<String> = ["dur", "bekle", "bekleyin", "bekler", "yeter", "sus", "kes", "kesin", "sakin",
                                                   "pause"]
@@ -273,7 +277,7 @@ enum ExamText {
 
     /// `text` içinde, `valid` kümesindeki hangi komutun anlamı var? Döndürür: komut adı ya da nil.
     /// Sıralama önceliktir (özel olan genel olandan önce). Söyleniş serbesttir: sıra, ek ve eşanlamlı sözcük farkı önemsizdir.
-    /// Komut adları: start, scan_done, more, undo, end, cancel, pause, continue, new.
+    /// Komut adları: start, scan_done, more, undo, end, cancel, pause, continue, new; video aşaması: vstop, vdel, vskip, yes, no.
     static func match(_ text: String, _ valid: Set<String>) -> String? {
         let toks = tokens(text)
         if toks.isEmpty { return nil }
@@ -282,6 +286,14 @@ enum ExamText {
         let examWord = has(toks, ["sinav", "test"])
         let scanSubject = has(toks, scanSubj)
         let scanVerb = has(toks, ["tara", "cek", "cekim", "ekle", "tarat"])
+
+        // Video aşaması (yalnız o aşamada geçerli): sil → göndermeden sil; atla → fotoğrafa geç; durdur/kapat → kaydı bitir; evet / hayır
+        // ("sınav" sözcüğü geçiyorsa bunlar değil, sınavı kapatma / bitirme komutu sayılır)
+        if valid.contains("vdel") && !examWord && exact(toks, vdelWords) { return "vdel" }
+        if valid.contains("vskip") && !examWord && (exact(toks, vskipWords) || has(toks, ["fotograf", "taramaya"])) { return "vskip" }
+        if valid.contains("vstop") && !examWord && exact(toks, vstopWords) { return "vstop" }
+        if valid.contains("no") && (neg || exact(toks, noWords) || has(toks, ["fotograf", "tarama"])) { return "no" }
+        if valid.contains("yes") && (exact(toks, contWords) || has(toks, ["devam", "evet"])) { return "yes" }
 
         if valid.contains("cancel") {
             let strong = toks.contains(where: { cancelWords.contains($0) && !weakCancel.contains($0) })
@@ -355,5 +367,6 @@ enum ExamText {
     /// Konuşma tanımaya ipucu olarak verilen kalıplar (tanıma bu söyleyişleri daha iyi yakalar)
     static let hints: [String] = [
         "deneme sınavı modu", "deneme sınavı", "sınav modu", "tarama tamamlandı", "taramalar tamamlandı", "taramaya devam",
-        "sınav tamamlandı", "son sayfayı sil", "tüm cevapları oku", "devam", "iptal", "duraklat", "yeni sınav"]
+        "sınav tamamlandı", "son sayfayı sil", "tüm cevapları oku", "devam", "iptal", "duraklat", "yeni sınav",
+        "durdur", "sil", "atla", "evet", "hayır", "videoya devam"]
 }

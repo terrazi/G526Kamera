@@ -141,6 +141,17 @@ struct ExamInfo: Equatable {
 
 /// Sınavın dış dünyası. Gerçekte AppModel'deki ExamPortsReal, testte sahte. Çağrılar bekleyebilir.
 @MainActor
+/// Sınavın video aşamasındaki durum (kayıt telefonda, kameranın karelerinden yapılır)
+enum ExamVideoPhase: Equatable {
+    case idle
+    /// Evrak kadraja girmesi bekleniyor (belge görünmeden kayıt başlamaz)
+    case waiting
+    case recording
+    /// Kayıt bitti (durdur ya da 30 sn doldu), dosya hazır
+    case finished
+    case failed(String)
+}
+
 protocol ExamPorts: AnyObject {
     /// Eksik bir şey varsa sesli söylenecek metin (boş = hazır)
     func preflight(needCamera: Bool) -> String
@@ -175,11 +186,28 @@ protocol ExamPorts: AnyObject {
     func listen() async -> Data?
     /// Sürmekte olan "dinle" kaydını keser (listen() nil döner)
     func stopListening()
+    /// Sınav ilk aşamada video çeksin mi (ayar açık ve kamera hazır)
+    func videoEnabled() -> Bool
+    /// Yeni video için hazırlanır: evrak kadraja girince kayıt kendiliğinden başlar (en çok 30 sn)
+    func videoArm()
+    func videoPhase() -> ExamVideoPhase
+    /// Kayıt sürüyorsa bitirir (dosya hazır olur)
+    func videoStop()
+    /// Hazır ya da çekilmekte olan videoyu göndermeden siler
+    func videoDiscard()
+    /// Hazır videoyu Drive'a gönderir, bitene kadar bekler; hata metni ("" = gönderildi)
+    func videoSend() async -> String
 }
 
 extension ExamPorts {
     func listen() async -> Data? { return nil }
     func stopListening() {}
+    func videoEnabled() -> Bool { return false }
+    func videoArm() {}
+    func videoPhase() -> ExamVideoPhase { return .idle }
+    func videoStop() {}
+    func videoDiscard() {}
+    func videoSend() async -> String { return "" }
 }
 
 @MainActor
@@ -220,6 +248,8 @@ final class ExamMode: ObservableObject {
     private var prefetch: Task<Void, Never>?
     private var docs: [GeminiDoc]?
     private var lastEnd: Double = 0
+    /// Bu oturumda video aşaması yapıldı (tarama aşaması "Deneme sınavı modu açık" demeden başlasın)
+    private var videoDone = false
     /// "Dinle": sınav sırasında her an Gemini ile serbest sesli konuşma
     private var freeActive = false
     private var freeRestart = false
@@ -277,6 +307,8 @@ final class ExamMode: ObservableObject {
         f.dateFormat = "yyyyMMdd-HHmmss"
         s.id = f.string(from: Date())
         s.started = now()
+        // Yeni sınav önce video aşamasıyla başlar (ayar açık ve kamera hazırsa)
+        s.stage = ports.videoEnabled() ? "video" : "scan"
         return s
     }
 
@@ -691,6 +723,7 @@ final class ExamMode: ObservableObject {
 
     private func launch(resume: Bool) {
         aborted = false
+        videoDone = false
         cmds.removeAll()
         docs = nil
         prefetch = nil
@@ -776,6 +809,7 @@ final class ExamMode: ObservableObject {
                 refreshInfo()
                 let next: String?
                 switch current {
+                case "video": next = try await stageVideo()
                 case "scan": next = try await stageScan()
                 case "send": next = try await stageSend()
                 case "prepare": next = try await stagePrepare()
@@ -810,6 +844,7 @@ final class ExamMode: ObservableObject {
         valid = []
         prefetch?.cancel()
         prefetch = nil
+        ports.videoDiscard()
         ports.hold(false)
         ports.guide(nil)
         await ports.release()
@@ -848,6 +883,85 @@ final class ExamMode: ObservableObject {
         save()
     }
 
+    // MARK: 0) Video
+
+    /// Sınavın ilk aşaması: evrak kadraja girince kayıt başlar (en çok 30 sn). "durdur" ya da süre dolması videoyu Drive'a gönderir,
+    /// "sil" göndermeden siler, "atla" video aşamasını geçer. Her videodan sonra "devam edeyim mi?": evet → yeni video, hayır → fotoğraf taraması.
+    private func stageVideo() async throws -> String? {
+        // Kamera ya da ayar video için hazır değilse (kaydedilmiş sınav devam ediyorsa) doğrudan fotoğraf taramasına geçilir
+        if !ports.videoEnabled() {
+            videoDone = true
+            return "scan"
+        }
+        ports.guide(false)
+        var round = 0
+        while true {
+            let intro = round == 0
+                ? "Deneme sınavı modu açık. Önce video çekeceğiz. Evrakı kadraja alın; görününce kayıt kendiliğinden başlar ve en çok 30 saniye sürer. "
+                    + "Durdurmak için durdur, silmek için sil deyin. Video istemiyorsanız atla deyin."
+                : "Yeni video için evrakı kadraja alın. Durdurmak için durdur, silmek için sil deyin."
+            try await say(intro)
+            ports.videoArm()
+            var deleted = false
+            var failure = ""
+            var told = false
+            loop: while true {
+                let r = try await wait(["vstop", "vdel", "vskip"], timeout: 0.3)
+                switch r.name {
+                case "vstop"?:
+                    if ports.videoPhase() == .waiting {
+                        if !told {
+                            told = true
+                            try await say("Kayıt henüz başlamadı. Evrakı kadraja alın; atlamak için atla deyin.")
+                        }
+                    } else {
+                        ports.videoStop()
+                    }
+                case "vdel"?:
+                    ports.videoDiscard()
+                    deleted = true
+                    break loop
+                case "vskip"?:
+                    ports.videoDiscard()
+                    videoDone = true
+                    return "scan"
+                default:
+                    break
+                }
+                switch ports.videoPhase() {
+                case .waiting: setStatus("Video: evrak bekleniyor")
+                case .recording: setStatus("Video kaydediliyor")
+                case .finished: break loop
+                case .failed(let why):
+                    failure = why
+                    break loop
+                case .idle: break
+                }
+            }
+            if deleted {
+                try await say("Video silindi, gönderilmedi.")
+            } else if !failure.isEmpty {
+                try await say("Video kaydedilemedi: \(failure)")
+            } else {
+                setStatus("Video Drive'a gönderiliyor...")
+                try await say("Video Drive'a gönderiliyor.")
+                let err = await ports.videoSend()
+                try check()
+                if err.isEmpty {
+                    try await say("Video Drive'a gönderildi.")
+                } else {
+                    try await say("Video gönderilemedi. Telefonda saklandı, internet gelince kendiliğinden gönderilecek.")
+                }
+            }
+            round += 1
+            videoDone = true
+            setStatus("Video: devam edilsin mi?")
+            try await say("Videoya devam edeyim mi? Evet ya da hayır deyin.")
+            let a = try await wait(["yes", "no"])
+            if a.name == "no" { return "scan" }
+        }
+    }
+
     // MARK: 1) Tarama
 
     private func stageScan() async throws -> String? {
@@ -855,7 +969,9 @@ final class ExamMode: ObservableObject {
         ports.guide(true)
         if !st.announced {
             let how = ports.canGuide() ? "" : " Konumlandırma kullanılamıyor: her sayfayı kadraja alıp çekim sözcüğünü söyleyin."
-            if st.extra {
+            if videoDone {
+                try await say("Şimdi fotoğraf taraması. Soru sayfalarını sırayla tarayın. Bitince tarama tamamlandı deyin.\(how)")
+            } else if st.extra {
                 try await say("Eksik ya da okunamayan sayfaları tarayın. Bitince tarama tamamlandı deyin.\(how)")
             } else {
                 try await say("Deneme sınavı modu açık. Soru sayfalarını sırayla tarayın. Bitince tarama tamamlandı deyin.\(how)")

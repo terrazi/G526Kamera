@@ -374,6 +374,7 @@ struct ExamRow: View {
 
     private var headline: String {
         switch exam.stage {
+        case "video": return "Deneme sınavı: video"
         case "scan": return "Deneme sınavı: tarama"
         case "send": return "Deneme sınavı: Drive’a gönderim"
         case "prepare", "verify": return "Deneme sınavı: belgeler okunuyor"

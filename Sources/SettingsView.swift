@@ -327,7 +327,7 @@ struct SettingsView: View {
 
     private var examSection: some View {
         Section(header: Text("Deneme sınavı"),
-                footer: Text("“Deneme sınavı modu” deyince soru sayfaları sesli yönlendirmeyle taranır (fotoğraflar gönderilmeden birikir); “tarama tamamlandı” deyince PDF’ler Drive’a gider, Gemini yalnız bu sınavın PDF’lerini okur ve “N belge, M sayfa, K soru görüyorum” der. Cevaplar gruplar hâlinde okunur, her grup bir kez tekrarlanır; sonra soru numarasını söyleyerek ya da “tüm cevapları oku” diyerek istediğiniz cevabı yeniden dinlersiniz (tekrarlar Gemini’ye gitmez, kayıttan okunur). “Sınav tamamlandı” sınavı kapatır. Program konuşurken mikrofon kapalıdır; komutlar cümle bitince söylenmelidir. Okunamayan sorular uydurulmaz, “okunamadı” denir.")) {
+                footer: Text("“Deneme sınavı modu” deyince soru sayfaları sesli yönlendirmeyle taranır (fotoğraflar gönderilmeden birikir); “tarama tamamlandı” deyince PDF’ler Drive’a gider, Gemini yalnız bu sınavın PDF’lerini okur ve “N belge, M sayfa, K soru görüyorum” der. Cevaplar gruplar hâlinde okunur, her grup bir kez tekrarlanır; sonra soru numarasını söyleyerek ya da “tüm cevapları oku” diyerek istediğiniz cevabı yeniden dinlersiniz (tekrarlar Gemini’ye gitmez, kayıttan okunur). “Sınav tamamlandı” sınavı kapatır. Program konuşurken mikrofon kapalıdır; komutlar cümle bitince söylenmelidir. Okunamayan sorular uydurulmaz, “okunamadı” denir. “Sınav önce video çeksin” açıksa sınav önce video aşamasıyla başlar: evrak kadraja girince kayıt kendiliğinden başlar (en çok 30 sn), “durdur” kaydı bitirip Drive’a gönderir, “sil” göndermeden siler, “atla” video aşamasını geçer; her videodan sonra “videoya devam edeyim mi?” diye sorar: “evet” yeni video, “hayır” fotoğraf taraması. Sınav videosu yalnız Drive’a gider (Gemini’ye sorulmaz).")) {
             Stepper(value: $settings.examGroup, in: 3...20) {
                 Text("Cevap grubu: \(settings.examGroup) soru")
             }
@@ -340,6 +340,7 @@ struct SettingsView: View {
             Stepper(value: $settings.examGap, in: 0...10) {
                 Text("Gruplar arası duraklama: \(settings.examGap) sn")
             }
+            Toggle("Sınav önce video çeksin", isOn: $settings.examVideoFirst)
         }
     }
 

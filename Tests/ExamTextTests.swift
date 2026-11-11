@@ -103,4 +103,41 @@ final class ExamTextTests: XCTestCase {
         XCTAssertEqual(ExamText.numberRange("5 ile 7 arası"), [5, 6, 7])
         XCTAssertEqual(ExamText.numberRange("5 ve 9"), [])
     }
+
+    // MARK: Video aşaması
+
+    func testVideoStageCommands() {
+        let rec: Set<String> = ["vstop", "vdel", "vskip", "end"]
+        let table: [String?: [String]] = [
+            "vstop": ["durdur", "durdurun", "kapat", "kaydı durdur", "video bitti", "yeter", "stop"],
+            "vdel": ["sil", "videoyu sil", "iptal", "vazgeçtim", "yanlış oldu sil"],
+            "vskip": ["atla", "videoyu atla", "fotoğraf taramasına geç", "video istemiyorum"],
+            "end": ["sınavı kapat", "sınav tamamlandı", "sınavı bitir", "deneme sınavı bitti"],
+            nil: ["bugün hava güzel", "merhaba"],
+        ]
+        for (exp, list) in table {
+            expect(list.map { ($0, exp) }, rec, "VIDEO")
+        }
+    }
+
+    func testVideoContinueQuestion() {
+        let ask: Set<String> = ["yes", "no", "end"]
+        let table: [String?: [String]] = [
+            "yes": ["evet", "devam", "evet devam et", "tamam", "olur", "videoya devam", "tabii"],
+            "no": ["hayır", "hayır istemiyorum", "yok", "fotoğrafa geç", "fotoğraf taramasına başla", "olmaz", "gerek yok"],
+            "end": ["sınavı kapat", "sınav tamamlandı"],
+        ]
+        for (exp, list) in table {
+            expect(list.map { ($0, exp) }, ask, "DEVAM")
+        }
+    }
+
+    func testVideoWordsDoNothingOutsideVideoStage() {
+        let scan: Set<String> = ["scan_done", "undo", "end", "more"]
+        XCTAssertNotEqual(ExamText.match("durdur", scan), "vstop")
+        XCTAssertNotEqual(ExamText.match("atla", scan), "vskip")
+        XCTAssertNotEqual(ExamText.match("sil", scan), "vdel")
+        XCTAssertNotEqual(ExamText.match("evet", scan), "yes")
+        XCTAssertNotEqual(ExamText.match("hayır", scan), "no")
+    }
 }

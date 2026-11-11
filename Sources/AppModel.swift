@@ -153,6 +153,17 @@ final class AppModel: ObservableObject {
     /// Kısa video kaydı (en çok 30 sn): çözülen kareler küçük H.264 MP4'e yazılır, bitince Drive'a gider
     private let videoRecorder = VideoRecorder()
     private var videoStopWork: DispatchWorkItem?
+    // Sınavın video aşaması (normal video kaydından ayrı: kayıt düğmesi / "kapat" komutu bunu etkilemez)
+    private var examVideoState: ExamVideoPhase = .idle
+    private var examVideoOutput: VideoRecorder.Output?
+    private var examVideoTimer: Timer?
+    private var examVideoWork: DispatchWorkItem?
+    private var examVideoHits = 0
+    private var examVideoLastFrame = -1
+    private var examVideoChecking = false
+    private var examVideoFinishing = false
+    /// Her yeni video / silme / kapanışta artar; eski çözümleme ve bitirme geri çağrıları yeni videoyu bozmasın
+    private var examVideoToken = 0
     private let pipeline = FramePipeline()
     private let decodeClock = DecodeClock()
     private let speech = SpeechTrigger()
@@ -749,7 +760,13 @@ final class AppModel: ObservableObject {
             speechOn: { [weak self] in self?.speechActive ?? false },
             pageRemoved: { [weak self] in self?.examPageRemoved() },
             listen: { [weak self] in await self?.listenExam() },
-            stopListening: { [weak self] in self?.examRecorder.cancel() })
+            stopListening: { [weak self] in self?.examRecorder.cancel() },
+            videoEnabled: { [weak self] in self?.examVideoEnabled() ?? false },
+            videoArm: { [weak self] in self?.examVideoArm() },
+            videoPhase: { [weak self] in self?.examVideoPhase() ?? .idle },
+            videoStop: { [weak self] in self?.examVideoStopRecording() },
+            videoDiscard: { [weak self] in self?.examVideoDiscard() },
+            videoSend: { [weak self] in await self?.examVideoSend() ?? "video yok" })
         let ports = ExamPortsReal(hooks: hooks, queue: queue, settings: settings, auth: auth,
                                   docStore: GeminiDocStore(source: DriveClient(auth: GoogleAuth.shared)), asker: asker)
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -1249,6 +1266,134 @@ final class AppModel: ObservableObject {
         _ = speakGemini("Gemini cevabı. " + result.text)
     }
 
+    // MARK: - Sınavda video
+
+    /// Sınav video aşamasıyla başlasın mı: ayar açık ve kamera görüntüsü var
+    private func examVideoEnabled() -> Bool {
+        return settings.examVideoFirst && isLive
+    }
+
+    private func examVideoPhase() -> ExamVideoPhase {
+        return examVideoState
+    }
+
+    /// Yeni video için hazırlanır: evrak kadraja girince (iki ölçümde üst üste "belge") kayıt kendiliğinden başlar.
+    private func examVideoArm() {
+        examVideoDiscard()
+        examVideoToken += 1
+        examVideoState = .waiting
+        examVideoHits = 0
+        examVideoLastFrame = -1
+        examVideoChecking = false
+        examVideoFinishing = false
+        examVideoTimer = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.examVideoTick() }
+        }
+    }
+
+    /// Bekleme sırasında en son kareyi (arka planda) "belge mi" diye ölçer; ekranda evrak yokken kayıt başlamaz.
+    private func examVideoTick() {
+        guard examVideoState == .waiting, isLive, !examVideoChecking,
+              let frame = pipeline.store.latest, frame.id != examVideoLastFrame else { return }
+        examVideoLastFrame = frame.id
+        examVideoChecking = true
+        let token = examVideoToken
+        let box = ExamVideoFrame(buffer: frame.buffer)
+        DispatchQueue.global(qos: .userInitiated).async {
+            let isDoc = GuidanceAnalyzer.analyze(box.buffer).map { DocumentGate.isDocument($0) } ?? false
+            Task { @MainActor [weak self] in self?.examVideoChecked(isDoc, token: token) }
+        }
+    }
+
+    private func examVideoChecked(_ isDoc: Bool, token: Int) {
+        guard token == examVideoToken, examVideoState == .waiting else { return }
+        examVideoChecking = false
+        examVideoHits = isDoc ? examVideoHits + 1 : 0
+        if examVideoHits >= 2 { examVideoBegin() }
+    }
+
+    private func examVideoBegin() {
+        guard examVideoState == .waiting else { return }
+        examVideoTimer?.invalidate()
+        examVideoTimer = nil
+        videoRecorder.start(to: VideoOutbox.shared.newFileURL(date: Date()))
+        examVideoState = .recording
+        examVideoFinishing = false
+        tlog("[sinav] video kaydı başladı")
+        flash("● Sınav videosu kaydediliyor (en çok 30 sn)", seconds: 5)
+        say("Kayıt başladı.", interrupt: false, force: true)
+        let token = examVideoToken
+        let work = DispatchWorkItem { [weak self] in
+            Task { @MainActor in self?.examVideoFinish(token: token) }
+        }
+        examVideoWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + VideoRecorder.maxSeconds, execute: work)
+    }
+
+    /// "Durdur" denince (sınav akışından) kaydı bitirir.
+    private func examVideoStopRecording() {
+        examVideoFinish(token: examVideoToken)
+    }
+
+    /// Kaydı bitirir (süre doldu ya da "durdur"); dosya hazır olunca durum `.finished` olur.
+    private func examVideoFinish(token: Int) {
+        guard token == examVideoToken, examVideoState == .recording, !examVideoFinishing else { return }
+        examVideoFinishing = true
+        examVideoWork?.cancel()
+        examVideoWork = nil
+        videoRecorder.finish { [weak self] result in
+            Task { @MainActor in self?.examVideoFinished(result, token: token) }
+        }
+    }
+
+    private func examVideoFinished(_ result: Result<VideoRecorder.Output, VideoRecorder.Failure>, token: Int) {
+        guard token == examVideoToken else {
+            // Bu arada silindi / sınav kapandı: biten dosya da silinir
+            if case .success(let output) = result { VideoOutbox.shared.discard(output.url) }
+            return
+        }
+        examVideoFinishing = false
+        switch result {
+        case .success(let output):
+            tlog("[sinav] video hazır: \(output.url.lastPathComponent), \(Int(output.seconds.rounded())) sn, \(output.frames) kare, \(output.bytes) bayt")
+            examVideoOutput = output
+            examVideoState = .finished
+        case .failure(let failure):
+            switch failure {
+            case .noFrames: examVideoState = .failed("kameradan görüntü gelmedi")
+            case .writer(let message): examVideoState = .failed(message)
+            }
+            tlog("[sinav] video kaydedilemedi: \(examVideoState)")
+        }
+    }
+
+    /// Hazır ya da çekilmekte olan videoyu göndermeden siler; bekleme ve kayıt durur.
+    private func examVideoDiscard() {
+        examVideoToken += 1
+        examVideoTimer?.invalidate()
+        examVideoTimer = nil
+        examVideoWork?.cancel()
+        examVideoWork = nil
+        if examVideoState == .recording { videoRecorder.cancel() }
+        if let output = examVideoOutput { VideoOutbox.shared.discard(output.url) }
+        examVideoOutput = nil
+        examVideoFinishing = false
+        examVideoChecking = false
+        examVideoState = .idle
+    }
+
+    /// Hazır videoyu Drive'a gönderir ve bitene kadar bekler; hata metni ("" = gönderildi).
+    private func examVideoSend() async -> String {
+        guard let output = examVideoOutput else { return "video bulunamadı" }
+        examVideoOutput = nil
+        examVideoState = .idle
+        return await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
+            VideoOutbox.shared.submit(output.url) { ok, message in
+                continuation.resume(returning: ok ? "" : (message.isEmpty ? "gönderilemedi" : message))
+            }
+        }
+    }
+
     func giveBattery() {
         let phone = phoneBattery()
         let text = SpokenReport.battery(phone: phone.percent, charging: phone.charging, camera: cameraBatteryMonitor.current(now: ProcessInfo.processInfo.systemUptime))
@@ -1288,4 +1433,10 @@ final class AppModel: ObservableObject {
         }
         return lines.joined(separator: "\n")
     }
+}
+
+
+/// Arka plan iş parçacığına geçirilen kare (CVPixelBuffer Sendable değildir; yalnız okunur)
+private struct ExamVideoFrame: @unchecked Sendable {
+    let buffer: CVPixelBuffer
 }

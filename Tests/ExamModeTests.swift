@@ -48,6 +48,36 @@ private final class FakePorts: ExamPorts {
     /// Gemini'ye doğrudan giden ses kayıtları
     var freeAudio: [Data] = []
 
+    /// Video aşaması
+    var videoOn = false
+    var videoPhaseValue: ExamVideoPhase = .idle
+    var videoArms = 0
+    var videoStops = 0
+    var videoDiscards = 0
+    var videoSends = 0
+    var videoSendError = ""
+
+    func videoEnabled() -> Bool { return videoOn }
+    func videoArm() {
+        videoArms += 1
+        videoPhaseValue = .waiting
+    }
+    func videoPhase() -> ExamVideoPhase { return videoPhaseValue }
+    func videoStop() {
+        videoStops += 1
+        if videoPhaseValue == .recording { videoPhaseValue = .finished }
+    }
+    func videoDiscard() {
+        videoDiscards += 1
+        videoPhaseValue = .idle
+    }
+    func videoSend() async -> String {
+        videoSends += 1
+        videoPhaseValue = .idle
+        await Task.yield()
+        return videoSendError
+    }
+
     func listen() async -> Data? {
         listenCalls += 1
         await Task.yield()
@@ -924,5 +954,186 @@ final class ExamModeTests: XCTestCase {
         XCTAssertEqual(old.id, "z")
         XCTAssertEqual(old.stage, "scan")
         XCTAssertTrue(old.photos.isEmpty)
+    }
+
+    // MARK: Video aşaması (sınavın ilk aşaması)
+
+    /// Konuşulan sözü, komut kabul edilene kadar yineleyerek söyler (bekleme penceresi dışında söz yok sayılır)
+    private func say(_ exam: ExamMode, _ text: String) async {
+        let end = Date().addingTimeInterval(8)
+        while Date() < end {
+            if exam.hear(text) { return }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTFail("söz kabul edilmedi: \(text)")
+    }
+
+    private func spoke(_ p: FakePorts, _ part: String) -> Bool {
+        return p.spoken.contains { $0.contains(part) }
+    }
+
+    private func videoExam(_ p: FakePorts) async -> ExamMode {
+        p.videoOn = true
+        let exam = make(p)
+        XCTAssertTrue(exam.start())
+        let waiting = await until { exam.status == "Video: evrak bekleniyor" }
+        XCTAssertTrue(waiting, "video beklemesi başlamadı: \(p.spoken) / \(exam.status)")
+        return exam
+    }
+
+    func testStartsWithVideoStageAndSendsAfterStop() async {
+        let p = FakePorts()
+        let exam = await videoExam(p)
+        XCTAssertEqual(p.videoArms, 1)
+        XCTAssertTrue(spoke(p, "Önce video çekeceğiz"))
+        XCTAssertFalse(p.guides.contains(true), "video aşamasında konumlandırma açılmamalı")
+        // Evrak görününce kayıt başlar
+        p.videoPhaseValue = .recording
+        let rec = await until { exam.status == "Video kaydediliyor" }
+        XCTAssertTrue(rec)
+        await say(exam, "durdur")
+        let ask = await until { exam.status == "Video: devam edilsin mi?" }
+        XCTAssertTrue(ask, "devam sorusuna gelinmedi: \(p.spoken)")
+        XCTAssertEqual(p.videoStops, 1)
+        XCTAssertEqual(p.videoSends, 1)
+        XCTAssertTrue(spoke(p, "Video Drive'a gönderildi."))
+        XCTAssertTrue(spoke(p, "Videoya devam edeyim mi?"))
+        // Hayır: fotoğraf taramasına hazırlanır
+        await say(exam, "hayır")
+        let scanning = await until { exam.status == "Tarama: 0 sayfa" }
+        XCTAssertTrue(scanning, "taramaya geçilmedi: \(exam.status)")
+        XCTAssertTrue(spoke(p, "Şimdi fotoğraf taraması"))
+        XCTAssertFalse(spoke(p, "Deneme sınavı modu açık. Soru sayfalarını"), "tarama aşaması açılışı yinelenmemeli")
+        await finish(exam)
+    }
+
+    func testYesStartsSecondVideoThenAsksAgain() async {
+        let p = FakePorts()
+        let exam = await videoExam(p)
+        p.videoPhaseValue = .recording
+        // 30 sn doldu: kayıt kendiliğinden biter
+        p.videoPhaseValue = .finished
+        let ask = await until { exam.status == "Video: devam edilsin mi?" }
+        XCTAssertTrue(ask)
+        XCTAssertEqual(p.videoSends, 1)
+        XCTAssertEqual(p.videoStops, 0, "süre dolunca durdur çağrılmaz")
+        await say(exam, "evet")
+        let again = await until { p.videoArms == 2 }
+        XCTAssertTrue(again, "ikinci video için hazırlanılmadı")
+        XCTAssertTrue(spoke(p, "Yeni video için evrakı kadraja alın"))
+        p.videoPhaseValue = .recording
+        p.videoPhaseValue = .finished
+        let ask2 = await until { p.videoSends == 2 && p.spoken.filter { $0.contains("Videoya devam edeyim mi?") }.count == 2 }
+        XCTAssertTrue(ask2, "ikinci videodan sonra yine sorulmadı: \(p.spoken)")
+        await say(exam, "hayır")
+        let scanning = await until { exam.status == "Tarama: 0 sayfa" }
+        XCTAssertTrue(scanning)
+        await finish(exam)
+    }
+
+    func testDeleteDiscardsWithoutSendingAndStillAsks() async {
+        let p = FakePorts()
+        let exam = await videoExam(p)
+        p.videoPhaseValue = .recording
+        let rec = await until { exam.status == "Video kaydediliyor" }
+        XCTAssertTrue(rec)
+        let before = p.videoDiscards
+        await say(exam, "sil")
+        let ask = await until { exam.status == "Video: devam edilsin mi?" }
+        XCTAssertTrue(ask)
+        XCTAssertEqual(p.videoSends, 0, "silinen video gönderilmemeli")
+        XCTAssertGreaterThan(p.videoDiscards, before)
+        XCTAssertTrue(spoke(p, "Video silindi, gönderilmedi."))
+        XCTAssertFalse(spoke(p, "Video Drive'a gönderildi."))
+        await say(exam, "hayır")
+        let scanning = await until { exam.status == "Tarama: 0 sayfa" }
+        XCTAssertTrue(scanning)
+        await finish(exam)
+    }
+
+    func testSkipGoesStraightToPhotoScanning() async {
+        let p = FakePorts()
+        let exam = await videoExam(p)
+        await say(exam, "atla")
+        let scanning = await until { exam.status == "Tarama: 0 sayfa" }
+        XCTAssertTrue(scanning)
+        XCTAssertEqual(p.videoSends, 0)
+        XCTAssertGreaterThan(p.videoDiscards, 0)
+        XCTAssertFalse(spoke(p, "Videoya devam edeyim mi?"))
+        await finish(exam)
+    }
+
+    func testStopBeforeRecordingStartsDoesNotEndVideoStage() async {
+        let p = FakePorts()
+        let exam = await videoExam(p)
+        await say(exam, "durdur")
+        let told = await until { self.spoke(p, "Kayıt henüz başlamadı") }
+        XCTAssertTrue(told, "kayıt başlamadan durdurulunca açıklama yapılmadı")
+        XCTAssertEqual(p.videoSends, 0)
+        XCTAssertEqual(exam.status, "Video: evrak bekleniyor")
+        await finish(exam)
+    }
+
+    func testSendFailureKeepsFileAndStillAsks() async {
+        let p = FakePorts()
+        p.videoSendError = "internet yok"
+        let exam = await videoExam(p)
+        p.videoPhaseValue = .recording
+        p.videoPhaseValue = .finished
+        let ask = await until { exam.status == "Video: devam edilsin mi?" }
+        XCTAssertTrue(ask)
+        XCTAssertTrue(spoke(p, "Video gönderilemedi. Telefonda saklandı"))
+        XCTAssertFalse(spoke(p, "Video Drive'a gönderildi."))
+        await say(exam, "hayır")
+        let scanning = await until { exam.status == "Tarama: 0 sayfa" }
+        XCTAssertTrue(scanning)
+        await finish(exam)
+    }
+
+    func testRecordingFailureIsReportedAndAsks() async {
+        let p = FakePorts()
+        let exam = await videoExam(p)
+        p.videoPhaseValue = .failed("kameradan görüntü gelmedi")
+        let ask = await until { exam.status == "Video: devam edilsin mi?" }
+        XCTAssertTrue(ask)
+        XCTAssertTrue(spoke(p, "Video kaydedilemedi: kameradan görüntü gelmedi"))
+        XCTAssertEqual(p.videoSends, 0)
+        await say(exam, "hayır")
+        let scanning = await until { exam.status == "Tarama: 0 sayfa" }
+        XCTAssertTrue(scanning)
+        await finish(exam)
+    }
+
+    func testEndingExamDuringVideoDiscardsRecording() async {
+        let p = FakePorts()
+        let exam = await videoExam(p)
+        p.videoPhaseValue = .recording
+        let before = p.videoDiscards
+        await finish(exam)
+        XCTAssertGreaterThan(p.videoDiscards, before, "sınav kapanınca kayıt silinmeli")
+        XCTAssertEqual(p.videoSends, 0)
+    }
+
+    func testSpokenExamEndWordsDuringVideoEndExamNotRecording() async {
+        let p = FakePorts()
+        let exam = await videoExam(p)
+        p.videoPhaseValue = .recording
+        await say(exam, "sınavı kapat")
+        let done = await exam.waitDone(timeout: 8)
+        XCTAssertTrue(done, "sınav kapanmadı")
+        XCTAssertEqual(p.videoSends, 0)
+        XCTAssertEqual(p.videoStops, 0, "\"sınavı kapat\" videoyu durdurmak değil sınavı kapatmaktır")
+    }
+
+    func testWithoutVideoSettingExamStartsWithPhotoScanning() async {
+        let p = FakePorts()
+        p.videoOn = false
+        let exam = make(p)
+        XCTAssertTrue(exam.start())
+        let scanning = await until { exam.status == "Tarama: 0 sayfa" }
+        XCTAssertTrue(scanning)
+        XCTAssertEqual(p.videoArms, 0)
+        XCTAssertTrue(spoke(p, "Deneme sınavı modu açık. Soru sayfalarını"))
+        await finish(exam)
     }
 }

@@ -79,6 +79,14 @@ final class ExamPortsReal: ExamPorts {
         /// "Dinle": "tamam" denene kadar kaydeder; 16 kHz WAV (nil: duyulmadı / kesildi)
         var listen: () async -> Data? = { nil }
         var stopListening: () -> Void = {}
+        /// Sınav ilk aşamada video çeksin mi (ayar açık ve kamera görüntüsü var)
+        var videoEnabled: () -> Bool = { false }
+        var videoArm: () -> Void = {}
+        var videoPhase: () -> ExamVideoPhase = { .idle }
+        var videoStop: () -> Void = {}
+        var videoDiscard: () -> Void = {}
+        /// Hazır videoyu Drive'a gönderir, bitene kadar bekler; hata metni ("" = gönderildi)
+        var videoSend: () async -> String = { "" }
     }
 
     private let hooks: Hooks
@@ -130,6 +138,13 @@ final class ExamPortsReal: ExamPorts {
     }
 
     func canGuide() -> Bool { return true }
+
+    func videoEnabled() -> Bool { return hooks.videoEnabled() }
+    func videoArm() { hooks.videoArm() }
+    func videoPhase() -> ExamVideoPhase { return hooks.videoPhase() }
+    func videoStop() { hooks.videoStop() }
+    func videoDiscard() { hooks.videoDiscard() }
+    func videoSend() async -> String { return await hooks.videoSend() }
 
     func sendError() -> String {
         if !auth.isSignedIn { return "Drive'a giriş yapılmamış" }
