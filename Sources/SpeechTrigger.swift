@@ -240,6 +240,16 @@ final class SpeechTrigger {
     private var token = 0
     /// Son yeniden başlatmaların zamanı (sık sık yeniden başlıyorsa bekleme uzatılır)
     private var restartTimes: [TimeInterval] = []
+
+    // Ses sağlığı: tamponlar geliyor mu, mikrofon tamamen sessiz mi (ses iş parçacığından yazılır, kilitle okunur)
+    /// Sağlık sorunu bildirimi ("" = sorun geçti)
+    var onHealth: ((String) -> Void)?
+    private let healthLock = NSLock()
+    private var engineStartedAt: TimeInterval = 0
+    private var lastBufferAt: TimeInterval?
+    private var lastSignalAt: TimeInterval?
+    private var healthTimer: Timer?
+    private var healthReported = false
     private var startWork: DispatchWorkItem?
     private var refreshTimer: Timer?
     private var observers: [NSObjectProtocol] = []
@@ -303,6 +313,12 @@ final class SpeechTrigger {
 
     func stop() {
         running = false
+        healthTimer?.invalidate()
+        healthTimer = nil
+        if healthReported {
+            healthReported = false
+            onHealth?("")
+        }
         startWork?.cancel()
         startWork = nil
         refreshTimer?.invalidate()
@@ -342,14 +358,21 @@ final class SpeechTrigger {
             }
             input.installTap(onBus: 0, bufferSize: 2048, format: format) { [weak self] buffer, _ in
                 guard let self = self else { return }
+                self.noteBuffer(buffer)
                 self.requestLock.lock()
                 let r = self.request
                 self.requestLock.unlock()
                 r?.append(buffer)
             }
             tapInstalled = true
+            healthLock.lock()
+            engineStartedAt = ProcessInfo.processInfo.systemUptime
+            lastBufferAt = nil
+            lastSignalAt = nil
+            healthLock.unlock()
             engine.prepare()
             try engine.start()
+            startHealthTimer()
         } catch {
             tlog("[ses] mikrofon açılamadı: \(error.localizedDescription)")
             onStatus?("Mikrofon açılamadı, tekrar deneniyor…")
@@ -364,6 +387,63 @@ final class SpeechTrigger {
     static func restartDelay(base: TimeInterval, recentRestarts: Int) -> TimeInterval {
         guard recentRestarts > 3 else { return base }
         return max(base, min(Double(recentRestarts - 3) * 1.5, 8))
+    }
+
+    // MARK: - Ses sağlığı
+
+    /// Her tamponda en büyük örnek değerine bakar (ses iş parçacığı; hafif tutulur)
+    private func noteBuffer(_ buffer: AVAudioPCMBuffer) {
+        let now = ProcessInfo.processInfo.systemUptime
+        var loud = false
+        let n = Int(buffer.frameLength)
+        if n > 0, let channels = buffer.floatChannelData {
+            loud = AudioHealth.peak(of: channels[0], count: n) > AudioHealth.signalFloor
+        } else if n > 0, let channels = buffer.int16ChannelData {
+            var m: Int32 = 0
+            for i in 0..<n {
+                let v = abs(Int32(channels[0][i]))
+                if v > m { m = v }
+            }
+            loud = Float(m) / 32768 > AudioHealth.signalFloor
+        }
+        healthLock.lock()
+        lastBufferAt = now
+        if loud { lastSignalAt = now }
+        healthLock.unlock()
+    }
+
+    private func startHealthTimer() {
+        healthTimer?.invalidate()
+        healthTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
+            self?.healthTick()
+        }
+    }
+
+    private func healthTick() {
+        guard running else { return }
+        healthLock.lock()
+        let started = engineStartedAt
+        let lastBuffer = lastBufferAt
+        let lastSignal = lastSignalAt
+        healthLock.unlock()
+        let verdict = AudioHealth.evaluate(now: ProcessInfo.processInfo.systemUptime, engineRunning: engine.isRunning,
+                                           startedAt: started, lastBuffer: lastBuffer, lastSignal: lastSignal)
+        switch verdict {
+        case .ok:
+            if healthReported {
+                healthReported = false
+                onHealth?("")
+            }
+        case .noBuffers:
+            tlog("[ses] sağlık: mikrofondan veri gelmiyor, ses motoru yeniden kuruluyor")
+            restartAll(after: 0.5, reason: "mikrofondan veri gelmiyor")
+        case .silent:
+            if !healthReported {
+                healthReported = true
+                tlog("[ses] sağlık: mikrofon 90 sn boyunca tamamen sessiz")
+                onHealth?("Mikrofon 90 sn'dir hiç ses vermiyor. Verici açık ve sessizde değil mi, alıcı takılı mı?")
+            }
+        }
     }
 
     private func restartAll(after requested: TimeInterval, reason: String) {

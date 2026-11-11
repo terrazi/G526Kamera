@@ -94,9 +94,21 @@ struct SettingsView: View {
             powerSection
             motionSection
             driveSection
+            selfHealSection
         }
         .navigationTitle("Gelişmiş ayarlar")
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    /// İnternet gidince hücresel yenileme kestirmesini çalıştırma
+    private var selfHealSection: some View {
+        Section(header: Text("Kendi kendini onarma"),
+                footer: Text("İnternet 1-2 dakikadır yoksa program bunu ekranda söyler. Aşağıdaki kutu açıksa ayrıca Kestirmeler uygulamasındaki kestirmenizi çalıştırır (en çok 3 kez, 10 dakika arayla). Kestirme: Kestirmeler → + → “Hücresel Veriyi Ayarla” (Kapalı) → “Bekle” (3 saniye) → “Hücresel Veriyi Ayarla” (Açık); adını aşağıdakiyle aynı yazın. Çalışırken Kestirmeler birkaç saniye öne gelir; kamera bağlantısı bu sırada kopabilir. iPhone ilk çalıştırmada izin isteyebilir.")) {
+            Toggle("İnternet gidince kestirmeyi çalıştır", isOn: $settings.cellularShortcutOn)
+            TextField("Kestirme adı", text: $settings.cellularShortcutName)
+                .textInputAutocapitalization(.never)
+                .disableAutocorrection(true)
+        }
     }
 
     /// Ses çıkışı (kulaklık) seçimi ve ses denemesi

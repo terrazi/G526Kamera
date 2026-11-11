@@ -62,6 +62,10 @@ final class AppModel: ObservableObject {
     @Published private(set) var videoRecording = false
     /// Gemini'nin son videoya verdiği cevap (ana ekranda gösterilir)
     @Published private(set) var videoAnswer = ""
+    /// Ana ekranda kırmızı uyarı olarak gösterilen kendi kendini denetleme haberleri ("" = sorun yok)
+    @Published private(set) var networkNotice = ""
+    @Published private(set) var micNotice = ""
+    @Published private(set) var routeNotice = ""
 
     // Sesli konumlandırma ve rapor
     @Published private(set) var guidanceStatus = ""
@@ -153,6 +157,11 @@ final class AppModel: ObservableObject {
     /// Kısa video kaydı (en çok 30 sn): çözülen kareler küçük H.264 MP4'e yazılır, bitince Drive'a gider
     private let videoRecorder = VideoRecorder()
     private var videoStopWork: DispatchWorkItem?
+    // İnternet yoklaması ve kendi kendini onarma
+    private var offlineTracker = OfflineTracker()
+    private var netTimer: Timer?
+    private var netProbing = false
+    private var routeObserver: NSObjectProtocol?
     // Sınavın video aşaması (normal video kaydından ayrı: kayıt düğmesi / "kapat" komutu bunu etkilemez)
     private var examVideoState: ExamVideoPhase = .idle
     private var examVideoOutput: VideoRecorder.Output?
@@ -239,6 +248,9 @@ final class AppModel: ObservableObject {
         }
         speech.onCommand = { [weak self] id, text in
             Task { @MainActor in self?.voiceCommand(id, heard: text) }
+        }
+        speech.onHealth = { [weak self] text in
+            Task { @MainActor in self?.setNotice(.mic, text) }
         }
         speech.onUnrecognized = { [weak self] text in
             Task { @MainActor in self?.voiceUnrecognized(text) }
@@ -359,6 +371,7 @@ final class AppModel: ObservableObject {
             return
         }
         started = true
+        startSelfChecks()
         VideoOutbox.shared.flush()
         seenUploaded = queue.uploaded
         UIApplication.shared.isIdleTimerDisabled = true
@@ -381,6 +394,7 @@ final class AppModel: ObservableObject {
     func stop() {
         if !started { return }
         started = false
+        stopSelfChecks()
         UIApplication.shared.isIdleTimerDisabled = false
         ScreenDimmer.shared.update(dim: false)
         client.stop()
@@ -1268,6 +1282,94 @@ final class AppModel: ObservableObject {
         tlog("[video] Gemini cevabı: \(result.model), \(result.promptTokens) giriş token'ı, \(result.text.count) karakter")
         videoAnswer = result.text
         _ = speakGemini("Gemini cevabı. " + result.text)
+    }
+
+    // MARK: - Kendi kendini denetleme (internet, ses çıkışı)
+
+    private enum NoticeKind { case network, mic, route }
+
+    /// Ana ekran uyarısını yazar (yalnız ekranda görünür; titreşim ya da ek ses yok)
+    private func setNotice(_ kind: NoticeKind, _ text: String) {
+        let old: String
+        switch kind {
+        case .network: old = networkNotice; networkNotice = text
+        case .mic: old = micNotice; micNotice = text
+        case .route: old = routeNotice; routeNotice = text
+        }
+        if old.isEmpty && !text.isEmpty { tlog("[uyarı] \(text)") }
+    }
+
+    private func startSelfChecks() {
+        netTimer?.invalidate()
+        netTimer = Timer.scheduledTimer(withTimeInterval: 45, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.netTick() }
+        }
+        if routeObserver == nil {
+            routeObserver = NotificationCenter.default.addObserver(
+                forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in self?.checkRoute() }
+            }
+        }
+        checkRoute()
+        netTick()
+    }
+
+    private func stopSelfChecks() {
+        netTimer?.invalidate()
+        netTimer = nil
+        offlineTracker = OfflineTracker()
+        setNotice(.network, "")
+        setNotice(.mic, "")
+        setNotice(.route, "")
+    }
+
+    /// Ses yalnız mikrofon alıcısına gidiyorsa uyarı yazar (program bunu kendisi değiştiremez)
+    private func checkRoute() {
+        let outputs = AVAudioSession.sharedInstance().currentRoute.outputs.map { $0.portType }
+        setNotice(.route, AudioRoute.routeWarning(outputs))
+    }
+
+    private func netTick() {
+        guard started, !netProbing else { return }
+        netProbing = true
+        Task { [weak self] in
+            let online = await InternetProbe.isOnline()
+            self?.netResult(online)
+        }
+    }
+
+    private func netResult(_ online: Bool) {
+        netProbing = false
+        guard started else { return }
+        let canRepair = settings.cellularShortcutOn
+            && CellularShortcut.url(name: settings.cellularShortcutName) != nil
+            && UIApplication.shared.applicationState == .active
+        let action = offlineTracker.record(online: online, now: ProcessInfo.processInfo.systemUptime, canRepair: canRepair)
+        switch action {
+        case .none:
+            break
+        case .warn:
+            setNotice(.network, "İnternet yok. Fotoğraflar ve videolar telefonda bekliyor, internet gelince kendiliğinden gider.")
+            say("İnternet yok.", interrupt: false, force: true)
+        case .repair:
+            setNotice(.network, "İnternet yok: hücresel yenileme kestirmesi çalıştırılıyor.")
+            say("İnternet yok, hücresel veri yenileniyor.", interrupt: false, force: true)
+            runCellularShortcut()
+        case .recovered:
+            setNotice(.network, "")
+            say("İnternet geri geldi.", interrupt: false, force: true)
+            VideoOutbox.shared.flush()
+            queue.kick()
+        }
+    }
+
+    /// Kestirmeler uygulamasında kullanıcının "hücresel yenileme" kestirmesini çalıştırır; bitince uygulamaya döner
+    private func runCellularShortcut() {
+        guard let url = CellularShortcut.url(name: settings.cellularShortcutName) else { return }
+        tlog("[onarım] kestirme çalıştırılıyor: \(settings.cellularShortcutName)")
+        UIApplication.shared.open(url) { opened in
+            if !opened { tlog("[onarım] Kestirmeler açılamadı") }
+        }
     }
 
     // MARK: - Sınavda video

@@ -20,6 +20,14 @@ enum AudioRoute {
         return ""
     }
 
+    /// Ana ekran uyarısı: yalnız ses mikrofon alıcısına gidiyorsa ("" = uyarı yok; hoparlör kullanımı bilerek olabilir)
+    static func routeWarning(_ outputs: [AVAudioSession.Port]) -> String {
+        if outputs.contains(where: { $0 == .usbAudio || $0 == .lineOut }) {
+            return "Ses mikrofon alıcısına gidiyor, kulaklıktan duyulmaz. Ses çıkışı simgesinden kulaklığı seçin."
+        }
+        return ""
+    }
+
     /// Harici (Lightning/USB/kablolu) mikrofon varsa girişi ona sabitler; yoksa sistemin seçimine (telefon mikrofonu) bırakır.
     static func preferExternalMic(_ session: AVAudioSession = AVAudioSession.sharedInstance()) {
         let wanted: [AVAudioSession.Port] = [.usbAudio, .headsetMic, .lineIn]

@@ -9,6 +9,7 @@ struct ContentView: View {
         NavigationView {
             ScrollView {
                 VStack(spacing: 14) {
+                    NoticeRow(messages: [model.networkNotice, model.micNotice, model.routeNotice])
                     preview
                     captureButton
                     videoButton
@@ -462,5 +463,29 @@ struct ExamRow: View {
         .padding(12)
         .background(Color(UIColor.secondarySystemBackground))
         .cornerRadius(12)
+    }
+}
+
+/// Kendi kendini denetlemenin bulduğu sorunlar (internet yok, mikrofon sessiz, ses yanlış çıkışa gidiyor): kırmızı kutu.
+/// Ses çalışmıyor olabileceği için sorun ekranda da görünür.
+struct NoticeRow: View {
+    let messages: [String]
+
+    var body: some View {
+        let active = messages.filter { !$0.isEmpty }
+        if !active.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(active, id: \.self) { text in
+                    Label(text, systemImage: "exclamationmark.triangle.fill")
+                        .font(.footnote)
+                        .foregroundColor(.white)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(12)
+            .background(Color.red)
+            .cornerRadius(12)
+            .accessibilityIdentifier("uyari-kutusu")
+        }
     }
 }
