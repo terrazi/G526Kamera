@@ -9,7 +9,7 @@ struct ContentView: View {
         NavigationView {
             ScrollView {
                 VStack(spacing: 14) {
-                    NoticeRow(messages: [model.networkNotice, model.micNotice, model.routeNotice])
+                    NoticeRow(messages: [model.thermalNotice, model.networkNotice, model.micNotice, model.routeNotice])
                     preview
                     captureButton
                     videoButton

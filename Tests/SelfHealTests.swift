@@ -113,4 +113,11 @@ final class SelfHealTests: XCTestCase {
         XCTAssertEqual(AudioRoute.routeWarning([.bluetoothA2DP]), "")
         XCTAssertEqual(AudioRoute.routeWarning([.builtInSpeaker]), "", "hoparlör bilerek seçilmiş olabilir")
     }
+
+    func testThermalGuardOnlyReactsToSeriousAndCritical() {
+        XCTAssertFalse(ThermalGuard.isHot(.nominal))
+        XCTAssertFalse(ThermalGuard.isHot(.fair))
+        XCTAssertTrue(ThermalGuard.isHot(.serious))
+        XCTAssertTrue(ThermalGuard.isHot(.critical))
+    }
 }

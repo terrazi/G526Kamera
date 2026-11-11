@@ -66,6 +66,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var networkNotice = ""
     @Published private(set) var micNotice = ""
     @Published private(set) var routeNotice = ""
+    @Published private(set) var thermalNotice = ""
 
     // Sesli konumlandırma ve rapor
     @Published private(set) var guidanceStatus = ""
@@ -162,6 +163,10 @@ final class AppModel: ObservableObject {
     private var netTimer: Timer?
     private var netProbing = false
     private var routeObserver: NSObjectProtocol?
+    private var thermalObserver: NSObjectProtocol?
+    private var memoryObserver: NSObjectProtocol?
+    /// Telefon çok ısındı: canlı önizleme ve ağır inceleme kendiliğinden kısılır
+    private var thermalHot = false
     // Sınavın video aşaması (normal video kaydından ayrı: kayıt düğmesi / "kapat" komutu bunu etkilemez)
     private var examVideoState: ExamVideoPhase = .idle
     private var examVideoOutput: VideoRecorder.Output?
@@ -382,7 +387,7 @@ final class AppModel: ObservableObject {
 
     /// Önizleme kapalıysa kare gönderimi ve analiz seyrekleşir, istenirse ekran kısılır.
     func updatePowerSaving() {
-        pipeline.saving = settings.previewOff
+        pipeline.saving = settings.previewOff || thermalHot
         ScreenDimmer.shared.update(dim: started && settings.previewOff && settings.dimWhenPreviewOff)
     }
 
@@ -1286,7 +1291,7 @@ final class AppModel: ObservableObject {
 
     // MARK: - Kendi kendini denetleme (internet, ses çıkışı)
 
-    private enum NoticeKind { case network, mic, route }
+    private enum NoticeKind { case network, mic, route, thermal }
 
     /// Ana ekran uyarısını yazar (yalnız ekranda görünür; titreşim ya da ek ses yok)
     private func setNotice(_ kind: NoticeKind, _ text: String) {
@@ -1295,6 +1300,7 @@ final class AppModel: ObservableObject {
         case .network: old = networkNotice; networkNotice = text
         case .mic: old = micNotice; micNotice = text
         case .route: old = routeNotice; routeNotice = text
+        case .thermal: old = thermalNotice; thermalNotice = text
         }
         if old.isEmpty && !text.isEmpty { tlog("[uyarı] \(text)") }
     }
@@ -1310,8 +1316,36 @@ final class AppModel: ObservableObject {
                 Task { @MainActor in self?.checkRoute() }
             }
         }
+        if thermalObserver == nil {
+            thermalObserver = NotificationCenter.default.addObserver(
+                forName: ProcessInfo.thermalStateDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in self?.thermalChanged() }
+            }
+        }
+        if memoryObserver == nil {
+            // Bellek azalınca son kareler atılır (yeniden dolar); sistem uygulamayı kapatmasın
+            memoryObserver = NotificationCenter.default.addObserver(
+                forName: UIApplication.didReceiveMemoryWarningNotification, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in
+                    tlog("[bellek] bellek uyarısı: kare belleği boşaltıldı")
+                    self?.pipeline.store.clear()
+                }
+            }
+        }
         checkRoute()
+        thermalChanged()
         netTick()
+    }
+
+    /// Telefon "ciddi" ya da "kritik" ısındıysa önizleme kapatılır ve inceleme seyreltilir; soğuyunca geri açılır
+    private func thermalChanged() {
+        guard started else { return }
+        let hot = ThermalGuard.isHot(ProcessInfo.processInfo.thermalState)
+        guard hot != thermalHot else { return }
+        thermalHot = hot
+        updatePowerSaving()
+        tlog("[ısı] telefon \(hot ? "çok ısındı: yük azaltıldı" : "soğudu: normale dönüldü")")
+        setNotice(.thermal, hot ? "Telefon çok ısındı: yükü azaltmak için canlı önizleme kapatıldı; soğuyunca kendiliğinden açılır." : "")
     }
 
     private func stopSelfChecks() {
@@ -1321,6 +1355,8 @@ final class AppModel: ObservableObject {
         setNotice(.network, "")
         setNotice(.mic, "")
         setNotice(.route, "")
+        setNotice(.thermal, "")
+        thermalHot = false
     }
 
     /// Ses yalnız mikrofon alıcısına gidiyorsa uyarı yazar (program bunu kendisi değiştiremez)

@@ -133,3 +133,10 @@ enum InternetProbe {
         }
     }
 }
+
+/// Isınma: iOS "ciddi" ya da "kritik" derse program yükünü azaltır
+enum ThermalGuard {
+    static func isHot(_ state: ProcessInfo.ThermalState) -> Bool {
+        return state == .serious || state == .critical
+    }
+}
