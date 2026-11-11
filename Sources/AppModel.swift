@@ -720,7 +720,9 @@ final class AppModel: ObservableObject {
     private func speakGemini(_ text: String) -> Bool {
         guard !text.trimmed.isEmpty else { return false }
         lastSpeechAt = ProcessInfo.processInfo.systemUptime
-        speaker.needsPlaybackSession = true
+        // Dinleme motoru çalışırken ses oturumunun türü değiştirilmez: her konuşmada çalma türüne geçip dönmek, USB mikrofon
+        // alıcısında yönlendirmeyi durmadan değiştirir ve motoru yeniden başlatma döngüsüne sokar
+        speaker.needsPlaybackSession = !speech.isRunning
         speaker.voiceID = settings.speechVoiceID
         speaker.rateFactor = settings.speechRate
         speech.suppressed = true
@@ -803,7 +805,7 @@ final class AppModel: ObservableObject {
         }
         guidanceSaid = text
         lastSpeechAt = ProcessInfo.processInfo.systemUptime
-        speaker.needsPlaybackSession = true
+        speaker.needsPlaybackSession = !speech.isRunning   // bkz. speakGemini
         speaker.voiceID = settings.speechVoiceID
         speaker.rateFactor = settings.speechRate
         speech.suppressed = true

@@ -232,6 +232,8 @@ final class SpeechTrigger {
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     private var running = false
+    /// Dinleme motoru çalışıyor mu (çalışırken ses oturumu zaten çalma + kayıt türündedir; konuşmak için türü değiştirmek gerekmez)
+    var isRunning: Bool { return running }
     private var trigger = "okey"
     private var lastCount = 0
     private var failures = 0
