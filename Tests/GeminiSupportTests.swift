@@ -232,7 +232,8 @@ final class GeminiTextTests: XCTestCase {
 
     func testDefaultCallWordsIncludeRecognitionVariants() {
         let list = GeminiText.callWordList("")
-        XCTAssertEqual(list.first, "gemini")
+        XCTAssertEqual(list.first, "dinle", "boş çağrı sözcüğü: önce \"dinle\", sonra \"gemini\"")
+        XCTAssertTrue(list.contains("gemini"))
         for v in ["cimini", "geminay", "ceminay", "cemini", "jemini"] { XCTAssertTrue(list.contains(v), v) }
         XCTAssertEqual(GeminiText.callWordList("  ;; "), list)
     }
