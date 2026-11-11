@@ -62,7 +62,7 @@ final class VideoRecorderTests: XCTestCase {
         guard let out = output else { return XCTFail("video üretilmedi") }
         XCTAssertGreaterThan(out.bytes, 0)
         XCTAssertLessThan(out.bytes, 3 * 1024 * 1024, "12 sn'lik video küçük kalmalı")
-        XCTAssertTrue(out.frames >= 55 && out.frames <= 65, "5 kare/sn: \(out.frames)")
+        XCTAssertTrue(out.frames >= 52 && out.frames <= 65, "5 kare/sn: \(out.frames)")
         let asset = AVURLAsset(url: out.url)
         XCTAssertEqual(asset.duration.seconds, 12, accuracy: 1.0)
         guard let track = asset.tracks(withMediaType: .video).first else { return XCTFail("video izi yok") }

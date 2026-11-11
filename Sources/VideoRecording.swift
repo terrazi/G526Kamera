@@ -151,7 +151,14 @@ final class VideoRecorder {
         if t > VideoRecorder.maxSeconds { return }
         // Kare hızını seyrelt (kamera genelde daha hızlıdır)
         if lastPTS >= 0 && t - lastPTS < 1.0 / VideoRecorder.fps - 0.02 { return }
-        guard let w = writer, let inp = input, let ad = adaptor, w.status == .writing, inp.isReadyForMoreMediaData else { return }
+        guard let w = writer, let inp = input, let ad = adaptor, w.status == .writing else { return }
+        // Kodlayıcı o an yetişemiyorsa kısa süre beklenir (kare zamanı çözücüden gelir, bekleme zamanı bozmaz); yine de hazır değilse kare atılır
+        var waited = 0
+        while !inp.isReadyForMoreMediaData && waited < 60 {
+            Thread.sleep(forTimeInterval: 0.005)
+            waited += 1
+        }
+        guard inp.isReadyForMoreMediaData else { return }
         let pts = CMTime(seconds: t, preferredTimescale: 600)
         if ad.append(buffer, withPresentationTime: pts) {
             frames += 1

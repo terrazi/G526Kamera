@@ -95,6 +95,12 @@ final class AppSettings: ObservableObject {
     @Published var geminiChainFallback: Bool { didSet { d.set(geminiChainFallback, forKey: "geminiChainFallback") } }
     /// Bir model bu kadar saniyede cevap vermezse sıradaki modele geçilir (0-600; 0 = sınırsız). Son modele sınır konmaz.
     @Published var geminiWaitLimit: Int { didSet { d.set(geminiWaitLimit, forKey: "geminiWaitLimit") } }
+    /// Video kaydı bitince video Gemini'ye de gönderilir ("Bu videoda ne oluyor?"); cevap sesle okunur
+    @Published var videoToGemini: Bool { didSet { d.set(videoToGemini, forKey: "videoToGemini") } }
+    /// Video sorusu (boşsa varsayılan soru)
+    @Published var videoQuestion: String { didSet { d.set(videoQuestion, forKey: "videoQuestion") } }
+    /// Videoyu yüksek çözünürlükle oku (küçük yazı için; kare başına token ≈ 4 kat)
+    @Published var videoHighRes: Bool { didSet { d.set(videoHighRes, forKey: "videoHighRes") } }
     /// Harcama sınırı yüzünden yedeğe geçilen ay ("202611"); yeni ayda eski profile dönülür
     @Published var geminiCapMonth: String { didSet { d.set(geminiCapMonth, forKey: "geminiCapMonth") } }
     /// Yedeğe geçmeden önceki profil
@@ -217,6 +223,9 @@ final class AppSettings: ObservableObject {
         geminiChainFallback = d.object(forKey: "geminiChainFallback") as? Bool ?? true
         geminiWaitLimit = min(max(d.object(forKey: "geminiWaitLimit") as? Int ?? 30, 0), 600)
         geminiAutoFallback = d.object(forKey: "geminiAutoFallback") as? Bool ?? true
+        videoToGemini = d.object(forKey: "videoToGemini") as? Bool ?? true
+        videoQuestion = d.string(forKey: "videoQuestion") ?? ""
+        videoHighRes = d.object(forKey: "videoHighRes") as? Bool ?? false
         geminiOverloadFallback = d.object(forKey: "geminiOverloadFallback") as? Bool ?? true
         geminiCapMonth = d.string(forKey: "geminiCapMonth") ?? ""
         geminiCapPrev = min(max(d.object(forKey: "geminiCapPrev") as? Int ?? 1, 1), GeminiProfiles.slotCount)

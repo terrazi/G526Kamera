@@ -275,6 +275,13 @@ struct SettingsView: View {
                 Text("Model bu süre içinde cevap vermezse sıradaki modele geçilir (en az 10 sn sayılır; son modele sınır konmaz). Kesilen istek Google tarafında yine de sayılabilir; düşünme modu açık modeller (ör. Gemma) uzun sürebilir, gerekirse süreyi artırın.")
                     .font(.footnote).foregroundColor(.secondary)
             }
+            Toggle("Video bitince Gemini'ye de sor", isOn: $settings.videoToGemini)
+            if settings.videoToGemini {
+                TextField("Video sorusu (boşsa: “Bu videoda ne oluyor?”)", text: $settings.videoQuestion)
+                Toggle("Videoyu yüksek çözünürlükle oku", isOn: $settings.videoHighRes)
+                Text("Video kaydı bitince dosya telefondan doğrudan Gemini'ye gönderilir (Drive'a ayrıca yedeklenir) ve cevap sesle okunur. Her video bir Gemini isteğidir: ücretsiz kotadan düşer. Gemini videoyu saniyede 1 kare okur; 30 sn ≈ 2.100 token (yüksek çözünürlükte ≈ 8.400). Küçük yazı okutmak için yüksek çözünürlüğü açın. Gemini ve gizlilik onayı açık olmalıdır.")
+                    .font(.footnote).foregroundColor(.secondary)
+            }
             Toggle("Model yoğunsa ya da kotası dolunca yedek modele geç", isOn: $settings.geminiOverloadFallback)
             if settings.geminiOverloadFallback {
                 Text("“Bu model yoğun talep görüyor” (503) ya da kota dolu (429) derse, aynı anahtarla hesabınızdaki başka bir hızlı model (ör. bir önceki flash sürümü) denenir; cevabın hangi modelden geldiği yazılır. Ücretsiz anahtarda günlük istek sayısı düşük olabilir: aynı modele art arda yeniden deneme yapılmaz.")

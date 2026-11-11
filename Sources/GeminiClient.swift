@@ -1014,6 +1014,13 @@ final class GeminiClient: GeminiAsking, GeminiRemote {
         return try await post(path: "/models/\(escaped):generateContent", body: body, serverRetries: serverRetries)
     }
 
+    /// Video analizi (GeminiVideo.swift): verilen anahtar ve modelle tek seferlik generateContent; `timeout` nil değilse en çok o kadar bekler
+    func postVideoTask(model name: String, key: String, body: Data, timeout: TimeInterval?) async throws -> Any {
+        let escaped = name.addingPercentEncoding(withAllowedCharacters: GeminiClient.pathAllowed) ?? name
+        return try await post(path: "/models/\(escaped):generateContent", body: body, serverRetries: 1, key: key,
+                              timeout: timeout, model: name)
+    }
+
     /// Sunucu hatalarında (500/502/503/504) yeniden denemeden önce beklenecek süreler (sn). Gemini'nin geçici
     /// "yoğunluk" (503) hataları genelde birkaç saniyede geçer.
     static let serverBackoff: [TimeInterval] = [1.5, 4.0, 8.0]

@@ -12,6 +12,14 @@ struct ContentView: View {
                     preview
                     captureButton
                     videoButton
+                    if !model.videoAnswer.isEmpty {
+                        Text(model.videoAnswer)
+                            .font(.footnote)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(12)
+                            .background(Color(UIColor.secondarySystemBackground))
+                            .cornerRadius(12)
+                    }
                     if settings.guidanceEnabled { GuidanceRow() }
                     VoiceRow(status: model.speechStatus, heard: model.heardText,
                              enabled: settings.voiceEnabled || settings.guidanceEnabled)

@@ -60,6 +60,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var decoding = false
     /// Video kaydı açık mı
     @Published private(set) var videoRecording = false
+    /// Gemini'nin son videoya verdiği cevap (ana ekranda gösterilir)
+    @Published private(set) var videoAnswer = ""
 
     // Sesli konumlandırma ve rapor
     @Published private(set) var guidanceStatus = ""
@@ -1193,6 +1195,7 @@ final class AppModel: ObservableObject {
             tlog("[video] \(output.url.lastPathComponent): \(seconds) sn, \(output.frames) kare, \(output.bytes) bayt")
             flash("Video \(seconds) sn, \(mb) MB: Drive'a gönderiliyor", seconds: 6)
             say("\(head) \(seconds) saniye, \(mb) megabayt. Drive'a gönderiliyor.", interrupt: true, force: true)
+            analyzeVideoWithGemini(output.url)
             VideoOutbox.shared.submit(output.url) { [weak self] ok, message in
                 guard let self = self else { return }
                 if ok {
@@ -1205,6 +1208,45 @@ final class AppModel: ObservableObject {
                 }
             }
         }
+    }
+
+    /// Biten videoyu (telefondaki dosyadan, Drive'dan indirmeden) Gemini'ye gönderir; cevabı sesle okur.
+    /// Gemini, gizlilik onayı ve anahtar yoksa ya da ayar kapalıysa hiçbir şey yapmaz (video yine Drive'a gider).
+    private func analyzeVideoWithGemini(_ url: URL) {
+        let s = settings
+        guard s.videoToGemini, s.geminiEnabled, s.geminiPrivacyOK else { return }
+        s.refreshGeminiCapFallback()
+        let active = s.activeGeminiProfile
+        guard !active.key.isEmpty, let data = try? Data(contentsOf: url) else { return }
+        let profiles = s.geminiProfileInfos()
+        let custom = s.videoQuestion.trimmed
+        let question = custom.isEmpty ? GeminiVideo.defaultQuestion : custom
+        let high = s.videoHighRes
+        let chain = s.geminiChainFallback
+        let limit = TimeInterval(s.geminiWaitLimit)
+        videoAnswer = ""
+        flash("Video Gemini'ye gönderiliyor…", seconds: 8)
+        say("Video Gemini'ye gönderiliyor.", interrupt: false, force: true)
+        Task { [weak self] in
+            do {
+                let result = try await GeminiVideo.analyze(
+                    videoData: data, question: question, highResolution: high, profiles: profiles, active: active.slot,
+                    chain: chain, waitLimit: limit,
+                    notify: { text in Task { @MainActor in self?.say(text, interrupt: false, force: true) } })
+                self?.videoAnswered(result)
+            } catch {
+                let message = (error as? GeminiError)?.message ?? error.localizedDescription
+                tlog("[video] Gemini hatası: \(message)")
+                self?.flash("Gemini videoyu okuyamadı: \(message)", seconds: 10)
+                self?.say("Gemini videoyu okuyamadı. \(message)", interrupt: false, force: true)
+            }
+        }
+    }
+
+    private func videoAnswered(_ result: VideoAnalysis) {
+        tlog("[video] Gemini cevabı: \(result.model), \(result.promptTokens) giriş token'ı, \(result.text.count) karakter")
+        videoAnswer = result.text
+        _ = speakGemini("Gemini cevabı. " + result.text)
     }
 
     func giveBattery() {
