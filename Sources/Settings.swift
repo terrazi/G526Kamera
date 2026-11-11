@@ -99,7 +99,7 @@ final class AppSettings: ObservableObject {
     @Published var videoToGemini: Bool { didSet { d.set(videoToGemini, forKey: "videoToGemini") } }
     /// Video sorusu (boşsa varsayılan soru)
     @Published var videoQuestion: String { didSet { d.set(videoQuestion, forKey: "videoQuestion") } }
-    /// Videoyu yüksek çözünürlükle oku (küçük yazı için; kare başına token ≈ 4 kat)
+    /// Videoyu yüksek çözünürlükle oku (küçük yazı için; kare başına token ≈ 4 kat). Varsayılan açık.
     @Published var videoHighRes: Bool { didSet { d.set(videoHighRes, forKey: "videoHighRes") } }
     /// Harcama sınırı yüzünden yedeğe geçilen ay ("202611"); yeni ayda eski profile dönülür
     @Published var geminiCapMonth: String { didSet { d.set(geminiCapMonth, forKey: "geminiCapMonth") } }
@@ -225,7 +225,7 @@ final class AppSettings: ObservableObject {
         geminiAutoFallback = d.object(forKey: "geminiAutoFallback") as? Bool ?? true
         videoToGemini = d.object(forKey: "videoToGemini") as? Bool ?? true
         videoQuestion = d.string(forKey: "videoQuestion") ?? ""
-        videoHighRes = d.object(forKey: "videoHighRes") as? Bool ?? false
+        videoHighRes = d.object(forKey: "videoHighRes") as? Bool ?? true
         geminiOverloadFallback = d.object(forKey: "geminiOverloadFallback") as? Bool ?? true
         geminiCapMonth = d.string(forKey: "geminiCapMonth") ?? ""
         geminiCapPrev = min(max(d.object(forKey: "geminiCapPrev") as? Int ?? 1, 1), GeminiProfiles.slotCount)

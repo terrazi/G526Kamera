@@ -50,8 +50,8 @@ final class VideoRecorderTests: XCTestCase {
 
     func testBitrateScalesWithResolutionAndStaysSmall() {
         let full = VideoRecorder.bitrate(width: 1920, height: 1080)
-        XCTAssertGreaterThan(full, 800_000)
-        XCTAssertLessThanOrEqual(full, 1_200_000)
+        XCTAssertGreaterThan(full, 1_000_000)
+        XCTAssertLessThanOrEqual(full, 1_500_000)
         XCTAssertEqual(VideoRecorder.bitrate(width: 640, height: 360), 250_000, "küçük çözünürlükte alt sınır")
         XCTAssertEqual(VideoRecorder.maxSeconds, 30)
     }
@@ -62,7 +62,7 @@ final class VideoRecorderTests: XCTestCase {
         guard let out = output else { return XCTFail("video üretilmedi") }
         XCTAssertGreaterThan(out.bytes, 0)
         XCTAssertLessThan(out.bytes, 3 * 1024 * 1024, "12 sn'lik video küçük kalmalı")
-        XCTAssertTrue(out.frames >= 52 && out.frames <= 65, "5 kare/sn: \(out.frames)")
+        XCTAssertTrue(out.frames >= 34 && out.frames <= 50, "yaklaşık 4 kare/sn (giriş 10 kare/sn): \(out.frames)")
         let asset = AVURLAsset(url: out.url)
         XCTAssertEqual(asset.duration.seconds, 12, accuracy: 1.0)
         guard let track = asset.tracks(withMediaType: .video).first else { return XCTFail("video izi yok") }
@@ -79,7 +79,7 @@ final class VideoRecorderTests: XCTestCase {
         XCTAssertNil(failure)
         guard let out = output else { return XCTFail("video üretilmedi") }
         XCTAssertLessThanOrEqual(out.seconds, 30.0)
-        XCTAssertLessThanOrEqual(out.frames, 151)
+        XCTAssertLessThanOrEqual(out.frames, 121)
         XCTAssertLessThanOrEqual(AVURLAsset(url: out.url).duration.seconds, 30.5)
         try? FileManager.default.removeItem(at: out.url)
     }

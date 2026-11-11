@@ -6,17 +6,18 @@ import Network
 
 /// Kameranın çözülmüş karelerini küçük boyutlu H.264 MP4 dosyasına yazar.
 ///
-/// Neden bu ayarlar: Gemini videoyu saniyede 1 kare örnekler; 5 kare/sn hem insan gözüyle akıcı hem çok küçüktür.
-/// Çözünürlük kameranınkiyle aynı kalır (1920x1080), böylece yazı okunur; boyutu bit hızı sınırlar
-/// (1080p'de yaklaşık 1 Mbit/sn: 30 sn ≈ 4 MB). H.264 (High) + MP4, Gemini'nin ve Drive önizlemesinin en güvenli biçimidir.
+/// Neden bu ayarlar: Gemini videoyu saniyede 1 kare örnekler; 4 kare/sn yeterlidir ve anahtar kare her saniye konur,
+/// böylece Gemini'nin gördüğü kareler en keskin (anahtar) karelere denk gelir; küçük yazı okunur.
+/// Çözünürlük kameranınkiyle aynı kalır (1920x1080); boyutu bit hızı sınırlar (1080p'de en çok ≈ 1,5 Mbit/sn: 30 sn ≤ ≈ 5,6 MB;
+/// durağan belge sahnesinde çok daha küçük çıkar). H.264 (High) + MP4, Gemini'nin ve Drive önizlemesinin en güvenli biçimidir.
 /// Ses yoktur (kameranın akışında ses yok; telefon mikrofonu sesli komutlara ayrılmıştır).
 final class VideoRecorder {
     /// Bir kayıt en çok bu kadar sürer (kareler bu süreden sonra yazılmaz)
     static let maxSeconds: TimeInterval = 30
-    static let fps: Double = 5
-    static let bitsPerPixel: Double = 0.10
+    static let fps: Double = 4
+    static let bitsPerPixel: Double = 0.15
     static let minBitrate: Double = 250_000
-    static let maxBitrate: Double = 1_200_000
+    static let maxBitrate: Double = 1_500_000
 
     struct Output {
         let url: URL
@@ -178,7 +179,8 @@ final class VideoRecorder {
             let compression: [String: Any] = [
                 AVVideoAverageBitRateKey: VideoRecorder.bitrate(width: width, height: height),
                 AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel,
-                AVVideoMaxKeyFrameIntervalKey: Int(VideoRecorder.fps * 2),
+                AVVideoMaxKeyFrameIntervalKey: Int(VideoRecorder.fps),
+                AVVideoMaxKeyFrameIntervalDurationKey: 1.0,
                 AVVideoExpectedSourceFrameRateKey: Int(VideoRecorder.fps)
             ]
             let settings: [String: Any] = [
