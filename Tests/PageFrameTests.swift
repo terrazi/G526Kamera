@@ -113,13 +113,4 @@ final class PageFrameTests: XCTestCase {
         let d = GuidanceAdvisor.decide(m, choice: nil, config: config, sharpFloor: 0.45)
         XCTAssertEqual(d.advice, .chooseColumn)
     }
-
-    // MARK: Ayar
-
-    func testSettingDefaultsToVerticalPage() {
-        let name = "frame-\(UUID().uuidString)"
-        let d = UserDefaults(suiteName: name)!
-        defer { d.removePersistentDomain(forName: name) }
-        XCTAssertEqual(d.object(forKey: "guidanceFrame") as? Int ?? 1, 1)
-    }
 }

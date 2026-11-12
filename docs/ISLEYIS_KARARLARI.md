@@ -94,3 +94,5 @@ V. [İSTEK, uygulandı] Ayarlarda uzun açıklamalar gizlidir: bölümün içind
 W. [KURAL] Kestirmeler uygulamayı arka plana attığı için deneme sayacı ve bekleme süresi arka plana geçişte sıfırlanmaz; yalnız gerçek toparlanmada (internet geldi / mikrofon ses verdi / ses yolu düzeldi) sıfırlanır. Aksi hâlde kestirme sonsuza dek yeniden çalışırdı.
 
 X. [İSTEK, uygulandı] Uygulama simgesi: mavi zemin üzerinde beyaz kamera. Kaynak çizim docs/icon/icon.svg, 1024×1024 opak PNG Resources/Assets.xcassets/AppIcon.appiconset içinde (tek boyut; Xcode diğer boyutları üretir). Telefonda ana ekranda görünüşü denenmedi.
+
+Y. [İSTEK, uygulandı] Yönlendirme kadrajı dikey tam sayfadır (varsayılan; Ayarlar → Sesli konumlandırma → Kadraj: "Dikey tam sayfa" / "Bütün kare"). Kamera karesi yatay 16:9 olduğundan A4 oranlı dikey sayfa normal/180°'de karenin ortasında %40, 90° çevrilmiş görüntüde %80 genişlikte bir dikdörtgendir; yazı bloğu bu dikdörtgene göre ölçülür (taşma, ortalama, "yaklaşın", "uzaklaşın", bölüm sorusu). Kullanıcı kararı: yalnız yönlendirme bu kadraja göre çalışır, fotoğraf/PDF kırpılmaz (tüm kare çekilir). Telefonda denenmedi.
