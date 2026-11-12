@@ -149,12 +149,16 @@ struct SettingsView: View {
                 Text("Yüksek 1920×1080").tag(1)
                 Text("Düşük 640×360").tag(2)
             }
+            Picker("Kadraj yönü", selection: $settings.guidanceFrame) {
+                Text("Dikey (tam sayfa)").tag(1)
+                Text("Yatay").tag(0)
+            }
             Picker("Görüntü yönü", selection: $settings.imageOrientation) {
-                ForEach(ImageOrientation.allCases, id: \.self) { o in
+                ForEach(AppSettings.orientations(forFrame: settings.guidanceFrame), id: \.self) { o in
                     Text(o.title).tag(o)
                 }
             }
-            HelpRow("Görüntü yönü: kamera yan ya da ters takılıysa resmi çevirir. Önizleme, çekilen fotoğraflar ve PDF, kaydedilen video ve sesli yönlendirmedeki sağ/sol/yukarı/aşağı hep bu yöne uyar. 90° çevirince kadrajdaki bölümler “sol/sağ” yerine “üst/alt” diye sorulur. Önceki “Kamera ters takılı” ayarı açıktıysa 180° olarak devralınır.")
+            HelpRow("Kadraj yönü: ana ekrandaki önizleme kutusu ve sesli yönlendirme bu seçime uyar. “Dikey”: kutu dikeydir (9:16) ve kamera görüntüsü 90° çevrilir, böylece kameranın gördüğünün tamamı kırpılmadan kutuya oturur; yönlendirme hedefi dikey bir tam sayfadır (A4 oranı). “Yatay”: kutu yataydır (16:9), görüntü çevrilmez (ters takılıysa 180°) ve yönlendirme bütün kareye göre çalışır. Görüntü yönü: Dikey kadrajda “90° sağa” ya da “90° sola” (sayfa yan yatıyorsa öbürünü seçin), Yatay kadrajda “Normal” ya da “180°”. Seçtiğiniz yön önizlemeye, çekilen fotoğraf ve PDF'e, kaydedilen videoya ve sesli yönlendirmedeki sağ/sol/yukarı/aşağıya uygulanır. Fotoğraf kırpılmaz. 90° çevirince kadrajdaki bölümler “sol/sağ” yerine “üst/alt” diye sorulur.")
             HelpRow("Kamera adı (UID) hazır yazılı gelir; başka bir kamera için silip yenisini yazabilirsiniz. IP boş bırakılırsa kamera kendiliğinden bulunur. Telefon kameranın Wi-Fi ağına bağlı olmalıdır.")
         }
     }
@@ -379,10 +383,6 @@ struct SettingsView: View {
             Toggle("Uyarıları sesli söyle", isOn: $settings.guidanceVoice)
             Toggle("Kamera ve gönderim durumunu da söyle", isOn: $settings.statusNotices)
             Toggle("Konum uygunsa kendiliğinden çek", isOn: $settings.guidanceAutoCapture)
-            Picker("Kadraj yönü", selection: $settings.guidanceFrame) {
-                Text("Dikey (tam sayfa)").tag(1)
-                Text("Yatay").tag(0)
-            }
             Picker("Netlik isteği", selection: $settings.guidanceSharpness) {
                 Text("Gevşek").tag(0)
                 Text("Normal").tag(1)
@@ -391,8 +391,7 @@ struct SettingsView: View {
             Toggle("Parlama uyarısı", isOn: $settings.guidanceGlare)
             TextField("Bitirme sözcüğü", text: $settings.finishWord)
                 .disableAutocorrection(true)
-            HelpRow("Kadraj yönü: Ana ekrandaki önizleme kutusu ve sesli yönlendirme bu seçime uyar. “Dikey”: kutu dikeydir (A4 sayfa oranı) ve yönlendirme hedefi dikey bir tam sayfadır; kamera karesi yatay olduğundan dikey sayfa karenin ortasındaki bölümü kaplar. “Yatay”: kutu yataydır (16:9) ve yönlendirme bütün kareye göre çalışır. Sayfanın yazısı kadrajın içinde, yeterince büyük ve ortada olunca “tamam” denir; kadrajın dışına taşarsa kaydırma, sığmazsa uzaklaşma önerilir. Fotoğraf kadraja kırpılmaz: kamera karesinin tamamı çekilir, önizlemede görünmeyen yanlar da fotoğrafa girer. Görüntü yönünü 90° çevirdiyseniz kadraj buna göre kendiliğinden uyar.")
-            HelpRow("Program sayfayı ölçer ve “biraz sağa”, “yukarı”, “uzaklaş”, “yaklaş” gibi sesli yönlendirir; konum uygun olunca birkaç kareyi seri çekip en netini alır. Kadrajda birden çok sütun ya da yan yana sayfa varsa ve biri yarım kalıyorsa “Sol mu, sağ mı?” diye sorar: “sol”, “sağ”, “orta”, “ikisi birden” (ya da “soldaki”, “sağ sütun”, “birinci”, “son”…) deyin; “yeniden seç” seçimi siler. “Hepsi tamamlandı”, “hepsini gönder”, “tümünü gönder”, “pdf yap”, “bitirdim” gibi söylenişlerin hepsi bekleyen fotoğrafları tek PDF olarak gönderir (en çok 30 sayfa / 15 MB; fazlası ikinci PDF olur). “Rapor ver” bugün kaç sayfa çekildiğini ve kaçının PDF olarak gittiğini söyler. “Son fotoğrafı sil”, “sonuncuyu sil”, “geri al” henüz gönderilmemiş son fotoğrafı siler; “yeniden çek” onu silip aynı bölümü yeniden kadraja aldırır. Çekimden sonra program “Çekim tamamlandı, N sayfa gönderilmeyi bekliyor” der; PDF sayfa sınırına yaklaşınca bunu da söyler. Sayfada parlama (doymuş beyaz leke) görürse en çok iki kez uyarır, sonra yine de çeker; bu kontrol gerçek kamerada denenmemiştir, rahatsız ederse kapatın. Anlaşılmayan komutta program “anlayamadım” der. Bu özellik açılınca gönderim “toplu, yalnız komutla” olur ve “görüntü değişince çek” kapanır. “Kamera ve gönderim durumunu da söyle” açıkken kamera koptu / geri geldi, mikrofon izni yok, dosya gönderildi / gönderilemedi gibi haberler konuşma arasında kısaca söylenir; aynı haber tekrarlanmaz. Sesli yanıt için mikrofon izni gerekir.")
+                        HelpRow("Program sayfayı ölçer ve “biraz sağa”, “yukarı”, “uzaklaş”, “yaklaş” gibi sesli yönlendirir; konum uygun olunca birkaç kareyi seri çekip en netini alır. Kadrajda birden çok sütun ya da yan yana sayfa varsa ve biri yarım kalıyorsa “Sol mu, sağ mı?” diye sorar: “sol”, “sağ”, “orta”, “ikisi birden” (ya da “soldaki”, “sağ sütun”, “birinci”, “son”…) deyin; “yeniden seç” seçimi siler. “Hepsi tamamlandı”, “hepsini gönder”, “tümünü gönder”, “pdf yap”, “bitirdim” gibi söylenişlerin hepsi bekleyen fotoğrafları tek PDF olarak gönderir (en çok 30 sayfa / 15 MB; fazlası ikinci PDF olur). “Rapor ver” bugün kaç sayfa çekildiğini ve kaçının PDF olarak gittiğini söyler. “Son fotoğrafı sil”, “sonuncuyu sil”, “geri al” henüz gönderilmemiş son fotoğrafı siler; “yeniden çek” onu silip aynı bölümü yeniden kadraja aldırır. Çekimden sonra program “Çekim tamamlandı, N sayfa gönderilmeyi bekliyor” der; PDF sayfa sınırına yaklaşınca bunu da söyler. Sayfada parlama (doymuş beyaz leke) görürse en çok iki kez uyarır, sonra yine de çeker; bu kontrol gerçek kamerada denenmemiştir, rahatsız ederse kapatın. Anlaşılmayan komutta program “anlayamadım” der. Bu özellik açılınca gönderim “toplu, yalnız komutla” olur ve “görüntü değişince çek” kapanır. “Kamera ve gönderim durumunu da söyle” açıkken kamera koptu / geri geldi, mikrofon izni yok, dosya gönderildi / gönderilemedi gibi haberler konuşma arasında kısaca söylenir; aynı haber tekrarlanmaz. Sesli yanıt için mikrofon izni gerekir.")
         }
     }
 

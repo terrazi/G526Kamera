@@ -34,17 +34,16 @@ struct PageFrame: Equatable {
 }
 
 extension PageFrame {
-    /// Ana ekrandaki önizleme alanı (nokta). Dikey: A4 oranlı, genişlik ekrana, boy ekranın yarısına sığar.
-    /// Yatay: ekran genişliğinde 16:9.
-    static func previewBox(screen: CGSize, portrait: Bool = true, sideMargin: CGFloat = 32,
-                           maxHeightShare: CGFloat = 0.5) -> CGSize {
+    /// Ana ekrandaki önizleme alanı (nokta); kare kırpılmadan görünür. Yatay: ekran genişliğinde 16:9.
+    /// Dikey: 9:16 (yatay kare 90° çevrilince tam oturur), boyu ekranın en çok %60'ı.
+    static func previewBox(screen: CGSize, portrait: Bool = false, sideMargin: CGFloat = 32,
+                           maxHeightShare: CGFloat = 0.6) -> CGSize {
         let available = max(60, screen.width - sideMargin)
         if !portrait {
             return CGSize(width: available, height: available * 9.0 / 16.0)
         }
-        let ratio = CGFloat(pageRatio)
-        let h = max(60, min(available / ratio, screen.height * maxHeightShare))
-        return CGSize(width: h * ratio, height: h)
+        let h = max(60, min(available * 16.0 / 9.0, screen.height * maxHeightShare))
+        return CGSize(width: h * 9.0 / 16.0, height: h)
     }
 }
 

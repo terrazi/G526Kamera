@@ -60,14 +60,14 @@ struct ContentView: View {
         .navigationViewStyle(.stack)
     }
 
-    /// Önizleme kutusu "Kadraj yönü" ayarını izler: Dikey seçiliyse dikey (A4 oranı), Yatay seçiliyse yatay (16:9).
-    /// Kutu yalnız o kadrajı gösterir; kameranın dışarıda kalan kısmı ekranda görünmez ama fotoğrafa girer.
+    /// Önizleme kutusu "Kadraj yönü" ayarını izler: Dikey seçiliyse dikey (9:16), Yatay seçiliyse yatay (16:9).
+    /// Kamera karesi kırpılmaz: ekranda kameranın gördüğünün tamamı vardır; oran uymazsa kenarlar boş kalır.
     private var previewSize: CGSize {
         return PageFrame.previewBox(screen: UIScreen.main.bounds.size, portrait: settings.guidanceFrame == 1)
     }
 
     private var previewVideo: some View {
-        VideoLayerView(renderer: model.renderer, orientation: settings.imageOrientation, cropToPage: true)
+        VideoLayerView(renderer: model.renderer, orientation: settings.imageOrientation)
             .frame(width: previewSize.width, height: previewSize.height)
             .background(Color.black)
             .cornerRadius(12)

@@ -114,74 +114,66 @@ final class PageFrameTests: XCTestCase {
         XCTAssertEqual(d.advice, .chooseColumn)
     }
 
-    // MARK: Dikey önizleme
+    // MARK: Önizleme kutusu (kırpma yok)
 
-    func testPreviewBoxIsPortraitWithPageRatioAndFitsTheScreen() {
+    func testPortraitPreviewBoxShowsTheWholeRotatedFrame() {
         let screen = CGSize(width: 375, height: 812)   // iPhone 12 mini
-        let box = PageFrame.previewBox(screen: screen)
-        XCTAssertGreaterThan(box.height, box.width, "dikey")
-        XCTAssertEqual(box.width / box.height, CGFloat(PageFrame.pageRatio), accuracy: 0.001)
-        XCTAssertLessThanOrEqual(box.width, screen.width - 32)
-        XCTAssertLessThanOrEqual(box.height, screen.height * 0.5 + 0.5)
+        let box = PageFrame.previewBox(screen: screen, portrait: true)
+        XCTAssertGreaterThan(box.height, box.width, "Dikey seçili: dikey kutu")
+        XCTAssertEqual(box.width / box.height, 9.0 / 16.0, accuracy: 0.001, "yatay 16:9 kare çevrilince tam oturur")
+        XCTAssertLessThanOrEqual(box.width, screen.width - 32 + 0.5)
+        XCTAssertLessThanOrEqual(box.height, screen.height * 0.6 + 0.5)
         // dar ekranda genişlik sınırı belirler
-        let narrow = PageFrame.previewBox(screen: CGSize(width: 200, height: 2000))
+        let narrow = PageFrame.previewBox(screen: CGSize(width: 200, height: 2000), portrait: true)
         XCTAssertLessThanOrEqual(narrow.width, 168 + 0.5)
-        XCTAssertEqual(narrow.width / narrow.height, CGFloat(PageFrame.pageRatio), accuracy: 0.001)
+        XCTAssertEqual(narrow.width / narrow.height, 9.0 / 16.0, accuracy: 0.001)
     }
 
-    func testPreviewCropShowsExactlyTheGuidanceFrame() {
-        // önizlemede görünen yatay pay, yönlendirmenin kullandığı kadrajla aynı olmalı
-        let box = PageFrame.previewBox(screen: CGSize(width: 375, height: 812))
-        let normal = DisplayView.layerSize(in: box, orientation: .normal, cropToPage: true)
-        XCTAssertEqual(normal.width / normal.height, 16.0 / 9.0, accuracy: 0.001)
-        XCTAssertEqual(box.width / normal.width, CGFloat(PageFrame.verticalPage(orientation: .normal).width), accuracy: 0.001)
-        XCTAssertEqual(normal.height, box.height, accuracy: 0.001, "sayfa görünümün boyunu doldurur")
-
-        // 90°: katman döner; ekranda görünen boy = katmanın eni
-        let turned = DisplayView.layerSize(in: box, orientation: .right90, cropToPage: true)
-        XCTAssertEqual(turned.height, box.width, accuracy: 0.001, "sayfa görünümün enini doldurur")
-        XCTAssertEqual(box.height / turned.width, CGFloat(PageFrame.verticalPage(orientation: .right90).width), accuracy: 0.001)
-        XCTAssertEqual(DisplayView.layerSize(in: box, orientation: .left90, cropToPage: true), turned)
-        XCTAssertEqual(DisplayView.layerSize(in: box, orientation: .rotate180, cropToPage: true), normal)
-    }
-
-    func testWholeFramePreviewKeepsTheOldLayout() {
-        let v = CGSize(width: 340, height: 191)
-        XCTAssertEqual(DisplayView.layerSize(in: v, orientation: .normal, cropToPage: false), v)
-        XCTAssertEqual(DisplayView.layerSize(in: v, orientation: .rotate180, cropToPage: false), v)
-        XCTAssertEqual(DisplayView.layerSize(in: v, orientation: .right90, cropToPage: false), CGSize(width: 191, height: 340))
-    }
-
-    // MARK: Yatay / dikey kadraj yönü
-
-    func testLandscapeFrameIsTheWholeFrameWhenUpright() {
-        XCTAssertEqual(PageFrame.region(portrait: false, orientation: .normal), .full)
-        XCTAssertEqual(PageFrame.region(portrait: false, orientation: .rotate180), .full)
-        XCTAssertEqual(PageFrame.region(portrait: true, orientation: .normal), PageFrame.verticalPage(orientation: .normal))
-    }
-
-    func testLandscapeFrameOfATurnedPictureIsNarrow() {
-        // 90° çevrilmiş görüntü ekranda dikeydir; içindeki yatay 16:9 kadraj sensörün dar bir şeridine denk gelir
-        let f = PageFrame.region(portrait: false, orientation: .right90)
-        XCTAssertEqual(f.width, 1.0 / (16.0 / 9.0) / (16.0 / 9.0), accuracy: 0.001)
-        XCTAssertEqual(f.x0 + f.x1, 1, accuracy: 0.0001)
-    }
-
-    func testPreviewBoxFollowsTheChosenDirection() {
+    func testLandscapePreviewBoxIsWideAndFollowsTheChoice() {
         let screen = CGSize(width: 375, height: 812)
-        let tall = PageFrame.previewBox(screen: screen, portrait: true)
         let wide = PageFrame.previewBox(screen: screen, portrait: false)
-        XCTAssertGreaterThan(tall.height, tall.width, "Dikey seçili: dikey kutu")
         XCTAssertGreaterThan(wide.width, wide.height, "Yatay seçili: yatay kutu")
         XCTAssertEqual(wide.width / wide.height, 16.0 / 9.0, accuracy: 0.001)
         XCTAssertEqual(wide.width, screen.width - 32, accuracy: 0.001)
+        XCTAssertEqual(PageFrame.previewBox(screen: screen), wide, "varsayılan yatay")
     }
 
-    func testLandscapeBoxCropMatchesTheGuidanceFrameInBothOrientations() {
-        let box = PageFrame.previewBox(screen: CGSize(width: 375, height: 812), portrait: false)
-        let upright = DisplayView.layerSize(in: box, orientation: .normal, cropToPage: true)
-        XCTAssertEqual(box.width / upright.width, CGFloat(PageFrame.region(portrait: false, orientation: .normal).width), accuracy: 0.002)
-        let turned = DisplayView.layerSize(in: box, orientation: .left90, cropToPage: true)
-        XCTAssertEqual(box.height / turned.width, CGFloat(PageFrame.region(portrait: false, orientation: .left90).width), accuracy: 0.002)
+    func testPreviewLayerIsNeverCropped() {
+        // kare görünüme sığdırılır: çevrilmiş katman görünümü aşmaz
+        let tall = PageFrame.previewBox(screen: CGSize(width: 375, height: 812), portrait: true)
+        let turned = DisplayView.layerSize(in: tall, orientation: .right90)
+        XCTAssertEqual(turned, CGSize(width: tall.height, height: tall.width), "çevrilmemiş katman: en/boy yer değiştirir")
+        // çevrilmiş katman 16:9'dur ve dikey kutuyu tam doldurur (9:16)
+        XCTAssertEqual(turned.width / turned.height, 16.0 / 9.0, accuracy: 0.001)
+        XCTAssertEqual(DisplayView.layerSize(in: tall, orientation: .left90), turned)
+        let wide = PageFrame.previewBox(screen: CGSize(width: 375, height: 812), portrait: false)
+        XCTAssertEqual(DisplayView.layerSize(in: wide, orientation: .normal), wide)
+        XCTAssertEqual(DisplayView.layerSize(in: wide, orientation: .rotate180), wide)
+    }
+
+    // MARK: Kadraj yönü ↔ görüntü yönü
+
+    func testVerticalFrameTurnsThePictureAQuarter() {
+        XCTAssertEqual(AppSettings.orientation(.normal, forFrame: 1), .right90, "Dikey: yatay kare çevrilir")
+        XCTAssertEqual(AppSettings.orientation(.rotate180, forFrame: 1), .right90)
+        XCTAssertEqual(AppSettings.orientation(.left90, forFrame: 1), .left90, "seçilmiş yön korunur")
+        XCTAssertEqual(AppSettings.orientation(.right90, forFrame: 1), .right90)
+    }
+
+    func testHorizontalFrameDoesNotTurnThePictureAQuarter() {
+        XCTAssertEqual(AppSettings.orientation(.right90, forFrame: 0), .normal)
+        XCTAssertEqual(AppSettings.orientation(.left90, forFrame: 0), .normal)
+        XCTAssertEqual(AppSettings.orientation(.rotate180, forFrame: 0), .rotate180, "ters takılı kamera korunur")
+        XCTAssertEqual(AppSettings.orientation(.normal, forFrame: 0), .normal)
+    }
+
+    func testOrientationChoicesMatchTheFrameDirection() {
+        XCTAssertEqual(AppSettings.orientations(forFrame: 1), [.right90, .left90])
+        XCTAssertEqual(AppSettings.orientations(forFrame: 0), [.normal, .rotate180])
+        for frame in [0, 1] {
+            for o in AppSettings.orientations(forFrame: frame) {
+                XCTAssertEqual(AppSettings.orientation(o, forFrame: frame), o, "seçenek kendi kadrajında geçerli")
+            }
+        }
     }
 }

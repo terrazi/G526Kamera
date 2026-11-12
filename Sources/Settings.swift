@@ -65,7 +65,14 @@ final class AppSettings: ObservableObject {
     /// Görüntü yönü: önizleme, fotoğraf/PDF, video ve sesli yönlendirme bu yöne göre çevrilir
     @Published var imageOrientation: ImageOrientation { didSet { d.set(imageOrientation.rawValue, forKey: "imageOrientation") } }
     /// Yönlendirmenin hedef kadrajı: 1 = dikey tam sayfa (varsayılan), 0 = bütün kare
-    @Published var guidanceFrame: Int { didSet { d.set(guidanceFrame, forKey: "guidanceFrame") } }
+    @Published var guidanceFrame: Int {
+        didSet {
+            d.set(guidanceFrame, forKey: "guidanceFrame")
+            // Kadraj yönü değişince görüntü yönü ona uydurulur (Dikey: 90° sağa / sola, Yatay: normal / 180°)
+            let fixed = AppSettings.orientation(imageOrientation, forFrame: guidanceFrame)
+            if fixed != imageOrientation { imageOrientation = fixed }
+        }
+    }
     /// 0 = gevşek, 1 = normal, 2 = sıkı netlik isteği
     @Published var guidanceSharpness: Int { didSet { d.set(guidanceSharpness, forKey: "guidanceSharpness") } }
     /// Sayfada parlama lekesi varsa uyar (birkaç uyarıdan sonra yine de çeker)
@@ -200,8 +207,12 @@ final class AppSettings: ObservableObject {
         speechRate = d.object(forKey: "speechRate") as? Double ?? 1.0
         statusNotices = d.object(forKey: "statusNotices") as? Bool ?? true
         guidanceAutoCapture = d.object(forKey: "guidanceAutoCapture") as? Bool ?? true
-        imageOrientation = AppSettings.migratedOrientation(d)
-        guidanceFrame = d.object(forKey: "guidanceFrame") as? Int ?? 1
+        // Kadraj yönü ile görüntü yönü uyumlu olmalı (bkz. orientation(_:forFrame:))
+        let frameValue = d.object(forKey: "guidanceFrame") as? Int ?? 1
+        let orient = AppSettings.orientation(AppSettings.migratedOrientation(d), forFrame: frameValue)
+        d.set(orient.rawValue, forKey: "imageOrientation")
+        imageOrientation = orient
+        guidanceFrame = frameValue
         guidanceSharpness = d.object(forKey: "guidanceSharpness") as? Int ?? 1
         guidanceGlare = d.object(forKey: "guidanceGlare") as? Bool ?? true
         finishWord = d.string(forKey: "finishWord") ?? "hepsi tamamlandı"
@@ -306,6 +317,18 @@ extension AppSettings {
         d.removeObject(forKey: "cellularShortcutOn")
         d.removeObject(forKey: "cellularShortcutName")
         return name
+    }
+
+    /// Dikey kadrajda (1) yatay kamera karesi dik çevrilir ki dikey kutuya kırpılmadan tam otursun: 90° sağa ya da sola.
+    /// Yatay kadrajda (0) çevrilmez ya da 180° olur.
+    static func orientation(_ o: ImageOrientation, forFrame frame: Int) -> ImageOrientation {
+        if frame == 1 { return o.isQuarterTurn ? o : .right90 }
+        return o.isQuarterTurn ? .normal : o
+    }
+
+    /// Kadraj yönüne göre seçilebilen görüntü yönleri
+    static func orientations(forFrame frame: Int) -> [ImageOrientation] {
+        return frame == 1 ? [.right90, .left90] : [.normal, .rotate180]
     }
 
     /// Görüntü yönü: yeni anahtar varsa o; yoksa eski "kamera ters takılı" kutusu açıksa 180°, değilse normal.
