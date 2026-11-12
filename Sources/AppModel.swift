@@ -2018,7 +2018,8 @@ final class AppModel: ObservableObject {
     /// "videoları gönder" ile yeniden denenebilir; cevap gelince sıradan silinir.
     private func examVideoAsk() async -> (answer: String, error: String) {
         let s = settings
-        guard s.geminiEnabled, s.geminiPrivacyOK else { return ("", "Gemini kapalı ya da gizlilik onayı verilmemiş") }
+        // Sınav, sesle sohbet ayarına ("geminiEnabled") bağlı değildir; anahtar ve gizlilik onayı yeter (ExamPortsReal.preflight ile aynı)
+        guard s.geminiPrivacyOK else { return ("", "Gemini gizlilik onayı verilmemiş") }
         s.refreshGeminiCapFallback()
         let active = s.activeGeminiProfile
         guard !active.key.isEmpty else { return ("", "Gemini API anahtarı girilmemiş") }
