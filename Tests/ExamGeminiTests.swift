@@ -99,6 +99,34 @@ final class ExamGeminiRequestTests: XCTestCase {
         XCTAssertEqual(last.first?["text"] as? String, "Şu soruları cevapla")
     }
 
+    func testVideosGoInTheFinalTurnBeforeThePrompt() throws {
+        var t = ExamTask(prompt: "Şu soruları cevapla", schema: [:], video: true)
+        t.videos = [Data([1, 2, 3])]
+        let obj = GeminiSupport.taskRequestObject(t, docs: [localDoc("a.pdf", key: "k1")])
+        let contents = try XCTUnwrap(obj["contents"] as? [[String: Any]])
+        XCTAssertEqual(contents.count, 3)
+        let last = try XCTUnwrap(contents[2]["parts"] as? [[String: Any]])
+        XCTAssertEqual(last.first?["text"] as? String, GeminiConfig.examVideoIntro)
+        XCTAssertEqual(last[1]["text"] as? String, "Video 1:")
+        let video = try XCTUnwrap(last[2]["inlineData"] as? [String: Any])
+        XCTAssertEqual(video["mimeType"] as? String, "video/mp4")
+        XCTAssertEqual(last.last?["text"] as? String, "Şu soruları cevapla")
+        let first = try XCTUnwrap(contents[0]["parts"] as? [[String: Any]])
+        XCTAssertNil(first.compactMap { $0["inlineData"] as? [String: Any] }.first { ($0["mimeType"] as? String) == "video/mp4" })
+    }
+
+    func testPickVideosKeepsOnlyWhatFitsTheRequest() {
+        let docs = [localDoc("a.pdf", key: "k1")]
+        let size = docs[0].size
+        let small = Data(count: 100)
+        let big = Data(count: 5_000)
+        XCTAssertEqual(ExamAsker.pickVideos([small, big], docs: docs, budget: size + 1_000).count, 1)
+        XCTAssertEqual(ExamAsker.pickVideos([small, big], docs: docs, budget: size + 100_000).count, 2)
+        XCTAssertEqual(ExamAsker.pickVideos([small], docs: [remoteDoc("r.pdf", key: "r")], budget: 150).count, 1,
+                       "dosya adresiyle giden belge istek boyutunu doldurmaz")
+        XCTAssertTrue(ExamAsker.pickVideos([big], docs: docs, budget: size).isEmpty)
+    }
+
     func testRemoteDocsUseFileUris() throws {
         let obj = GeminiSupport.taskRequestObject(task, docs: [remoteDoc("a.pdf", key: "k1")])
         let contents = try XCTUnwrap(obj["contents"] as? [[String: Any]])

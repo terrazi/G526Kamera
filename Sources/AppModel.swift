@@ -793,7 +793,9 @@ final class AppModel: ObservableObject {
             videoStop: { [weak self] in self?.examVideoStopRecording() },
             videoDiscard: { [weak self] in self?.examVideoDiscard() },
             videoSend: { [weak self] in await self?.examVideoSend() ?? "video yok" },
-            checkSystem: { [weak self] in await self?.examSystemCheck() ?? "" })
+            checkSystem: { [weak self] in await self?.examSystemCheck() ?? "" },
+            videosClear: { AppModel.examVideosClear() })
+        asker.videoProvider = { AppModel.examVideoAttachments() }
         let ports = ExamPortsReal(hooks: hooks, queue: queue, settings: settings, auth: auth,
                                   docStore: GeminiDocStore(source: DriveClient(auth: GoogleAuth.shared)), asker: asker)
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -1605,8 +1607,37 @@ final class AppModel: ObservableObject {
     }
 
     /// Hazır videoyu Drive'a gönderir ve bitene kadar bekler; hata metni ("" = gönderildi).
+    /// Sınav videolarının Gemini için saklanan kopyaları (Drive'a giden dosya ayrıca gider)
+    nonisolated static func examVideoDir() -> URL {
+        return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("G526", isDirectory: true).appendingPathComponent("SinavVideolari", isDirectory: true)
+    }
+
+    nonisolated static func examVideoAttachments() -> [Data] {
+        let dir = examVideoDir()
+        let names = ((try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []).filter { $0.hasSuffix(".mp4") }.sorted()
+        return names.compactMap { try? Data(contentsOf: dir.appendingPathComponent($0), options: .mappedIfSafe) }
+    }
+
+    nonisolated static func examVideosClear() {
+        try? FileManager.default.removeItem(at: examVideoDir())
+    }
+
+    private func keepExamVideoCopy(_ url: URL) {
+        let dir = AppModel.examVideoDir()
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let target = dir.appendingPathComponent(url.lastPathComponent)
+        try? FileManager.default.removeItem(at: target)
+        do {
+            try FileManager.default.copyItem(at: url, to: target)
+        } catch {
+            tlog("[video] Gemini için kopya saklanamadı: \(error.localizedDescription)")
+        }
+    }
+
     private func examVideoSend() async -> String {
         guard let output = examVideoOutput else { return "video bulunamadı" }
+        keepExamVideoCopy(output.url)
         examVideoOutput = nil
         examVideoState = .idle
         return await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in

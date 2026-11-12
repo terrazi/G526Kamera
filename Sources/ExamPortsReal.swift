@@ -9,6 +9,19 @@ final class ExamAsker {
     private let overloadFallback: () -> Bool
     /// Yeniden yüklenen belgeler (eşleme anahtarına göre): sonraki isteklerde eski, kaybolmuş adresler kullanılmaz
     private var refreshed: [String: GeminiDoc] = [:]
+    /// Sınav videolarının baytları (soruları okuyan görevlere eklenir)
+    var videoProvider: () -> [Data] = { [] }
+
+    /// Videoların hangileri istek boyutuna sığar: PDF baytları (dosya adresiyle gitmeyenler) düşüldükten sonra kalan yere sırayla
+    static func pickVideos(_ videos: [Data], docs: [GeminiDoc], budget: Int = GeminiConfig.inlineBudget) -> [Data] {
+        var room = budget - docs.filter { !$0.isRemote }.reduce(0) { $0 + $1.size }
+        var chosen: [Data] = []
+        for video in videos where video.count <= room {
+            chosen.append(video)
+            room -= video.count
+        }
+        return chosen
+    }
 
     init(client: GeminiTasking, memory: GeminiMemoryProviding?, overloadFallback: @escaping () -> Bool) {
         self.client = client
@@ -34,8 +47,13 @@ final class ExamAsker {
         }
     }
 
-    func ask(_ task: ExamTask, docs input: [GeminiDoc]) async throws -> String {
+    func ask(_ original: ExamTask, docs input: [GeminiDoc]) async throws -> String {
         let docs = input.map { refreshed[$0.key] ?? $0 }
+        var task = original
+        if original.useVideo {
+            task.videos = ExamAsker.pickVideos(videoProvider(), docs: docs)
+            if !task.videos.isEmpty { tlog("[sinav] Gemini'ye \(task.videos.count) sınav videosu da ekleniyor") }
+        }
         do {
             return try await client.runTask(task, docs: docs, model: nil, serverRetries: nil)
         } catch let first as GeminiError {
@@ -89,6 +107,8 @@ final class ExamPortsReal: ExamPorts {
         var videoSend: () async -> String = { "" }
         /// Açılış sınaması: internet ve Gemini (boş = sorun yok)
         var checkSystem: () async -> String = { "" }
+        /// Gemini'ye eklenmek üzere saklanan sınav videolarını siler
+        var videosClear: () -> Void = {}
     }
 
     private let hooks: Hooks
@@ -148,6 +168,7 @@ final class ExamPortsReal: ExamPorts {
     func videoDiscard() { hooks.videoDiscard() }
     func videoSend() async -> String { return await hooks.videoSend() }
     func selfCheckOn() -> Bool { return settings.examSelfCheck }
+    func videosClear() { hooks.videosClear() }
     func checkSystem() async -> String { return await hooks.checkSystem() }
 
     func sendError() -> String {

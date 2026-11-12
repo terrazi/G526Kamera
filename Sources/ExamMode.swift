@@ -171,6 +171,8 @@ protocol ExamPorts: AnyObject {
     func canGuide() -> Bool
     /// Sınav açılırken ses, internet ve Gemini sınansın mı
     func selfCheckOn() -> Bool
+    /// Yeni sınav başlarken ve sınav bitince: Gemini'ye eklenmek üzere saklanan sınav videolarını siler
+    func videosClear()
     /// Açılış sınaması: internet ve Gemini'ye ulaşılıyor mu. Boş = sorun yok, doluysa okunacak sorun metni
     func checkSystem() async -> String
     func sendError() -> String
@@ -213,6 +215,7 @@ extension ExamPorts {
     func videoDiscard() {}
     func videoSend() async -> String { return "" }
     func selfCheckOn() -> Bool { return false }
+    func videosClear() {}
     func checkSystem() async -> String { return "" }
 }
 
@@ -737,6 +740,7 @@ final class ExamMode: ObservableObject {
     private func launch(resume: Bool) {
         aborted = false
         videoDone = false
+        if !resume { ports.videosClear() }
         checking = false
         checkProblem = ""
         cmds.removeAll()
@@ -895,6 +899,7 @@ final class ExamMode: ObservableObject {
         } else if leftDuringCheck {
             await sayNow("Deneme sınavı kapatıldı.")
         } else if finished {
+            ports.videosClear()
             await sayNow("Deneme sınavı tamamlandı.")
         } else if held > 0 {
             await sayNow("Deneme sınavı kapatıldı. Taranan \(held) sayfa, ayarlarınızdaki yöntemle Drive'a gönderilecek.")
@@ -1205,7 +1210,7 @@ final class ExamMode: ObservableObject {
 
     private func stageVerify() async throws -> String? {
         try await ensureDocs()
-        let task = ExamTask(prompt: ExamPrompts.verifyPrompt, schema: ExamPrompts.verifySchema)
+        let task = ExamTask(prompt: ExamPrompts.verifyPrompt, schema: ExamPrompts.verifySchema, video: true)
         var data: [String: Any] = [:]
         while true {
             do {
@@ -1312,7 +1317,7 @@ final class ExamMode: ObservableObject {
                 guard let q = qmap[k] else { return nil }
                 return (bolum: q.bolum, no: q.no)
             }
-            let task = ExamTask(prompt: ExamPrompts.answerPrompt(asked), schema: ExamPrompts.answerSchema)
+            let task = ExamTask(prompt: ExamPrompts.answerPrompt(asked), schema: ExamPrompts.answerSchema, video: true)
             let data = try await askJSON(task, key: "cevaplar")
             var got = 0
             for item in (data["cevaplar"] as? [Any]) ?? [] {
