@@ -88,6 +88,8 @@ final class AppSettings: ObservableObject {
     @Published var guidanceGlare: Bool { didSet { d.set(guidanceGlare, forKey: "guidanceGlare") } }
     /// Kadrajı sesli tarif et: tek sayfa / iki sayfa, hangisi tam sığıyor, hangisinin bir bölümü görünüyor
     @Published var guidanceDescribe: Bool { didSet { d.set(guidanceDescribe, forKey: "guidanceDescribe") } }
+    /// Kadraj tarifine kâğıdın kenarlarını da kat (Apple belge algılaması; kamera durunca seyrek çalışır, yalnız bilgi verir)
+    @Published var guidancePageEdges: Bool { didSet { d.set(guidancePageEdges, forKey: "guidancePageEdges") } }
     /// Bekleyen fotoğrafları tek PDF olarak gönderen sözcük (virgülle birden çok); hazır söylenişler de geçerlidir
     @Published var finishWord: String { didSet { d.set(finishWord, forKey: "finishWord") } }
 
@@ -242,6 +244,7 @@ final class AppSettings: ObservableObject {
         guidanceSharpness = d.object(forKey: "guidanceSharpness") as? Int ?? 1
         guidanceGlare = d.object(forKey: "guidanceGlare") as? Bool ?? true
         guidanceDescribe = d.object(forKey: "guidanceDescribe") as? Bool ?? true
+        guidancePageEdges = d.object(forKey: "guidancePageEdges") as? Bool ?? true
         finishWord = d.string(forKey: "finishWord") ?? "hepsi tamamlandı"
         geminiEnabled = d.object(forKey: "geminiEnabled") as? Bool ?? false
         geminiKeys = (1...GeminiProfiles.slotCount).map { Keychain.get(GeminiProfiles.keychainName(slot: $0)) ?? "" }

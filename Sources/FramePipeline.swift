@@ -61,6 +61,18 @@ final class FramePipeline {
         set { lock.lock(); _guidance = newValue; lock.unlock() }
     }
 
+    private var _pageEdges = false
+    /// Kamera durunca Vision ile kâğıdın kenarları da bulunur (kadraj tarifi için); kapalıyken Vision hiç çalışmaz
+    var pageEdgesOn: Bool {
+        get { lock.lock(); defer { lock.unlock() }; return _pageEdges }
+        set { lock.lock(); _pageEdges = newValue; lock.unlock() }
+    }
+    /// Vision'a girmek için kameranın en az bu kadar sn durgun olması gerekir (değerlendirme eşiğinin hemen altı)
+    static let edgeStill: TimeInterval = 0.4
+    // Yalnızca analiz kuyruğunda değişir
+    private var edgeTracker = PageEdgeTracker()
+    private var edgeOrientation = ImageOrientation.normal
+
     /// Çekim yapıldı: sahne farkı bu ana göre ölçülür (sayfa çevrilince yeniden hazırlanmak için).
     func markCaptured() {
         queue.async { self.captureSignature = self.latestSignature }
@@ -116,8 +128,27 @@ final class FramePipeline {
         let still = time - lastMoveTime
         var metrics = PageMetrics()
         if still >= 0.2, let m = GuidanceAnalyzer.analyze(pixelBuffer, orientation: guidanceOrientation) { metrics = m }
+        metrics.edges = pageEdges(for: pixelBuffer, still: still, time: time)
         let diff = captureSignature.map { FrameAnalysis.difference($0, sig) } ?? 100
         onGuidance?(GuidanceSample(metrics: metrics, time: time, stillFor: still, diffToCapture: diff))
+    }
+
+    /// Kâğıdın kenarları (Vision): yalnız ayar açıkken, pil tasarrufunda değilken ve kamera durgunken; seyrek çalışır.
+    /// Kamera oynarsa ya da görüntü yönü değişirse eski sonuç silinir.
+    private func pageEdges(for pixelBuffer: CVPixelBuffer, still: TimeInterval, time: TimeInterval) -> PageEdges? {
+        let orientation = guidanceOrientation
+        if orientation != edgeOrientation {
+            edgeOrientation = orientation
+            edgeTracker.reset()
+        }
+        guard pageEdgesOn, !saving, still >= FramePipeline.edgeStill else {
+            edgeTracker.reset()
+            return nil
+        }
+        if edgeTracker.due(at: time) {
+            edgeTracker.ingest(PageEdgeDetector.detect(pixelBuffer, orientation: orientation), at: time)
+        }
+        return edgeTracker.current
     }
 
     func configureMotion(enabled: Bool, sensitivity: Int) {
@@ -139,6 +170,7 @@ final class FramePipeline {
             self.latestSignature = nil
             self.captureSignature = nil
             self.lastMoveTime = 0
+            self.edgeTracker.reset()
         }
     }
 }

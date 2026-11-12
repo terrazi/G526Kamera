@@ -35,11 +35,15 @@ struct PageMetrics: Equatable {
     var glyphs = -1
     /// Mürekkebin ne kadarı harf boyutunda parçalardan oluşuyor (0–1)
     var glyphShare = 1.0
+    /// Apple Vision'ın bulduğu kâğıt kenarları (kamera durunca, seyrek ölçülür); ölçülmediyse ya da bulunamadıysa nil
+    var edges: PageEdges?
 
     var summary: String {
         if !hasText { return hasPage ? "sayfa var, yazı seçilemiyor" : "yazı bulunamadı" }
         func pct(_ v: Double) -> String { return "\(Int((v * 100).rounded()))" }
-        return "yazı x %\(pct(x0))–\(pct(x1)) · y %\(pct(y0))–\(pct(y1)) · netlik \(String(format: "%.2f", sharp)) · bölüm \(columns.count)"
+        var s = "yazı x %\(pct(x0))–\(pct(x1)) · y %\(pct(y0))–\(pct(y1)) · netlik \(String(format: "%.2f", sharp)) · bölüm \(columns.count)"
+        if let e = edges { s += " · sayfa " + e.summary }
+        return s
     }
 }
 
@@ -1034,15 +1038,39 @@ enum GuidanceScene {
         return text + partials.joined(separator: ", ") + "."
     }
 
-    /// Konuşulacak tarif; yazı yoksa nil
-    static func describe(_ parts: [Part]) -> String? {
+    /// Vision'ın kâğıt kenarları, yalnız tarifte kullanılacaksa: güvenilir olmalı ve yazı bloğunu içine almalı
+    /// (yoksa sayfanın bir parçası bulunmuş olabilir). Metin kutusu ile köşeler arasındaki pay, çevrilmiş görüntüde saat bandının
+    /// kırpılmasından doğan farkı da kapsar.
+    static func usableEdges(_ m: PageMetrics) -> PageEdges? {
+        guard m.hasText, let e = m.edges, e.isReliable else { return nil }
+        return e.encloses(x0: m.x0, x1: m.x1, y0: m.y0, y1: m.y1, tolerance: 0.08) ? e : nil
+    }
+
+    /// "Sayfanın alt kenarı kadrajın dışında kalıyor." (kâğıt taşıyor ama yazı tam görünüyor)
+    private static func overflow(_ e: PageEdges) -> String? {
+        let cut = e.cutSides
+        switch cut.count {
+        case 0: return nil
+        case 1: return "Sayfanın " + cut[0].word + " kenarı kadrajın dışında kalıyor."
+        case 2: return "Sayfanın " + cut[0].word + " ve " + cut[1].word + " kenarları kadrajın dışında kalıyor."
+        default: return "Sayfa kadraja sığmıyor, yalnız bir kısmı görünüyor."
+        }
+    }
+
+    /// Konuşulacak tarif; yazı yoksa nil. `edges`: tek sayfa görünüyorsa ve yazı tam sığıyorsa kâğıdın kenarları da söylenir
+    /// (yazı kesikse, ya da birden çok bölüm varsa yazı ölçümü esastır; Vision tek belge çerçevesi verir).
+    static func describe(_ parts: [Part], edges: PageEdges? = nil) -> String? {
         switch parts.count {
         case 0:
             return nil
         case 1:
             let p = parts[0]
-            if !p.cut { return "Tek sayfa görünüyor, tam sığıyor." }
-            return "Tek sayfa görünüyor, " + edgeList(p) + " kesik."
+            if p.cut { return "Tek sayfa görünüyor, " + edgeList(p) + " kesik." }
+            if let e = edges {
+                if e.allClear { return "Tek sayfa görünüyor, kenarlarıyla birlikte tam sığıyor." }
+                if let o = overflow(e) { return "Tek sayfa görünüyor, yazı tam sığıyor. " + o }
+            }
+            return "Tek sayfa görünüyor, tam sığıyor."
         case 2:
             return two(parts[0], parts[1])
         default:
@@ -1485,7 +1513,7 @@ final class GuidanceEngine {
         lastAlso = d.also
         lastAlsoShift = d.alsoShift
         lastScene = describeScene && d.advice != .noText
-            ? GuidanceScene.describe(GuidanceScene.parts(metrics, config: config)) : nil
+            ? GuidanceScene.describe(GuidanceScene.parts(metrics, config: config), edges: GuidanceScene.usableEdges(metrics)) : nil
         var a = d.advice
         if a == .blurry || a == .glare || a == .chooseColumn { a = .ok }
         vTrend.observe(a, need: trendNeed(d, a), time: time, config: config)
@@ -1568,7 +1596,7 @@ final class GuidanceEngine {
         lastAlso = d.also
         lastAlsoShift = d.alsoShift
         lastScene = describeScene && d.advice != .noText
-            ? GuidanceScene.describe(GuidanceScene.parts(metrics, config: config)) : nil
+            ? GuidanceScene.describe(GuidanceScene.parts(metrics, config: config), edges: GuidanceScene.usableEdges(metrics)) : nil
         var a = d.advice
         // Parlama her zaman giderilemez: birkaç kez uyardıktan sonra yine de çekilir
         if a == .glare && glareSpoken >= config.glareWarnings { a = .ok }
