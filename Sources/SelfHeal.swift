@@ -148,6 +148,13 @@ struct RepairThrottle {
         self.maxTries = maxTries
     }
 
+    /// allow çağrılsaydı izin verilir miydi (deneme sayılmaz)
+    func wouldAllow(now: TimeInterval) -> Bool {
+        guard tries < maxTries else { return false }
+        if let last = last, now - last < cooldown { return false }
+        return true
+    }
+
     /// true: şimdi denenebilir (deneme sayılır)
     mutating func allow(now: TimeInterval) -> Bool {
         guard tries < maxTries else { return false }

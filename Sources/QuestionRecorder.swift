@@ -226,7 +226,7 @@ final class QuestionRecorder: QuestionRecording {
             finish(.stopped)
             return
         }
-        if playCue { AudioServicesPlaySystemSound(1113) }
+        if playCue && AudioRoute.canPlaySound(AudioRoute.currentOutputs()) { AudioServicesPlaySystemSound(1113) }
         let delay = playCue ? 0.4 : 0.0
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
             guard let self = self, self.completion != nil else { return }

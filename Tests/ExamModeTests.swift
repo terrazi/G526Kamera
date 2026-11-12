@@ -48,6 +48,17 @@ private final class FakePorts: ExamPorts {
     /// Gemini'ye doğrudan giden ses kayıtları
     var freeAudio: [Data] = []
 
+    /// Bağlantı kesintisi: kesik bağlantılar, kestirmesi çalıştırılabilir olanlar ve çalıştırılan kestirmeler
+    var lost: [ExamLink] = []
+    var repairReady: Set<ExamLink> = []
+    var repairs: [ExamLink] = []
+    func linksLost() -> [ExamLink] { return lost }
+    func linkRepairReady(_ link: ExamLink) -> Bool { return repairReady.contains(link) }
+    func linkRepair(_ link: ExamLink) {
+        repairs.append(link)
+        repairReady.remove(link)
+    }
+
     /// Ses yolu sorunu (mikrofon alıcısına gidiyor): boş = sorun yok
     var routeProblemText = ""
     func routeProblem() -> String { return routeProblemText }
@@ -260,10 +271,11 @@ final class ExamModeTests: XCTestCase {
 
     private func make(_ ports: FakePorts, group: Int = 10, cancel: Int = 0, gap: Int = 0, dir: URL? = nil,
                       uptime: (() -> Double)? = nil, guardSeconds: Double = 0, videoSeconds: Int = 30,
-                      pageVideo: Bool = false, pageSeconds: Int = 5) -> ExamMode {
+                      pageVideo: Bool = false, pageSeconds: Int = 5, linkGrace: Double = 0.05, linkInfoGap: Double = 30) -> ExamMode {
         let up: () -> Double = uptime ?? { ProcessInfo.processInfo.systemUptime }
         let e = ExamMode(ports: ports, settings: { ExamSettings(group: group, fetch: 20, cancelWindow: cancel, gap: gap, videoSeconds: videoSeconds,
-                                                           pageVideo: pageVideo, pageSeconds: pageSeconds) },
+                                                           pageVideo: pageVideo, pageSeconds: pageSeconds,
+                                                           linkGrace: linkGrace, linkInfoGap: linkInfoGap) },
                          directory: dir ?? tmpDir(), now: { 1000 }, uptime: up)
         e.echoGuard = guardSeconds
         return e
@@ -1550,5 +1562,138 @@ final class ExamModeTests: XCTestCase {
         XCTAssertEqual(p.videoArms, 0)
         XCTAssertTrue(spoke(p, "Deneme sınavı modu açık. Soru sayfalarını"))
         await finish(exam)
+    }
+
+    // MARK: Bağlantı kesintisi (kulaklık / mikrofon / internet)
+
+    func testExamIsRefusedWithoutHeadsetAndNothingIsSpoken() {
+        let p = FakePorts()
+        p.lost = [.audio]
+        let exam = make(p)
+        XCTAssertFalse(exam.start())
+        XCTAssertFalse(exam.active)
+        XCTAssertTrue(exam.status.hasPrefix("Kulaklık bağlı değil"), exam.status)
+        XCTAssertTrue(p.spoken.isEmpty, "telefon hoparlöründen konuşulmaz: \(p.spoken)")
+    }
+
+    func testHeadsetLossWhileWaitingIsSilentRunsAudioShortcutAndResumesRepeatingLastLine() async {
+        let p = FakePorts()
+        let exam = make(p)
+        XCTAssertTrue(exam.start())
+        let scanning = await until { exam.status == "Tarama: 0 sayfa" }
+        XCTAssertTrue(scanning, "\(p.spoken)")
+        let before = p.spoken.count
+        let stoppedBefore = p.stopped
+        p.lost = [.audio]
+        let paused = await until { exam.status == ExamLink.audio.statusText }
+        XCTAssertTrue(paused, "sınav bekletilmedi: \(exam.status)")
+        XCTAssertEqual(p.spoken.count, before, "kulaklık yokken söylenmez (telefon hoparlörü kullanılmaz)")
+        XCTAssertGreaterThan(p.stopped, stoppedBefore, "süren konuşma durdurulur")
+        p.repairReady = [.audio]
+        let ran = await until { p.repairs == [.audio] }
+        XCTAssertTrue(ran, "ses kestirmesi çalıştırılmadı")
+        XCTAssertEqual(p.spoken.count, before, "ses çıkışı kesikken kestirme için de söylenmez")
+        p.lost = []
+        let back = await until { self.spoke(p, "Ses geri geldi. Kaldığımız yerden devam ediyoruz.") }
+        XCTAssertTrue(back, "\(p.spoken)")
+        let repeated = await until { p.spoken.filter { $0.hasPrefix("Deneme sınavı modu açık.") }.count == 2 }
+        XCTAssertTrue(repeated, "son cümle yeniden okunmalı: \(p.spoken)")
+        let again = await until { exam.status == "Tarama: 0 sayfa" }
+        XCTAssertTrue(again, "durum geri gelmedi: \(exam.status)")
+        await finish(exam)
+    }
+
+    func testMicrophoneLossTellsRunsShortcutRepeatsInfoAndContinues() async {
+        let p = FakePorts()
+        p.lost = [.mic]
+        let exam = make(p, linkInfoGap: 0.3)
+        XCTAssertTrue(exam.start())
+        let told = await until { self.spoke(p, "Mikrofondan ses gelmiyor, sınav bekletildi.") }
+        XCTAssertTrue(told, "\(p.spoken)")
+        XCTAssertEqual(exam.status, ExamLink.mic.statusText)
+        XCTAssertFalse(spoke(p, "Deneme sınavı modu açık."), "bağlantı gelene kadar sınav konuşmaz")
+        p.repairReady = [.mic]
+        let ran = await until { p.repairs == [.mic] }
+        XCTAssertTrue(ran)
+        XCTAssertTrue(spoke(p, "Ses kestirmesi çalıştırılıyor."), "\(p.spoken)")
+        let again = await until { p.spoken.filter { $0 == "Mikrofondan hâlâ ses gelmiyor, bekliyorum." }.count >= 2 }
+        XCTAssertTrue(again, "bekleme sürerken aralıklarla sesli bilgi verilmeli: \(p.spoken)")
+        p.lost = []
+        let resumed = await until { exam.status == "Tarama: 0 sayfa" }
+        XCTAssertTrue(resumed, "\(p.spoken)")
+        XCTAssertTrue(spoke(p, "Mikrofon geri geldi. Kaldığımız yerden devam ediyoruz."))
+        let i = p.spoken.firstIndex(where: { $0.hasPrefix("Mikrofon geri geldi.") }) ?? -1
+        let j = p.spoken.firstIndex(where: { $0.hasPrefix("Deneme sınavı modu açık.") }) ?? -1
+        XCTAssertTrue(i >= 0 && j > i, "önce geri geldi, sonra sınav sürer: \(p.spoken)")
+        XCTAssertEqual(p.repairs, [.mic], "kestirme yalnız bir kez çalışır")
+        await finish(exam)
+    }
+
+    func testInternetLossIsIgnoredWhileScanningAndWaitedBeforeSending() async {
+        let p = FakePorts()
+        p.questionNos = Array(1...5)
+        let exam = make(p)
+        XCTAssertTrue(exam.start())
+        await scanPages(exam, p, ["a.jpg", "b.jpg", "c.jpg"])
+        p.lost = [.internet]
+        try? await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(exam.status, "Tarama: 3 sayfa", "taramada internet gerekmez, sınav bekletilmez")
+        XCTAssertTrue(exam.command("scan_done"))
+        let paused = await until { exam.status == ExamLink.internet.statusText }
+        XCTAssertTrue(paused, "gönderme internet gelene kadar beklemeli: \(exam.status) / \(p.spoken)")
+        XCTAssertEqual(p.flushCalls, 0)
+        XCTAssertTrue(spoke(p, "İnternet kesildi, sınav bekletildi."))
+        p.repairReady = [.internet]
+        let ran = await until { p.repairs == [.internet] }
+        XCTAssertTrue(ran)
+        XCTAssertTrue(spoke(p, "Bağlantı kestirmesi çalıştırılıyor."), "\(p.spoken)")
+        XCTAssertEqual(p.flushCalls, 0, "internet yokken klasöre gönderilmez")
+        p.lost = []
+        let reached = await until { exam.status == "Soru numarası bekleniyor" }
+        XCTAssertTrue(reached, "internet gelince sınav sürmeli: \(exam.status) / \(p.spoken)")
+        XCTAssertTrue(spoke(p, "İnternet geri geldi. Kaldığımız yerden devam ediyoruz."))
+        XCTAssertEqual(p.flushCalls, 1)
+        await finish(exam)
+    }
+
+    func testShortGlitchDoesNotPauseTheExam() async {
+        let p = FakePorts()
+        let exam = make(p, linkGrace: 0.5)
+        XCTAssertTrue(exam.start())
+        let scanning = await until { exam.status == "Tarama: 0 sayfa" }
+        XCTAssertTrue(scanning)
+        p.lost = [.audio]
+        try? await Task.sleep(nanoseconds: 150_000_000)
+        p.lost = []
+        try? await Task.sleep(nanoseconds: 700_000_000)
+        XCTAssertEqual(exam.status, "Tarama: 0 sayfa")
+        XCTAssertFalse(spoke(p, "geri geldi"), "kısa kopma haber verilmez: \(p.spoken)")
+        XCTAssertTrue(p.repairs.isEmpty)
+        await finish(exam)
+    }
+
+    func testEndCommandLeavesTheLinkWait() async {
+        let p = FakePorts()
+        let exam = make(p)
+        XCTAssertTrue(exam.start())
+        let scanning = await until { exam.status == "Tarama: 0 sayfa" }
+        XCTAssertTrue(scanning)
+        p.lost = [.audio]
+        let paused = await until { exam.status == ExamLink.audio.statusText }
+        XCTAssertTrue(paused)
+        exam.command("end", source: "ui")
+        let done = await exam.waitDone(timeout: 8)
+        XCTAssertTrue(done, "bekleme sırasında bitir çalışmalı")
+    }
+
+    func testExamLinkTextsAreForVoiceExceptAudio() {
+        XCTAssertNil(ExamLink.audio.lostLine, "ses çıkışı kesikken söylenemez")
+        XCTAssertNil(ExamLink.audio.repairLine)
+        XCTAssertNil(ExamLink.audio.waitLine)
+        for link in [ExamLink.mic, ExamLink.internet] {
+            XCTAssertNotNil(link.lostLine)
+            XCTAssertNotNil(link.repairLine)
+            XCTAssertNotNil(link.waitLine)
+        }
     }
 }

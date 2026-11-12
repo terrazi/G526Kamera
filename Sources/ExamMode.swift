@@ -30,6 +30,60 @@ struct ExamSettings: Equatable {
     /// (testlerde varsayılan kapalı: eski tek video + fotoğraf taraması akışı; uygulama ayardan verir)
     var pageVideo = false
     var pageSeconds = 5
+    /// Bağlantı kesintisi: kesinti bu kadar sn sürerse sınav bekletilir (kısa titreşimler sınavı durdurmaz)
+    var linkGrace = 3.0
+    /// Bekleme sürerken sesli bilgi aralığı (sn)
+    var linkInfoGap = 30.0
+}
+
+/// Sınav sırasında kopabilen bağlantılar (önem sırasıyla): kulaklık/ses çıkışı, mikrofon, internet
+enum ExamLink: String, Equatable, Hashable {
+    case audio, mic, internet
+
+    /// Geri gelince söylenen ad
+    var word: String {
+        switch self {
+        case .audio: return "Ses"
+        case .mic: return "Mikrofon"
+        case .internet: return "İnternet"
+        }
+    }
+
+    /// Kesilince ekrana yazılan durum
+    var statusText: String {
+        switch self {
+        case .audio: return "Kulaklık / ses çıkışı kesildi: sınav bekletildi"
+        case .mic: return "Mikrofondan ses gelmiyor: sınav bekletildi"
+        case .internet: return "İnternet kesildi: sınav bekletildi"
+        }
+    }
+
+    /// Kesilince söylenen cümle; ses çıkışı kesikse söylenemez (telefon hoparlörü kullanılmaz), nil
+    var lostLine: String? {
+        switch self {
+        case .audio: return nil
+        case .mic: return "Mikrofondan ses gelmiyor, sınav bekletildi. Ses gelince kaldığımız yerden devam edeceğiz."
+        case .internet: return "İnternet kesildi, sınav bekletildi. İnternet gelince kaldığımız yerden devam edeceğiz."
+        }
+    }
+
+    /// Kestirme çalıştırılırken söylenen cümle
+    var repairLine: String? {
+        switch self {
+        case .audio: return nil
+        case .mic: return "Ses kestirmesi çalıştırılıyor."
+        case .internet: return "Bağlantı kestirmesi çalıştırılıyor."
+        }
+    }
+
+    /// Bekleme sürerken aralıklarla söylenen cümle
+    var waitLine: String? {
+        switch self {
+        case .audio: return nil
+        case .mic: return "Mikrofondan hâlâ ses gelmiyor, bekliyorum."
+        case .internet: return "İnternet hâlâ yok, bekliyorum."
+        }
+    }
 }
 
 /// klasöre giden bir dosya (PDF)
@@ -221,6 +275,12 @@ protocol ExamPorts: AnyObject {
     func videoBeginPages()
     /// Kaydedilen videoyu (tek başına, ayrı istekle) Gemini'ye sorar; cevap metni ve hata metni ("" = hata yok). Video hata olursa sırada saklanır.
     func videoAsk() async -> (answer: String, error: String)
+    /// Şu an kesik olan bağlantılar (önem sırasıyla); hepsi sağlamsa boş
+    func linksLost() -> [ExamLink]
+    /// Kesilen bağlantının kestirmesi şimdi çalıştırılabilir mi (adı yazılı, sınırlayıcı izin veriyor, uygulama önde)
+    func linkRepairReady(_ link: ExamLink) -> Bool
+    /// Kesilen bağlantının kestirmesini çalıştırır (program arka plana gider; sınav durumu önceden kaydedilir)
+    func linkRepair(_ link: ExamLink)
 }
 
 extension ExamPorts {
@@ -235,6 +295,9 @@ extension ExamPorts {
     func videoSend() async -> String { return "" }
     func videoBeginPages() {}
     func videoAsk() async -> (answer: String, error: String) { return ("", "") }
+    func linksLost() -> [ExamLink] { return [] }
+    func linkRepairReady(_ link: ExamLink) -> Bool { return false }
+    func linkRepair(_ link: ExamLink) {}
     func selfCheckOn() -> Bool { return false }
     func checkSystem() async -> String { return "" }
     func routeProblem() -> String { return "" }
@@ -285,6 +348,8 @@ final class ExamMode: ObservableObject {
     /// Açılış sınamasında "tamam" beklenen süreler (sn): ilk deneme, ikinci deneme
     var checkTimeouts: (first: Double, second: Double) = (15, 12)
     private var checkProblem = ""
+    /// Bağlantı yoklaması en erken bu zamanda (bekleme döngüsünde saniyede 4 kez)
+    private var nextLinkCheck: Double = 0
     /// Program açılınca yapılan sınama tamamlandı mı (bir açılışta bir kez) ve geçti mi; geçtiyse sınav başlarken yeniden sınanmaz
     private var startupDone = false
     private var startupRunning = false
@@ -729,6 +794,11 @@ final class ExamMode: ObservableObject {
             bg { await self.sayNow(route) }
             return false
         }
+        if ports.linksLost().contains(.audio) {
+            // Kulaklık yok: telefon hoparlöründen ses verilmez, bu yüzden sınav başlamaz (ekranda yazar)
+            setStatus("Kulaklık bağlı değil: ses telefon hoparlöründen verilmez. Kulaklığı bağlayıp tekrar deneyin.")
+            return false
+        }
         if let saved = savedSummary() {
             st = saved
             hasState = true
@@ -871,8 +941,89 @@ final class ExamMode: ObservableObject {
 
     private func say(_ text: String) async throws {
         try check()
+        // Ses (kulaklık / mikrofon) kesikse söylenecek cümle bağlantı gelene kadar bekler
+        try await linksOK(network: false, repeatLast: false)
         await sayNow(text)
         try check()
+    }
+
+    // MARK: Bağlantı kesintisi
+
+    /// Kesik bağlantılar (internet yalnız `network` istenirse sayılır: taramada internet gerekmez, fotoğraflar telefonda sırada bekler)
+    private func lostLinks(network: Bool) -> [ExamLink] {
+        let all = ports.linksLost()
+        return network ? all : all.filter { $0 != .internet }
+    }
+
+    private func nap() async throws {
+        do {
+            try await Task.sleep(nanoseconds: 100_000_000)
+        } catch {
+            throw ExamStop()
+        }
+    }
+
+    /// Bağlantı kesildiyse sınavı bekletir: (1) durum kaydedilir ve ekrana yazılır, (2) kesilen bağlantının kestirmesi çalıştırılır
+    /// (önce sesli haber verilir; ses çıkışı kesikse söylenemez, telefon hoparlörü kullanılmaz), (3) bağlantı gelene kadar aralıklarla
+    /// sesli bilgi verilir, (4) gelince "kaldığımız yerden devam ediyoruz" denir. Bitir komutu her zaman çıkarır.
+    /// `repeatLast`: bağlantı gelince son söylenen cümle yeniden okunur. Dönüş: beklenen süre (sn).
+    @discardableResult
+    private func linksOK(network: Bool, repeatLast: Bool) async throws -> Double {
+        guard !lostLinks(network: network).isEmpty else { return 0 }
+        let begin = uptime()
+        let cfg = settings()
+        // Kısa titreşimler (Bluetooth kısa kopması) sınavı durdurmaz
+        while !lostLinks(network: network).isEmpty && uptime() - begin < cfg.linkGrace {
+            try check()
+            try await nap()
+        }
+        guard !lostLinks(network: network).isEmpty else { return uptime() - begin }
+        let lastLine = said.last
+        let previousStatus = status
+        if hasState { save() }
+        ports.stopSpeaking()
+        var reported: [ExamLink] = []
+        var lastInfo = uptime()
+        while true {
+            try check()
+            if cmds.contains(where: { $0.name == "end" }) { throw ExamStop() }
+            cmds.removeAll()
+            let lost = lostLinks(network: network)
+            if lost.isEmpty { break }
+            let voiceOK = !lost.contains(.audio)
+            setStatus(lost[0].statusText)
+            for link in lost where !reported.contains(link) {
+                reported.append(link)
+                tlog("[sinav] bağlantı kesildi: \(link.rawValue)")
+                if voiceOK, let line = link.lostLine {
+                    await sayNow(line)
+                    lastInfo = uptime()
+                }
+            }
+            for link in lost where ports.linkRepairReady(link) {
+                if voiceOK, let line = link.repairLine {
+                    await sayNow(line)
+                    lastInfo = uptime()
+                }
+                try check()
+                if hasState { save() }
+                ports.linkRepair(link)
+            }
+            if voiceOK, uptime() - lastInfo >= cfg.linkInfoGap,
+               let line = lost.compactMap({ $0.waitLine }).first {
+                await sayNow(line)
+                lastInfo = uptime()
+            }
+            try await nap()
+        }
+        let waited = uptime() - begin
+        let words = reported.map { $0.word }.joined(separator: " ve ")
+        setStatus(previousStatus)
+        await sayNow("\(words) geri geldi. Kaldığımız yerden devam ediyoruz.")
+        if repeatLast, let line = lastLine {
+            await sayNow(line)
+        }
+        return waited
     }
 
     /// Geçerli bir komut gelene kadar bekler: (ad, metin); zaman aşımında (nil, ""). "end" her zaman ExamStop fırlatır.
@@ -883,9 +1034,16 @@ final class ExamMode: ObservableObject {
             valid = []
             wantText = false
         }
-        let deadline = timeout.map { uptime() + $0 }
+        var deadline = timeout.map { uptime() + $0 }
         while true {
             try check()
+            // Kullanıcının cevabı beklenirken ses (kulaklık / mikrofon) kesilirse sınav bekletilir; bekleme süresi zaman aşımına sayılmaz.
+            // Kısa yoklamalarda (kayıt döngüsü, açılış sınaması) bakılmaz.
+            if timeout == nil && !checking && uptime() >= nextLinkCheck {
+                nextLinkCheck = uptime() + 0.25
+                let paused = try await linksOK(network: false, repeatLast: true)
+                if paused > 0, let d = deadline { deadline = d + paused }
+            }
             if !cmds.isEmpty {
                 let c = cmds.removeFirst()
                 if c.name == "end" { throw ExamStop() }
@@ -925,6 +1083,8 @@ final class ExamMode: ObservableObject {
                 let current = st.stage
                 stage = current
                 refreshInfo()
+                // İnternet gerektiren aşamalar (klasöre gönderme, Gemini) internet gelene kadar beklenir; ses her aşamada gerekir
+                try await linksOK(network: ["send", "prepare", "verify", "answer"].contains(current), repeatLast: false)
                 let next: String?
                 switch current {
                 case "video": next = try await stageVideo()
@@ -1193,6 +1353,8 @@ final class ExamMode: ObservableObject {
                 if !err.isEmpty {
                     try await say("Video klasöre kaydedilemedi. Telefonda saklandı, internet gelince kendiliğinden gönderilecek.")
                 }
+                // Video Gemini'ye gitmeden önce internet gelmiş olmalı (video zaten telefonda / klasörde saklı)
+                try await linksOK(network: true, repeatLast: false)
                 setStatus("Video Gemini'ye gönderiliyor...")
                 try await say("Video Gemini'ye gönderiliyor. Cevap gelince okunacak.")
                 let result = await ports.videoAsk()

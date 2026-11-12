@@ -183,6 +183,14 @@ final class AppModel: ObservableObject {
     private var routeRepair = RepairThrottle(cooldown: 180, maxTries: 3)
     /// Ses yolu uyarısı ilk ne zaman görüldü (yok = uyarı yok)
     private var routeWarnSince: TimeInterval?
+    /// Sınav sırasında bağlantı durumu: internet yok (yoklama başarısız ve onarım kararı verildi / verilemedi)
+    private var internetDown = false
+    /// Mikrofon son ne zaman "tamamen sessiz" bildirdi (yoklama 5 sn'de bir tekrarlar; 12 sn'den eskiyse mikrofon geri gelmiş sayılır)
+    private var micSilentAt: TimeInterval?
+    /// Sınav sırasında kestirmeyi sınav çalıştırır (önce sesli haber verir): çalıştırılması beklenen kestirmeler
+    private var examRepairWanted = Set<ExamLink>()
+    /// Sınav sırasında internet yoklaması 15 sn'de bir yapılır (normalde 45 sn)
+    private var lastExamProbe: TimeInterval = 0
     private var netTimer: Timer?
     private var netProbing = false
     private var routeObserver: NSObjectProtocol?
@@ -300,10 +308,17 @@ final class AppModel: ObservableObject {
             Task { @MainActor in self?.setNotice(.mic, text) }
         }
         speech.onRecovered = { [weak self] in
-            Task { @MainActor in self?.micRepair.reset() }
+            Task { @MainActor in
+                self?.micRepair.reset()
+                self?.micSilentAt = nil
+                self?.examRepairWanted.remove(.mic)
+            }
         }
         speech.onSilent = { [weak self] in
-            Task { @MainActor in self?.runAudioShortcut(reason: "mikrofon sessiz") }
+            Task { @MainActor in
+                self?.micSilentAt = ProcessInfo.processInfo.systemUptime
+                self?.runAudioShortcut(reason: "mikrofon sessiz")
+            }
         }
         speech.onUnrecognized = { [weak self] text in
             Task { @MainActor in self?.voiceUnrecognized(text) }
@@ -714,7 +729,8 @@ final class AppModel: ObservableObject {
         HealthMonitor.shared.mark("")
         switch result {
         case .success(let photo):
-            AudioServicesPlaySystemSound(1108)      // deklanşör sesi: yalnız fotoğraf gerçekten çekilince
+            // deklanşör sesi: yalnız fotoğraf gerçekten çekilince ve telefon hoparlörüne gitmeyecekse (kulaklık yoksa çalmaz)
+            if AudioRoute.canPlaySound(AudioRoute.currentOutputs()) { AudioServicesPlaySystemSound(1108) }
             lastPhoto = UIImage(data: photo.jpeg)
             lastPhotoInfo = "\(photo.width)×\(photo.height) · \(photo.jpeg.count / 1024) KB · \(reason)"
             let queued = queue.enqueue(jpeg: photo.jpeg, date: photo.date)
@@ -910,7 +926,10 @@ final class AppModel: ObservableObject {
             checkSystem: { [weak self] in await self?.examSystemCheck() ?? "" },
             routeProblem: { AudioRoute.routeWarning(AVAudioSession.sharedInstance().currentRoute.outputs.map { $0.portType }) },
             videoBeginPages: { [weak self] in self?.examVideoBeginPages() },
-            videoAsk: { [weak self] in await self?.examVideoAsk() ?? ("", "uygulama kapandı") })
+            videoAsk: { [weak self] in await self?.examVideoAsk() ?? ("", "uygulama kapandı") },
+            linksLost: { [weak self] in self?.examLinksLost() ?? [] },
+            linkRepairReady: { [weak self] link in self?.examLinkRepairReady(link) ?? false },
+            linkRepair: { [weak self] link in self?.examLinkRepair(link) })
         let ports = ExamPortsReal(hooks: hooks, queue: queue, settings: settings,
                                   docStore: GeminiDocStore(source: FolderClient()), asker: asker)
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -1845,10 +1864,14 @@ final class AppModel: ObservableObject {
     private func checkRoute() {
         let outputs = AVAudioSession.sharedInstance().currentRoute.outputs.map { $0.portType }
         let warning = AudioRoute.routeWarning(outputs)
-        setNotice(.route, warning)
-        if warning.isEmpty {
+        let noHeadset = AudioRoute.phoneSpeakerOnly(outputs)
+        // Telefon hoparlörü hiç kullanılmaz: kulaklık yoksa ses verilmez, ekrana yazılır
+        setNotice(.route, warning.isEmpty ? (noHeadset ? AudioRoute.noHeadsetNotice : "") : warning)
+        // Kestirme: mikrofon alıcısına giden ses her zaman; kulaklık yokluğu yalnız sınav sürerken (yoksa kulaklık takmayan herkese kestirme açılırdı)
+        if warning.isEmpty && !(noHeadset && examActive) {
             routeWarnSince = nil
             routeRepair.reset()
+            examRepairWanted.remove(.audio)
         } else if routeWarnSince == nil {
             routeWarnSince = ProcessInfo.processInfo.systemUptime
         }
@@ -1880,19 +1903,30 @@ final class AppModel: ObservableObject {
         let canRepair = ShortcutLink.url(name: settings.connectionShortcutName) != nil
             && UIApplication.shared.applicationState == .active
         let action = offlineTracker.record(online: online, now: ProcessInfo.processInfo.systemUptime, canRepair: canRepair)
+        if online { internetDown = false }
         switch action {
         case .none:
             break
         case .warn:
+            internetDown = true
             setNotice(.network, "İnternet yok. Fotoğraflar ve videolar telefonda bekliyor, internet gelince kendiliğinden gider.")
-            say("İnternet yok.", interrupt: false, force: true)
+            // Sınav sürerken haberi sınav verir (iki konuşma birbirini kesmesin)
+            if !examActive { say("İnternet yok.", interrupt: false, force: true) }
         case .repair:
-            setNotice(.network, "İnternet yok: bağlantı kestirmesi çalıştırılıyor.")
-            say("İnternet yok, bağlantı kestirmesi çalıştırılıyor.", interrupt: false, force: true)
-            runShortcut(named: settings.connectionShortcutName)
+            internetDown = true
+            if examActive {
+                // Sınav önce sesli haber verir, sonra kestirmeyi o çalıştırır (kestirme programı arka plana atar)
+                setNotice(.network, "İnternet yok: sınav bekletiliyor, bağlantı kestirmesi çalıştırılacak.")
+                examRepairWanted.insert(.internet)
+            } else {
+                setNotice(.network, "İnternet yok: bağlantı kestirmesi çalıştırılıyor.")
+                say("İnternet yok, bağlantı kestirmesi çalıştırılıyor.", interrupt: false, force: true)
+                runShortcut(named: settings.connectionShortcutName)
+            }
         case .recovered:
+            examRepairWanted.remove(.internet)
             setNotice(.network, "")
-            say("İnternet geri geldi.", interrupt: false, force: true)
+            if !examActive { say("İnternet geri geldi.", interrupt: false, force: true) }
             VideoOutbox.shared.flush()
             queue.kick()
         }
@@ -1913,11 +1947,65 @@ final class AppModel: ObservableObject {
         guard started, ShortcutLink.url(name: settings.audioShortcutName) != nil,
               UIApplication.shared.applicationState == .active else { return }
         let now = ProcessInfo.processInfo.systemUptime
+        if examActive {
+            // Sınavda kestirmeyi sınav çalıştırır: önce sesli haber verir, sonra kestirmeye geçer (sınırlayıcı o zaman işler)
+            examRepairWanted.insert(reason == "mikrofon sessiz" ? .mic : .audio)
+            return
+        }
         let allowed = reason == "mikrofon sessiz" ? micRepair.allow(now: now) : routeRepair.allow(now: now)
         guard allowed else { return }
         tlog("[onarım] ses kestirmesi: \(reason)")
         say("Ses sorunu, ses kestirmesi çalıştırılıyor.", interrupt: false, force: true)
         runShortcut(named: settings.audioShortcutName)
+    }
+
+    // MARK: - Sınavda bağlantı kesintisi
+
+    /// Sınav için kesik bağlantılar (önem sırasıyla): ses çıkışı (kulaklık yok ya da ses mikrofon alıcısına gidiyor), mikrofon (90 sn tamamen
+    /// sessiz), internet. Bu yoklama sınav bekleme döngüsünden saniyede birkaç kez gelir; internet yoklaması 15 sn'de bir tetiklenir.
+    private func examLinksLost() -> [ExamLink] {
+        let now = ProcessInfo.processInfo.systemUptime
+        if examActive && now - lastExamProbe >= 15 {
+            lastExamProbe = now
+            netTick()
+        }
+        var lost: [ExamLink] = []
+        let outputs = AudioRoute.currentOutputs()
+        if AudioRoute.phoneSpeakerOnly(outputs) || !AudioRoute.routeWarning(outputs).isEmpty { lost.append(.audio) }
+        if let at = micSilentAt, now - at < 12 { lost.append(.mic) }
+        if internetDown { lost.append(.internet) }
+        return lost
+    }
+
+    /// Kesilen bağlantının kestirmesi şimdi çalıştırılabilir mi
+    private func examLinkRepairReady(_ link: ExamLink) -> Bool {
+        guard started, examRepairWanted.contains(link), UIApplication.shared.applicationState == .active else { return false }
+        let now = ProcessInfo.processInfo.systemUptime
+        switch link {
+        case .internet:
+            return ShortcutLink.url(name: settings.connectionShortcutName) != nil
+        case .mic:
+            return ShortcutLink.url(name: settings.audioShortcutName) != nil && micRepair.wouldAllow(now: now)
+        case .audio:
+            return ShortcutLink.url(name: settings.audioShortcutName) != nil && routeRepair.wouldAllow(now: now)
+        }
+    }
+
+    private func examLinkRepair(_ link: ExamLink) {
+        let now = ProcessInfo.processInfo.systemUptime
+        examRepairWanted.remove(link)
+        switch link {
+        case .internet:
+            runShortcut(named: settings.connectionShortcutName)
+        case .mic:
+            guard micRepair.allow(now: now) else { return }
+            tlog("[onarım] sınav: mikrofon kesintisi, ses kestirmesi")
+            runShortcut(named: settings.audioShortcutName)
+        case .audio:
+            guard routeRepair.allow(now: now) else { return }
+            tlog("[onarım] sınav: ses çıkışı kesintisi, ses kestirmesi")
+            runShortcut(named: settings.audioShortcutName)
+        }
     }
 
     // MARK: - Sınavda video

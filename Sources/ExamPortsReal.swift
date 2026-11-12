@@ -96,6 +96,12 @@ final class ExamPortsReal: ExamPorts {
         var videoBeginPages: () -> Void = {}
         /// Kaydedilen videoyu ayrı istekle Gemini'ye sorar; (cevap, hata)
         var videoAsk: () async -> (answer: String, error: String) = { ("", "") }
+        /// Kesik bağlantılar (ses çıkışı, mikrofon, internet; önem sırasıyla)
+        var linksLost: () -> [ExamLink] = { [] }
+        /// Kesilen bağlantının kestirmesi şimdi çalıştırılabilir mi
+        var linkRepairReady: (ExamLink) -> Bool = { _ in false }
+        /// Kesilen bağlantının kestirmesini çalıştırır
+        var linkRepair: (ExamLink) -> Void = { _ in }
     }
 
     private let hooks: Hooks
@@ -159,6 +165,9 @@ final class ExamPortsReal: ExamPorts {
     func selfCheckOn() -> Bool { return settings.examSelfCheck }
     func checkSystem() async -> String { return await hooks.checkSystem() }
     func routeProblem() -> String { return hooks.routeProblem() }
+    func linksLost() -> [ExamLink] { return hooks.linksLost() }
+    func linkRepairReady(_ link: ExamLink) -> Bool { return hooks.linkRepairReady(link) }
+    func linkRepair(_ link: ExamLink) { hooks.linkRepair(link) }
 
     func sendError() -> String {
         if !folder.isReady { return "Belge klasörü seçilmemiş" }

@@ -58,4 +58,41 @@ final class AudioRouteTests: XCTestCase {
         XCTAssertEqual(SpeechTrigger.restartDelay(base: 0.4, recentRestarts: 50), 30, accuracy: 0.001, "üst sınır 30 sn")
         XCTAssertEqual(SpeechTrigger.restartDelay(base: 10, recentRestarts: 5), 10, "istenen bekleme kısaltılmaz")
     }
+
+    /// Telefon hoparlörü ASLA kullanılmaz (kullanıcı kararı): ses yalnız hoparlör/ahizeye gidiyorsa konuşulmaz
+    func testPhoneSpeakerOnlyDetection() {
+        XCTAssertTrue(AudioRoute.phoneSpeakerOnly([.builtInSpeaker]))
+        XCTAssertTrue(AudioRoute.phoneSpeakerOnly([.builtInReceiver]))
+        XCTAssertTrue(AudioRoute.phoneSpeakerOnly([.builtInSpeaker, .builtInReceiver]))
+        XCTAssertFalse(AudioRoute.phoneSpeakerOnly([.bluetoothA2DP]))
+        XCTAssertFalse(AudioRoute.phoneSpeakerOnly([.headphones]))
+        XCTAssertFalse(AudioRoute.phoneSpeakerOnly([.usbAudio]), "mikrofon alıcısı telefon hoparlörü değildir (ayrı uyarı verilir)")
+        XCTAssertFalse(AudioRoute.phoneSpeakerOnly([.builtInSpeaker, .bluetoothA2DP]), "kulaklık da varsa engellenmez")
+        XCTAssertFalse(AudioRoute.phoneSpeakerOnly([]), "çıkış bilinmiyorsa engellenmez")
+        XCTAssertFalse(AudioRoute.canPlaySound([.builtInSpeaker]))
+        XCTAssertTrue(AudioRoute.canPlaySound([.bluetoothA2DP]))
+    }
+
+    func testSessionOptionsNeverDefaultToTheLoudspeaker() {
+        XCTAssertFalse(AudioRoute.categoryOptions(layout: 0).contains(.defaultToSpeaker))
+        XCTAssertFalse(AudioRoute.categoryOptions(layout: 1).contains(.defaultToSpeaker))
+    }
+
+    func testSpeakerWithholdsSpeechOnPhoneSpeakerButStillReportsEnd() {
+        let speaker = GuidanceSpeaker()
+        speaker.outputAllowed = { false }
+        let ended = expectation(description: "konuşma bitti haberi")
+        var changes: [Bool] = []
+        speaker.onSpeakingChange = { speaking in
+            changes.append(speaking)
+            if !speaking { ended.fulfill() }
+        }
+        speaker.speak("Deneme", interrupt: true)
+        wait(for: [ended], timeout: 3)
+        XCTAssertEqual(changes, [false], "başladı haberi gelmez, bitti haberi hemen gelir (tanıma susturulu kalmasın)")
+        XCTAssertEqual(speaker.withheld, ["Deneme"])
+        XCTAssertTrue(speaker.recent.isEmpty, "söylenmedi")
+        XCTAssertFalse(speaker.endedCleanly)
+        XCTAssertFalse(speaker.isSpeaking)
+    }
 }

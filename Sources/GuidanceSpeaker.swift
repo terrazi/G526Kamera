@@ -12,6 +12,10 @@ final class GuidanceSpeaker: NSObject, AVSpeechSynthesizerDelegate {
     var voiceID = ""
     /// Okuma hızı çarpanı (1 = varsayılan hız)
     var rateFactor = 1.0
+    /// Ses şu an verilebilir mi (varsayılan: çıkış telefon hoparlörü değilse). Telefon hoparlöründen ASLA konuşulmaz.
+    var outputAllowed: () -> Bool = { AudioRoute.canPlaySound(AudioRoute.currentOutputs()) }
+    /// Telefon hoparlörüne gideceği için söylenmeyen son cümleler (tanı ve test için)
+    private(set) var withheld: [String] = []
     /// Son söylenen cümleler (tanı ve test için)
     private(set) var recent: [String] = []
     /// `onSpeakingChange(false)` geldiğinde: konuşma kesilmeden sonuna kadar okundu mu (kesildi, iptal edildi ya da bitiş haberi gelmedi → false).
@@ -43,6 +47,18 @@ final class GuidanceSpeaker: NSObject, AVSpeechSynthesizerDelegate {
         if needsPlaybackSession || !playable {
             try? session.setCategory(.playback, mode: .spokenAudio, options: [.mixWithOthers])
             try? session.setActive(true)
+        }
+        // Ses yalnız telefon hoparlörüne gidecekse hiç söylenmez. Çağıranlar konuşma başlamadan tanımayı susturup "bitti" haberini
+        // bekler: o haber hemen gelir (tanıma açık kalır, bekleyen sınav cümlesi serbest kalır); bitiş "kesildi" sayılır.
+        guard outputAllowed() else {
+            withheld.append(text)
+            if withheld.count > 20 { withheld.removeFirst(withheld.count - 20) }
+            tlog("[konuşma] telefon hoparlörüne gideceği için söylenmedi: \(text.prefix(60))")
+            if inFlight.isEmpty {
+                endedCleanly = false
+                DispatchQueue.main.async { [weak self] in self?.onSpeakingChange?(false) }
+            }
+            return
         }
         let utterance = AVSpeechUtterance(string: text)
         utterance.voice = SpeechVoiceChooser.voice(preferredID: voiceID)

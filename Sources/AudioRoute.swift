@@ -5,12 +5,13 @@ import AVFoundation
 enum AudioRoute {
     /// Bluetooth'un konuşma profili (HFP) bilerek kapalı: açık olsaydı kulaklığın kendi mikrofonu devreye girer
     /// ve kulaklık düşük kaliteli telefon sesine düşerdi. Yalnız A2DP (çıkış) açıktır.
-    static let categoryOptions: AVAudioSession.CategoryOptions = [.mixWithOthers, .defaultToSpeaker, .allowBluetoothA2DP]
+    /// `.defaultToSpeaker` bilerek YOK: kulaklık yokken iOS sesi telefonun hoparlörüne yollamasın (program telefon hoparlörünü hiç kullanmaz)
+    static let categoryOptions: AVAudioSession.CategoryOptions = [.mixWithOthers, .allowBluetoothA2DP]
 
     /// Ses düzeni 1 ("kulaklığın kendi mikrofonu"): Bluetooth konuşma profili (HFP) açılır; kulaklık hem çıkış hem giriş olur
     /// (tek cihaz, çakışma yok; ses telefon görüşmesi kalitesine düşer). Düzen 0 yukarıdaki seçenekleri kullanır.
     static func categoryOptions(layout: Int) -> AVAudioSession.CategoryOptions {
-        return layout == 1 ? [.mixWithOthers, .defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP] : categoryOptions
+        return layout == 1 ? [.mixWithOthers, .allowBluetooth, .allowBluetoothA2DP] : categoryOptions
     }
 
     /// Çıkış yoluna bakıp tek cümlelik ipucu verir ("" = sorun görünmüyor). Lightning/USB mikrofon alıcısı hem giriş hem çıkış
@@ -34,6 +35,26 @@ enum AudioRoute {
         if outputs.contains(where: { $0 == .builtInSpeaker || $0 == .builtInReceiver }) { return "telefon hoparlörü" }
         return "diğer çıkış"
     }
+
+    /// Ses yalnız telefonun kendi hoparlörüne ya da ahizesine gidiyorsa true. Program telefon hoparlöründen ASLA ses vermez
+    /// (kullanıcı kararı): bu durumda konuşma söylenmez, ekrana yazılır. Çıkış listesi boşsa (bilinmiyor) false: engellenmez.
+    static func phoneSpeakerOnly(_ outputs: [AVAudioSession.Port]) -> Bool {
+        guard !outputs.isEmpty else { return false }
+        return outputs.allSatisfy { $0 == .builtInSpeaker || $0 == .builtInReceiver }
+    }
+
+    /// Şu an ses verilebilir mi (telefon hoparlörüne gidiyorsa verilmez)
+    static func canPlaySound(_ outputs: [AVAudioSession.Port]) -> Bool {
+        return !phoneSpeakerOnly(outputs)
+    }
+
+    /// Ses oturumunun şu anki çıkışları
+    static func currentOutputs() -> [AVAudioSession.Port] {
+        return AVAudioSession.sharedInstance().currentRoute.outputs.map { $0.portType }
+    }
+
+    /// Ses yalnız telefon hoparlörüne gidiyorsa ekranda yazan uyarı
+    static let noHeadsetNotice = "Kulaklık bağlı değil: ses telefon hoparlöründen verilmez, söylenecekler ekrana yazılır."
 
     /// Ana ekran uyarısı: yalnız ses mikrofon alıcısına gidiyorsa ("" = uyarı yok; hoparlör kullanımı bilerek olabilir)
     static func routeWarning(_ outputs: [AVAudioSession.Port]) -> String {

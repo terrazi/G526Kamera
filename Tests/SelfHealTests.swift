@@ -134,6 +134,17 @@ final class SelfHealTests: XCTestCase {
         XCTAssertFalse(t.allow(now: 1000), "en çok 3 deneme")
     }
 
+    func testRepairThrottleWouldAllowDoesNotCountATry() {
+        var t = RepairThrottle(cooldown: 180, maxTries: 2)
+        XCTAssertTrue(t.wouldAllow(now: 0))
+        XCTAssertTrue(t.wouldAllow(now: 0), "bakmak deneme saymaz")
+        XCTAssertTrue(t.allow(now: 0))
+        XCTAssertFalse(t.wouldAllow(now: 100), "bekleme süresi dolmadı")
+        XCTAssertTrue(t.wouldAllow(now: 200))
+        XCTAssertTrue(t.allow(now: 200))
+        XCTAssertFalse(t.wouldAllow(now: 1000), "en çok 2 deneme")
+    }
+
     func testRepairThrottleResetAllowsAgain() {
         var t = RepairThrottle(cooldown: 180, maxTries: 1)
         XCTAssertTrue(t.allow(now: 0))
