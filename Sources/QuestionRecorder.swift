@@ -241,9 +241,10 @@ final class QuestionRecorder: QuestionRecording {
     private func startEngine(onStatus: @escaping (String) -> Void) {
         do {
             let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playAndRecord, mode: .default, options: AudioRoute.categoryOptions)
+            let layout = AppSettings.shared.audioLayout
+            try session.setCategory(.playAndRecord, mode: .default, options: AudioRoute.categoryOptions(layout: layout))
             try session.setActive(true)
-            AudioRoute.preferExternalMic(session)
+            AudioRoute.preferExternalMic(session, layout: layout)
 
             let input = engine.inputNode
             let format = input.outputFormat(forBus: 0)

@@ -178,6 +178,8 @@ protocol ExamPorts: AnyObject {
     func selfCheckOn() -> Bool
     /// Açılış sınaması: internet ve Gemini'ye ulaşılıyor mu. Boş = sorun yok, doluysa okunacak sorun metni
     func checkSystem() async -> String
+    /// Ses yanlış yere gidiyorsa (Lightning/USB mikrofon alıcısı) okunacak sorun metni; boş = sorun yok. Düzelene dek sınav başlamaz.
+    func routeProblem() -> String
     func sendError() -> String
     /// since'ten sonra klasöre giden PDF'ler (eskiden yeniye)
     func sent(since: Double) -> [ExamSentFile]
@@ -222,6 +224,7 @@ extension ExamPorts {
     func videoSend() async -> String { return "" }
     func selfCheckOn() -> Bool { return false }
     func checkSystem() async -> String { return "" }
+    func routeProblem() -> String { return "" }
 }
 
 @MainActor
@@ -706,6 +709,13 @@ final class ExamMode: ObservableObject {
             bg { await self.sayNow(why) }
             return false
         }
+        let route = ports.routeProblem()
+        if !route.isEmpty {
+            // Ses mikrofon alıcısına gidiyor: doğru çıkış seçilene dek sınav başlamaz (ekranda da yazar)
+            setStatus(route)
+            bg { await self.sayNow(route) }
+            return false
+        }
         if let saved = savedSummary() {
             st = saved
             hasState = true
@@ -728,6 +738,14 @@ final class ExamMode: ObservableObject {
         if !why.isEmpty {
             // Henüz hazır değil (ör. ses tanıma açılıyor): çağıran birkaç kez yeniden dener; sınama başlamadığı için "yapıldı" sayılmaz
             setStatus(why)
+            return false
+        }
+        let route = ports.routeProblem()
+        if !route.isEmpty {
+            startupDone = true
+            checkProblem = route
+            setStatus(route)
+            bg { await self.sayNow(route) }
             return false
         }
         startupDone = true

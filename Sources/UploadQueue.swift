@@ -198,15 +198,36 @@ final class UploadQueue: ObservableObject {
         }
     }
 
-    /// Sıradaki yüklemeyi hazırlar. PDF modunda toplu gönderimde birçok fotoğraf tek PDF olur
-    /// (en çok ayarlanan sayıda ve 15 MB'a kadar); tek tek modda her fotoğraf kendi PDF'i olur.
+    /// Toplu PDF parçası başına en çok sayfa ve bayt (karar M: ~20 sayfa, ~15 MB; hangisi önce dolarsa)
+    nonisolated static let partMaxPages = 20
+    nonisolated static let partMaxBytes = 15 * 1024 * 1024
+
+    /// Sıradaki PDF parçasında kaç sayfa olsun: toplam sayfa ve bayt sınıra göre parça sayısı yukarı yuvarlanır, sayfalar parçalara
+    /// mümkün olduğunca EŞİT paylaştırılır (70 sayfa, sınır 20 → 18+18+17+17). Kalan sayfalarla yeniden hesaplanınca aynı bölünme çıkar.
+    nonisolated static func nextPartCount(pages: Int, totalBytes: Int, maxPages: Int = partMaxPages, maxBytes: Int = partMaxBytes) -> Int {
+        guard pages > 0 else { return 0 }
+        let byPages = (pages + max(1, maxPages) - 1) / max(1, maxPages)
+        let byBytes = maxBytes > 0 ? (totalBytes + maxBytes - 1) / maxBytes : 1
+        let parts = max(1, byPages, byBytes)
+        return min(pages, (pages + parts - 1) / parts)
+    }
+
+    /// Sıradaki yüklemeyi hazırlar. PDF modunda toplu gönderimde fotoğraflar birkaç PDF parçasına EŞİT sayıda bölünür
+    /// (parça başına en çok 20 sayfa ve 15 MB; ayarda sayfa sayısı verilmişse o); tek tek modda her fotoğraf kendi PDF'i olur.
     private func prepareJob(files: [URL], batch: Bool) -> Job? {
         if !usePDF {
             guard let first = files.first else { return nil }
             return Job(files: [first], name: first.lastPathComponent, payload: .jpeg(first))
         }
-        let limitCount = batch ? (settings.batchSize > 0 ? settings.batchSize : 30) : 1
-        let limitBytes = 15 * 1024 * 1024
+        var limitCount = 1
+        if batch {
+            let cap = settings.batchSize > 0 ? settings.batchSize : UploadQueue.partMaxPages
+            let bytes = files.reduce(0) { sum, url in
+                sum + (((try? fm.attributesOfItem(atPath: url.path))?[.size] as? NSNumber)?.intValue ?? 0)
+            }
+            limitCount = UploadQueue.nextPartCount(pages: files.count, totalBytes: bytes, maxPages: cap)
+        }
+        let limitBytes = UploadQueue.partMaxBytes
         var group: [URL] = []
         var total = 0
         for url in files {

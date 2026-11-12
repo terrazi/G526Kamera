@@ -349,9 +349,10 @@ final class SpeechTrigger {
         guard running else { return }
         do {
             let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playAndRecord, mode: .default, options: AudioRoute.categoryOptions)
+            let layout = AppSettings.shared.audioLayout
+            try session.setCategory(.playAndRecord, mode: .default, options: AudioRoute.categoryOptions(layout: layout))
             try session.setActive(true)
-            AudioRoute.preferExternalMic(session)
+            AudioRoute.preferExternalMic(session, layout: layout)
 
             if engine.isRunning { engine.stop() }
             let input = engine.inputNode

@@ -90,6 +90,8 @@ final class ExamPortsReal: ExamPorts {
         var videoSend: () async -> String = { "" }
         /// Açılış sınaması: internet ve Gemini (boş = sorun yok)
         var checkSystem: () async -> String = { "" }
+        /// Ses yanlış yere gidiyorsa (mikrofon alıcısı) okunacak sorun metni; boş = sorun yok
+        var routeProblem: () -> String = { "" }
     }
 
     private let hooks: Hooks
@@ -150,6 +152,7 @@ final class ExamPortsReal: ExamPorts {
     func videoSend() async -> String { return await hooks.videoSend() }
     func selfCheckOn() -> Bool { return settings.examSelfCheck }
     func checkSystem() async -> String { return await hooks.checkSystem() }
+    func routeProblem() -> String { return hooks.routeProblem() }
 
     func sendError() -> String {
         if !folder.isReady { return "Belge klasörü seçilmemiş" }

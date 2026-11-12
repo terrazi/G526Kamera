@@ -55,11 +55,22 @@ F. [TASLAK] Telefon yükü ilkeleri (ısınma/kasılma): dosyalar RAM'de değil 
 - Kayıt sırasında "durdur/yeter" derse kayıt o an biter ve gönderilir; "iptal/sil" derse silinir, gönderilmez.
 - "Kaydı başlatayım mı?" sorusuna "hayır" derse program bekler; kullanıcı "kaydı başlat" deyince başlar.
 
-## Koddaki mevcut durumdan farklar (revizyonda düzeltilecek)
+## Koddaki mevcut durumdan farklar (2026-11-12: hepsi düzeltildi, bkz. "Uygulama durumu")
 - Sınama şu an sınav başlarken yapılıyor; açılışta yapılacak ve sonucu hatırlanacak.
 - Video şu an "evet" sorulmadan, evrak görününce kendiliğinden başlıyor; evet sorulacak.
 - Videodan sonra "Videoya devam edeyim mi?" döngüsü sınav modunda KALIR (kullanıcı kararı, 2026-11-12: "sorun yok"). Normal video akışı sormaz; yalnız "video sıraya alındı" der.
 - Sınav videosu şu an Gemini isteklerine ekleniyor (son sürümde eklendi); kaldırılacak (D maddesi).
+
+## Uygulama durumu (2026-11-12) — hepsi yalnız CI'da derlendi/sınandı, telefonda DENENMEDİ
+- A, B: açılışta bir kez sınama (ses, mikrofon, internet, Gemini); sorun varsa neden yazılır/söylenir ve sınav başlamaz; tamamsa "Her şey tamam…" denip beklenir. YAPILDI.
+- C: sınav başlatılınca video aşaması: evrak görününce "Kaydı başlatayım mı?"; "evet" ile 30 sn kayıt; "hayır" ise bekler. YAPILDI.
+- D: sınav videosu Gemini isteklerine eklenmez, yalnız belge klasörüne kaydedilir. YAPILDI.
+- M: PDF parçaları eşit sayfa sayılı (örnek 70 sayfa → 18+18+17+17). YAPILDI.
+- O: Ayarlar 4 başlıkta (Kamera / Ses / Gemini / Dosya ve diğer), ilk ekranda kısa durum satırları, her başlıkta temel ayarlar üstte, "Gelişmiş ayarlar" altta. YAPILDI.
+- T: katman 1 (başlangıç sınaması: ses mikrofon alıcısına gidiyorsa sınav başlamaz, nedeni yazılır) ve katman 3 (Ayarlar → Ses → "Ses düzeni": 0 = kulaklık çıkış + harici mikrofon [varsayılan, eski davranış], 1 = kulaklığın kendi mikrofonu) uygulandı. Onay beklediği hâlde ihtiyatlı ve isteğe bağlı kuruldu.
+- Kesin kalkacaklar: Drive (eskiden kalktı), keepLocalCopies, sınav videosunu Gemini'ye ekleme, examGroup/examFetch (grup 10, alma 20 sabit). YAPILDI.
+- YAPILMADI: R ve S (öneri, onay bekliyor); "Sorulacak" listesindeki maddeler (karar yok, dokunulmadı).
+- BIRAKILDI (kullanıcı kararı): kamera çevirme düğmesi, HEVC, iki sayfanın tamamının görünme denetimi.
 
 ## Gereksiz kalanlar taraması (2026-11-12)
 Kesin kalkacak (karar var):

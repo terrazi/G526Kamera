@@ -485,7 +485,7 @@ final class AppModel: ObservableObject {
             cameraKey = cKey
             restartCamera()
         }
-        let sKey = "\(settings.voiceEnabled)|\(settings.triggerWord)|\(settings.guidanceEnabled)|\(settings.finishWord)|\(settings.geminiEnabled)|\(settings.geminiCallWord)|\(settings.geminiProfiles.map { $0.name }.joined(separator: ","))"
+        let sKey = "\(settings.audioLayout)|\(settings.voiceEnabled)|\(settings.triggerWord)|\(settings.guidanceEnabled)|\(settings.finishWord)|\(settings.geminiEnabled)|\(settings.geminiCallWord)|\(settings.geminiProfiles.map { $0.name }.joined(separator: ","))"
         if force || sKey != speechKey {
             speechKey = sKey
             restartSpeech()
@@ -858,7 +858,8 @@ final class AppModel: ObservableObject {
             videoStop: { [weak self] in self?.examVideoStopRecording() },
             videoDiscard: { [weak self] in self?.examVideoDiscard() },
             videoSend: { [weak self] in await self?.examVideoSend() ?? "video yok" },
-            checkSystem: { [weak self] in await self?.examSystemCheck() ?? "" })
+            checkSystem: { [weak self] in await self?.examSystemCheck() ?? "" },
+            routeProblem: { AudioRoute.routeWarning(AVAudioSession.sharedInstance().currentRoute.outputs.map { $0.portType }) })
         let ports = ExamPortsReal(hooks: hooks, queue: queue, settings: settings,
                                   docStore: GeminiDocStore(source: FolderClient()), asker: asker)
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]

@@ -1,4 +1,5 @@
 import SwiftUI
+import AVFoundation
 
 struct SettingsView: View {
     @EnvironmentObject var model: AppModel
@@ -12,38 +13,16 @@ struct SettingsView: View {
     var body: some View {
         NavigationView {
             Form {
-                cameraSection
-                Section(header: Text("Bağlantılar")) {
-                    NavigationLink(destination: geminiPage) {
-                        HStack {
-                            Text("Gemini ve API anahtarları")
-                            if !settings.geminiPrivacyOK {
-                                Spacer()
-                                Text("gizlilik onayı gerekli").font(.footnote).foregroundColor(.orange)
-                            }
-                        }
-                    }
-                    HelpRow("Gemini API anahtarınızı ve gizlilik onayını buradan girersiniz. Diğer bütün ayarlar “Gelişmiş ayarlar” içindedir; varsayılan değerlerle çalışır, değiştirmeniz gerekmez.")
-                }
-                soundSection
-                DocumentFolderSection()
-                Section {
-                    NavigationLink(destination: advancedPage) {
-                        Text("Gelişmiş ayarlar")
-                    }
-                }
-                Section {
-                    NavigationLink(destination: DiagnosticsView()) {
-                        Text("Tanı ve günlük")
-                    }
-                    HStack {
-                        Text("Sürüm")
-                        Spacer()
-                        Text(BuildInfo.version)
-                            .font(.footnote)
-                            .foregroundColor(.secondary)
-                            .textSelection(.enabled)
-                    }
+                Section(header: Text("Ayarlar")) {
+                    NavigationLink(destination: cameraPage) { statusRow("Kamera", cameraStatus) }
+                        .accessibilityIdentifier("ayar-kamera")
+                    NavigationLink(destination: soundPage) { statusRow("Ses", soundStatus) }
+                        .accessibilityIdentifier("ayar-ses")
+                    NavigationLink(destination: geminiPage) { statusRow("Gemini", geminiStatus, warn: !settings.geminiPrivacyOK || settings.activeGeminiProfile.key.isEmpty) }
+                        .accessibilityIdentifier("ayar-gemini")
+                    NavigationLink(destination: filesPage) { statusRow("Dosya ve diğer", filesStatus, warn: !DocumentFolder.shared.hasChoice) }
+                        .accessibilityIdentifier("ayar-dosya")
+                    HelpRow("Ayarlar dört başlıkta toplanır. Her başlıkta önce temel ayarlar, altta “Gelişmiş ayarlar” vardır; varsayılan değerlerle çalışır, değiştirmeniz gerekmez. İlk kurulumda yalnız Gemini anahtarını ve belge klasörünü girmeniz yeter.")
                 }
             }
             .navigationTitle("Ayarlar")
@@ -75,31 +54,128 @@ struct SettingsView: View {
         }
     }
 
-    /// Gemini bölümleri (sesle soru, model profilleri ve API anahtarları)
+    // MARK: Dört başlık (karar O): Kamera, Ses, Gemini, Dosya ve diğer
+
+    private func statusRow(_ title: String, _ status: String, warn: Bool = false) -> some View {
+        HStack {
+            Text(title)
+            Spacer()
+            Text(status)
+                .font(.footnote)
+                .foregroundColor(warn ? .orange : .secondary)
+                .multilineTextAlignment(.trailing)
+        }
+    }
+
+    private var cameraStatus: String { return model.cameraState.isLive ? "bağlı" : "bağlı değil" }
+
+    private var soundStatus: String {
+        let outputs = AVAudioSession.sharedInstance().currentRoute.outputs.map { $0.portType }
+        return AudioRoute.outputName(outputs)
+    }
+
+    private var geminiStatus: String {
+        if settings.activeGeminiProfile.key.isEmpty { return "anahtar yok" }
+        return settings.geminiPrivacyOK ? "anahtar var" : "gizlilik onayı gerekli"
+    }
+
+    private var filesStatus: String { return DocumentFolder.shared.hasChoice ? "klasör seçildi" : "klasör seçilmedi" }
+
+    private func advancedLink<D: View>(_ destination: D) -> some View {
+        Section {
+            NavigationLink(destination: destination) { Text("Gelişmiş ayarlar") }
+        }
+    }
+
+    /// 1) Kamera: bağlantı ve temel ayarlar; gelişmiş: fotoğraf, otomatik çekim, sesli konumlandırma, pil ve ısınma
+    private var cameraPage: some View {
+        Form {
+            cameraSection
+            advancedLink(cameraAdvancedPage)
+        }
+        .navigationTitle("Kamera")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private var cameraAdvancedPage: some View {
+        Form {
+            photoSection
+            motionSection
+            guidanceSection
+            powerSection
+        }
+        .navigationTitle("Kamera: gelişmiş")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    /// 2) Ses: çıkış, ses düzeni, deneme; gelişmiş: sesli komut ve okuma sesi
+    private var soundPage: some View {
+        Form {
+            soundSection
+            advancedLink(soundAdvancedPage)
+        }
+        .navigationTitle("Ses")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private var soundAdvancedPage: some View {
+        Form {
+            voiceSection
+            readingVoiceSection
+        }
+        .navigationTitle("Ses: gelişmiş")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    /// 3) Gemini: gizlilik onayı, sesle soru, model profilleri ve API anahtarları, video gönderimi; gelişmiş: deneme sınavı
     private var geminiPage: some View {
         Form {
             geminiPrivacySection
             geminiSection
             geminiModelsSection
+            advancedLink(geminiAdvancedPage)
         }
         .navigationTitle("Gemini")
         .navigationBarTitleDisplayMode(.inline)
     }
 
-    /// Eski ayarların hepsi (değerleri aynen korunur); ilk ekranda görünmesin diye burada toplanır
-    private var advancedPage: some View {
+    private var geminiAdvancedPage: some View {
         Form {
-            voiceSection
-            readingVoiceSection
             examSection
-            guidanceSection
-            photoSection
-            powerSection
-            motionSection
+        }
+        .navigationTitle("Gemini: gelişmiş")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    /// 4) Dosya ve diğer: belge klasörü, tanı ve günlük, sürüm; gelişmiş: kaydetme ve kestirmeler
+    private var filesPage: some View {
+        Form {
+            DocumentFolderSection()
+            Section {
+                NavigationLink(destination: DiagnosticsView()) {
+                    Text("Tanı ve günlük")
+                }
+                HStack {
+                    Text("Sürüm")
+                    Spacer()
+                    Text(BuildInfo.version)
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                        .textSelection(.enabled)
+                }
+            }
+            advancedLink(filesAdvancedPage)
+        }
+        .navigationTitle("Dosya ve diğer")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private var filesAdvancedPage: some View {
+        Form {
             saveSection
             selfHealSection
         }
-        .navigationTitle("Gelişmiş ayarlar")
+        .navigationTitle("Dosya: gelişmiş")
         .navigationBarTitleDisplayMode(.inline)
     }
 
@@ -127,12 +203,16 @@ struct SettingsView: View {
                 RoutePickerButton()
                     .frame(width: 36, height: 36)
             }
+            Picker("Ses düzeni", selection: $settings.audioLayout) {
+                Text("Kulaklık çıkış + harici mikrofon").tag(0)
+                Text("Kulaklığın kendi mikrofonu").tag(1)
+            }
             Button("Sesi dene") { voiceTestResult = model.testVoice() }
                 .accessibilityIdentifier("sesi-dene")
             if !voiceTestResult.isEmpty {
                 Text(voiceTestResult).font(.footnote).foregroundColor(.secondary)
             }
-            HelpRow("Kulaklıktan dinlemek için ses çıkışı düğmesine basıp kulaklığınızı seçin. “Sesi dene” sesin hangi çıkışa ve hangi mikrofona gittiğini yazar.")
+            HelpRow("Kulaklıktan dinlemek için ses çıkışı düğmesine basıp kulaklığınızı seçin. “Sesi dene” sesin hangi çıkışa ve hangi mikrofona gittiğini yazar. Ses düzeni: “Kulaklık çıkış + harici mikrofon” (varsayılan) sesi Bluetooth kulaklıktan verir, soruyu telefona takılı harici mikrofondan alır; “Kulaklığın kendi mikrofonu” soruyu kulaklığın mikrofonundan alır (kulaklık bu durumda daha düşük ses kalitesine geçer). Değişiklik sesli komut dinleyicisi yeniden kurulunca geçerli olur.")
         }
     }
 

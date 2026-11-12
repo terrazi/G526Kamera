@@ -48,6 +48,10 @@ private final class FakePorts: ExamPorts {
     /// Gemini'ye doğrudan giden ses kayıtları
     var freeAudio: [Data] = []
 
+    /// Ses yolu sorunu (mikrofon alıcısına gidiyor): boş = sorun yok
+    var routeProblemText = ""
+    func routeProblem() -> String { return routeProblemText }
+
     /// Açılış sınaması
     var checkOn = false
     var systemProblem = ""
@@ -1054,6 +1058,38 @@ final class ExamModeTests: XCTestCase {
         let told = await until { self.spoke(p, "Önce hazırlık sınamasını tamamlayalım.") }
         XCTAssertTrue(told, "\(p.spoken)")
         await finish(exam)
+    }
+
+    // MARK: Ses yolu (T): ses mikrofon alıcısına gidiyorsa sınav başlamaz
+
+    func testExamDoesNotStartWhileSoundGoesToTheMicReceiver() async {
+        let p = FakePorts()
+        p.routeProblemText = "Ses mikrofon alıcısına gidiyor, kulaklıktan duyulmaz. Ses çıkışı simgesinden kulaklığı seçin."
+        let exam = make(p)
+        XCTAssertFalse(exam.start())
+        let told = await until { self.spoke(p, "Ses mikrofon alıcısına gidiyor") }
+        XCTAssertTrue(told, "\(p.spoken)")
+        XCTAssertTrue(exam.status.contains("Ses mikrofon alıcısına gidiyor"), exam.status)
+        XCTAssertFalse(exam.active)
+        // Doğru çıkış seçilince sınav başlar
+        p.routeProblemText = ""
+        XCTAssertTrue(exam.start())
+        let scanning = await until { exam.status == "Tarama: 0 sayfa" }
+        XCTAssertTrue(scanning, "\(p.spoken) / \(exam.status)")
+        await finish(exam)
+    }
+
+    func testStartupCheckReportsRouteProblemAndDoesNotRetry() async {
+        let p = FakePorts()
+        p.checkOn = true
+        p.routeProblemText = "Ses mikrofon alıcısına gidiyor, kulaklıktan duyulmaz."
+        let exam = make(p)
+        XCTAssertFalse(exam.startupCheck())
+        XCTAssertTrue(exam.startupFinished, "sorun söylendi; açılışta tekrar tekrar denenmez")
+        XCTAssertFalse(exam.startupReady)
+        let told = await until { self.spoke(p, "Ses mikrofon alıcısına gidiyor") }
+        XCTAssertTrue(told, "\(p.spoken)")
+        XCTAssertFalse(spoke(p, "Her şey tamam"))
     }
 
     // MARK: Cevap anahtarı

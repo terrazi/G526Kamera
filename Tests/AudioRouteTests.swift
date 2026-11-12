@@ -18,6 +18,29 @@ final class AudioRouteTests: XCTestCase {
         XCTAssertTrue(AudioRoute.outputHint([.builtInSpeaker]).contains("hoparlör"))
     }
 
+    /// Ses düzeni (T): 0 varsayılan (Bluetooth yalnız çıkış), 1 kulaklığın kendi mikrofonu (konuşma profili açık)
+    func testAudioLayoutOptions() {
+        XCTAssertEqual(AudioRoute.categoryOptions(layout: 0), AudioRoute.categoryOptions)
+        XCTAssertFalse(AudioRoute.categoryOptions(layout: 0).contains(.allowBluetooth))
+        XCTAssertTrue(AudioRoute.categoryOptions(layout: 1).contains(.allowBluetooth))
+        XCTAssertTrue(AudioRoute.categoryOptions(layout: 1).contains(.allowBluetoothA2DP))
+        XCTAssertEqual(AudioRoute.categoryOptions(layout: 7), AudioRoute.categoryOptions, "bilinmeyen düzen varsayılana düşer")
+    }
+
+    func testOutputNameForSettingsStatusRow() {
+        XCTAssertEqual(AudioRoute.outputName([.bluetoothA2DP]), "kulaklık")
+        XCTAssertEqual(AudioRoute.outputName([.headphones]), "kulaklık")
+        XCTAssertEqual(AudioRoute.outputName([.builtInSpeaker]), "telefon hoparlörü")
+        XCTAssertTrue(AudioRoute.outputName([.usbAudio]).contains("kulaklık değil"))
+        XCTAssertEqual(AudioRoute.outputName([]), "çıkış yok")
+    }
+
+    func testRouteWarningOnlyForReceiver() {
+        XCTAssertFalse(AudioRoute.routeWarning([.usbAudio]).isEmpty)
+        XCTAssertEqual(AudioRoute.routeWarning([.bluetoothA2DP]), "")
+        XCTAssertEqual(AudioRoute.routeWarning([.builtInSpeaker]), "", "hoparlör bilerek seçilmiş olabilir: sınavı engellemez")
+    }
+
     func testNoHintWithoutOutputs() {
         XCTAssertEqual(AudioRoute.outputHint([]), "")
     }

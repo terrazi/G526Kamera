@@ -131,6 +131,8 @@ final class AppSettings: ObservableObject {
     /// "Tamam" modunda konuşmadan sonra bu kadar saniye sessizlik olursa kayıt kendiliğinden biter (5-60)
     @Published var listenSilence: Int { didSet { d.set(listenSilence, forKey: "listenSilence") } }
     /// Belgelerin ve ses kaydının Google'a gönderileceğinin onayı (onay olmadan soru sorulmaz)
+    /// Ses düzeni: 0 = kulaklık çıkış + harici mikrofon (varsayılan), 1 = kulaklığın kendi mikrofonu
+    @Published var audioLayout: Int { didSet { d.set(audioLayout, forKey: "audioLayout") } }
     @Published var geminiPrivacyOK: Bool { didSet { d.set(geminiPrivacyOK, forKey: "geminiPrivacyOK") } }
     /// Gemini'ye gönderilecek en yeni PDF sayısı
     @Published var geminiDocCount: Int { didSet { d.set(geminiDocCount, forKey: "geminiDocCount") } }
@@ -247,6 +249,7 @@ final class AppSettings: ObservableObject {
         geminiThinking = AppSettings.validThinking(d.string(forKey: "geminiThinking"))
         listenEnd = (d.string(forKey: "listenEnd") == "silence") ? "silence" : "word"
         listenSilence = min(max(d.object(forKey: "listenSilence") as? Int ?? 15, 5), 60)
+        audioLayout = d.object(forKey: "audioLayout") as? Int == 1 ? 1 : 0
         // Kullanıcı kararı: gizlilik onayı varsayılan olarak işaretli gelir (her kurulumda yeniden işaretlemek zorunda kalınmasın)
         geminiPrivacyOK = d.object(forKey: "geminiPrivacyOK") as? Bool ?? true
         geminiDocCount = min(max(d.object(forKey: "geminiDocCount") as? Int ?? 3, 1), GeminiConfig.maxPages)
