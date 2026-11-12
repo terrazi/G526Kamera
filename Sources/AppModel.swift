@@ -424,6 +424,12 @@ final class AppModel: ObservableObject {
             }
             .store(in: &cancellables)
 
+        settings.$guidanceAutoPick
+            .sink { [weak self] _ in
+                Task { @MainActor in self?.updateGuidance() }
+            }
+            .store(in: &cancellables)
+
         settings.$videoGuidance
             .sink { [weak self] _ in
                 Task { @MainActor in self?.updateGuidance() }
@@ -826,6 +832,7 @@ final class AppModel: ObservableObject {
         guidance.sharpFloor = floors[min(max(settings.guidanceSharpness, 0), 2)]
         guidance.config.glareLimit = settings.guidanceGlare ? 0.04 : 2
         guidance.describeScene = settings.guidanceDescribe
+        guidance.config.autoPick = settings.guidanceAutoPick
         // Kâğıt kenarları yalnız tarifte kullanılır: tarif kapalıysa Vision hiç çalıştırılmaz (ısınma)
         pipeline.pageEdgesOn = settings.guidanceDescribe && settings.guidancePageEdges
         pipeline.configureMotion(enabled: settings.motionEnabled && !guidanceWanted,
@@ -1175,7 +1182,7 @@ final class AppModel: ObservableObject {
 
     private func voiceChoice(_ name: String) {
         // Soru bekleniyorken ya da bir seçim varken (seçimi değiştirmek için) kabul edilir
-        guard guidance.awaitingChoice || guidance.choice != nil else {
+        guard guidance.awaitingChoice || guidance.choice != nil || guidance.pendingPick != nil else {
             guidanceNotice = "Şu an seçim gerekmiyor"
             return
         }

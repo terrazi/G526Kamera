@@ -1125,6 +1125,11 @@ struct GuidanceConfig {
     var trendWindow: TimeInterval = 15
     /// Karşılaştırma noktası bu kadar saniyede bir yenilenir (yavaş kayma birikebilsin, ama nokta eskimesin)
     var trendRebase: TimeInterval = 4
+    /// Kadrajda tam olarak bir bölüm dört kenardan da içerideyse "Sol mu, sağ mı?" diye sormadan o bölüm seçilir (ayardan gelir)
+    var autoPick = false
+    /// Otomatik seçilecek bölümün en az yazı hücresi ve eni (kadraj oranı): küçük bir yazı parçası (sayfa numarası, başlık) seçilmesin
+    var autoPickMinCells = 150
+    var autoPickMinWidth = 0.15
 }
 
 struct GuidanceDecision: Equatable {
@@ -1139,6 +1144,8 @@ struct GuidanceDecision: Equatable {
     /// Yazı iki kenara birden dayalıysa (köşe) ikinci yön ve kaydırması: "sola ve yukarı"
     var also: GuidanceAdvice?
     var alsoShift = 0.0
+    /// Soru sorulmadan kendiliğinden seçilen bölüm (kadrajda biri tam sığıyor, diğerleri kesik); sorulmuş/seçilmişse nil
+    var picked: ColumnChoice?
 }
 
 /// Ölçülerden öneri çıkarır (saf fonksiyon; birim testle denenir).
@@ -1147,19 +1154,42 @@ enum GuidanceAdvisor {
         return n >= 3 ? [.left, .middle, .right, .all] : [.left, .right, .all]
     }
 
+    /// Dört kenardan da içeride (kadraj payı ve saat bandı payıyla) belirgin boyutta TEK bölüm varsa onun seçimi; yoksa nil.
+    /// Bölümler soldan sağadır; en soldaki `.left`, en sağdaki `.right`, üç bölümde ortadaki `.middle` (dört ve üstünde ortadakiler seçilemez).
+    static func fittingChoice(_ cols: [ColumnBox], config c: GuidanceConfig) -> ColumnChoice? {
+        guard cols.count >= 2 else { return nil }
+        var fitting: [Int] = []
+        for (i, b) in cols.enumerated() {
+            let inside = b.x0 >= c.edgeMargin && b.x1 <= 1 - c.edgeMargin
+                && b.y0 - c.topBand >= c.edgeMargin && b.y1 <= 1 - c.edgeMargin
+            if inside && b.cells >= c.autoPickMinCells && b.x1 - b.x0 >= c.autoPickMinWidth { fitting.append(i) }
+        }
+        guard fitting.count == 1, let i = fitting.first else { return nil }
+        if i == 0 { return .left }
+        if i == cols.count - 1 { return .right }
+        return cols.count == 3 ? .middle : nil
+    }
+
+    /// `skipping`: en son çekilen bölüm; kendiliğinden seçimde tekrar seçilmez (aynı bölümü ikinci kez çekmemek için soru sorulur).
     static func decide(_ m: PageMetrics, choice: ColumnChoice?, config c: GuidanceConfig = GuidanceConfig(),
-                       sharpFloor: Double) -> GuidanceDecision {
+                       sharpFloor: Double, skipping: ColumnChoice? = nil) -> GuidanceDecision {
         if !m.hasText { return GuidanceDecision(advice: m.hasPage ? .blurry : .noText) }
         // Yazıya benzemeyen desen (çizgili kumaş, tablo çizgisi…) belge sayılmaz
         if DocumentGate.verdict(m) != .document { return GuidanceDecision(advice: .noText) }
         let cols = m.columns
         if cols.count >= 2 {
             let allFit = cols.allSatisfy { $0.x0 >= c.edgeMargin && $0.x1 <= 1 - c.edgeMargin }
+            var chosen = choice
+            var picked: ColumnChoice?
             if !allFit && choice == nil {
-                return GuidanceDecision(advice: .chooseColumn, options: options(forColumnCount: cols.count))
+                guard c.autoPick, let p = fittingChoice(cols, config: c), p != skipping else {
+                    return GuidanceDecision(advice: .chooseColumn, options: options(forColumnCount: cols.count))
+                }
+                chosen = p
+                picked = p
             }
             var targets = cols
-            switch choice {
+            switch chosen {
             case .some(.left):
                 if let t = cols.min(by: { $0.x0 < $1.x0 }) { targets = [t] }
             case .some(.right):
@@ -1171,12 +1201,13 @@ enum GuidanceAdvisor {
             }
             let frac = Double(targets.count) / Double(cols.count)
             let sharp = targets.count == 1 ? targets[0].sharp : m.sharp
-            let r = evaluateDetailed(x0: targets.map { $0.x0 }.min() ?? 0,
+            var r = evaluateDetailed(x0: targets.map { $0.x0 }.min() ?? 0,
                                      x1: targets.map { $0.x1 }.max() ?? 1,
                                      y0: targets.map { $0.y0 }.min() ?? 0,
                                      y1: targets.map { $0.y1 }.max() ?? 1,
                                      cells: targets.reduce(0) { $0 + $1.cells },
                                      sharp: sharp, frac: frac, glare: m.glare, config: c, sharpFloor: sharpFloor)
+            r.picked = picked
             return r
         }
         // Tek bölüm (ya da bölünemedi): bütün yazı bloğu
@@ -1315,6 +1346,11 @@ final class GuidanceEngine {
     private var lastScene: String?
     private var toldScene: String?
     private var vToldScene: String?
+    /// Soru sorulmadan kendiliğinden seçilen bölüm (son kararda) ve bu sayfa için söylenen seçim (bir kez söylenir)
+    private var lastPick: ColumnChoice?
+    private var toldPick: ColumnChoice?
+    /// Kendiliğinden seçilmiş bölüm şu an çekilmeyi bekliyor (kullanıcı "sağ" / "ikisi birden" diyerek değiştirebilir)
+    var pendingPick: ColumnChoice? { return armed ? lastPick : nil }
     /// Son sorulan / sorulabilecek seçenekler (bölüm sayısına göre sol-sağ ya da sol-orta-sağ)
     var currentOptions: [ColumnChoice] { return lastOptions.isEmpty ? [.left, .right, .all] : lastOptions }
 
@@ -1339,6 +1375,8 @@ final class GuidanceEngine {
         lastQuestionTime = -1000
         trendTracker.reset()
         toldScene = nil
+        toldPick = nil
+        lastPick = nil
     }
 
     /// Çekim başarısız oldu / yapılamadı: yeniden denenebilsin.
@@ -1453,6 +1491,20 @@ final class GuidanceEngine {
         case .glare: return "Sayfada parlama var. Kamerayı biraz eğin ya da ışığı değiştirin."
         case .ok: return "Çekiyorum."
         }
+    }
+
+    /// Kendiliğinden seçilen bölümün duyurusu: "Soldaki bölüm tam sığıyor, onu çekiyorum." Kadraj tarifi açıksa tarif başa gelir.
+    func pickAnnouncement(_ pick: ColumnChoice) -> String {
+        let names: (adjective: String, accusative: String)
+        switch pick {
+        case .left: names = ("Soldaki", "Soldakini")
+        case .right: names = ("Sağdaki", "Sağdakini")
+        case .middle: names = ("Ortadaki", "Ortadakini")
+        case .all: names = ("Hepsi", "Hepsini")
+        }
+        let act = autoCapture ? "çekiyorum" : "çekmek için \(triggerWord) deyin"
+        if describeScene, let sc = lastScene { return "\(sc) \(names.accusative) \(act)." }
+        return "\(names.adjective) bölüm tam sığıyor, onu \(act)."
     }
 
     func statusText(for advice: GuidanceAdvice) -> String {
@@ -1589,7 +1641,9 @@ final class GuidanceEngine {
                           awaitingChoice: awaitingChoice, options: lastOptions)
         }
 
-        let d = GuidanceAdvisor.decide(metrics, choice: forcedChoice ?? choice, config: config, sharpFloor: sharpFloor)
+        let d = GuidanceAdvisor.decide(metrics, choice: forcedChoice ?? choice, config: config, sharpFloor: sharpFloor,
+                                       skipping: lastCaptured)
+        lastPick = d.picked
         lastFill = d.fill
         lastScale = d.scale
         lastShift = d.shift
@@ -1632,7 +1686,11 @@ final class GuidanceEngine {
             // Tarif açıksa ve bu sayfa için henüz söylenmediyse, düzeltme gerekmese de kadrajda ne olduğu bir kez söylenir.
             if d.advice == .ok && consecutive == 1 {
                 let hold = autoCapture ? "" : " " + capitalised("\(triggerWord) deyin.")
-                if lastSpoken != nil {
+                if let pick = d.picked, pick != toldPick {
+                    // Soru sorulmadı: tam sığan bölüm seçildi, hangisinin çekildiği söylenir
+                    out.speak = (lastSpoken != nil ? "Tamam. " : "") + pickAnnouncement(pick)
+                    toldPick = pick
+                } else if lastSpoken != nil {
                     if let sc = lastScene, describeScene {
                         out.speak = "Tamam. " + sc + hold
                     } else {
@@ -1654,7 +1712,7 @@ final class GuidanceEngine {
                 armed = false
                 consecutive = 0
                 last = nil
-                lastCaptured = (metrics.columns.count >= 2) ? choice : nil
+                lastCaptured = (metrics.columns.count >= 2) ? (choice ?? d.picked) : nil
                 choice = nil
             }
             return out
