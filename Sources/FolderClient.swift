@@ -13,15 +13,6 @@ enum UploadPayload {
     /// Kısa video (H.264 MP4); dosya olduğu gibi kaydedilir
     case video(URL)
 
-    var mime: String {
-        switch self {
-        case .jpeg: return "image/jpeg"
-        case .pdf: return "application/pdf"
-        case .text: return "text/plain"
-        case .video: return "video/mp4"
-        }
-    }
-
     /// Belge klasöründeki dosya uzantısı
     var ext: String {
         switch self {

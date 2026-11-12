@@ -253,8 +253,6 @@ final class VideoOutbox {
         return recordingDir.appendingPathComponent(name)
     }
 
-    var pendingCount: Int { return pendingFiles().count }
-
     private func pendingFiles() -> [URL] {
         let urls = (try? fm.contentsOfDirectory(at: pendingDir, includingPropertiesForKeys: nil)) ?? []
         return urls.filter { $0.pathExtension.lowercased() == "mp4" }.sorted { $0.lastPathComponent < $1.lastPathComponent }

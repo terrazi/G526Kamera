@@ -268,8 +268,6 @@ final class ExamMode: ObservableObject {
     private var freeActive = false
     private var freeRestart = false
     private var freeTask: Task<Void, Never>?
-    /// "Dinle" etkinken true: akıştaki sonraki cümleler konuşma bitene kadar bekler
-    var freeSpeaking: Bool { return freeActive }
 
     init(ports: ExamPorts, settings: @escaping () -> ExamSettings, directory: URL?,
          now: @escaping () -> Double = { Date().timeIntervalSince1970 },

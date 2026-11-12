@@ -18,8 +18,6 @@ struct GeminiProfileInfo: Equatable {
     var free: Bool
 
     var usable: Bool { return !key.trimmed.isEmpty && !model.trimmed.isEmpty }
-    /// Sesli söylenişi: "Pro, ücretli"
-    var spokenName: String { return "\(name), \(free ? "ücretsiz" : "ücretli")" }
 }
 
 enum GeminiProfiles {

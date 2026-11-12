@@ -38,7 +38,6 @@ final class AppModel: ObservableObject {
     let queue = UploadQueue.shared
     /// Belge klasörü seçilmiş mi (kayıtlar ancak o zaman yazılabilir)
     var folderReady: Bool { return DocumentFolder.shared.hasChoice }
-    let logStore = AppLog.shared
 
     @Published private(set) var cameraState: CameraState = .stopped
     @Published private(set) var resolutionText = ""

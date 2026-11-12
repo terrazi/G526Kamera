@@ -186,7 +186,6 @@ enum CameraCommand {
     }
 
     static func deviceInfo() -> String { return object([("cmd", "GetDevInfo")]) }
-    static func streamInfo() -> String { return object([("cmd", "GetDevStream")]) }
 
     /// state: 0 kapat, 1 ana akış (1920x1080), 2 alt akış (640x360)
     static func openVideo(state: Int, password: String, stream: Int, userID: Int) -> String {

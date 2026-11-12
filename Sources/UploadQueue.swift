@@ -34,9 +34,6 @@ final class UploadQueue: ObservableObject {
     /// Klasöre kaydedilen PDF'ler (eskiden yeniye; diskte tutulur, en çok 200)
     private(set) var sentLog: [ExamSentFile] = []
     private let sentLogURL: URL
-    /// Art arda başarısız yükleme sayısı
-    var failureCount: Int { return failures }
-
     init() {
         let manager = FileManager.default
         let support = manager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
