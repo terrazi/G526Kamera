@@ -368,6 +368,12 @@ final class AppModel: ObservableObject {
             }
             .store(in: &cancellables)
 
+        settings.$guidanceFrame
+            .sink { [weak self] _ in
+                Task { @MainActor in self?.updateGuidance() }
+            }
+            .store(in: &cancellables)
+
         settings.$guidanceGlare
             .sink { [weak self] _ in
                 Task { @MainActor in self?.updateGuidance() }
@@ -726,6 +732,7 @@ final class AppModel: ObservableObject {
         let on = started && guidanceWanted
         pipeline.guidanceOn = on
         guidance.orientation = settings.imageOrientation
+        guidance.config.frame = settings.guidanceFrame == 1 ? PageFrame.verticalPage(orientation: settings.imageOrientation) : .full
         // dik çevrilmiş görüntüde sesli seçim "sol/sağ" yerine "üst/alt" dinler
         if settings.imageOrientation.isQuarterTurn != speechQuarterTurn {
             speechQuarterTurn = settings.imageOrientation.isQuarterTurn

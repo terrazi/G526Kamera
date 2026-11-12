@@ -64,6 +64,8 @@ final class AppSettings: ObservableObject {
     @Published var guidanceAutoCapture: Bool { didSet { d.set(guidanceAutoCapture, forKey: "guidanceAutoCapture") } }
     /// Görüntü yönü: önizleme, fotoğraf/PDF, video ve sesli yönlendirme bu yöne göre çevrilir
     @Published var imageOrientation: ImageOrientation { didSet { d.set(imageOrientation.rawValue, forKey: "imageOrientation") } }
+    /// Yönlendirmenin hedef kadrajı: 1 = dikey tam sayfa (varsayılan), 0 = bütün kare
+    @Published var guidanceFrame: Int { didSet { d.set(guidanceFrame, forKey: "guidanceFrame") } }
     /// 0 = gevşek, 1 = normal, 2 = sıkı netlik isteği
     @Published var guidanceSharpness: Int { didSet { d.set(guidanceSharpness, forKey: "guidanceSharpness") } }
     /// Sayfada parlama lekesi varsa uyar (birkaç uyarıdan sonra yine de çeker)
@@ -199,6 +201,7 @@ final class AppSettings: ObservableObject {
         statusNotices = d.object(forKey: "statusNotices") as? Bool ?? true
         guidanceAutoCapture = d.object(forKey: "guidanceAutoCapture") as? Bool ?? true
         imageOrientation = AppSettings.migratedOrientation(d)
+        guidanceFrame = d.object(forKey: "guidanceFrame") as? Int ?? 1
         guidanceSharpness = d.object(forKey: "guidanceSharpness") as? Int ?? 1
         guidanceGlare = d.object(forKey: "guidanceGlare") as? Bool ?? true
         finishWord = d.string(forKey: "finishWord") ?? "hepsi tamamlandı"

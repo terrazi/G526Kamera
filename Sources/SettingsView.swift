@@ -379,6 +379,10 @@ struct SettingsView: View {
             Toggle("Uyarıları sesli söyle", isOn: $settings.guidanceVoice)
             Toggle("Kamera ve gönderim durumunu da söyle", isOn: $settings.statusNotices)
             Toggle("Konum uygunsa kendiliğinden çek", isOn: $settings.guidanceAutoCapture)
+            Picker("Kadraj", selection: $settings.guidanceFrame) {
+                Text("Dikey tam sayfa").tag(1)
+                Text("Bütün kare").tag(0)
+            }
             Picker("Netlik isteği", selection: $settings.guidanceSharpness) {
                 Text("Gevşek").tag(0)
                 Text("Normal").tag(1)
@@ -387,6 +391,7 @@ struct SettingsView: View {
             Toggle("Parlama uyarısı", isOn: $settings.guidanceGlare)
             TextField("Bitirme sözcüğü", text: $settings.finishWord)
                 .disableAutocorrection(true)
+            HelpRow("Kadraj: “Dikey tam sayfa” seçiliyken yönlendirme, hedefi dikey bir tam sayfa sayar (A4 gibi; kamera karesi yataydır, bu yüzden sayfa karenin ortasındaki dikey bölümü kaplar). Sayfanın yazısı bu kadrajın içinde, yeterince büyük ve ortada olunca “tamam” der; kadrajın dışına taşarsa kaydırma, kadraja sığmazsa uzaklaşma önerir. Fotoğraf bu kadraja kırpılmaz, kamera karesinin tamamı çekilir. “Bütün kare” eski davranıştır: yazı bütün kareye göre ölçülür. Görüntü yönünü 90° çevirdiyseniz kadraj buna göre kendiliğinden uyar.")
             HelpRow("Program sayfayı ölçer ve “biraz sağa”, “yukarı”, “uzaklaş”, “yaklaş” gibi sesli yönlendirir; konum uygun olunca birkaç kareyi seri çekip en netini alır. Kadrajda birden çok sütun ya da yan yana sayfa varsa ve biri yarım kalıyorsa “Sol mu, sağ mı?” diye sorar: “sol”, “sağ”, “orta”, “ikisi birden” (ya da “soldaki”, “sağ sütun”, “birinci”, “son”…) deyin; “yeniden seç” seçimi siler. “Hepsi tamamlandı”, “hepsini gönder”, “tümünü gönder”, “pdf yap”, “bitirdim” gibi söylenişlerin hepsi bekleyen fotoğrafları tek PDF olarak gönderir (en çok 30 sayfa / 15 MB; fazlası ikinci PDF olur). “Rapor ver” bugün kaç sayfa çekildiğini ve kaçının PDF olarak gittiğini söyler. “Son fotoğrafı sil”, “sonuncuyu sil”, “geri al” henüz gönderilmemiş son fotoğrafı siler; “yeniden çek” onu silip aynı bölümü yeniden kadraja aldırır. Çekimden sonra program “Çekim tamamlandı, N sayfa gönderilmeyi bekliyor” der; PDF sayfa sınırına yaklaşınca bunu da söyler. Sayfada parlama (doymuş beyaz leke) görürse en çok iki kez uyarır, sonra yine de çeker; bu kontrol gerçek kamerada denenmemiştir, rahatsız ederse kapatın. Anlaşılmayan komutta program “anlayamadım” der. Bu özellik açılınca gönderim “toplu, yalnız komutla” olur ve “görüntü değişince çek” kapanır. “Kamera ve gönderim durumunu da söyle” açıkken kamera koptu / geri geldi, mikrofon izni yok, dosya gönderildi / gönderilemedi gibi haberler konuşma arasında kısaca söylenir; aynı haber tekrarlanmaz. Sesli yanıt için mikrofon izni gerekir.")
         }
     }
