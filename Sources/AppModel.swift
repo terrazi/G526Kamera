@@ -833,8 +833,7 @@ final class AppModel: ObservableObject {
         guidance.config.glareLimit = settings.guidanceGlare ? 0.04 : 2
         guidance.describeScene = settings.guidanceDescribe
         guidance.config.autoPick = settings.guidanceAutoPick
-        // Kâğıt kenarları yalnız tarifte kullanılır: tarif kapalıysa Vision hiç çalıştırılmaz (ısınma)
-        pipeline.pageEdgesOn = settings.guidanceDescribe && settings.guidancePageEdges
+        pipeline.pageEdgesOn = pageEdgesWanted
         pipeline.configureMotion(enabled: settings.motionEnabled && !guidanceWanted,
                                  sensitivity: settings.motionSensitivity)
         if on != guidanceWasOn {
@@ -846,6 +845,12 @@ final class AppModel: ObservableObject {
             speech.choiceMode = false
             if on && examGuide != true && !pageVideoActive { say(SpokenReport.startup(folderReady: folderReady, waiting: queue.pending)) }
         }
+    }
+
+    /// Kâğıt kenarları (Vision) yalnız kadraj tarifinde kullanılır: tarif ya da ayar kapalıysa ve video kaydı sürerken
+    /// (video tarifi yalnız yönlendirme söyler; kayıt sırasında ek işlem yapılmaz) Vision hiç çalıştırılmaz (ısınma)
+    private var pageEdgesWanted: Bool {
+        return settings.guidanceDescribe && settings.guidancePageEdges && !videoGuideActive
     }
 
     /// Video kaydı sürerken (elle ya da sınav videosu) konum tarifi verilsin mi
@@ -866,6 +871,7 @@ final class AppModel: ObservableObject {
             guidanceStatus = guidanceWanted ? "Sesli konumlandırma açık — sayfayı kadraja alın" : ""
         }
         pipeline.guidanceOn = (started && guidanceWanted) || active
+        pipeline.pageEdgesOn = pageEdgesWanted
     }
 
     /// Video sırasında gelen ölçüm: yalnız konum tarifi söylenir, fotoğraf çekilmez

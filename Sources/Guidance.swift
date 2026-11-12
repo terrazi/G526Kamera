@@ -1319,6 +1319,8 @@ final class GuidanceEngine {
     private(set) var awaitingChoice = false
     /// Son çekilen bölüm: bir sonraki soruda "Sol bölüm çekildi" diye hatırlatılır
     private(set) var lastCaptured: ColumnChoice?
+    /// Son çekimden önceki `lastCaptured`: çekim başarısız olursa ya da fotoğraf silinirse (`rearm`) geri yüklenir
+    private var capturedBefore: ColumnChoice?
     private var last: GuidanceAdvice?
     private var consecutive = 0
     private var lastSpoken: GuidanceAdvice?
@@ -1359,6 +1361,7 @@ final class GuidanceEngine {
         choice = nil
         awaitingChoice = false
         lastCaptured = nil
+        capturedBefore = nil
         clearSpeech()
     }
 
@@ -1379,11 +1382,13 @@ final class GuidanceEngine {
         lastPick = nil
     }
 
-    /// Çekim başarısız oldu / yapılamadı: yeniden denenebilsin.
+    /// Çekim başarısız oldu / yapılamadı / fotoğraf silindi: yeniden denenebilsin. Çekilmeyen bölüm "çekildi" sayılmaz
+    /// (yoksa kendiliğinden seçim aynı bölümü yeniden seçmez ve soru yanlış "Sol bölüm çekildi" der).
     func rearm() {
         armed = true
         consecutive = 0
         last = nil
+        lastCaptured = capturedBefore
     }
 
     /// Sesle ya da düğmeyle yapılan bölüm seçimi. Döndürülen cümle hemen söylenir.
@@ -1405,6 +1410,7 @@ final class GuidanceEngine {
     func clearChoice() -> String {
         choice = nil
         lastCaptured = nil
+        capturedBefore = nil
         awaitingChoice = false
         clearSpeech()
         return "Tamam, yeniden seçelim."
@@ -1712,6 +1718,7 @@ final class GuidanceEngine {
                 armed = false
                 consecutive = 0
                 last = nil
+                capturedBefore = lastCaptured
                 lastCaptured = (metrics.columns.count >= 2) ? (choice ?? d.picked) : nil
                 choice = nil
             }

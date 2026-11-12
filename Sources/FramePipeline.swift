@@ -128,20 +128,20 @@ final class FramePipeline {
         let still = time - lastMoveTime
         var metrics = PageMetrics()
         if still >= 0.2, let m = GuidanceAnalyzer.analyze(pixelBuffer, orientation: guidanceOrientation) { metrics = m }
-        metrics.edges = pageEdges(for: pixelBuffer, still: still, time: time)
+        metrics.edges = pageEdges(for: pixelBuffer, still: still, time: time, hasText: metrics.hasText)
         let diff = captureSignature.map { FrameAnalysis.difference($0, sig) } ?? 100
         onGuidance?(GuidanceSample(metrics: metrics, time: time, stillFor: still, diffToCapture: diff))
     }
 
-    /// Kâğıdın kenarları (Vision): yalnız ayar açıkken, pil tasarrufunda değilken ve kamera durgunken; seyrek çalışır.
-    /// Kamera oynarsa ya da görüntü yönü değişirse eski sonuç silinir.
-    private func pageEdges(for pixelBuffer: CVPixelBuffer, still: TimeInterval, time: TimeInterval) -> PageEdges? {
+    /// Kâğıdın kenarları (Vision): yalnız ayar açıkken, pil tasarrufunda değilken, kamera durgunken ve kadrajda yazı varken; seyrek çalışır.
+    /// Kamera oynarsa, yazı kaybolursa ya da görüntü yönü değişirse eski sonuç silinir.
+    private func pageEdges(for pixelBuffer: CVPixelBuffer, still: TimeInterval, time: TimeInterval, hasText: Bool) -> PageEdges? {
         let orientation = guidanceOrientation
         if orientation != edgeOrientation {
             edgeOrientation = orientation
             edgeTracker.reset()
         }
-        guard pageEdgesOn, !saving, still >= FramePipeline.edgeStill else {
+        guard pageEdgesOn, !saving, hasText, still >= FramePipeline.edgeStill else {
             edgeTracker.reset()
             return nil
         }

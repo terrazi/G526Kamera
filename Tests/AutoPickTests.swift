@@ -234,6 +234,40 @@ final class AutoPickTests: XCTestCase {
         XCTAssertEqual(o.speak, "Tamam. Soldaki bölüm tam sığıyor, onu çekiyorum.")
     }
 
+    func testAFailedCaptureIsNotCountedAsCaptured() {
+        let e = GuidanceEngine()
+        e.config.autoPick = true
+        for t in [0, 0.3, 0.6] { _ = e.step(leftFits, time: t, stillFor: 1.0, diffToCapture: 100) }
+        XCTAssertEqual(e.lastCaptured, .left)
+
+        e.rearm()   // çekim başarısız oldu ("Belge görünmüyor", kamera meşgul…)
+        XCTAssertNil(e.lastCaptured, "çekilmeyen bölüm 'çekildi' sayılmaz")
+        var captured = false
+        var asked = false
+        for t in [1.0, 1.3, 1.6] {
+            let o = e.step(leftFits, time: t, stillFor: 1.0, diffToCapture: 100)
+            if o.capture { captured = true }
+            if o.awaitingChoice { asked = true }
+        }
+        XCTAssertTrue(captured, "aynı bölüm yeniden kendiliğinden seçilip çekilir")
+        XCTAssertFalse(asked)
+        XCTAssertEqual(e.lastCaptured, .left)
+    }
+
+    func testRearmRestoresThePreviousCapturedSideAfterTheSecondCapture() {
+        let e = GuidanceEngine()
+        e.config.autoPick = true
+        for t in [0, 0.3, 0.6] { _ = e.step(leftFits, time: t, stillFor: 1.0, diffToCapture: 100) }
+        for t in [2.0, 2.3, 2.6] { _ = e.step(rightFits, time: t, stillFor: 1.0, diffToCapture: 100) }
+        XCTAssertEqual(e.lastCaptured, .right)
+        e.rearm()   // "yeniden çek": son fotoğraf silindi
+        XCTAssertEqual(e.lastCaptured, .left, "silinen çekimden önceki duruma dönülür")
+        e.reset()
+        XCTAssertNil(e.lastCaptured)
+        e.rearm()
+        XCTAssertNil(e.lastCaptured, "sıfırlamadan sonra eski çekim hatırlanmaz")
+    }
+
     func testVideoNeverPicksAColumn() {
         let e = GuidanceEngine()
         e.config.autoPick = true
