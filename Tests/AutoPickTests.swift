@@ -268,6 +268,98 @@ final class AutoPickTests: XCTestCase {
         XCTAssertNil(e.lastCaptured, "sıfırlamadan sonra eski çekim hatırlanmaz")
     }
 
+    // MARK: - Elle çekim ("okey" komutu / düğme)
+
+    private var singlePage: PageMetrics {
+        var m = PageMetrics()
+        m.hasPage = true
+        m.hasText = true
+        m.x0 = 0.2
+        m.x1 = 0.8
+        m.y0 = 0.25
+        m.y1 = 0.75
+        m.cells = 600
+        m.sharp = 1.0
+        return m
+    }
+
+    func testManualCaptureMarksThePageDoneAndRecordsThePickedSide() {
+        let e = GuidanceEngine()
+        e.config.autoPick = true
+        e.autoCapture = false
+        let first = e.step(leftFits, time: 0, stillFor: 1.0, diffToCapture: 100)
+        XCTAssertEqual(first.speak, "Soldaki bölüm tam sığıyor, onu çekmek için okey deyin.")
+        XCTAssertEqual(e.pendingPick, .left)
+
+        e.manualCaptured()   // "okey" denildi
+        XCTAssertEqual(e.lastCaptured, .left, "rapor 'Sol bölüm çekildi' der, kendiliğinden seçim aynı tarafı atlar")
+        XCTAssertFalse(e.armed)
+        XCTAssertNil(e.pendingPick)
+        let same = e.step(leftFits, time: 1.0, stillFor: 1.0, diffToCapture: 0)
+        XCTAssertNil(same.speak, "aynı sayfa için yeniden konuşmaz")
+        XCTAssertFalse(same.capture)
+
+        // Sayfa değişti: söylenenler sıfırlanmıştır, bu kez sağdaki bölüm seçilip bildirilir
+        let next = e.step(rightFits, time: 3.0, stillFor: 1.0, diffToCapture: 100)
+        XCTAssertEqual(next.speak, "Sağdaki bölüm tam sığıyor, onu çekmek için okey deyin.")
+        XCTAssertEqual(e.pendingPick, .right)
+    }
+
+    func testManualCaptureRepeatsTheSceneDescriptionOnTheNextPage() {
+        let e = GuidanceEngine()
+        e.autoCapture = false
+        e.describeScene = true
+        let first = e.step(singlePage, time: 0, stillFor: 1.0, diffToCapture: 100).speak
+        XCTAssertEqual(first, "Tek sayfa görünüyor, tam sığıyor. Okey deyin.")
+        XCTAssertNil(e.step(singlePage, time: 0.3, stillFor: 1.0, diffToCapture: 100).speak, "aynı sayfa: bir kez söylenir")
+        e.manualCaptured()
+        XCTAssertNil(e.lastCaptured, "tek sayfada bölüm yok")
+        // Yeni sayfa (çevrildi): tarif yeniden söylenir
+        let again = e.step(singlePage, time: 3.0, stillFor: 1.0, diffToCapture: 100).speak
+        XCTAssertEqual(again, "Tek sayfa görünüyor, tam sığıyor. Okey deyin.")
+    }
+
+    func testManualCaptureUsesTheUsersChoiceAndClosesTheQuestion() {
+        let e = GuidanceEngine()
+        let both = page([col(0.0, 0.45), col(0.55, 1.0)])   // ikisi de kesik: soru sorulur
+        for t in [0, 0.3] { _ = e.step(both, time: t, stillFor: 1.0, diffToCapture: 100) }
+        XCTAssertTrue(e.awaitingChoice)
+        e.manualCaptured()   // kullanıcı soruyu beklemeden "okey" dedi
+        XCTAssertFalse(e.awaitingChoice, "soru kapanır")
+        XCTAssertNil(e.lastCaptured, "hangi bölüm olduğu bilinmiyor: 'çekildi' denmez")
+
+        let f = GuidanceEngine()
+        _ = f.setChoice(.right)
+        _ = f.step(both, time: 0, stillFor: 1.0, diffToCapture: 100)
+        f.manualCaptured()
+        XCTAssertEqual(f.lastCaptured, .right)
+        XCTAssertNil(f.choice, "seçim bir sonraki sayfa için silinir (kendiliğinden çekimdeki gibi)")
+    }
+
+    func testManualCaptureAfterTheEngineAlreadyCapturedChangesNothing() {
+        let e = GuidanceEngine()
+        e.config.autoPick = true
+        for t in [0, 0.3, 0.6] { _ = e.step(leftFits, time: t, stillFor: 1.0, diffToCapture: 100) }
+        XCTAssertEqual(e.lastCaptured, .left)
+        e.manualCaptured()   // motorun kendi çekimi sırasında gelen komut
+        XCTAssertEqual(e.lastCaptured, .left)
+        e.rearm()   // çekim başarısız: bu çekimden önceki duruma (hiçbiri) dönülür
+        XCTAssertNil(e.lastCaptured, "çifte kayıt yapılmadı")
+    }
+
+    func testAFailedManualCaptureIsUndoneByRearm() {
+        let e = GuidanceEngine()
+        e.config.autoPick = true
+        e.autoCapture = false
+        _ = e.step(leftFits, time: 0, stillFor: 1.0, diffToCapture: 100)
+        e.manualCaptured()
+        XCTAssertEqual(e.lastCaptured, .left)
+        e.rearm()   // "Belge görünmüyor" / çekim başarısız
+        XCTAssertNil(e.lastCaptured)
+        XCTAssertTrue(e.armed)
+        XCTAssertEqual(e.pendingPick, .left, "bölüm yeniden çekilebilir")
+    }
+
     func testVideoNeverPicksAColumn() {
         let e = GuidanceEngine()
         e.config.autoPick = true

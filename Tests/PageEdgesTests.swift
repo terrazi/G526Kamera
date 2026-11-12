@@ -154,6 +154,50 @@ final class PageEdgesTests: XCTestCase {
         XCTAssertEqual(describe(m), base, "dörtgen yazıyı içine almıyor: sayfanın bir parçası olabilir")
     }
 
+    func testAQuadHuggingTheTextIsNotThePageAndIsNotUsed() {
+        let base = "Tek sayfa görünüyor, tam sığıyor."
+        var m = text()   // yazı x 0,2–0,8, y 0,25–0,75
+        m.edges = rect(0.195, 0.245, 0.805, 0.755)
+        XCTAssertTrue(m.edges?.isReliable == true)
+        XCTAssertEqual(describe(m), base, "dörtgen yazıya yapışık: kâğıt değil yazı bölgesi")
+
+        m.edges = rect(0.18, 0.23, 0.82, 0.77)   // her yönde %1'den fazla pay: kâğıt sayılır
+        XCTAssertEqual(describe(m), "Tek sayfa görünüyor, kenarlarıyla birlikte tam sığıyor.")
+
+        // Yalnız bir yönde yapışık (altta pay yok): kullanılmaz
+        m.edges = rect(0.1, 0.15, 0.9, 0.755)
+        XCTAssertEqual(describe(m), base)
+    }
+
+    func testTextBoxIsMappedToTheFrameWhenTheClockBandWasCropped() {
+        let band = GuidanceAnalyzer.skipTop
+        // Normal yönde ölçüm düzlemi = kare: değişmez
+        let normal = rect(0.1, 0.1, 0.9, 0.9, insets: PageEdges.Insets.band(for: .normal)).inFrame(x0: 0.2, x1: 0.8, y0: 0.25, y1: 0.75)
+        XCTAssertEqual(normal.x0, 0.2, accuracy: 0.0001)
+        XCTAssertEqual(normal.x1, 0.8, accuracy: 0.0001)
+        XCTAssertEqual(normal.y0, 0.25, accuracy: 0.0001)
+        XCTAssertEqual(normal.y1, 0.75, accuracy: 0.0001)
+        // Band sağda: düzlem karenin soluna oturur
+        let right = rect(0.1, 0.1, 0.9, 0.9, insets: PageEdges.Insets.band(for: .right90)).inFrame(x0: 0.2, x1: 0.8, y0: 0.25, y1: 0.75)
+        XCTAssertEqual(right.x0, 0.2 * (1 - band), accuracy: 0.0001)
+        XCTAssertEqual(right.x1, 0.8 * (1 - band), accuracy: 0.0001)
+        XCTAssertEqual(right.y0, 0.25, accuracy: 0.0001)
+        // Band solda: düzlem karenin sağına oturur
+        let left = rect(0.1, 0.1, 0.9, 0.9, insets: PageEdges.Insets.band(for: .left90)).inFrame(x0: 0.2, x1: 0.8, y0: 0.25, y1: 0.75)
+        XCTAssertEqual(left.x0, band + 0.2 * (1 - band), accuracy: 0.0001)
+        XCTAssertEqual(left.x1, band + 0.8 * (1 - band), accuracy: 0.0001)
+        // Band altta (180°): düzlem karenin üstüne oturur
+        let upside = rect(0.1, 0.1, 0.9, 0.9, insets: PageEdges.Insets.band(for: .rotate180)).inFrame(x0: 0.2, x1: 0.8, y0: 0.25, y1: 0.75)
+        XCTAssertEqual(upside.y0, 0.25 * (1 - band), accuracy: 0.0001)
+        XCTAssertEqual(upside.y1, 0.75 * (1 - band), accuracy: 0.0001)
+        XCTAssertEqual(upside.x0, 0.2, accuracy: 0.0001)
+
+        // Çevrilmiş görüntüde (band sağda) dört kenar da içeride: tarif kenarlarla birlikte söylenir
+        var m = text()
+        m.edges = rect(0.1, 0.15, 0.8, 0.95, insets: PageEdges.Insets.band(for: .right90))
+        XCTAssertEqual(describe(m), "Tek sayfa görünüyor, kenarlarıyla birlikte tam sığıyor.")
+    }
+
     func testTextCutAndSeveralSectionsKeepTheTextDescription() {
         var cutText = text(x0: 0.005, x1: 0.6)
         cutText.edges = rect(0.0, 0.15, 0.9, 0.95)

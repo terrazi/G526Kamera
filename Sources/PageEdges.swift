@@ -129,6 +129,24 @@ struct PageEdges: Equatable {
             && y0 >= (ys.min() ?? 0) - t && y1 <= (ys.max() ?? 1) + t
     }
 
+    /// Yazı kutusunu (ölçüm düzlemi oranı) kare oranına çevirir. Görüntü çevrilmişse kameranın saat bandı ölçüm düzleminden
+    /// atılmıştır (`GuidanceAnalyzer.reorient`), kare oranında ise yerinde durur; bu yüzden bandın olduğu eksende ölçek / kayma gerekir.
+    func inFrame(x0: Double, x1: Double, y0: Double, y1: Double) -> (x0: Double, x1: Double, y0: Double, y1: Double) {
+        let width = 1 - insets.left - insets.right
+        let height = 1 - insets.bottom
+        return (x0: insets.left + x0 * width, x1: insets.left + x1 * width, y0: y0 * height, y1: y1 * height)
+    }
+
+    /// Dörtgenin sınırlayıcı kutusu yazı kutusunu her yönde en az `margin` kadar aşıyor mu? Sayfada yazının çevresinde boşluk
+    /// (kenar boşluğu) olur; dörtgen yazıya yapışıksa Vision kâğıdı değil yazı bölgesini bulmuştur, sonuç tarifte kullanılmaz.
+    func surrounds(x0: Double, x1: Double, y0: Double, y1: Double, margin m: Double) -> Bool {
+        guard !points.isEmpty else { return false }
+        let xs = points.map { $0.x }
+        let ys = points.map { $0.y }
+        return (xs.min() ?? 0) <= x0 - m && (xs.max() ?? 1) >= x1 + m
+            && (ys.min() ?? 0) <= y0 - m && (ys.max() ?? 1) >= y1 + m
+    }
+
     /// Günlük / durum satırı için kısa özet
     var summary: String {
         if allClear { return "dört kenarı görünüyor" }

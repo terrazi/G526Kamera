@@ -736,10 +736,24 @@ final class AppModel: ObservableObject {
         }
         if accepted {
             capturing = true
+            if guidanceWasOn && !videoGuideActive && reason != "Sesli konumlandırma" { noteManualCapture() }
         } else {
             flash("Önceki fotoğraf işleniyor…", seconds: 1.5)
         }
         return accepted
+    }
+
+    /// "okey" sesli komutu ya da "Fotoğraf Çek" düğmesiyle çekildi (konumlandırma motoru çekmedi): motor bu sayfayı bitmiş sayar,
+    /// çekilen bölüm kaydedilir (rapor "Sol bölüm çekildi" der) ve bekleyen bölüm sorusu kapanır.
+    private func noteManualCapture() {
+        let wasAsking = guidance.awaitingChoice
+        guidance.manualCaptured()
+        capturePart = guidance.lastCaptured
+        if wasAsking {
+            guidanceAwaiting = false
+            guidanceNotice = ""
+            speech.choiceMode = false
+        }
     }
 
     private func captureFinished(_ result: Result<CapturedPhoto, CaptureError>, reason: String) {

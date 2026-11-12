@@ -1038,12 +1038,13 @@ enum GuidanceScene {
         return text + partials.joined(separator: ", ") + "."
     }
 
-    /// Vision'ın kâğıt kenarları, yalnız tarifte kullanılacaksa: güvenilir olmalı ve yazı bloğunu içine almalı
-    /// (yoksa sayfanın bir parçası bulunmuş olabilir). Metin kutusu ile köşeler arasındaki pay, çevrilmiş görüntüde saat bandının
-    /// kırpılmasından doğan farkı da kapsar.
+    /// Vision'ın kâğıt kenarları, yalnız tarifte kullanılacaksa: güvenilir olmalı ve yazı bloğunu her yönde en az %1 aşmalı.
+    /// Yazıya yapışık bir dörtgen kâğıt değil yazı bölgesidir ("kenarlarıyla birlikte tam sığıyor" diye yanlış söylenmesin);
+    /// sayfanın bir parçası bulunmuşsa da yazıyı kapsamaz. Yazı kutusu, çevrilmiş görüntüde saat bandı payı hesaba katılarak kareye çevrilir.
     static func usableEdges(_ m: PageMetrics) -> PageEdges? {
         guard m.hasText, let e = m.edges, e.isReliable else { return nil }
-        return e.encloses(x0: m.x0, x1: m.x1, y0: m.y0, y1: m.y1, tolerance: 0.08) ? e : nil
+        let t = e.inFrame(x0: m.x0, x1: m.x1, y0: m.y0, y1: m.y1)
+        return e.surrounds(x0: t.x0, x1: t.x1, y0: t.y0, y1: t.y1, margin: 0.01) ? e : nil
     }
 
     /// "Sayfanın alt kenarı kadrajın dışında kalıyor." (kâğıt taşıyor ama yazı tam görünüyor)
@@ -1351,6 +1352,8 @@ final class GuidanceEngine {
     /// Soru sorulmadan kendiliğinden seçilen bölüm (son kararda) ve bu sayfa için söylenen seçim (bir kez söylenir)
     private var lastPick: ColumnChoice?
     private var toldPick: ColumnChoice?
+    /// Son değerlendirilen kadrajdaki bölüm sayısı (elle çekimde "çekilen bölüm" kaydı için)
+    private var lastColumns = 0
     /// Kendiliğinden seçilmiş bölüm şu an çekilmeyi bekliyor (kullanıcı "sağ" / "ikisi birden" diyerek değiştirebilir)
     var pendingPick: ColumnChoice? { return armed ? lastPick : nil }
     /// Son sorulan / sorulabilecek seçenekler (bölüm sayısına göre sol-sağ ya da sol-orta-sağ)
@@ -1362,6 +1365,7 @@ final class GuidanceEngine {
         awaitingChoice = false
         lastCaptured = nil
         capturedBefore = nil
+        lastColumns = 0
         clearSpeech()
     }
 
@@ -1389,6 +1393,21 @@ final class GuidanceEngine {
         consecutive = 0
         last = nil
         lastCaptured = capturedBefore
+    }
+
+    /// Kullanıcı motoru beklemeden çekti ("okey" sesli komutu ya da "Fotoğraf Çek" düğmesi): kendiliğinden çekimdeki gibi bu sayfa
+    /// bitmiş sayılır. Motor sayfa değişene kadar susar (aynı sayfa ikinci kez çekilmez; sayfa çevrilince söylenenler sıfırlanır),
+    /// çekilen bölüm kaydedilir ve bekleyen soru kapanır. Çekim başarısız olursa `rearm()` geri alır.
+    /// Motor kendisi çekmişse (`armed` zaten kapalı) yapılacak bir şey yoktur.
+    func manualCaptured() {
+        guard armed else { return }
+        armed = false
+        consecutive = 0
+        last = nil
+        capturedBefore = lastCaptured
+        lastCaptured = (lastColumns >= 2) ? (choice ?? lastPick) : nil
+        choice = nil
+        awaitingChoice = false
     }
 
     /// Sesle ya da düğmeyle yapılan bölüm seçimi. Döndürülen cümle hemen söylenir.
@@ -1636,6 +1655,7 @@ final class GuidanceEngine {
                 let keep = lastCaptured
                 clearSpeech()
                 lastCaptured = keep
+                lastColumns = 0
             } else {
                 return Output(status: "Sayfayı çevirin ya da diğer bölüme geçin")
             }
@@ -1650,6 +1670,7 @@ final class GuidanceEngine {
         let d = GuidanceAdvisor.decide(metrics, choice: forcedChoice ?? choice, config: config, sharpFloor: sharpFloor,
                                        skipping: lastCaptured)
         lastPick = d.picked
+        lastColumns = metrics.columns.count
         lastFill = d.fill
         lastScale = d.scale
         lastShift = d.shift
