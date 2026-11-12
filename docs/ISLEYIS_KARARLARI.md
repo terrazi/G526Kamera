@@ -60,3 +60,17 @@ F. [TASLAK] Telefon yükü ilkeleri (ısınma/kasılma): dosyalar RAM'de değil 
 - Video şu an "evet" sorulmadan, evrak görününce kendiliğinden başlıyor; evet sorulacak.
 - Videodan sonra "Videoya devam edeyim mi?" döngüsü var; kalkacak.
 - Sınav videosu şu an Gemini isteklerine ekleniyor (son sürümde eklendi); kaldırılacak (D maddesi).
+
+## Gereksiz kalanlar taraması (2026-11-12)
+Kesin kalkacak (karar var):
+- Google Drive: GoogleAuth, DriveClient, DriveSetupView, "Google Drive" ayar bölümü (klasör adı, istemci kimliği/sırrı), ana ekrandaki Drive satırı, Drive yükleme/indirme, bağlantı sınama, "Windows programında aynı kimlik" yazıları.
+- "Telefonda da kopya sakla" (keepLocalCopies) ve Documents/Belgeler, Documents/Videolar alt klasörleri: tek klasör "G526 Belgeler" bunların yerini alır.
+- Sınav videosunu Gemini'ye ekleme (ExamTask video, ExamAsker.videoProvider, AppModel sınav video kopyası).
+- Sınav ayarları "Gruptaki soru sayısı" (examGroup) ve "Bir seferde alınacak PDF" (examFetch): Gemini bölme işini program kendi karar verir (G).
+Sorulacak (kullanıcı kararı bekliyor):
+- "Video bitince Gemini'ye de sor" (videoToGemini/videoQuestion/videoHighRes): sınav dışı video için; video Gemini'ye gitmeyecekse gereksiz.
+- Gönderme modu tek tek/toplu, "kaç fotoğrafta bir", "bekleme sn", dosya türü PDF/JPEG: yeni düzende PDF parçaları komutla yapılır.
+- OCR (metni oku, PDF sonuna ekle; "OCR'ı Gemini ile yap"): telefonu ısıtır, Gemini sayfayı kendisi okuyor.
+- "Büyük belge setlerini Gemini'nin hafızasına al" (geminiMemory) ve "Gemini'ye verilecek belge sayısı" (geminiDocCount): dosyalar bir kez Files API'ye yüklenecek.
+- "Sınav önce video çeksin" (examVideoFirst) ve "Sınav başlarken ses/internet/Gemini'yi sına" (examSelfCheck): yeni düzende ilk sınama hep var, video aşaması her zaman soruluyor.
+- Fotoğraf iyileştirme ayarları (deskew, upscale, tarih yazısı, birkaç kareyi birleştir, çekim öncesi/sonrası): sınav taramasında sadeleştirilebilir.
