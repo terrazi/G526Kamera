@@ -7,80 +7,156 @@ import ImageIO
 
 /// Görüntü yönü (Normal / 90° sağa / 90° sola / 180°): ayar, fotoğraf, video ve sesli yönlendirme.
 final class ImageOrientationTests: XCTestCase {
-    private let moves: [GuidanceAdvice] = [.moveLeft, .moveUp, .moveRight, .moveDown]
+    // MARK: Ölçüm çevrilmiş görüntüde yapılır
 
-    // MARK: Yön eşlemesi
+    /// Landscape/portrait fark etmez: ekranda sütunları yan yana olan sentetik sayfa (blok yazı)
+    private func synth(pages: [(Int, Int)], blocks: [(Int, Int, Int, Int)], w: Int, h: Int) -> [Float] {
+        var luma = [Float](repeating: 30, count: w * h)
+        for (px0, px1) in pages {
+            for y in 45..<(h - 10) {
+                for x in px0..<px1 { luma[y * w + x] = 235 }
+            }
+        }
+        for (bx0, bx1, by0, by1) in blocks {
+            var y = by0
+            while y + 5 < by1 {
+                var x = bx0
+                while x + 30 <= bx1 {
+                    for yy in y..<(y + 5) {
+                        for xx in x..<(x + 30) { luma[yy * w + xx] = 40 }
+                    }
+                    x += 38
+                }
+                y += 14
+            }
+        }
+        return luma
+    }
 
-    func testTurnsAreInverseOfEachOther() {
-        for m in moves {
-            XCTAssertEqual(ImageOrientation.left90.displayed(ImageOrientation.right90.displayed(m)), m)
-            XCTAssertEqual(ImageOrientation.right90.displayed(ImageOrientation.left90.displayed(m)), m)
-            XCTAssertEqual(ImageOrientation.rotate180.displayed(ImageOrientation.rotate180.displayed(m)), m)
-            XCTAssertEqual(ImageOrientation.normal.displayed(m), m)
+    /// Ekran görüntüsünden (dw × dh) kameranın karesini (W × 540) kurar: `reorient`in tam tersi, üstte saat bandı (koyu)
+    private func sensorFrame(from d: [Float], dw: Int, dh: Int, orientation o: ImageOrientation) -> (px: [Float], w: Int, h: Int) {
+        let H = 540
+        let top = Int(Double(H) * GuidanceAnalyzer.skipTop)
+        let h = H - top
+        let W = o.isQuarterTurn ? dh : dw
+        XCTAssertEqual(o.isQuarterTurn ? dw : dh, h, "ekran boyu = bantsız kare yüksekliği")
+        var s = [Float](repeating: 30, count: W * H)
+        for yd in 0..<dh {
+            for xd in 0..<dw {
+                let x: Int, y: Int
+                switch o {
+                case .right90: x = yd; y = top + (h - 1 - xd)
+                case .left90: x = W - 1 - yd; y = top + xd
+                case .rotate180: x = W - 1 - xd; y = top + (h - 1 - yd)
+                case .normal: x = xd; y = yd
+                }
+                s[y * W + x] = d[yd * dw + xd]
+            }
+        }
+        return (s, W, H)
+    }
+
+    func testNormalOrientationLeavesTheGridAlone() {
+        let L = [Float](repeating: 7, count: 200 * 100)
+        let r = GuidanceAnalyzer.reorient(luma: L, width: 200, height: 100, orientation: .normal)
+        XCTAssertEqual(r.px, L)
+        XCTAssertEqual(r.w, 200)
+        XCTAssertEqual(r.h, 100)
+    }
+
+    func testReorientRotatesLikeTheDisplayAndDropsTheClockBand() {
+        let W = 200, H = 100
+        let top = Int(Double(H) * GuidanceAnalyzer.skipTop)
+        let h = H - top
+        var L = [Float](repeating: 0, count: W * H)
+        L[top * W + 0] = 255               // bandın hemen altında, sol üst
+        L[top * W + (W - 1)] = 128         // bandın hemen altında, sağ üst
+        L[2 * W + 50] = 99                 // saat bandının içinde
+        func find(_ r: (px: [Float], w: Int, h: Int), _ v: Float) -> (x: Int, y: Int)? {
+            guard let i = r.px.firstIndex(of: v) else { return nil }
+            return (i % r.w, i / r.w)
+        }
+        let right = GuidanceAnalyzer.reorient(luma: L, width: W, height: H, orientation: .right90)
+        XCTAssertEqual(right.w, h)
+        XCTAssertEqual(right.h, W)
+        XCTAssertEqual(find(right, 255)?.x, h - 1, "saat yönünde: sol üst → sağ üst")
+        XCTAssertEqual(find(right, 255)?.y, 0)
+        XCTAssertEqual(find(right, 128)?.x, h - 1, "sağ üst → sağ alt")
+        XCTAssertEqual(find(right, 128)?.y, W - 1)
+        XCTAssertNil(find(right, 99), "saat bandı atılır")
+
+        let left = GuidanceAnalyzer.reorient(luma: L, width: W, height: H, orientation: .left90)
+        XCTAssertEqual(left.w, h)
+        XCTAssertEqual(left.h, W)
+        XCTAssertEqual(find(left, 255)?.x, 0, "saat yönünün tersine: sol üst → sol alt")
+        XCTAssertEqual(find(left, 255)?.y, W - 1)
+        XCTAssertEqual(find(left, 128)?.y, 0, "sağ üst → sol üst")
+        XCTAssertNil(find(left, 99))
+
+        let half = GuidanceAnalyzer.reorient(luma: L, width: W, height: H, orientation: .rotate180)
+        XCTAssertEqual(half.w, W)
+        XCTAssertEqual(half.h, h)
+        XCTAssertEqual(find(half, 255)?.x, W - 1, "180°: sol üst → sağ alt")
+        XCTAssertEqual(find(half, 255)?.y, h - 1)
+        XCTAssertNil(find(half, 99))
+    }
+
+    func testReorientUndoesTheCameraRotationExactly() {
+        // yan yatmış kamera: ekrandaki görüntüden kamera karesi kurulur, çevirme ekranı aynen geri verir
+        let portrait = synth(pages: [(5, 495)], blocks: [(20, 215, 80, 900), (285, 480, 80, 900)], w: 500, h: 960)
+        for o in [ImageOrientation.right90, .left90] {
+            let s = sensorFrame(from: portrait, dw: 500, dh: 960, orientation: o)
+            let r = GuidanceAnalyzer.reorient(luma: s.px, width: s.w, height: s.h, orientation: o)
+            XCTAssertEqual(r.w, 500, o.title)
+            XCTAssertEqual(r.h, 960, o.title)
+            XCTAssertTrue(r.px == portrait, "\(o.title): çevrilmiş düzlem ekran görüntüsüne eşit")
+        }
+        let landscape = synth(pages: [(100, 860)], blocks: [(130, 440, 80, 480), (520, 830, 80, 480)], w: 960, h: 500)
+        let s = sensorFrame(from: landscape, dw: 960, dh: 500, orientation: .rotate180)
+        let r = GuidanceAnalyzer.reorient(luma: s.px, width: s.w, height: s.h, orientation: .rotate180)
+        XCTAssertTrue(r.px == landscape, "180°")
+    }
+
+    func testColumnsOfASidewaysPageAreSideBySideOnTheScreen() {
+        // ekranda (dik görünüm) iki sütun yan yana; kamera yan yattığı için kare üzerinde üst üste görünürler
+        let portrait = synth(pages: [(5, 495)], blocks: [(20, 215, 80, 900), (285, 480, 80, 900)], w: 500, h: 960)
+        for o in [ImageOrientation.right90, .left90] {
+            let s = sensorFrame(from: portrait, dw: 500, dh: 960, orientation: o)
+            let r = GuidanceAnalyzer.reorient(luma: s.px, width: s.w, height: s.h, orientation: o)
+            let m = GuidanceAnalyzer.analyze(luma: r.px, width: r.w, height: r.h, skipTop: 0)
+            XCTAssertTrue(m.hasText, o.title)
+            XCTAssertEqual(m.columns.count, 2, "\(o.title): iki sütun")
+            if m.columns.count == 2 {
+                XCTAssertLessThan(m.columns[0].x1, m.columns[1].x0, "\(o.title): sütunlar yan yana, soldan sağa")
+                XCTAssertLessThan(m.columns[0].x1, 0.5)
+                XCTAssertGreaterThan(m.columns[1].x0, 0.5)
+            }
+            // Soru "sol mu, sağ mı" olur ("üst/alt" değil)
+            let e = GuidanceEngine()
+            XCTAssertTrue(e.questionText(options: GuidanceAdvisor.options(forColumnCount: 2), first: false).contains("Sol mu, sağ mı"))
         }
     }
 
-    func testRightTurnMovesSensorLeftToScreenTop() {
-        // resim saat yönünde 90° çevrilince sensörün solu ekranda yukarı, üstü sağa, sağı aşağı, altı sola olur
-        XCTAssertEqual(ImageOrientation.right90.displayed(.moveLeft), .moveUp)
-        XCTAssertEqual(ImageOrientation.right90.displayed(.moveUp), .moveRight)
-        XCTAssertEqual(ImageOrientation.right90.displayed(.moveRight), .moveDown)
-        XCTAssertEqual(ImageOrientation.right90.displayed(.moveDown), .moveLeft)
-        XCTAssertEqual(ImageOrientation.left90.displayed(.moveLeft), .moveDown)
-        XCTAssertEqual(ImageOrientation.rotate180.displayed(.moveLeft), .moveRight)
-        // yönsüz uyarılar değişmez
-        XCTAssertEqual(ImageOrientation.right90.displayed(.closer), .closer)
-        XCTAssertEqual(ImageOrientation.left90.displayed(.glare), .glare)
-    }
-
-    func testGuidancePhrasesFollowOrientation() {
-        let e = GuidanceEngine()
-        e.orientation = .right90
-        XCTAssertEqual(e.phrase(for: .moveLeft), "Kamerayı biraz yukarı kaydırın.")
-        XCTAssertEqual(e.phrase(for: .moveDown), "Kamerayı biraz sola kaydırın.")
-        e.orientation = .rotate180
-        XCTAssertTrue(e.flip)
-        XCTAssertEqual(e.phrase(for: .moveRight), "Kamerayı biraz sola kaydırın.")
-        e.flip = false
-        XCTAssertEqual(e.orientation, .normal)
-        XCTAssertEqual(e.phrase(for: .moveRight), "Kamerayı biraz sağa kaydırın.")
-    }
-
-    func testQuarterTurnAsksTopBottomInsteadOfLeftRight() {
-        let e = GuidanceEngine()
-        XCTAssertTrue(e.questionText(options: [.left, .right, .all], first: false).contains("Sol mu, sağ mı"))
-        e.orientation = .left90
-        XCTAssertTrue(e.questionText(options: [.left, .right, .all], first: false).contains("Üst mü, alt mı"))
-        XCTAssertTrue(e.questionText(options: [.left, .middle, .right, .all], first: false).contains("Üst mü, orta mı, alt mı"))
-        XCTAssertEqual(e.title(.left), "Üst")
-        XCTAssertEqual(e.title(.right), "Alt")
-        XCTAssertEqual(e.title(.all), "Hepsi")
-        XCTAssertEqual(e.setChoice(.left), "Tamam, üst bölüm.")
-    }
-
-    func testColumnChoiceMapsToSensorSide() {
-        // sağa çevrilmişte ekranda üstteki bölüm = sensörün solu
-        XCTAssertEqual(ImageOrientation.right90.sensorChoice(.left), .left)
-        XCTAssertEqual(ImageOrientation.right90.sensorChoice(.right), .right)
-        // sola çevrilmişte ekranda üstteki bölüm = sensörün sağı
-        XCTAssertEqual(ImageOrientation.left90.sensorChoice(.left), .right)
-        XCTAssertEqual(ImageOrientation.left90.sensorChoice(.right), .left)
-        XCTAssertEqual(ImageOrientation.rotate180.sensorChoice(.left), .right)
-        XCTAssertEqual(ImageOrientation.normal.sensorChoice(.left), .left)
-        XCTAssertEqual(ImageOrientation.right90.sensorChoice(.all), .all)
-        XCTAssertEqual(ImageOrientation.left90.sensorChoice(.middle), .middle)
-    }
-
-    func testVoiceTokensSwitchToTopBottomOnlyWhenQuarterTurned() {
-        XCTAssertTrue(ColumnChoice.left.tokens(for: .normal).contains("sol"))
-        XCTAssertTrue(ColumnChoice.left.tokens(for: .rotate180).contains("sol"))
-        XCTAssertTrue(ColumnChoice.left.tokens(for: .right90).contains("ust"))
-        XCTAssertFalse(ColumnChoice.left.tokens(for: .right90).contains("sol"))
-        XCTAssertTrue(ColumnChoice.right.tokens(for: .left90).contains("alt"))
-        XCTAssertEqual(ColumnChoice.right.looseTokens(for: .left90), ["alt"])
-        XCTAssertEqual(ColumnChoice.right.looseTokens(for: .normal), ["sag"])
-        XCTAssertEqual(ColumnChoice.middle.tokens(for: .right90), ColumnChoice.middle.tokens)
-        XCTAssertEqual(ColumnChoice.all.tokens(for: .left90), ColumnChoice.all.tokens)
+    func testClockBandIsOnlyAdvisedOnUprightFrames() {
+        XCTAssertEqual(GuidanceConfig().topBand, GuidanceAnalyzer.skipTop, "normal yönde saat bandı payı")
+        var turned = GuidanceConfig()
+        turned.topBand = 0
+        // yazı çevrilmiş karenin üst kenarına yakın: bant payı yok, kenar payı 0,02
+        var m = PageMetrics()
+        m.hasPage = true
+        m.hasText = true
+        m.x0 = 0.2
+        m.x1 = 0.8
+        m.y0 = 0.01
+        m.y1 = 0.8
+        m.cells = 600
+        m.sharp = 1
+        XCTAssertEqual(GuidanceAdvisor.decide(m, choice: nil, config: turned, sharpFloor: 0.45).advice, .moveUp)
+        m.y0 = 0.03
+        XCTAssertEqual(GuidanceAdvisor.decide(m, choice: nil, config: turned, sharpFloor: 0.45).advice, .ok,
+                       "çevrilmişte bant payı yok: 0,03 yeterli")
+        XCTAssertEqual(GuidanceAdvisor.decide(m, choice: nil, sharpFloor: 0.45).advice, .moveUp,
+                       "normal yönde 0,075 saat bandı payı gerekir")
     }
 
     // MARK: Ayar

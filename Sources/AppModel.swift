@@ -137,8 +137,8 @@ final class AppModel: ObservableObject {
     private var lastUnrecognizedAt: TimeInterval = 0
     /// Sesli konumlandırmanın çektiği bölüm (çekim bitince "Sol bölüm çekildi" demek için)
     private var capturePart: ColumnChoice?
-    /// Konuşma komutları son kez hangi yönle kuruldu (dik çevrilince "üst/alt" dinlenir)
-    private var speechQuarterTurn = false
+    /// Ölçümün en son hangi görüntü yönüyle yapıldığı (yön değişince yönlendirme sıfırlanır)
+    private var guidedOrientation = ImageOrientation.normal
     /// Tek tek gönderimde çekimden sonra "dosya gönderildi" demek için çekim anındaki yüklenen sayısı
     private var uploadWatchBase: Int?
     private var connection = ConnectionAnnouncer()
@@ -521,8 +521,7 @@ final class AppModel: ObservableObject {
             commands.append(SpeechTrigger.Command(id: "rechoose", phrases: GuidanceVocabulary.rechoose,
                                                   intent: GuidanceVocabulary.rechooseIntent))
             for c in ColumnChoice.allCases {
-                commands.append(SpeechTrigger.Command(id: "choice.\(c.rawValue)", tokens: c.tokens(for: guidance.orientation),
-                                                      looseTokens: c.looseTokens(for: guidance.orientation)))
+                commands.append(SpeechTrigger.Command(id: "choice.\(c.rawValue)", tokens: c.tokens, looseTokens: c.looseTokens))
             }
             commands.append(SpeechTrigger.Command(id: "choice.first", tokens: GuidanceVocabulary.first))
             commands.append(SpeechTrigger.Command(id: "choice.second", tokens: GuidanceVocabulary.second))
@@ -731,11 +730,13 @@ final class AppModel: ObservableObject {
     private func updateGuidance() {
         let on = started && guidanceWanted
         pipeline.guidanceOn = on
-        guidance.orientation = settings.imageOrientation
-        // dik çevrilmiş görüntüde sesli seçim "sol/sağ" yerine "üst/alt" dinler
-        if settings.imageOrientation.isQuarterTurn != speechQuarterTurn {
-            speechQuarterTurn = settings.imageOrientation.isQuarterTurn
-            if started { restartSpeech() }
+        // Ölçüm ekranda gördüğünüz (çevrilmiş) görüntü üzerinde yapılır: sütunlar yan yana, yönler ekrandaki yöne göre.
+        // Çevrilmişte kameranın saat bandı ölçümden önce atılır.
+        pipeline.guidanceOrientation = settings.imageOrientation
+        guidance.config.topBand = settings.imageOrientation == .normal ? GuidanceAnalyzer.skipTop : 0
+        if settings.imageOrientation != guidedOrientation {
+            guidedOrientation = settings.imageOrientation
+            guidance.reset()   // eski seçim / ölçüm başka yöne aitti
         }
         guidance.autoCapture = settings.guidanceAutoCapture
         guidance.triggerWord = triggerDisplay
@@ -971,9 +972,6 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// Bölümün ekranda gösterilen adı (dik çevrilmiş görüntüde "Üst" / "Alt")
-    func columnTitle(_ c: ColumnChoice) -> String { return guidance.title(c) }
-
     /// Ekrandaki düğme (yedek) ya da sesli seçim
     func chooseColumn(_ choice: ColumnChoice) {
         let reply = guidance.setChoice(choice)
@@ -1085,7 +1083,7 @@ final class AppModel: ObservableObject {
                 pipeline.markCaptured()
             }
         }
-        let text = SpokenReport.afterDelete(outcome, waiting: queue.pending, retake: retake, part: part.map { guidance.title($0) },
+        let text = SpokenReport.afterDelete(outcome, waiting: queue.pending, retake: retake, part: part?.title,
                                             guided: guidanceWasOn, trigger: triggerDisplay)
         flash(text, seconds: 6)
         say(text, interrupt: true, force: true)
@@ -1099,7 +1097,7 @@ final class AppModel: ObservableObject {
         }
         let batch = settings.sendMode == "batch"
         let ready = folderReady
-        say(SpokenReport.afterCapture(part: capturePart.map { guidance.title($0) }, waiting: queue.pending,
+        say(SpokenReport.afterCapture(part: capturePart?.title, waiting: queue.pending,
                                       folderReady: ready, batchMode: batch, batchSize: settings.batchSize))
         // Tek tek kaydetmede dosya kaydedilince "dosya kaydedildi" de denir
         uploadWatchBase = (!batch && ready) ? queue.uploaded : nil

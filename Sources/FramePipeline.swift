@@ -46,6 +46,13 @@ final class FramePipeline {
     private var lastMoveTime: TimeInterval = 0
     private var lastGuidanceTime: TimeInterval = -100
 
+    private var _guidanceOrientation = ImageOrientation.normal
+    /// Sayfa ölçümü bu yönde çevrilmiş görüntü üzerinde yapılır (bkz. GuidanceAnalyzer.reorient)
+    var guidanceOrientation: ImageOrientation {
+        get { lock.lock(); defer { lock.unlock() }; return _guidanceOrientation }
+        set { lock.lock(); _guidanceOrientation = newValue; lock.unlock() }
+    }
+
     var guidanceOn: Bool {
         get { lock.lock(); defer { lock.unlock() }; return _guidance }
         set { lock.lock(); _guidance = newValue; lock.unlock() }
@@ -104,7 +111,7 @@ final class FramePipeline {
         lastGuidanceTime = time
         let still = time - lastMoveTime
         var metrics = PageMetrics()
-        if still >= 0.2, let m = GuidanceAnalyzer.analyze(pixelBuffer) { metrics = m }
+        if still >= 0.2, let m = GuidanceAnalyzer.analyze(pixelBuffer, orientation: guidanceOrientation) { metrics = m }
         let diff = captureSignature.map { FrameAnalysis.difference($0, sig) } ?? 100
         onGuidance?(GuidanceSample(metrics: metrics, time: time, stillFor: still, diffToCapture: diff))
     }

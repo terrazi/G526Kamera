@@ -302,7 +302,7 @@ struct GuidanceRow: View {
             if model.guidanceAwaiting {
                 HStack(spacing: 8) {
                     ForEach(model.guidanceOptions, id: \.self) { choice in
-                        Button(choice == .all ? "Hepsi" : model.columnTitle(choice)) { model.chooseColumn(choice) }
+                        Button(choice == .all ? "Hepsi" : choice.title) { model.chooseColumn(choice) }
                             .buttonStyle(.bordered)
                             .accessibilityIdentifier("bolum-\(choice.rawValue)")
                     }

@@ -50,9 +50,50 @@ enum GuidanceAnalyzer {
     static let cell = 8
     static let skipTop = 0.075
 
-    static func analyze(_ pixelBuffer: CVPixelBuffer) -> PageMetrics? {
+    /// `orientation`: ölçüm ekranda gördüğünüz (çevrilmiş) görüntü üzerinde yapılır; böylece sütunlar yan yana,
+    /// "sol / sağ / yukarı / aşağı" ekrandaki yöne göre olur. Normal yönde kare olduğu gibi ölçülür.
+    static func analyze(_ pixelBuffer: CVPixelBuffer, orientation: ImageOrientation = .normal) -> PageMetrics? {
         guard let b = FrameAnalysis.binnedLuma(pixelBuffer) else { return nil }
-        return analyze(luma: b.px, width: b.w, height: b.h)
+        if orientation == .normal { return analyze(luma: b.px, width: b.w, height: b.h) }
+        let r = reorient(luma: b.px, width: b.w, height: b.h, orientation: orientation)
+        return analyze(luma: r.px, width: r.w, height: r.h, skipTop: 0)
+    }
+
+    /// Parlaklık düzlemini ekranda görünen yöne çevirir. Kameranın saat bandı (karenin üst %7,5'i) çevirmeden önce atılır,
+    /// çünkü çevrilince bant kenara geçer; çevrilmiş düzlemde bant yoktur (ölçümde `skipTop: 0` kullanılır).
+    /// Normal yönde düzlem değişmez. Küçültülmüş düzlemde (genelde 960×540) çevirme birkaç milisaniyedir.
+    static func reorient(luma L: [Float], width W: Int, height H: Int,
+                         orientation: ImageOrientation) -> (px: [Float], w: Int, h: Int) {
+        guard orientation != .normal, W > 0, H > 0, L.count == W * H else { return (L, W, H) }
+        let top = min(Int(Double(H) * skipTop), H - 1)
+        let h = H - top
+        var out = [Float](repeating: 0, count: W * h)
+        L.withUnsafeBufferPointer { src in
+            out.withUnsafeMutableBufferPointer { dst in
+                switch orientation {
+                case .right90:      // saat yönünde: kare (x, y) → ekran (h-1-y, x); yeni genişlik h, yükseklik W
+                    for y in 0..<h {
+                        let row = (y + top) * W
+                        let xd = h - 1 - y
+                        for x in 0..<W { dst[x * h + xd] = src[row + x] }
+                    }
+                case .left90:       // saat yönünün tersine: kare (x, y) → ekran (y, W-1-x)
+                    for y in 0..<h {
+                        let row = (y + top) * W
+                        for x in 0..<W { dst[(W - 1 - x) * h + y] = src[row + x] }
+                    }
+                case .rotate180:    // kare (x, y) → ekran (W-1-x, h-1-y)
+                    for y in 0..<h {
+                        let row = (y + top) * W
+                        let rowD = (h - 1 - y) * W
+                        for x in 0..<W { dst[rowD + (W - 1 - x)] = src[row + x] }
+                    }
+                case .normal:
+                    break
+                }
+            }
+        }
+        return orientation.isQuarterTurn ? (out, h, W) : (out, W, h)
     }
 
     static func boxBlur(_ src: [Float], w: Int, h: Int, r: Int) -> [Float] {
@@ -328,10 +369,11 @@ enum GuidanceAnalyzer {
         return (count, total > 0 ? Double(compact) / Double(total) : 0)
     }
 
-    static func analyze(luma L: [Float], width W: Int, height H: Int) -> PageMetrics {
+    /// `skipTop`: üstteki bu orandaki satırlar ölçüme girmez (kameranın saat yazısı); çevrilmiş düzlemde 0.
+    static func analyze(luma L: [Float], width W: Int, height H: Int, skipTop band: Double = GuidanceAnalyzer.skipTop) -> PageMetrics {
         var m = PageMetrics()
         guard W >= 64, H >= 64, L.count == W * H else { return m }
-        let top = Int(Double(H) * skipTop)
+        let top = Int(Double(H) * band)
 
         // Parlaklık dağılımı (üst saat bandı hariç): kâğıt beyazı = %90, koyu uç = %5
         var hist = [Int](repeating: 0, count: 256)
@@ -638,28 +680,6 @@ enum ColumnChoice: String, CaseIterable {
         }
     }
 
-    /// Dik çevrilmiş görüntüde sensörün sol/sağ bölümleri ekranda üst/alt görünür: "sol/sağ" yerine "üst/alt" dinlenir.
-    func tokens(for o: ImageOrientation) -> [String] {
-        guard o.isQuarterTurn else { return tokens }
-        switch self {
-        case .left:
-            return ["ust", "uste", "ustte", "ustten", "ustteki", "usttekini", "ustu", "ustun", "ustundeki"]
-        case .right:
-            return ["alt", "alta", "altta", "alttan", "alttaki", "alttakini", "alti", "altin", "altindaki"]
-        default:
-            return tokens
-        }
-    }
-
-    func looseTokens(for o: ImageOrientation) -> [String] {
-        guard o.isQuarterTurn else { return looseTokens }
-        switch self {
-        case .left: return ["ust"]
-        case .right: return ["alt"]
-        default: return []
-        }
-    }
-
     /// Yalnızca soru beklenirken: "so", "sor", "sa", "sak" gibi kısa/bozuk duyumlar da kabul edilir
     var looseTokens: [String] {
         switch self {
@@ -824,6 +844,9 @@ struct GuidanceConfig {
     var closerBigScale = 1.35
     /// Yakınlaşınca yazının kenarda kalması istenen en az boşluk, `edgeMargin`e eklenir
     var predictMargin = 0.01
+    /// Kameranın saat yazısı bandı: ölçülen karenin üstünden bu oranda yer ölçüye girmez. Görüntü çevrilmişse
+    /// (90° / 180°) bant ölçümden önce atılır; bu değer 0 olur.
+    var topBand = GuidanceAnalyzer.skipTop
 }
 
 struct GuidanceDecision: Equatable {
@@ -893,7 +916,7 @@ enum GuidanceAdvisor {
         let after: [(GuidanceAdvice, Double)] = [
             (.moveLeft, grow(x0)),
             (.moveRight, 1 - grow(x1)),
-            (.moveUp, grow(y0) - GuidanceAnalyzer.skipTop),
+            (.moveUp, grow(y0) - c.topBand),
             (.moveDown, 1 - grow(y1)),
         ]
         let bad = after.filter { $0.1 < need }
@@ -907,8 +930,8 @@ enum GuidanceAdvisor {
         let margins: [(GuidanceAdvice, Double, Double)] = [
             (.moveLeft, x0, 1 - x1),          // sol kenardan taşıyorsa kamera sola
             (.moveRight, 1 - x1, x0),
-            (.moveUp, y0 - GuidanceAnalyzer.skipTop, 1 - y1),
-            (.moveDown, 1 - y1, y0 - GuidanceAnalyzer.skipTop),
+            (.moveUp, y0 - c.topBand, 1 - y1),
+            (.moveDown, 1 - y1, y0 - c.topBand),
         ]
         let cut = margins.filter { $0.1 < c.edgeMargin }
         let leftRight = cut.contains { $0.0 == .moveLeft } && cut.contains { $0.0 == .moveRight }
@@ -950,16 +973,6 @@ final class GuidanceEngine {
 
     var config = GuidanceConfig()
     var sharpFloor = 0.45
-    /// Görüntü yönü: ekranda gördüğünüz yöne göre yönler (ve bölüm seçimi) çevrilir
-    var orientation: ImageOrientation = .normal
-    /// Eski ad: yalnız 180° (kamera ters takılı)
-    var flip: Bool {
-        get { return orientation == .rotate180 }
-        set { orientation = newValue ? .rotate180 : .normal }
-    }
-
-    /// Bölümün kullanıcıya söylenen adı (yön dik çevrilmişse "Üst" / "Alt")
-    func title(_ c: ColumnChoice) -> String { return orientation.title(c) }
     var autoCapture = true
     var triggerWord = "okey"
 
@@ -1025,7 +1038,7 @@ final class GuidanceEngine {
         questionsAsked = q
         switch c {
         case .all: return "Tamam, hepsini kadraja alalım."
-        default: return "Tamam, \(title(c).lowercased(with: Locale(identifier: "tr_TR"))) bölüm."
+        default: return "Tamam, \(c.title.lowercased(with: Locale(identifier: "tr_TR"))) bölüm."
         }
     }
 
@@ -1039,22 +1052,14 @@ final class GuidanceEngine {
         return "Tamam, yeniden seçelim."
     }
 
-    private func effective(_ c: ColumnChoice?) -> ColumnChoice? {
-        guard let c = c else { return c }
-        return orientation.sensorChoice(c)
-    }
-
     func questionText(options: [ColumnChoice], first: Bool) -> String {
         var s = ""
         if let l = lastCaptured {
-            s += "\(title(l)) bölüm çekildi. "
+            s += "\(l.title) bölüm çekildi. "
         } else if first {
             s += "Kadrajda ayrı bölümler var ve biri yarım kalıyor. "
         }
-        if orientation.isQuarterTurn {
-            s += options.contains(.middle) ? "Hangisini çekeyim? Üst mü, orta mı, alt mı, yoksa tamamı mı?"
-                                           : "Hangisini çekeyim? Üst mü, alt mı, yoksa ikisi birden mi?"
-        } else if options.contains(.middle) {
+        if options.contains(.middle) {
             s += "Hangisini çekeyim? Sol mu, orta mı, sağ mı, yoksa tamamı mı?"
         } else {
             s += "Hangisini çekeyim? Sol mu, sağ mı, yoksa ikisi birden mi?"
@@ -1064,8 +1069,7 @@ final class GuidanceEngine {
 
     /// `again`: aynı uyarı ardı ardına tekrarlanıyor ("Biraz daha sola…" diye ilerleme beklenir)
     func phrase(for advice: GuidanceAdvice, again: Bool = false) -> String {
-        let a = orientation.displayed(advice)
-        switch a {
+        switch advice {
         case .moveLeft: return again ? "Biraz daha sola kaydırın." : "Kamerayı biraz sola kaydırın."
         case .moveRight: return again ? "Biraz daha sağa kaydırın." : "Kamerayı biraz sağa kaydırın."
         case .moveUp: return again ? "Biraz daha yukarı kaydırın." : "Kamerayı biraz yukarı kaydırın."
@@ -1092,7 +1096,7 @@ final class GuidanceEngine {
     }
 
     func statusText(for advice: GuidanceAdvice) -> String {
-        let prefix = choice.map { "\(title($0)): " } ?? ""
+        let prefix = choice.map { "\($0.title): " } ?? ""
         switch advice {
         case .ok: return prefix + (autoCapture ? "Konum uygun — sabit tutun" : "Konum uygun — “\(triggerWord)” deyin")
         case .blurry: return prefix + "Görüntü net değil"
@@ -1116,11 +1120,11 @@ final class GuidanceEngine {
         if stillFor < config.stillNeeded {
             consecutive = 0
             last = nil
-            return Output(status: choice == nil ? "Kamera hareket ediyor…" : "\(choice.map { title($0) } ?? "") — kamera hareket ediyor…",
+            return Output(status: choice == nil ? "Kamera hareket ediyor…" : "\(choice?.title ?? "") — kamera hareket ediyor…",
                           awaitingChoice: awaitingChoice, options: lastOptions)
         }
 
-        let d = GuidanceAdvisor.decide(metrics, choice: effective(choice), config: config, sharpFloor: sharpFloor)
+        let d = GuidanceAdvisor.decide(metrics, choice: choice, config: config, sharpFloor: sharpFloor)
         lastFill = d.fill
         lastScale = d.scale
         var a = d.advice

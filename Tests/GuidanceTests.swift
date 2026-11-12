@@ -147,13 +147,6 @@ final class GuidanceTests: XCTestCase {
         XCTAssertEqual(spoken, ["Kamerayı biraz sağa kaydırın."])
     }
 
-    func testFlipInvertsDirections() {
-        let e = GuidanceEngine()
-        e.flip = true
-        XCTAssertEqual(e.phrase(for: .moveRight), "Kamerayı biraz sola kaydırın.")
-        XCTAssertEqual(e.phrase(for: .moveUp), "Kamerayı biraz aşağı kaydırın.")
-    }
-
     func testQuestionIsAskedRepeatedlyThenGivesUp() {
         let e = GuidanceEngine()
         let m = twoColumns(left: col(0.04, 0.57), right: col(0.60, 1.0))
@@ -199,18 +192,6 @@ final class GuidanceTests: XCTestCase {
         XCTAssertEqual(e.choice, .right)
         _ = e.clearChoice()
         XCTAssertNil(e.choice)
-    }
-
-    func testFlipMirrorsTheChosenSide() {
-        let e = GuidanceEngine()
-        e.flip = true
-        let m = twoColumns(left: col(0.04, 0.57), right: col(0.60, 1.0))
-        e.setChoice(.left)   // kullanıcı için sol = görüntüde sağ sütun (kamera ters)
-        var spoken: String?
-        for i in 0..<4 where spoken == nil {
-            spoken = step(e, m, t: Double(i) * 0.3).speak
-        }
-        XCTAssertEqual(spoken, "Kamerayı biraz sola kaydırın.")
     }
 
     // MARK: - Sentetik görüntüde sayfa / sütun ölçümü
