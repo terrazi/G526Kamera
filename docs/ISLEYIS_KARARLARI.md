@@ -92,3 +92,5 @@ U. [İSTEK, uygulandı] Kamera adı (UID) ilk açılışta Ayarlar > Kamera'da h
 V. [İSTEK, uygulandı] Ayarlarda uzun açıklamalar gizlidir: bölümün içinde "Açıklama" satırı görünür, dokununca metin altına doğru açılır, yeniden dokununca kapanır (HelpRow). 100 karakterden kısa notlar olduğu gibi kalır.
 
 W. [KURAL] Kestirmeler uygulamayı arka plana attığı için deneme sayacı ve bekleme süresi arka plana geçişte sıfırlanmaz; yalnız gerçek toparlanmada (internet geldi / mikrofon ses verdi / ses yolu düzeldi) sıfırlanır. Aksi hâlde kestirme sonsuza dek yeniden çalışırdı.
+
+X. [İSTEK, uygulandı] Uygulama simgesi: mavi zemin üzerinde beyaz kamera. Kaynak çizim docs/icon/icon.svg, 1024×1024 opak PNG Resources/Assets.xcassets/AppIcon.appiconset içinde (tek boyut; Xcode diğer boyutları üretir). Telefonda ana ekranda görünüşü denenmedi.

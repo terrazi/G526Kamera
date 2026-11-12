@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3D97FF"/>
+      <stop offset="1" stop-color="#0A46B5"/>
+    </linearGradient>
+    <filter id="sh" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#04245F" flood-opacity="0.45"/>
+    </filter>
+    <radialGradient id="lens" cx="0.42" cy="0.38" r="0.75">
+      <stop offset="0" stop-color="#2F7DF0"/>
+      <stop offset="1" stop-color="#082F7F"/>
+    </radialGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+  <g filter="url(#sh)">
+    <rect x="318" y="258" width="230" height="110" rx="34" fill="#FFFFFF"/>
+    <rect x="152" y="322" width="720" height="470" rx="92" fill="#FFFFFF"/>
+  </g>
+  <circle cx="512" cy="566" r="178" fill="#1D63D4"/>
+  <circle cx="512" cy="566" r="146" fill="#FFFFFF"/>
+  <circle cx="512" cy="566" r="120" fill="url(#lens)"/>
+  <circle cx="512" cy="566" r="58" fill="#06226B" opacity="0.55"/>
+  <circle cx="462" cy="514" r="30" fill="#FFFFFF" opacity="0.9"/>
+  <circle cx="556" cy="620" r="14" fill="#FFFFFF" opacity="0.55"/>
+  <circle cx="764" cy="414" r="26" fill="#2F86F5"/>
+  <rect x="204" y="396" width="92" height="22" rx="11" fill="#CFE0FA"/>
+</svg>

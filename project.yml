@@ -21,6 +21,7 @@ targets:
 
     sources:
       - path: Sources
+      - path: Resources
 
     info:
       path: Config/Info.plist
@@ -46,6 +47,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.huseyinozer.g526
         ENABLE_BITCODE: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
 
     scheme:
       testTargets:
