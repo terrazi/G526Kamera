@@ -58,6 +58,8 @@ final class AppSettings: ObservableObject {
     @Published var guidanceEnabled: Bool { didSet { d.set(guidanceEnabled, forKey: "guidanceEnabled") } }
     /// Uyarıları sesli söyle (kapalıysa yalnız ekranda yazar)
     @Published var guidanceVoice: Bool { didSet { d.set(guidanceVoice, forKey: "guidanceVoice") } }
+    /// Video kaydı sürerken de (elle ya da sınav videosu) konum tarifi ver: sağa, sola, yukarı, aşağı, yaklaş, uzaklaş (çekim yok)
+    @Published var videoGuidance: Bool { didSet { d.set(videoGuidance, forKey: "videoGuidance") } }
     /// Sesli konumlandırma açıkken kamera / gönderim durumunu da sesle haber ver (kamera koptu, dosya gönderildi…)
     @Published var statusNotices: Bool { didSet { d.set(statusNotices, forKey: "statusNotices") } }
     /// Konum uygun olunca kendiliğinden çek (kapalıysa "okey" demenizi bekler)
@@ -205,6 +207,7 @@ final class AppSettings: ObservableObject {
         uploadFormat = d.string(forKey: "uploadFormat") ?? "pdf"
         guidanceEnabled = d.object(forKey: "guidanceEnabled") as? Bool ?? false
         guidanceVoice = d.object(forKey: "guidanceVoice") as? Bool ?? true
+        videoGuidance = d.object(forKey: "videoGuidance") as? Bool ?? true
         speechVoiceID = d.string(forKey: "speechVoiceID") ?? ""
         speechRate = d.object(forKey: "speechRate") as? Double ?? 1.0
         statusNotices = d.object(forKey: "statusNotices") as? Bool ?? true

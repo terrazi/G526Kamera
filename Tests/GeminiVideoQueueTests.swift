@@ -130,6 +130,15 @@ final class GeminiVideoQueueTests: XCTestCase {
         XCTAssertTrue(q.contains("sıralı"))
     }
 
+    func testVideoGuidanceIsOnByDefaultAndStoredChoiceIsKept() {
+        UserDefaults.standard.removeObject(forKey: "videoGuidance")
+        XCTAssertTrue(AppSettings().videoGuidance, "varsayılan: video sırasında konum tarifi açık")
+        let s = AppSettings()
+        s.videoGuidance = false
+        XCTAssertFalse(AppSettings().videoGuidance)
+        UserDefaults.standard.removeObject(forKey: "videoGuidance")
+    }
+
     func testPrivacyConsentIsOnByDefaultAndStoredChoiceIsKept() {
         UserDefaults.standard.removeObject(forKey: "geminiPrivacyOK")
         XCTAssertTrue(AppSettings().geminiPrivacyOK, "varsayılan: gizlilik onayı işaretli")

@@ -1106,6 +1106,76 @@ final class GuidanceEngine {
         }
     }
 
+    // MARK: Video kaydı sırasında yalnız konum tarifi
+
+    private var vLast: GuidanceAdvice?
+    private var vConsecutive = 0
+    private var vLastSpoken: GuidanceAdvice?
+    private var vLastSpokenTime: TimeInterval = -1000
+    private var vRepeats = 0
+    private var vMuted: GuidanceAdvice?
+
+    /// Video başlarken / biterken: video tarifinin sayaçları sıfırlanır (fotoğraf durumuna dokunulmaz)
+    func resetVideo() {
+        vLast = nil
+        vConsecutive = 0
+        vLastSpoken = nil
+        vLastSpokenTime = -1000
+        vRepeats = 0
+        vMuted = nil
+    }
+
+    func videoStatus(for advice: GuidanceAdvice) -> String {
+        if advice == .ok { return "Video: kadraj uygun" }
+        return "Video: " + String(phrase(for: advice).dropLast())
+    }
+
+    /// Video kaydı sırasında: yalnız konum tarifi (kamerayı sola/sağa/yukarı/aşağı kaydır, yaklaş, uzaklaş, yazı görünmüyor).
+    /// Çekim, bölüm sorusu, netlik ve parlama uyarısı YOKTUR (video akarken sayfa çevrilir, kamera oynar). Kadrajda birden çok bölüm
+    /// (yan yana sayfa) varsa hepsi hedeflenir. Kamera hareket ederken susar; durgunlaşınca ölçülür.
+    func videoStep(_ metrics: PageMetrics, time: TimeInterval, stillFor: TimeInterval) -> Output {
+        guard stillFor >= config.stillNeeded else {
+            vLast = nil
+            vConsecutive = 0
+            return Output(status: "Video: kamera hareket ediyor…")
+        }
+        var c = config
+        c.glareLimit = 2
+        let d = GuidanceAdvisor.decide(metrics, choice: .all, config: c, sharpFloor: 0)
+        lastFill = d.fill
+        lastScale = d.scale
+        var a = d.advice
+        if a == .blurry || a == .glare || a == .chooseColumn { a = .ok }
+        if a == vLast {
+            vConsecutive += 1
+        } else {
+            vLast = a
+            vConsecutive = 1
+            if a != vMuted { vMuted = nil }
+        }
+        var out = Output(advice: a, status: videoStatus(for: a))
+        if a == .ok {
+            vRepeats = 0
+            vLastSpoken = nil
+            vMuted = nil
+            return out
+        }
+        // "Yazı görünmüyor" sayfa çevrilirken de olur: daha uzun sürerse söylenir
+        let needed = a == .noText ? 4 : 2
+        guard vConsecutive >= needed, a != vMuted, time - vLastSpokenTime >= config.speakGap else { return out }
+        if a != vLastSpoken || time - vLastSpokenTime >= config.repeatGap {
+            if a == vLastSpoken { vRepeats += 1 } else { vRepeats = 0 }
+            if vRepeats >= config.maxRepeats {
+                vMuted = a   // yeter: değişene kadar susar
+            } else {
+                out.speak = phrase(for: a, again: vRepeats > 0)
+            }
+            vLastSpoken = a
+            vLastSpokenTime = time
+        }
+        return out
+    }
+
     func step(_ metrics: PageMetrics, time: TimeInterval, stillFor: TimeInterval, diffToCapture: Double) -> Output {
         if !armed {
             if diffToCapture > config.changeToRearm && stillFor >= config.stillNeeded {

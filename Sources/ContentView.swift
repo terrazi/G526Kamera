@@ -23,7 +23,7 @@ struct ContentView: View {
                             .background(Color(UIColor.secondarySystemBackground))
                             .cornerRadius(12)
                     }
-                    if settings.guidanceEnabled { GuidanceRow() }
+                    if settings.guidanceEnabled || (settings.videoGuidance && model.videoRecording) { GuidanceRow() }
                     VoiceRow(status: model.speechStatus, heard: model.heardText,
                              enabled: settings.voiceEnabled || settings.guidanceEnabled)
                     if settings.geminiEnabled { GeminiRow(chat: model.gemini, exam: model.exam) }

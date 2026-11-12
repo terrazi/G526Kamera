@@ -119,6 +119,7 @@ final class AppModel: ObservableObject {
         return chat
     }
     private var guidanceWasOn = false
+    private var videoGuideWasOn = false
     private var speechActive = false
     /// Sesli model seçimi sürüyor ("model değiştir" denildi)
     /// Sesli model seçimi ("model değiştir", "birinci model", "tekrarla", "vazgeç")
@@ -382,6 +383,12 @@ final class AppModel: ObservableObject {
             .store(in: &cancellables)
 
         settings.$guidanceGlare
+            .sink { [weak self] _ in
+                Task { @MainActor in self?.updateGuidance() }
+            }
+            .store(in: &cancellables)
+
+        settings.$videoGuidance
             .sink { [weak self] _ in
                 Task { @MainActor in self?.updateGuidance() }
             }
@@ -760,7 +767,8 @@ final class AppModel: ObservableObject {
 
     private func updateGuidance() {
         let on = started && guidanceWanted
-        pipeline.guidanceOn = on
+        pipeline.guidanceOn = on || videoGuideActive
+        updateVideoGuideState()
         // Ölçüm ekranda gördüğünüz (çevrilmiş) görüntü üzerinde yapılır: sütunlar yan yana, yönler ekrandaki yöne göre.
         // Çevrilmişte kameranın saat bandı ölçümden önce atılır.
         pipeline.guidanceOrientation = settings.imageOrientation
@@ -785,6 +793,34 @@ final class AppModel: ObservableObject {
             speech.choiceMode = false
             if on && examGuide != true { say(SpokenReport.startup(folderReady: folderReady, waiting: queue.pending)) }
         }
+    }
+
+    /// Video kaydı sürerken (elle ya da sınav videosu) konum tarifi verilsin mi
+    private var videoGuideActive: Bool {
+        guard settings.videoGuidance, started else { return false }
+        return videoRecording || (examVideoState == .recording && !examVideoFinishing)
+    }
+
+    /// Video tarifi açılıp kapanırken sayaçlar sıfırlanır, bitince eski durum satırı silinir
+    private func updateVideoGuideState() {
+        let active = videoGuideActive
+        guard active != videoGuideWasOn else { return }
+        videoGuideWasOn = active
+        guidance.resetVideo()
+        if active {
+            guidanceStatus = "Video: konum tarifi açık"
+        } else if guidanceStatus.hasPrefix("Video:") {
+            guidanceStatus = guidanceWanted ? "Sesli konumlandırma açık — sayfayı kadraja alın" : ""
+        }
+        pipeline.guidanceOn = (started && guidanceWanted) || active
+    }
+
+    /// Video sırasında gelen ölçüm: yalnız konum tarifi söylenir, fotoğraf çekilmez
+    private func videoGuidanceSample(_ sample: FramePipeline.GuidanceSample) {
+        let out = guidance.videoStep(sample.metrics, time: sample.time, stillFor: sample.stillFor)
+        if out.status != guidanceStatus { guidanceStatus = out.status }
+        // Sınav videosunda yönlendirme sesli verilir (sınavın taramasındaki gibi); elle videoda "Uyarıları sesli söyle" ayarı geçerlidir
+        if let text = out.speak { say(text, force: settings.guidanceVoice || examActive) }
     }
 
     /// Ekranda göster, istenirse (ya da zorunluysa) sesli söyle. Konuşurken mikrofon bastırılır.
@@ -980,7 +1016,13 @@ final class AppModel: ObservableObject {
     }
 
     private func guidanceSample(_ sample: FramePipeline.GuidanceSample) {
-        guard started, guidanceWanted, isLive else { return }
+        guard started, isLive else { return }
+        // Video kaydı sürerken yalnız konum tarifi: fotoğraf çekilmez, bölüm sorusu sorulmaz
+        if videoGuideActive {
+            videoGuidanceSample(sample)
+            return
+        }
+        guard guidanceWanted else { return }
         if capturing || pipeline.engine.isBusy { return }
         let out = guidance.step(sample.metrics, time: sample.time, stillFor: sample.stillFor,
                                 diffToCapture: sample.diffToCapture)
@@ -1276,6 +1318,7 @@ final class AppModel: ObservableObject {
         }
         videoRecorder.start(to: VideoOutbox.shared.newFileURL(date: Date()), orientation: settings.imageOrientation)
         videoRecording = true
+        updateGuidance()
         HealthMonitor.shared.mark("video kaydı")
         flash("● Video kaydı açık (en çok 90 sn)", seconds: 5)
         say("Video kaydı açık.", interrupt: true, force: true)
@@ -1290,6 +1333,7 @@ final class AppModel: ObservableObject {
     func stopVideo(reason: String) {
         guard videoRecording else { return }
         videoRecording = false
+        updateGuidance()
         videoStopWork?.cancel()
         videoStopWork = nil
         videoRecorder.finish { [weak self] result in
@@ -1818,6 +1862,7 @@ final class AppModel: ObservableObject {
                             maxSeconds: VideoRecorder.examMaxSeconds)
         examVideoState = .recording
         examVideoFinishing = false
+        updateGuidance()
         tlog("[sinav] video kaydı başladı")
         flash("● Sınav videosu kaydediliyor (en çok 30 sn)", seconds: 5)
         say("Kayıt başladı.", interrupt: false, force: true)
@@ -1838,6 +1883,7 @@ final class AppModel: ObservableObject {
     private func examVideoFinish(token: Int) {
         guard token == examVideoToken, examVideoState == .recording, !examVideoFinishing else { return }
         examVideoFinishing = true
+        updateGuidance()
         examVideoWork?.cancel()
         examVideoWork = nil
         videoRecorder.finish { [weak self] result in
@@ -1879,6 +1925,7 @@ final class AppModel: ObservableObject {
         examVideoFinishing = false
         examVideoChecking = false
         examVideoState = .idle
+        updateGuidance()
     }
 
     /// Hazır videoyu belge klasörüne kaydeder ve bitene kadar bekler; hata metni ("" = kaydedildi).

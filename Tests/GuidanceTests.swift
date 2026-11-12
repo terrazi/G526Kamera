@@ -147,6 +147,99 @@ final class GuidanceTests: XCTestCase {
         XCTAssertEqual(spoken, ["Kamerayı biraz sağa kaydırın."])
     }
 
+    // MARK: - Video kaydı sırasında konum tarifi
+
+    private func vstep(_ e: GuidanceEngine, _ m: PageMetrics, t: Double, still: Double = 2.0) -> GuidanceEngine.Output {
+        return e.videoStep(m, time: t, stillFor: still)
+    }
+
+    func testVideoStepSpeaksDirectionButNeverCapturesOrAsks() {
+        let e = GuidanceEngine()
+        let m = metrics(x0: 0.4, x1: 0.995)
+        var spoken: [String] = []
+        for i in 0..<8 {
+            let out = vstep(e, m, t: Double(i) * 0.3)
+            XCTAssertFalse(out.capture)
+            XCTAssertFalse(out.awaitingChoice)
+            if let t = out.speak { spoken.append(t) }
+        }
+        XCTAssertEqual(spoken, ["Kamerayı biraz sağa kaydırın."])
+    }
+
+    func testVideoStepGoodFrameIsSilentAndNeverCaptures() {
+        let e = GuidanceEngine()
+        for i in 0..<20 {
+            let out = vstep(e, metrics(x0: 0.2, x1: 0.8), t: Double(i) * 0.3)
+            XCTAssertNil(out.speak)
+            XCTAssertFalse(out.capture)
+        }
+        XCTAssertEqual(vstep(e, metrics(x0: 0.2, x1: 0.8), t: 10).status, "Video: kadraj uygun")
+    }
+
+    func testVideoStepTargetsAllSectionsInsteadOfAskingWhichOne() {
+        let e = GuidanceEngine()
+        let m = twoColumns(left: col(0.005, 0.49), right: col(0.51, 0.88))
+        var advice: GuidanceAdvice?
+        for i in 0..<4 { advice = vstep(e, m, t: Double(i) * 0.3).advice }
+        XCTAssertNotNil(advice)
+        XCTAssertNotEqual(advice, .chooseColumn)
+        XCTAssertEqual(advice, .moveLeft)
+    }
+
+    func testVideoStepIsSilentWhileCameraMoves() {
+        let e = GuidanceEngine()
+        let m = metrics(x0: 0.4, x1: 0.995)
+        for i in 0..<10 {
+            let out = vstep(e, m, t: Double(i) * 0.3, still: 0.1)
+            XCTAssertNil(out.speak)
+            XCTAssertTrue(out.status.contains("hareket"))
+        }
+    }
+
+    func testVideoStepIgnoresBlurAndGlare() {
+        let e = GuidanceEngine()
+        var m = metrics(x0: 0.2, x1: 0.8, sharp: 0.1)
+        m.glare = 0.5
+        for i in 0..<10 {
+            let out = vstep(e, m, t: Double(i) * 0.3)
+            XCTAssertNil(out.speak)
+            XCTAssertEqual(out.advice, .ok)
+        }
+    }
+
+    func testVideoStepNoTextIsSpokenOnlyAfterAWhile() {
+        let e = GuidanceEngine()
+        var spoken: [String] = []
+        for i in 0..<3 {
+            if let t = vstep(e, PageMetrics(), t: Double(i) * 0.3).speak { spoken.append(t) }
+        }
+        XCTAssertTrue(spoken.isEmpty, "sayfa çevrilirken kısa süreli yazı yokluğu söylenmez")
+        if let t = vstep(e, PageMetrics(), t: 0.9).speak { spoken.append(t) }
+        XCTAssertEqual(spoken, ["Yazı görünmüyor. Kamerayı belgeye çevirin."])
+    }
+
+    func testVideoStepRepeatsFourTimesThenMutesUntilAdviceChanges() {
+        let e = GuidanceEngine()
+        let cut = metrics(x0: 0.4, x1: 0.995)
+        var count = 0
+        for i in 0..<100 where vstep(e, cut, t: Double(i)).speak != nil { count += 1 }
+        XCTAssertEqual(count, 4)
+        // uygun kareye dönüp yeniden bozulunca yine söyler
+        _ = vstep(e, metrics(x0: 0.2, x1: 0.8), t: 101)
+        var again = false
+        for i in 102..<110 where vstep(e, cut, t: Double(i)).speak != nil { again = true }
+        XCTAssertTrue(again)
+    }
+
+    func testVideoStepDoesNotTouchPhotoState() {
+        let e = GuidanceEngine()
+        _ = e.setChoice(.left)
+        for i in 0..<5 { _ = vstep(e, metrics(x0: 0.4, x1: 0.995), t: Double(i)) }
+        XCTAssertEqual(e.choice, .left)
+        e.resetVideo()
+        XCTAssertEqual(e.choice, .left)
+    }
+
     func testQuestionIsAskedRepeatedlyThenGivesUp() {
         let e = GuidanceEngine()
         let m = twoColumns(left: col(0.04, 0.57), right: col(0.60, 1.0))
