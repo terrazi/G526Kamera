@@ -24,7 +24,7 @@ enum GeminiConfig {
     static let fileKeepSeconds: Double = 40 * 3600
     /// Şık harfleri yerine sesli okunan kod sözcükleri
     static let defaultOptionCodes = "A=ADANA, B=BURSA, C=CEYHAN, D=DENİZLİ, E=EDİRNE"
-    static let docsIntro = "Aşağıdaki belgeler, soruları yanıtlarken dayanacağın belgelerdir."
+    static let docsIntro = "Aşağıdaki belgeler, soruları yanıtlarken dayanacağın belgelerdir. Bunlar kullanıcının taradığı sayfalardır ve uygulama bunları sana doğrudan ekledi: Drive'a, bağlantıya ya da dosyaya erişmen gerekmez. Kullanıcı 'Drive'daki belge' derse bunları kastediyordur. Belgeleri okuyamadığını ya da uygulamanın sana göndermesi gerektiğini söyleme; belgeleri oku ve cevapla."
     static let docsAck = "Belgeleri okudum, sorularınızı bekliyorum."
     static let transcribeSystem = "Sesi Türkçe olarak aynen yazıya dök. Başındaki çağrı sözcüğünü ('Gemini' gibi) yazma. Yorum ekleme."
     static let transcribeMarker = "Bu sesi yazıya dök."
