@@ -129,7 +129,7 @@ final class ExamPortsReal: ExamPorts {
     func preflight(needCamera: Bool) -> String {
         if !hooks.speechOn() { return "Sesli komut kapalı. Ayarlardan sesle çekimi ya da sesle konumlandırmayı açın." }
         if settings.activeGeminiProfile.key.isEmpty { return "Gemini API anahtarı girilmemiş. Ayarlardan yapıştırın." }
-        if !settings.geminiPrivacyOK { return "Gemini gizlilik onayı verilmemiş. Ayarlardan onaylayın." }
+        if !settings.geminiPrivacyOK { return "Gemini gizlilik onayı verilmemiş. Ayarlar, Gemini ve API anahtarları sayfasının en üstünden onaylayın." }
         if !folder.isReady { return "Belge klasörü seçilmemiş. Ayarlardan klasörü seçin." }
         if needCamera && !hooks.cameraLive() { return "Kamera görüntüsü yok. Kameraya bağlanınca tekrar söyleyin." }
         return ""

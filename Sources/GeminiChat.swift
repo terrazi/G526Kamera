@@ -249,7 +249,7 @@ final class GeminiChat: ObservableObject {
         guard gen == generation, !Task.isCancelled else { return }
         let opts = options()
         guard opts.privacyOK else {
-            return fail(gen, "Önce Gemini bölümündeki gizlilik onayını işaretleyin.")
+            return fail(gen, "Önce Ayarlar, Gemini ve API anahtarları sayfasının en üstündeki gizlilik onayını işaretleyin.")
         }
         guard opts.hasKey else {
             return fail(gen, "Gemini API anahtarı girilmemiş. Ayarlardan yapıştırın.")

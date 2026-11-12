@@ -16,7 +16,13 @@ struct SettingsView: View {
                 Section(header: Text("Bağlantılar"),
                         footer: Text("Gemini API anahtarınızı buradan girersiniz. Diğer bütün ayarlar “Gelişmiş ayarlar” içindedir; varsayılan değerlerle çalışır, değiştirmeniz gerekmez.")) {
                     NavigationLink(destination: geminiPage) {
-                        Text("Gemini ve API anahtarları")
+                        HStack {
+                            Text("Gemini ve API anahtarları")
+                            if !settings.geminiPrivacyOK {
+                                Spacer()
+                                Text("gizlilik onayı gerekli").font(.footnote).foregroundColor(.orange)
+                            }
+                        }
                     }
                 }
                 soundSection
@@ -72,6 +78,7 @@ struct SettingsView: View {
     /// Gemini bölümleri (sesle soru, model profilleri ve API anahtarları)
     private var geminiPage: some View {
         Form {
+            geminiPrivacySection
             geminiSection
             geminiModelsSection
         }
@@ -225,6 +232,15 @@ struct SettingsView: View {
         }
     }
 
+    /// Gizlilik onayı: sayfanın en üstünde; onay yoksa Gemini'ye hiçbir şey gönderilmez
+    private var geminiPrivacySection: some View {
+        Section(header: Text("Gizlilik onayı"),
+                footer: Text("Onay vermezseniz Gemini’ye hiçbir şey gönderilmez ve sesle soru sorulamaz. Onayladığınızda soru sesiniz ve belge klasörünüzdeki PDF’ler Google’ın Gemini hizmetine gönderilir.")) {
+            Toggle("Ses kaydımın ve PDF’lerimin Google’a gönderilmesini onaylıyorum", isOn: $settings.geminiPrivacyOK)
+                .accessibilityIdentifier("gemini-gizlilik")
+        }
+    }
+
     private var geminiSection: some View {
         Section(header: Text("Gemini ile belge sohbeti"),
                 footer: Text("Belge klasörüne kaydettiğiniz son PDF’leri Gemini’ye verir; çağrı sözcüğünü söyleyip (kısa bir “tık” sesinden sonra) ya da ana ekrandaki düğmeyle belgeler hakkında sesli soru sorarsınız, cevap Türkçe sesle okunur. Çağrı sözcüğünü değiştirebilirsiniz (ör. “hey dostum”; virgülle birden çok yazabilirsiniz, en az 3 harf); gündelik konuşmada sık geçen bir sözcük seçerseniz Gemini yanlışlıkla açılabilir, fotoğraf çekme ve gönder sözcüklerinden de farklı olsun. Çağrı sözcüğü için Sesli komut açık olmalıdır; düğme her zaman çalışır. Oturum açıkken uygulama “N belge hazır, sorunuzu bekliyorum” der, her cevaptan sonra “Sonraki sorunuzu bekliyorum” diyerek yeni soruyu kendiliğinden dinler. Oturum siz “oturumu kapat” diyene, Durdur’a basana ya da aşağıda yazdığınız sessizlik süresi dolana kadar açık kalır; süreyi 0 bırakırsanız hiç kapanmaz. Oturum açıkken mikrofon sürekli açıktır: duyulan her konuşma Gemini’ye gider ve ücretlendirilir, “okey” gibi diğer sesli komutlar çalışmaz. Her soruda ses kaydınız ve seçilen PDF’ler Google’a gönderilir; IBAN, vergi numarası gibi bilgiler içeren belgeler için ücretli anahtarı tercih edin. Belgelerin PDF olarak Drive’a gitmesi gerekir (Google Drive bölümünde dosya türü “PDF”).")) {
@@ -297,8 +313,6 @@ struct SettingsView: View {
                         .accessibilityIdentifier("gemini-sira-sifirla")
                 }
             }
-            Toggle("Ses kaydımın ve PDF’lerimin Google’a gönderilmesini onaylıyorum", isOn: $settings.geminiPrivacyOK)
-                .accessibilityIdentifier("gemini-gizlilik")
         }
     }
 
