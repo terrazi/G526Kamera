@@ -247,7 +247,12 @@ final class AppSettings: ObservableObject {
         geminiPrivacyOK = d.object(forKey: "geminiPrivacyOK") as? Bool ?? false
         geminiDocCount = min(max(d.object(forKey: "geminiDocCount") as? Int ?? 3, 1), GeminiConfig.maxPages)
         geminiMemory = d.object(forKey: "geminiMemory") as? Bool ?? true
-        geminiOptionCodes = d.string(forKey: "geminiOptionCodes") ?? GeminiConfig.defaultOptionCodes
+        let storedCodes = d.string(forKey: "geminiOptionCodes")
+        if let stored = storedCodes, stored != GeminiConfig.previousDefaultOptionCodes {
+            geminiOptionCodes = stored
+        } else {
+            geminiOptionCodes = GeminiConfig.defaultOptionCodes
+        }
         geminiBatchLast = min(max(d.object(forKey: "geminiBatchLast") as? Int ?? 0, 0), 100000)
         examGroup = min(max(d.object(forKey: "examGroup") as? Int ?? 10, 3), 20)
         examFetch = min(max(d.object(forKey: "examFetch") as? Int ?? 20, 5), 40)

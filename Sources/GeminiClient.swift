@@ -23,7 +23,9 @@ enum GeminiConfig {
     /// Files API dosyaları 48 saat saklar; 40 saatten eskisi yeniden yüklenir
     static let fileKeepSeconds: Double = 40 * 3600
     /// Şık harfleri yerine sesli okunan kod sözcükleri
-    static let defaultOptionCodes = "A=ADANA, B=BURSA, C=CEYHAN, D=DENİZLİ, E=EDİRNE"
+    static let defaultOptionCodes = "A=ADANA, B=BURSA, C=CEYHAN, D=DENİZLİ, E=ERZURUM"
+    /// Eski varsayılan (E=EDİRNE): kayıtlı değer buysa yeni varsayılanla değiştirilir
+    static let previousDefaultOptionCodes = "A=ADANA, B=BURSA, C=CEYHAN, D=DENİZLİ, E=EDİRNE"
     static let docsIntro = "Aşağıdaki belgeler, soruları yanıtlarken dayanacağın belgelerdir. Bunlar kullanıcının taradığı sayfalardır ve uygulama bunları sana doğrudan ekledi: Drive'a, bağlantıya ya da dosyaya erişmen gerekmez. Kullanıcı 'Drive'daki belge' derse bunları kastediyordur. Belgeleri okuyamadığını ya da uygulamanın sana göndermesi gerektiğini söyleme; belgeleri oku ve cevapla."
     /// Sınav videoları (sınav kâğıdının kısa çekimleri) PDF'lerle birlikte verilir
     static let examVideoIntro = "Ekte sınav kâğıdının kısa video(ları) da var. PDF'lerle birlikte değerlendir; PDF'te okunamayan, eksik ya da bozuk kalan soru, şekil ve şıklar için videoya da bak. Soruları yine PDF'lerdeki numaralarına göre cevapla."
