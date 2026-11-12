@@ -92,6 +92,10 @@ final class ExamPortsReal: ExamPorts {
         var checkSystem: () async -> String = { "" }
         /// Ses yanlış yere gidiyorsa (mikrofon alıcısı) okunacak sorun metni; boş = sorun yok
         var routeProblem: () -> String = { "" }
+        /// Sayfa sayfa video başlar (kayıt duraklamış hazır, konum tarifi açık)
+        var videoBeginPages: () -> Void = {}
+        /// Kaydedilen videoyu ayrı istekle Gemini'ye sorar; (cevap, hata)
+        var videoAsk: () async -> (answer: String, error: String) = { ("", "") }
     }
 
     private let hooks: Hooks
@@ -150,6 +154,8 @@ final class ExamPortsReal: ExamPorts {
     func videoStop() { hooks.videoStop() }
     func videoDiscard() { hooks.videoDiscard() }
     func videoSend() async -> String { return await hooks.videoSend() }
+    func videoBeginPages() { hooks.videoBeginPages() }
+    func videoAsk() async -> (answer: String, error: String) { return await hooks.videoAsk() }
     func selfCheckOn() -> Bool { return settings.examSelfCheck }
     func checkSystem() async -> String { return await hooks.checkSystem() }
     func routeProblem() -> String { return hooks.routeProblem() }

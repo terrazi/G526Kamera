@@ -61,6 +61,10 @@ final class AppSettings: ObservableObject {
     /// Elle çekilen video en çok kaç saniye sürsün (varsayılan 90; 10–300) ve sınav videosu (varsayılan 30; 10–120)
     @Published var videoMaxSeconds: Int { didSet { d.set(videoMaxSeconds, forKey: "videoMaxSeconds") } }
     @Published var examVideoMaxSeconds: Int { didSet { d.set(examVideoMaxSeconds, forKey: "examVideoMaxSeconds") } }
+    /// Sayfa sayfa videoda her sayfanın kaydedilen süresi (sn; varsayılan 5, 2–15)
+    @Published var pageVideoSeconds: Int { didSet { d.set(pageVideoSeconds, forKey: "pageVideoSeconds") } }
+    /// Deneme sınavı sayfa sayfa video yöntemiyle çalışır (her video ayrı Gemini'ye gider); kapalıysa fotoğraf taraması ve PDF
+    @Published var examPageVideo: Bool { didSet { d.set(examPageVideo, forKey: "examPageVideo") } }
     /// Video kaydı sürerken de (elle ya da sınav videosu) konum tarifi ver: sağa, sola, yukarı, aşağı, yaklaş, uzaklaş (çekim yok)
     @Published var videoGuidance: Bool { didSet { d.set(videoGuidance, forKey: "videoGuidance") } }
     /// Sesli konumlandırma açıkken kamera / gönderim durumunu da sesle haber ver (kamera koptu, dosya gönderildi…)
@@ -218,6 +222,9 @@ final class AppSettings: ObservableObject {
         videoGuidance = d.object(forKey: "videoGuidance") as? Bool ?? true
         videoMaxSeconds = AppSettings.clampSeconds(d.object(forKey: "videoMaxSeconds") as? Int, range: VideoRecorder.manualSecondsRange,
                                                    fallback: Int(VideoRecorder.maxSeconds))
+        pageVideoSeconds = AppSettings.clampSeconds(d.object(forKey: "pageVideoSeconds") as? Int, range: VideoRecorder.pageSecondsRange,
+                                                    fallback: VideoRecorder.pageSegmentSeconds)
+        examPageVideo = d.object(forKey: "examPageVideo") as? Bool ?? true
         examVideoMaxSeconds = AppSettings.clampSeconds(d.object(forKey: "examVideoMaxSeconds") as? Int, range: VideoRecorder.examSecondsRange,
                                                        fallback: Int(VideoRecorder.examMaxSeconds))
         speechVoiceID = d.string(forKey: "speechVoiceID") ?? ""

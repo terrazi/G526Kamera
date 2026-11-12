@@ -60,6 +60,9 @@ final class AppModel: ObservableObject {
     @Published private(set) var decoding = false
     /// Video kaydı açık mı
     @Published private(set) var videoRecording = false
+    /// Sayfa sayfa video açık: sayfa konumlanınca kısa süre kaydedilir, sonra kayıt duraklar (video tek dosyadır)
+    @Published private(set) var pageVideoActive = false
+    @Published private(set) var pageVideoPages = 0
     /// Gemini'nin son videoya verdiği cevap (ana ekranda gösterilir)
     @Published private(set) var videoAnswer = ""
     /// Gemini'ye gönderilmeyi bekleyen video sayısı ("videoları gönder" kipinde)
@@ -120,6 +123,12 @@ final class AppModel: ObservableObject {
     }
     private var guidanceWasOn = false
     private var videoGuideWasOn = false
+    private var pageSegmentRunning = false
+    private var pageSegmentWork: DispatchWorkItem?
+    private var pageVideoLimit: TimeInterval = VideoRecorder.maxSeconds
+    private var pageVideoForExam = false
+    /// Sınav videosunun Gemini sırasındaki kopyası (ayrı istekle sorulur; hata olursa sırada kalır)
+    private var examAskURL: URL?
     private var speechActive = false
     /// Sesli model seçimi sürüyor ("model değiştir" denildi)
     /// Sesli model seçimi ("model değiştir", "birinci model", "tekrarla", "vazgeç")
@@ -553,6 +562,7 @@ final class AppModel: ObservableObject {
         commands.append(SpeechTrigger.Command(id: "retake", phrases: GuidanceVocabulary.retake,
                                               intent: GuidanceVocabulary.retakeIntent))
         commands.append(SpeechTrigger.Command(id: "videoStart", phrases: VideoVocabulary.start))
+        commands.append(SpeechTrigger.Command(id: "pageVideoStart", phrases: VideoVocabulary.pageStart))
         commands.append(SpeechTrigger.Command(id: "videoStop", phrases: VideoVocabulary.stop))
         commands.append(SpeechTrigger.Command(id: "videoSend", phrases: VideoVocabulary.send))
         if guidanceWanted {
@@ -672,6 +682,8 @@ final class AppModel: ObservableObject {
 
     @discardableResult
     func capture(reason: String) -> Bool {
+        // Sayfa sayfa videoda her çekim tetiği (konum uygun, çekim sözcüğü, düğme) o sayfayı videoya yazar
+        if pageVideoActive { return startPageSegment() }
         guard isLive else {
             flash("Kamera görüntüsü yok — fotoğraf çekilemedi")
             return false
@@ -777,7 +789,8 @@ final class AppModel: ObservableObject {
             guidedOrientation = settings.imageOrientation
             guidance.reset()   // eski seçim / ölçüm başka yöne aitti
         }
-        guidance.autoCapture = settings.guidanceAutoCapture
+        // Sınavın sayfa videosunda sayfa uygun olunca kendiliğinden kaydedilir (çekim sözcüğü beklenmez)
+        guidance.autoCapture = settings.guidanceAutoCapture || (pageVideoActive && pageVideoForExam)
         guidance.triggerWord = triggerDisplay
         let floors = [0.30, 0.45, 0.60]
         guidance.sharpFloor = floors[min(max(settings.guidanceSharpness, 0), 2)]
@@ -791,13 +804,13 @@ final class AppModel: ObservableObject {
             guidanceAwaiting = false
             guidanceNotice = ""
             speech.choiceMode = false
-            if on && examGuide != true { say(SpokenReport.startup(folderReady: folderReady, waiting: queue.pending)) }
+            if on && examGuide != true && !pageVideoActive { say(SpokenReport.startup(folderReady: folderReady, waiting: queue.pending)) }
         }
     }
 
     /// Video kaydı sürerken (elle ya da sınav videosu) konum tarifi verilsin mi
     private var videoGuideActive: Bool {
-        guard settings.videoGuidance, started else { return false }
+        guard settings.videoGuidance, started, !pageVideoActive else { return false }
         return videoRecording || (examVideoState == .recording && !examVideoFinishing)
     }
 
@@ -868,7 +881,7 @@ final class AppModel: ObservableObject {
     private var examActive: Bool { return examStore?.active ?? false }
 
     /// Sesli konumlandırma açık mı: sınav zorlamışsa o, değilse ayar
-    private var guidanceWanted: Bool { return examGuide ?? settings.guidanceEnabled }
+    private var guidanceWanted: Bool { return pageVideoActive || (examGuide ?? settings.guidanceEnabled) }
 
     private func makeExam() -> ExamMode {
         let client = GeminiClient(key: { AppSettings.shared.activeGeminiProfile.key },
@@ -895,7 +908,9 @@ final class AppModel: ObservableObject {
             videoDiscard: { [weak self] in self?.examVideoDiscard() },
             videoSend: { [weak self] in await self?.examVideoSend() ?? "video yok" },
             checkSystem: { [weak self] in await self?.examSystemCheck() ?? "" },
-            routeProblem: { AudioRoute.routeWarning(AVAudioSession.sharedInstance().currentRoute.outputs.map { $0.portType }) })
+            routeProblem: { AudioRoute.routeWarning(AVAudioSession.sharedInstance().currentRoute.outputs.map { $0.portType }) },
+            videoBeginPages: { [weak self] in self?.examVideoBeginPages() },
+            videoAsk: { [weak self] in await self?.examVideoAsk() ?? ("", "uygulama kapandı") })
         let ports = ExamPortsReal(hooks: hooks, queue: queue, settings: settings,
                                   docStore: GeminiDocStore(source: FolderClient()), asker: asker)
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -903,7 +918,7 @@ final class AppModel: ObservableObject {
         let s = settings
         return ExamMode(ports: ports,
                         settings: { ExamSettings(group: ExamSettings.defaultGroup, fetch: ExamSettings.defaultFetch, cancelWindow: s.examCancelWindow, gap: s.examGap,
-                                                  videoSeconds: s.examVideoMaxSeconds) },
+                                                  videoSeconds: s.examVideoMaxSeconds, pageVideo: s.examPageVideo, pageSeconds: s.pageVideoSeconds) },
                         directory: base)
     }
 
@@ -1024,7 +1039,8 @@ final class AppModel: ObservableObject {
             return
         }
         guard guidanceWanted else { return }
-        if capturing || pipeline.engine.isBusy { return }
+        // Sayfa videosunda bir sayfa kaydedilirken ölçüm beklemeye alınır
+        if capturing || pipeline.engine.isBusy || pageSegmentRunning { return }
         let out = guidance.step(sample.metrics, time: sample.time, stillFor: sample.stillFor,
                                 diffToCapture: sample.diffToCapture)
         if out.status != guidanceStatus { guidanceStatus = out.status }
@@ -1032,7 +1048,7 @@ final class AppModel: ObservableObject {
         if out.awaitingChoice { guidanceOptions = out.options }
         if speech.choiceMode != out.awaitingChoice { speech.choiceMode = out.awaitingChoice }
         if !out.awaitingChoice && !guidanceNotice.isEmpty { guidanceNotice = "" }
-        if let text = out.speak { say(text) }
+        if let text = out.speak { say(text, force: pageVideoActive && (settings.guidanceVoice || examActive)) }
         if out.capture { guidanceCapture() }
     }
 
@@ -1067,6 +1083,11 @@ final class AppModel: ObservableObject {
         if examActive && !id.hasPrefix("choice.") && id != "rechoose" { return }
         switch id {
         case "finish":
+            // Sayfa sayfa video sürerken "hepsi tamamlandı" videoyu bitirir
+            if pageVideoActive && !pageVideoForExam {
+                stopVideo(reason: "tamam")
+                return
+            }
             // "Tarama tamamlandı" sınav sözüyse ve taranmış sayfa varsa sınav açılır; olağan "hepsi tamamlandı" gönderimi sürer
             if exam.wouldAdopt(heard) {
                 exam.command("scan_done", text: heard)
@@ -1095,6 +1116,8 @@ final class AppModel: ObservableObject {
             deleteLast(retake: true)
         case "videoStart":
             startVideo()
+        case "pageVideoStart":
+            startPageVideo()
         case "videoSend":
             sendQueuedVideos()
         case "videoStop":
@@ -1300,6 +1323,101 @@ final class AppModel: ObservableObject {
         if videoRecording { stopVideo(reason: "kapat") } else { startVideo() }
     }
 
+    // MARK: - Sayfa sayfa video
+
+    /// Sayfa sayfa video (elle): program sesle konumlandırır; konum uygun olunca (ya da çekim sözcüğüyle) sayfa `pageVideoSeconds` sn
+    /// aynı videoya yazılır, sonra kayıt duraklar; sayfa çevrilince yeniden hazırlanır. "Hepsi tamamlandı" / "kapat" tek dosyayı bitirir.
+    func startPageVideo() {
+        guard !videoRecording, !pageVideoActive else { return }
+        guard !examActive, !gemini.isActive else {
+            flash("Şu an video kaydı açılamaz (Gemini / sınav sürüyor)", seconds: 4)
+            return
+        }
+        guard !diskCritical else {
+            flash("Telefonda boş yer çok az: video kaydı açılamadı", seconds: 5)
+            say("Telefonda boş yer çok az, video kaydı açılamadı.", interrupt: true, force: true)
+            return
+        }
+        guard isLive else {
+            flash("Kamera görüntüsü yok: video kaydı açılamadı", seconds: 5)
+            say("Kamera görüntüsü yok, video kaydı açılamadı.", interrupt: true, force: true)
+            return
+        }
+        pageVideoLimit = TimeInterval(settings.videoMaxSeconds)
+        videoRecorder.start(to: VideoOutbox.shared.newFileURL(date: Date()), orientation: settings.imageOrientation, maxSeconds: pageVideoLimit)
+        videoRecorder.pause()
+        videoRecording = true
+        pageVideoPages = 0
+        setPageVideo(true, exam: false)
+        HealthMonitor.shared.mark("video kaydı")
+        let n = settings.pageVideoSeconds
+        flash("● Sayfa sayfa video açık (sayfa başına \(n) sn)", seconds: 5)
+        say("Sayfa sayfa video. Sayfayı kadraja alın; konum uygun olunca \(n) saniye kaydedeceğim. Bitince hepsi tamamlandı deyin.",
+            interrupt: true, force: true)
+    }
+
+    /// Sayfa videosu kipini açar / kapatır; konumlandırma ve sesli seçim komutları buna göre yeniden kurulur
+    private func setPageVideo(_ on: Bool, exam: Bool) {
+        guard pageVideoActive != on else { return }
+        let before = guidanceWanted
+        pageVideoActive = on
+        pageVideoForExam = on ? exam : false
+        if !on {
+            pageSegmentWork?.cancel()
+            pageSegmentWork = nil
+            pageSegmentRunning = false
+        }
+        updateGuidance()
+        if before != guidanceWanted { restartSpeech() }
+    }
+
+    /// Sayfa uygun: kayıt devam eder, `pageVideoSeconds` sn (kalan süreyi aşmadan) sonra duraklar
+    private func startPageSegment() -> Bool {
+        guard pageVideoActive, !pageSegmentRunning, isLive else { return false }
+        let remaining = pageVideoLimit - videoRecorder.recordedSeconds
+        if remaining < 1.0 {
+            finishPageVideo(reason: "süre")
+            return false
+        }
+        let seconds = min(TimeInterval(settings.pageVideoSeconds), remaining)
+        pageSegmentRunning = true
+        capturePart = nil
+        videoRecorder.resume()
+        flash("● Sayfa \(pageVideoPages + 1) kaydediliyor (\(Int(seconds.rounded())) sn)", seconds: seconds)
+        let work = DispatchWorkItem { [weak self] in
+            Task { @MainActor in self?.endPageSegment() }
+        }
+        pageSegmentWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
+        return true
+    }
+
+    private func endPageSegment() {
+        guard pageSegmentRunning else { return }
+        pageSegmentRunning = false
+        pageSegmentWork = nil
+        videoRecorder.pause()
+        pageVideoPages += 1
+        let full = pageVideoLimit - videoRecorder.recordedSeconds < 1.0
+        tlog("[video] sayfa \(pageVideoPages) kaydedildi (toplam \(Int(videoRecorder.recordedSeconds.rounded())) sn)")
+        if full {
+            say("Sayfa \(pageVideoPages) kaydedildi. Süre doldu.", interrupt: false, force: true)
+            finishPageVideo(reason: "süre")
+        } else if pageVideoPages == 1 {
+            say("Sayfa 1 kaydedildi. Sayfayı çevirin; bitince \(pageVideoForExam ? "bitti" : "hepsi tamamlandı") deyin.", interrupt: false, force: true)
+        } else {
+            say("Sayfa \(pageVideoPages) kaydedildi. Sayfayı çevirin.", interrupt: false, force: true)
+        }
+    }
+
+    private func finishPageVideo(reason: String) {
+        if pageVideoForExam {
+            examVideoFinish(token: examVideoToken)
+        } else {
+            stopVideo(reason: reason)
+        }
+    }
+
     /// Video kaydını açar: en çok ayardaki süre (`videoMaxSeconds`, varsayılan 90 sn) sürer, "kapat" denince ya da süre dolunca biter.
     func startVideo() {
         guard !videoRecording else { return }
@@ -1335,15 +1453,17 @@ final class AppModel: ObservableObject {
     func stopVideo(reason: String) {
         guard videoRecording else { return }
         videoRecording = false
+        let pages = pageVideoPages
+        setPageVideo(false, exam: false)
         updateGuidance()
         videoStopWork?.cancel()
         videoStopWork = nil
         videoRecorder.finish { [weak self] result in
-            Task { @MainActor in self?.videoFinished(result, reason: reason) }
+            Task { @MainActor in self?.videoFinished(result, reason: reason, pages: pages) }
         }
     }
 
-    private func videoFinished(_ result: Result<VideoRecorder.Output, VideoRecorder.Failure>, reason: String) {
+    private func videoFinished(_ result: Result<VideoRecorder.Output, VideoRecorder.Failure>, reason: String, pages: Int = 0) {
         HealthMonitor.shared.mark("")
         switch result {
         case .failure(let failure):
@@ -1361,7 +1481,8 @@ final class AppModel: ObservableObject {
             let head = reason == "süre" ? "Süre doldu, kayıt kapandı." : "Kayıt kapandı."
             tlog("[video] \(output.url.lastPathComponent): \(seconds) sn, \(output.frames) kare, \(output.bytes) bayt")
             flash("Video \(seconds) sn, \(mb) MB: klasöre kaydediliyor", seconds: 6)
-            say("\(head) \(seconds) saniye, \(mb) megabayt. Klasöre kaydediliyor.", interrupt: true, force: true)
+            let pageText = pages > 0 ? " \(pages) sayfa," : ""
+            say("\(head)\(pageText) \(seconds) saniye, \(mb) megabayt. Klasöre kaydediliyor.", interrupt: true, force: true)
             routeVideoToGemini(output.url)
             VideoOutbox.shared.submit(output.url) { [weak self] ok, message in
                 guard let self = self else { return }
@@ -1803,7 +1924,7 @@ final class AppModel: ObservableObject {
 
     /// Sınav video aşamasıyla başlasın mı: ayar açık ve kamera görüntüsü var
     private func examVideoEnabled() -> Bool {
-        return settings.examVideoFirst && isLive
+        return (settings.examPageVideo || settings.examVideoFirst) && isLive
     }
 
     private func examVideoPhase() -> ExamVideoPhase {
@@ -1877,6 +1998,53 @@ final class AppModel: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + examLimit, execute: work)
     }
 
+    /// Sınav: sayfa sayfa video başlar. Kayıt duraklamış hazırdır; sesli konumlandırma açılır, sayfa uygun olunca `pageVideoSeconds` sn yazılır.
+    private func examVideoBeginPages() {
+        examVideoDiscard()
+        examVideoToken += 1
+        examVideoOutput = nil
+        examVideoFinishing = false
+        pageVideoLimit = TimeInterval(settings.examVideoMaxSeconds)
+        videoRecorder.start(to: VideoOutbox.shared.newFileURL(date: Date()), orientation: settings.imageOrientation, maxSeconds: pageVideoLimit)
+        videoRecorder.pause()
+        examVideoState = .recording
+        pageVideoPages = 0
+        setPageVideo(true, exam: true)
+        tlog("[sinav] sayfa sayfa video başladı")
+        flash("● Sınav: sayfa sayfa video (sayfa başına \(settings.pageVideoSeconds) sn)", seconds: 5)
+    }
+
+    /// Sınavın kaydedilen videosunu (tek başına, ayrı istekle) Gemini'ye sorar. Dosya Gemini sırasında durur: hata olursa
+    /// "videoları gönder" ile yeniden denenebilir; cevap gelince sıradan silinir.
+    private func examVideoAsk() async -> (answer: String, error: String) {
+        let s = settings
+        guard s.geminiEnabled, s.geminiPrivacyOK else { return ("", "Gemini kapalı ya da gizlilik onayı verilmemiş") }
+        s.refreshGeminiCapFallback()
+        let active = s.activeGeminiProfile
+        guard !active.key.isEmpty else { return ("", "Gemini API anahtarı girilmemiş") }
+        guard let url = examAskURL, let data = try? Data(contentsOf: url) else { return ("", "video dosyası bulunamadı") }
+        let profiles = s.geminiProfileInfos()
+        let custom = s.videoQuestion.trimmed
+        let question = custom.isEmpty ? GeminiVideo.defaultInstruction(optionCodes: s.geminiOptionCodes) : custom
+        let high = s.videoHighRes
+        let chain = s.geminiChainFallback
+        let limit = TimeInterval(s.geminiWaitLimit)
+        do {
+            let result = try await GeminiVideo.analyze(
+                videoData: data, question: question, highResolution: high, profiles: profiles, active: active.slot,
+                chain: chain, waitLimit: limit, notify: { _ in })
+            GeminiVideoQueue.shared.remove(url)
+            examAskURL = nil
+            tlog("[sinav] video cevabı: \(result.model), \(result.promptTokens) giriş token'ı, \(result.text.count) karakter")
+            videoAnswer = result.text
+            return (result.text, "")
+        } catch {
+            let message = (error as? GeminiError)?.message ?? error.localizedDescription
+            tlog("[sinav] video Gemini hatası: \(message)")
+            return ("", message)
+        }
+    }
+
     /// "Durdur" denince (sınav akışından) kaydı bitirir.
     private func examVideoStopRecording() {
         examVideoFinish(token: examVideoToken)
@@ -1886,6 +2054,7 @@ final class AppModel: ObservableObject {
     private func examVideoFinish(token: Int) {
         guard token == examVideoToken, examVideoState == .recording, !examVideoFinishing else { return }
         examVideoFinishing = true
+        setPageVideo(false, exam: false)
         updateGuidance()
         examVideoWork?.cancel()
         examVideoWork = nil
@@ -1928,6 +2097,7 @@ final class AppModel: ObservableObject {
         examVideoFinishing = false
         examVideoChecking = false
         examVideoState = .idle
+        setPageVideo(false, exam: false)
         updateGuidance()
     }
 
@@ -1936,6 +2106,11 @@ final class AppModel: ObservableObject {
         guard let output = examVideoOutput else { return "video bulunamadı" }
         examVideoOutput = nil
         examVideoState = .idle
+        // Sayfa videosunda: dosya Gemini sırasına da alınır (ayrı istek bu kopyadan gider; hata olursa sırada kalır)
+        examAskURL = nil
+        if settings.examPageVideo, GeminiVideoQueue.shared.add(output.url) {
+            examAskURL = GeminiVideoQueue.shared.directory.appendingPathComponent(output.url.lastPathComponent)
+        }
         return await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
             VideoOutbox.shared.submit(output.url) { ok, message in
                 continuation.resume(returning: ok ? "" : (message.isEmpty ? "gönderilemedi" : message))

@@ -71,6 +71,21 @@ private final class FakePorts: ExamPorts {
     var videoSends = 0
     var videoBegins = 0
     var videoSendError = ""
+    /// Sayfa sayfa video
+    var pageBegins = 0
+    var asks = 0
+    var askAnswers: [String] = ["Birinci sorunun cevabı ADANA."]
+    var askError = ""
+    func videoBeginPages() {
+        pageBegins += 1
+        videoPhaseValue = .recording
+    }
+    func videoAsk() async -> (answer: String, error: String) {
+        asks += 1
+        await Task.yield()
+        if !askError.isEmpty { return ("", askError) }
+        return (askAnswers.isEmpty ? "" : askAnswers.removeFirst(), "")
+    }
 
     func videoEnabled() -> Bool { return videoOn }
     func videoArm() {
@@ -244,9 +259,11 @@ final class ExamModeTests: XCTestCase {
     }
 
     private func make(_ ports: FakePorts, group: Int = 10, cancel: Int = 0, gap: Int = 0, dir: URL? = nil,
-                      uptime: (() -> Double)? = nil, guardSeconds: Double = 0, videoSeconds: Int = 30) -> ExamMode {
+                      uptime: (() -> Double)? = nil, guardSeconds: Double = 0, videoSeconds: Int = 30,
+                      pageVideo: Bool = false, pageSeconds: Int = 5) -> ExamMode {
         let up: () -> Double = uptime ?? { ProcessInfo.processInfo.systemUptime }
-        let e = ExamMode(ports: ports, settings: { ExamSettings(group: group, fetch: 20, cancelWindow: cancel, gap: gap, videoSeconds: videoSeconds) },
+        let e = ExamMode(ports: ports, settings: { ExamSettings(group: group, fetch: 20, cancelWindow: cancel, gap: gap, videoSeconds: videoSeconds,
+                                                           pageVideo: pageVideo, pageSeconds: pageSeconds) },
                          directory: dir ?? tmpDir(), now: { 1000 }, uptime: up)
         e.echoGuard = guardSeconds
         return e
@@ -1227,6 +1244,100 @@ final class ExamModeTests: XCTestCase {
         let waiting = await until { exam.status == "Video: evrak bekleniyor" }
         XCTAssertTrue(waiting, "video beklemesi başlamadı: \(p.spoken) / \(exam.status)")
         return exam
+    }
+
+    // MARK: Sayfa sayfa video (sınavın varsayılan yöntemi)
+
+    private func pageExam(_ p: FakePorts, seconds: Int = 5) async -> ExamMode {
+        p.videoOn = true
+        let exam = make(p, pageVideo: true, pageSeconds: seconds)
+        XCTAssertTrue(exam.start())
+        let began = await until { p.pageBegins == 1 }
+        XCTAssertTrue(began, "sayfa videosu başlamadı: \(p.spoken) / \(exam.status)")
+        return exam
+    }
+
+    func testPageVideoExamStartsRecordingWithoutAskingAndSaysPageSeconds() async {
+        let p = FakePorts()
+        let exam = await pageExam(p, seconds: 7)
+        XCTAssertTrue(spoke(p, "Sayfa sayfa video çekeceğiz"), "\(p.spoken)")
+        XCTAssertTrue(spoke(p, "7 saniye"))
+        XCTAssertEqual(p.videoArms, 0, "belge bekleme aşaması yok")
+        XCTAssertFalse(spoke(p, "Kaydı başlatayım mı?"), "sayfa videosunda tek tek onay istenmez")
+        let rec = await until { exam.status == "Video: sayfalar kaydediliyor" }
+        XCTAssertTrue(rec, exam.status)
+        await finish(exam)
+    }
+
+    /// Her video ayrı istekle Gemini'ye gider, cevabı hemen okunur; "hayır" sınavı bitirir (PDF taraması yok)
+    func testPageVideoExamSendsEachVideoSeparatelyAndReadsItsAnswer() async {
+        let p = FakePorts()
+        p.askAnswers = ["Birinci sorunun cevabı ADANA.", "Birinci sorunun cevabı BURSA."]
+        let exam = await pageExam(p)
+        await say(exam, "bitti")
+        let first = await until { exam.status == "Video: devam edilsin mi?" }
+        XCTAssertTrue(first, "\(p.spoken) / \(exam.status)")
+        XCTAssertEqual(p.videoSends, 1)
+        XCTAssertEqual(p.asks, 1)
+        XCTAssertTrue(spoke(p, "Gemini cevabı. Birinci sorunun cevabı ADANA."), "\(p.spoken)")
+        await say(exam, "evet")
+        let second = await until { p.pageBegins == 2 }
+        XCTAssertTrue(second, "ikinci video başlamadı")
+        await say(exam, "bitti")
+        let again = await until { p.asks == 2 && exam.status == "Video: devam edilsin mi?" }
+        XCTAssertTrue(again, "\(p.spoken) / \(exam.status)")
+        XCTAssertEqual(p.videoSends, 2, "her video ayrı kaydedilir")
+        XCTAssertTrue(spoke(p, "Gemini cevabı. Birinci sorunun cevabı BURSA."))
+        await say(exam, "hayır")
+        let closed = await exam.waitDone(timeout: 8)
+        XCTAssertTrue(closed, "sınav bitmedi")
+        XCTAssertTrue(spoke(p, "Deneme sınavı tamamlandı."), "\(p.spoken)")
+        XCTAssertFalse(spoke(p, "Şimdi fotoğraf taraması"), "sayfa videosunda PDF taraması yok")
+    }
+
+    func testPageVideoExamKeepsGoingWhenGeminiFails() async {
+        let p = FakePorts()
+        p.askError = "Gemini'ye ulaşılamadı"
+        let exam = await pageExam(p)
+        await say(exam, "bitti")
+        let ask = await until { exam.status == "Video: devam edilsin mi?" }
+        XCTAssertTrue(ask, "\(p.spoken) / \(exam.status)")
+        XCTAssertTrue(spoke(p, "Gemini videoyu okuyamadı: Gemini'ye ulaşılamadı"), "\(p.spoken)")
+        XCTAssertTrue(spoke(p, "sırada saklandı"))
+        XCTAssertEqual(p.videoSends, 1, "video yine de klasöre kaydedilir")
+        await finish(exam)
+    }
+
+    func testPageVideoExamDeleteSkipsGeminiAndSkipGoesToPhotoScanning() async {
+        let p = FakePorts()
+        let exam = await pageExam(p)
+        await say(exam, "sil")
+        let deleted = await until { self.spoke(p, "Video silindi, gönderilmedi.") }
+        XCTAssertTrue(deleted, "\(p.spoken)")
+        XCTAssertEqual(p.asks, 0)
+        XCTAssertEqual(p.videoSends, 0)
+        await say(exam, "hayır")
+        let closed = await exam.waitDone(timeout: 8)
+        XCTAssertTrue(closed)
+    }
+
+    func testPageVideoExamSkipGoesToPhotoScanning() async {
+        let p = FakePorts()
+        let exam = await pageExam(p)
+        await say(exam, "atla")
+        let scanning = await until { exam.status == "Tarama: 0 sayfa" }
+        XCTAssertTrue(scanning, "taramaya geçilmedi: \(exam.status) / \(p.spoken)")
+        XCTAssertEqual(p.asks, 0)
+        await finish(exam)
+    }
+
+    /// Eski yöntem (sayfa videosu kapalı) değişmedi: tek video + fotoğraf taraması
+    func testLegacyVideoStageStillUsedWhenPageVideoIsOff() async {
+        let p = FakePorts()
+        let exam = await videoExam(p)
+        XCTAssertEqual(p.pageBegins, 0)
+        XCTAssertEqual(p.videoArms, 1)
+        await finish(exam)
     }
 
     func testVideoStageSaysTheConfiguredMaximumSeconds() async {

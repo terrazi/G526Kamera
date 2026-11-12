@@ -26,6 +26,10 @@ struct ExamSettings: Equatable {
     var gap = 3
     /// Sınav videosunun en uzun süresi (sn); okunan ilk cümlede söylenir
     var videoSeconds = 30
+    /// Sayfa sayfa video yöntemi: kitap sesle konumlandırılır, her sayfa `pageSeconds` sn aynı videoya yazılır, her video ayrı Gemini'ye gider
+    /// (testlerde varsayılan kapalı: eski tek video + fotoğraf taraması akışı; uygulama ayardan verir)
+    var pageVideo = false
+    var pageSeconds = 5
 }
 
 /// klasöre giden bir dosya (PDF)
@@ -212,6 +216,11 @@ protocol ExamPorts: AnyObject {
     func videoDiscard()
     /// Hazır videoyu klasöre gönderir, bitene kadar bekler; hata metni ("" = gönderildi)
     func videoSend() async -> String
+    /// Sayfa sayfa video başlar: kayıt duraklamış hazırdır, program sesle konumlandırır, sayfa uygun olunca birkaç saniye kaydeder
+    /// (aşama hemen `.recording` olur; "bitti" ya da süre dolunca `.finished`)
+    func videoBeginPages()
+    /// Kaydedilen videoyu (tek başına, ayrı istekle) Gemini'ye sorar; cevap metni ve hata metni ("" = hata yok). Video hata olursa sırada saklanır.
+    func videoAsk() async -> (answer: String, error: String)
 }
 
 extension ExamPorts {
@@ -224,6 +233,8 @@ extension ExamPorts {
     func videoStop() {}
     func videoDiscard() {}
     func videoSend() async -> String { return "" }
+    func videoBeginPages() {}
+    func videoAsk() async -> (answer: String, error: String) { return ("", "") }
     func selfCheckOn() -> Bool { return false }
     func checkSystem() async -> String { return "" }
     func routeProblem() -> String { return "" }
@@ -1047,6 +1058,7 @@ final class ExamMode: ObservableObject {
             videoDone = true
             return "scan"
         }
+        if settings().pageVideo { return try await stageVideoPages() }
         ports.guide(false)
         var round = 0
         while true {
@@ -1121,6 +1133,85 @@ final class ExamMode: ObservableObject {
             try await say("Videoya devam edeyim mi? Evet ya da hayır deyin.")
             let a = try await wait(["yes", "no"])
             if a.name == "no" { return "scan" }
+        }
+    }
+
+    /// Sayfa sayfa video (sınavın varsayılan yöntemi): kitap kameranın altına konur, program sesle konumlandırır ve konum uygun olunca her
+    /// sayfayı birkaç saniye aynı videoya yazar. "bitti" videoyu kapatır; video belge klasörüne kaydedilir, AYRI bir istekle Gemini'ye gider
+    /// ve cevabı hemen okunur. Sonra "Videoya devam edeyim mi?": evet → yeni video (yine ayrı gider), hayır → sınav biter.
+    /// "atla" fotoğraf taramasına (eski yöntem) geçirir.
+    private func stageVideoPages() async throws -> String? {
+        ports.guide(false)
+        var round = 0
+        while true {
+            let secs = settings().pageSeconds
+            let intro = round == 0
+                ? "Deneme sınavı modu açık. Sayfa sayfa video çekeceğiz. Kitabı kameranın altına koyun; konumu söyleyeceğim, uygun olunca her sayfayı \(secs) saniye kaydedeceğim. "
+                    + "Sayfa kaydedilince sayfayı çevirin. Bitince bitti deyin, silmek için sil deyin, fotoğraf taramasına geçmek için atla deyin."
+                : "Yeni video için kitabı kameranın altına koyun. Bitince bitti deyin."
+            try await say(intro)
+            ports.videoBeginPages()
+            var deleted = false
+            var failure = ""
+            loop: while true {
+                let r = try await wait(["vstop", "vdel", "vskip"], timeout: 0.3)
+                switch r.name {
+                case "vstop"?:
+                    ports.videoStop()
+                case "vdel"?:
+                    ports.videoDiscard()
+                    deleted = true
+                    break loop
+                case "vskip"?:
+                    ports.videoDiscard()
+                    videoDone = true
+                    return "scan"
+                default:
+                    break
+                }
+                switch ports.videoPhase() {
+                case .recording: setStatus("Video: sayfalar kaydediliyor")
+                case .finished: break loop
+                case .failed(let why):
+                    failure = why
+                    break loop
+                case .idle:
+                    failure = "kayıt başlatılamadı"
+                    break loop
+                default: break
+                }
+            }
+            if deleted {
+                try await say("Video silindi, gönderilmedi.")
+            } else if !failure.isEmpty {
+                try await say("Video kaydedilemedi: \(failure)")
+            } else {
+                setStatus("Video klasöre kaydediliyor...")
+                try await say("Kayıt tamam. Video klasöre kaydediliyor.")
+                let err = await ports.videoSend()
+                try check()
+                if !err.isEmpty {
+                    try await say("Video klasöre kaydedilemedi. Telefonda saklandı, internet gelince kendiliğinden gönderilecek.")
+                }
+                setStatus("Video Gemini'ye gönderiliyor...")
+                try await say("Video Gemini'ye gönderiliyor. Cevap gelince okunacak.")
+                let result = await ports.videoAsk()
+                try check()
+                if !result.error.isEmpty {
+                    try await say("Gemini videoyu okuyamadı: \(result.error). Video sırada saklandı; sınavdan sonra videoları gönder deyince yeniden denenir.")
+                } else if result.answer.trimmed.isEmpty {
+                    try await say("Gemini bu videoda cevap bulamadı.")
+                } else {
+                    setStatus("Gemini cevabı okunuyor")
+                    try await say("Gemini cevabı. " + result.answer)
+                }
+            }
+            round += 1
+            videoDone = true
+            setStatus("Video: devam edilsin mi?")
+            try await say("Videoya devam edeyim mi? Evet ya da hayır deyin.")
+            let a = try await wait(["yes", "no"])
+            if a.name == "no" { return "done" }
         }
     }
 

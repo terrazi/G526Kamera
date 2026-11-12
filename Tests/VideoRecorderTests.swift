@@ -55,16 +55,17 @@ final class VideoRecorderTests: XCTestCase {
         XCTAssertLessThanOrEqual(full, 1_500_000)
         XCTAssertEqual(VideoRecorder.bitrate(width: 640, height: 360), 250_000, "küçük çözünürlükte alt sınır")
         XCTAssertEqual(VideoRecorder.maxSeconds, 90, "elle başlatılan kayıt 90 sn (1,5 dk)")
-        XCTAssertEqual(VideoRecorder.examMaxSeconds, 30, "sınav videosu 30 sn (onaylı tasarım)")
+        XCTAssertEqual(VideoRecorder.examMaxSeconds, 90, "sınav videosu (sayfa sayfa) 90 sn")
+        XCTAssertEqual(VideoRecorder.pageSegmentSeconds, 5, "sayfa başına 5 sn (kullanıcı kararı)")
     }
 
     func testVideoSecondsAreSettingsWithDefaultsAndLimits() {
-        let keys = ["videoMaxSeconds", "examVideoMaxSeconds"]
+        let keys = ["videoMaxSeconds", "examVideoMaxSeconds", "pageVideoSeconds", "examPageVideo"]
         keys.forEach { UserDefaults.standard.removeObject(forKey: $0) }
         defer { keys.forEach { UserDefaults.standard.removeObject(forKey: $0) } }
         let s = AppSettings()
         XCTAssertEqual(s.videoMaxSeconds, 90)
-        XCTAssertEqual(s.examVideoMaxSeconds, 30)
+        XCTAssertEqual(s.examVideoMaxSeconds, 90)
         s.videoMaxSeconds = 120
         s.examVideoMaxSeconds = 45
         let t = AppSettings()
@@ -75,6 +76,105 @@ final class VideoRecorderTests: XCTestCase {
         let u = AppSettings()
         XCTAssertEqual(u.videoMaxSeconds, 300, "üst sınır")
         XCTAssertEqual(u.examVideoMaxSeconds, 10, "alt sınır")
+    }
+
+    func testPageVideoSettingsDefaults() {
+        let keys = ["pageVideoSeconds", "examPageVideo"]
+        keys.forEach { UserDefaults.standard.removeObject(forKey: $0) }
+        defer { keys.forEach { UserDefaults.standard.removeObject(forKey: $0) } }
+        let s = AppSettings()
+        XCTAssertEqual(s.pageVideoSeconds, 5, "sayfa başına 5 sn")
+        XCTAssertTrue(s.examPageVideo, "sınav varsayılan olarak sayfa sayfa video")
+        s.pageVideoSeconds = 8
+        s.examPageVideo = false
+        let t = AppSettings()
+        XCTAssertEqual(t.pageVideoSeconds, 8)
+        XCTAssertFalse(t.examPageVideo)
+        UserDefaults.standard.set(99, forKey: "pageVideoSeconds")
+        XCTAssertEqual(AppSettings().pageVideoSeconds, 15, "üst sınır")
+        UserDefaults.standard.set(0, forKey: "pageVideoSeconds")
+        XCTAssertEqual(AppSettings().pageVideoSeconds, 2, "alt sınır")
+    }
+
+    func testPageVideoVocabulary() {
+        XCTAssertGreaterThan(SpeechMatcher.occurrences(in: "sayfa videosu çek", trigger: VideoVocabulary.pageStart), 0)
+        XCTAssertGreaterThan(SpeechMatcher.occurrences(in: "sayfa sayfa video", trigger: VideoVocabulary.pageStart), 0)
+        XCTAssertEqual(SpeechMatcher.occurrences(in: "video kaydını aç", trigger: VideoVocabulary.pageStart), 0)
+        XCTAssertEqual(SpeechMatcher.occurrences(in: "sayfa videosu", trigger: VideoVocabulary.start), 0, "iki komut karışmasın")
+        XCTAssertEqual(SpeechMatcher.occurrences(in: "hepsi tamamlandı", trigger: VideoVocabulary.pageStart), 0)
+    }
+
+    /// Duraklat / devam: aradaki süre videoya girmez, dosya aralıksız tek parça olur; süre sınırı yalnız yazılan saniyeleri sayar
+    func testPauseAndResumeKeepsOneContinuousFile() {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("duraklat-\(UUID().uuidString).mp4")
+        let recorder = VideoRecorder()
+        recorder.start(to: url, maxSeconds: 30)
+        func feed(from: Double, to: Double, shade: UInt8) {
+            var t = from
+            while t < to {
+                recorder.append(makeBuffer(width: 640, height: 360, shade: shade), time: 1000 + t)
+                t += 0.1
+            }
+        }
+        feed(from: 0, to: 4, shade: 60)
+        recorder.pause()
+        XCTAssertTrue(recorder.isPaused)
+        // duraklamada gelen kareler yazılmaz
+        feed(from: 4, to: 40, shade: 200)
+        XCTAssertEqual(recorder.recordedSeconds, 4, accuracy: 0.6, "duraklamada süre ilerlemez")
+        recorder.resume()
+        XCTAssertFalse(recorder.isPaused)
+        feed(from: 40, to: 44, shade: 120)
+        let done = expectation(description: "video bitti")
+        var output: VideoRecorder.Output?
+        recorder.finish { result in
+            if case .success(let o) = result { output = o }
+            done.fulfill()
+        }
+        wait(for: [done], timeout: 60)
+        guard let out = output else { return XCTFail("video üretilmedi") }
+        XCTAssertEqual(out.seconds, 8, accuracy: 1.0, "4 sn + 4 sn, arada boşluk yok: \(out.seconds)")
+        XCTAssertTrue(out.frames >= 14 && out.frames <= 17, "yaklaşık 2 kare/sn × 8 sn: \(out.frames)")
+        XCTAssertEqual(AVURLAsset(url: out.url).duration.seconds, 8, accuracy: 1.0)
+        try? FileManager.default.removeItem(at: out.url)
+    }
+
+    func testPauseCountsOnlyRecordedSecondsAgainstTheLimit() {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("duraklat2-\(UUID().uuidString).mp4")
+        let recorder = VideoRecorder()
+        recorder.start(to: url, maxSeconds: 6)
+        var t = 0.0
+        func feed(_ seconds: Double) {
+            let end = t + seconds
+            while t < end {
+                recorder.append(makeBuffer(width: 640, height: 360, shade: 90), time: 1000 + t)
+                t += 0.1
+            }
+        }
+        feed(3)
+        recorder.pause()
+        t += 100          // uzun duraklama
+        recorder.resume()
+        feed(10)          // 3 sn yazılmış, sınır 6: ancak 3 sn daha girer
+        let done = expectation(description: "video bitti")
+        var output: VideoRecorder.Output?
+        recorder.finish { result in
+            if case .success(let o) = result { output = o }
+            done.fulfill()
+        }
+        wait(for: [done], timeout: 60)
+        guard let out = output else { return XCTFail("video üretilmedi") }
+        XCTAssertLessThanOrEqual(out.seconds, 6.0)
+        XCTAssertGreaterThan(out.seconds, 5.0)
+        try? FileManager.default.removeItem(at: out.url)
+    }
+
+    func testPauseBeforeAnyFrameAndWithoutRecordingIsHarmless() {
+        let recorder = VideoRecorder()
+        recorder.pause()          // kayıt yok
+        recorder.resume()
+        XCTAssertFalse(recorder.isPaused)
+        XCTAssertEqual(recorder.recordedSeconds, 0)
     }
 
     func testClampSeconds() {

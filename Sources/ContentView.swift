@@ -14,6 +14,7 @@ struct ContentView: View {
                     powerToggles
                     captureButton
                     videoButton
+                    if !model.videoRecording { pageVideoButton }
                     if model.queuedVideos > 0 || model.sendingVideos { sendVideosButton }
                     if !model.videoAnswer.isEmpty {
                         Text(model.videoAnswer)
@@ -23,7 +24,7 @@ struct ContentView: View {
                             .background(Color(UIColor.secondarySystemBackground))
                             .cornerRadius(12)
                     }
-                    if settings.guidanceEnabled || (settings.videoGuidance && model.videoRecording) { GuidanceRow() }
+                    if settings.guidanceEnabled || model.pageVideoActive || (settings.videoGuidance && model.videoRecording) { GuidanceRow() }
                     VoiceRow(status: model.speechStatus, heard: model.heardText,
                              enabled: settings.voiceEnabled || settings.guidanceEnabled)
                     if settings.geminiEnabled { GeminiRow(chat: model.gemini, exam: model.exam) }
@@ -185,7 +186,8 @@ struct ContentView: View {
         } label: {
             HStack {
                 Image(systemName: model.videoRecording ? "stop.circle.fill" : "video.fill")
-                Text(model.videoRecording ? "Kaydı kapat" : "Video kaydı (en çok \(settings.videoMaxSeconds) sn)")
+                Text(model.videoRecording ? (model.pageVideoActive ? "Videoyu bitir (\(model.pageVideoPages) sayfa)" : "Kaydı kapat")
+                                          : "Video kaydı (en çok \(settings.videoMaxSeconds) sn)")
                     .fontWeight(.semibold)
             }
             .frame(maxWidth: .infinity)
@@ -196,6 +198,26 @@ struct ContentView: View {
         }
         .disabled(!model.isLive && !model.videoRecording)
         .accessibilityIdentifier("videoKaydi")
+    }
+
+    /// Sayfa sayfa video: sayfa konumlanınca her sayfa birkaç saniye aynı videoya yazılır ("sayfa videosu" demekle aynı)
+    private var pageVideoButton: some View {
+        Button {
+            model.startPageVideo()
+        } label: {
+            HStack {
+                Image(systemName: "book.fill")
+                Text("Sayfa sayfa video (sayfa başına \(settings.pageVideoSeconds) sn)")
+                    .fontWeight(.semibold)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .background(model.isLive ? Color.indigo : Color.gray)
+            .foregroundColor(.white)
+            .cornerRadius(12)
+        }
+        .disabled(!model.isLive)
+        .accessibilityIdentifier("sayfaVideosu")
     }
 
     /// Sıradaki videoları tek tek Gemini'ye gönderir ("videoları gönder" demekle aynı)
