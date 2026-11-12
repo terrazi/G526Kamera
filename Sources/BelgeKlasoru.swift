@@ -143,34 +143,55 @@ final class DocumentFolder {
     }
 }
 
-/// Klasör seçici (Dosyalar uygulaması)
-struct FolderPicker: UIViewControllerRepresentable {
-    let onPick: (URL) -> Void
+/// Klasör seçici (Dosyalar uygulaması). SwiftUI "sheet" yerine doğrudan UIKit'ten, en üstteki ekranın üzerine açılır;
+/// çünkü Ayarlar zaten bir sayfa içinde ve iç içe sayfada seçici kendiliğinden kapanıyordu.
+@MainActor
+final class FolderPicker: NSObject, UIDocumentPickerDelegate {
+    static let shared = FolderPicker()
+    private var onPick: ((URL) -> Void)?
+    private var onCancel: (() -> Void)?
 
-    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
-        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder], asCopy: false)
-        picker.allowsMultipleSelection = false
-        picker.delegate = context.coordinator
-        return picker
+    static func topController() -> UIViewController? {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let windows = scenes.flatMap { $0.windows }
+        let window = windows.first(where: { $0.isKeyWindow }) ?? windows.first
+        var top = window?.rootViewController
+        while let presented = top?.presentedViewController, !presented.isBeingDismissed {
+            top = presented
+        }
+        return top
     }
 
-    func updateUIViewController(_ uiViewController: UIDocumentPickerViewController, context: Context) {}
+    /// Seçiciyi açar; açılamazsa false
+    @discardableResult
+    func present(onPick: @escaping (URL) -> Void, onCancel: @escaping () -> Void = {}) -> Bool {
+        guard let top = FolderPicker.topController() else { return false }
+        self.onPick = onPick
+        self.onCancel = onCancel
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder], asCopy: false)
+        picker.allowsMultipleSelection = false
+        picker.delegate = self
+        top.present(picker, animated: true)
+        return true
+    }
 
-    func makeCoordinator() -> Coordinator { return Coordinator(onPick: onPick) }
+    func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+        let handler = onPick
+        onPick = nil
+        onCancel = nil
+        if let url = urls.first { handler?(url) }
+    }
 
-    final class Coordinator: NSObject, UIDocumentPickerDelegate {
-        let onPick: (URL) -> Void
-        init(onPick: @escaping (URL) -> Void) { self.onPick = onPick }
-
-        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
-            if let url = urls.first { onPick(url) }
-        }
+    func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+        let handler = onCancel
+        onPick = nil
+        onCancel = nil
+        handler?()
     }
 }
 
 /// Ayarlarda "Belge klasörü" bölümü: seç, durum, deneme dosyası yaz
 struct DocumentFolderSection: View {
-    @State private var picking = false
     @State private var status = DocumentFolder.shared.statusText()
     @State private var message = ""
 
@@ -185,26 +206,28 @@ struct DocumentFolderSection: View {
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.trailing)
             }
-            Button("Klasör seç") { picking = true }
+            Button("Klasör seç") { pick() }
             Button("Deneme dosyası yaz") { writeTest() }
                 .disabled(!DocumentFolder.shared.hasChoice)
             if !message.isEmpty {
                 Text(message).font(.footnote)
             }
         }
-        .sheet(isPresented: $picking) {
-            FolderPicker { url in
-                picking = false
-                do {
-                    try DocumentFolder.shared.choose(url)
-                    message = ""
-                } catch {
-                    message = "Klasör hatırlanamadı: \(error.localizedDescription)"
-                }
-                status = DocumentFolder.shared.statusText()
-            }
-        }
         .onAppear { status = DocumentFolder.shared.statusText() }
+    }
+
+    private func pick() {
+        message = ""
+        let opened = FolderPicker.shared.present(onPick: { url in
+            do {
+                try DocumentFolder.shared.choose(url)
+                message = ""
+            } catch {
+                message = "Klasör hatırlanamadı: \(error.localizedDescription)"
+            }
+            status = DocumentFolder.shared.statusText()
+        })
+        if !opened { message = "Klasör seçici açılamadı. Programı kapatıp yeniden açın." }
     }
 
     private func writeTest() {
