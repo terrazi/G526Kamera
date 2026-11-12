@@ -32,10 +32,24 @@ final class PowerSavingTests: XCTestCase {
     func testDefaultsKeepPreviewOn() {
         let d = UserDefaults.standard
         d.removeObject(forKey: "previewOff")
-        d.removeObject(forKey: "dimWhenPreviewOff")
+        d.removeObject(forKey: "dimScreen")
         let s = AppSettings()
         XCTAssertFalse(s.previewOff, "önizleme varsayılan olarak açık olmalı")
-        XCTAssertTrue(s.dimWhenPreviewOff)
+        XCTAssertFalse(s.dimScreen, "ekran kısma varsayılan olarak kapalı olmalı")
+    }
+
+    func testPreviewAndDimTogglesAreIndependentAndPersist() {
+        let s = AppSettings()
+        s.previewOff = false
+        s.dimScreen = true
+        XCTAssertTrue(UserDefaults.standard.bool(forKey: "dimScreen"))
+        XCTAssertFalse(UserDefaults.standard.bool(forKey: "previewOff"))
+        s.previewOff = true
+        s.dimScreen = false
+        XCTAssertTrue(UserDefaults.standard.bool(forKey: "previewOff"))
+        XCTAssertFalse(UserDefaults.standard.bool(forKey: "dimScreen"))
+        UserDefaults.standard.removeObject(forKey: "previewOff")
+        UserDefaults.standard.removeObject(forKey: "dimScreen")
     }
 
     func testSavingModeAnalyzesEveryOtherFrame() {

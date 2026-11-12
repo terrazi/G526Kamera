@@ -404,10 +404,9 @@ struct SettingsView: View {
 
     private var powerSection: some View {
         Section(header: Text("Pil ve ısınma"),
-                footer: Text("Önizleme kapalıyken ekrana video çizilmez ve kareler seyreltilerek incelenir; fotoğraf çekme (düğme, sesli komut, görüntü değişince), OCR ve Drive aynen çalışır. Kamera kadrajını önce önizlemeyle ayarlayın. Kısılan ekran pilin en büyük tüketicisini azaltır; uygulama açıkken ekran hep açık kalır. Kamera yayını, Wi-Fi ve mikrofon yine çalıştığı için pil ve ısınma tamamen sıfırlanmaz.")) {
+                footer: Text("Önizleme kapalıyken ekrana video çizilmez ve kareler seyreltilerek incelenir; fotoğraf çekme (düğme, sesli komut, görüntü değişince), OCR ve Drive aynen çalışır. Kamera kadrajını önce önizlemeyle ayarlayın. Ekran parlaklığını azaltmak pilin en büyük tüketicisini azaltır; uygulama açıkken ekran hep açık kalır. Kamera yayını, Wi-Fi ve mikrofon yine çalıştığı için pil ve ısınma tamamen sıfırlanmaz.")) {
             Toggle("Canlı önizlemeyi kapat", isOn: $settings.previewOff)
-            Toggle("Önizleme kapalıyken ekranı kıs", isOn: $settings.dimWhenPreviewOff)
-                .disabled(!settings.previewOff)
+            Toggle("Ekran parlaklığını azalt", isOn: $settings.dimScreen)
         }
     }
 

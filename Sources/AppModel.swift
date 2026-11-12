@@ -337,7 +337,7 @@ final class AppModel: ObservableObject {
             .store(in: &cancellables)
 
         // Pil tasarrufu ayarları anında uygulanır
-        Publishers.CombineLatest(settings.$previewOff, settings.$dimWhenPreviewOff)
+        Publishers.CombineLatest(settings.$previewOff, settings.$dimScreen)
             .sink { [weak self] _, _ in
                 Task { @MainActor in self?.updatePowerSaving() }
             }
@@ -390,10 +390,10 @@ final class AppModel: ObservableObject {
         updateGuidance()
     }
 
-    /// Önizleme kapalıysa kare gönderimi ve analiz seyrekleşir, istenirse ekran kısılır.
+    /// Önizleme kapalıysa kare gönderimi ve analiz seyrekleşir; ekranı kıs seçiliyse parlaklık düşer (önizlemeden bağımsız).
     func updatePowerSaving() {
         pipeline.saving = settings.previewOff || loadShed
-        ScreenDimmer.shared.update(dim: started && settings.previewOff && settings.dimWhenPreviewOff)
+        ScreenDimmer.shared.update(dim: started && settings.dimScreen)
     }
 
     /// Uygulama pasifleşirken (kilit, denetim merkezi, başka uygulama) kullanıcının parlaklığı geri verilir.

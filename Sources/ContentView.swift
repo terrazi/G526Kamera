@@ -11,6 +11,7 @@ struct ContentView: View {
                 VStack(spacing: 14) {
                     NoticeRow(messages: [model.crashNotice, model.thermalNotice, model.networkNotice, model.micNotice, model.routeNotice])
                     preview
+                    powerToggles
                     captureButton
                     videoButton
                     if !model.videoAnswer.isEmpty {
@@ -103,6 +104,24 @@ struct ContentView: View {
                     .padding(10)
             }
         }
+    }
+
+    /// Isınmayı azaltmak için iki tik: önizlemeyi kapat, ekran parlaklığını azalt
+    private var powerToggles: some View {
+        VStack(spacing: 0) {
+            Toggle(isOn: $settings.previewOff) {
+                Label("Önizlemeyi kapat", systemImage: "eye.slash")
+            }
+            .accessibilityIdentifier("onizlemeyiKapat")
+            Divider().padding(.vertical, 8)
+            Toggle(isOn: $settings.dimScreen) {
+                Label("Ekran parlaklığını azalt", systemImage: "sun.min")
+            }
+            .accessibilityIdentifier("parlakligiAzalt")
+        }
+        .padding(12)
+        .background(Color(UIColor.secondarySystemBackground))
+        .cornerRadius(12)
     }
 
     /// Önizleme kapalıyken: video çizilmez (pil/ısınma), çekim ve diğer her şey çalışmaya devam eder.

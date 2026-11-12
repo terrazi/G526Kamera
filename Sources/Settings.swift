@@ -42,8 +42,8 @@ final class AppSettings: ObservableObject {
     // MARK: Pil tasarrufu
     /// Canlı önizleme kapalı: ekrana video çizilmez, kare çözme/çekim/ses/Drive aynen sürer (varsayılan: önizleme açık)
     @Published var previewOff: Bool { didSet { d.set(previewOff, forKey: "previewOff") } }
-    /// Önizleme kapalıyken ekranı çok kıs (ekran pilin en büyük tüketicisidir)
-    @Published var dimWhenPreviewOff: Bool { didSet { d.set(dimWhenPreviewOff, forKey: "dimWhenPreviewOff") } }
+    /// Program çalışırken ekran parlaklığını çok azalt (ekran pilin en büyük tüketicisidir); önizlemeden bağımsız
+    @Published var dimScreen: Bool { didSet { d.set(dimScreen, forKey: "dimScreen") } }
 
     // MARK: Okuma sesi
     /// Seçilen konuşma sesi (boş = telefonda kurulu en kaliteli Türkçe ses)
@@ -258,7 +258,7 @@ final class AppSettings: ObservableObject {
         cellularShortcutOn = d.object(forKey: "cellularShortcutOn") as? Bool ?? false
         cellularShortcutName = d.string(forKey: "cellularShortcutName") ?? CellularShortcut.defaultName
         previewOff = d.object(forKey: "previewOff") as? Bool ?? false
-        dimWhenPreviewOff = d.object(forKey: "dimWhenPreviewOff") as? Bool ?? true
+        dimScreen = d.object(forKey: "dimScreen") as? Bool ?? false
     }
 }
 
