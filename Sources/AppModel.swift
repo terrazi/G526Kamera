@@ -412,6 +412,12 @@ final class AppModel: ObservableObject {
             }
             .store(in: &cancellables)
 
+        settings.$guidanceDescribe
+            .sink { [weak self] _ in
+                Task { @MainActor in self?.updateGuidance() }
+            }
+            .store(in: &cancellables)
+
         settings.$videoGuidance
             .sink { [weak self] _ in
                 Task { @MainActor in self?.updateGuidance() }
@@ -813,6 +819,7 @@ final class AppModel: ObservableObject {
         let floors = [0.30, 0.45, 0.60]
         guidance.sharpFloor = floors[min(max(settings.guidanceSharpness, 0), 2)]
         guidance.config.glareLimit = settings.guidanceGlare ? 0.04 : 2
+        guidance.describeScene = settings.guidanceDescribe
         pipeline.configureMotion(enabled: settings.motionEnabled && !guidanceWanted,
                                  sensitivity: settings.motionSensitivity)
         if on != guidanceWasOn {
