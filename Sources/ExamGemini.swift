@@ -30,9 +30,7 @@ enum ExamPrompts {
         "Sen bir deneme sınavı yardımcısısın. Kullanıcı, sınav sorularının taranmış sayfalarını PDF olarak verdi. Belgeler tarama "
             + "sırasıyla 'Belge 1', 'Belge 2' diye numaralıdır (Belge 1 ilk taranandır). Cevapların sesli okunacak. Kurallar:",
         "1. Belgeleri titizlikle oku: her PDF'in her sayfasını görüntü olarak incele; soru numaralarını, soru metinlerini, tabloları, "
-            + "şekilleri, küçük yazıları ve şık harflerini (A, B, C…) atlama. Eğik ya da ters taranmış sayfaları düzelterek oku. PDF'lerin "
-            + "sonunda 'okunan metin (OCR)' başlıklı sayfalar olabilir: bunlar otomatik okumanın çıktısıdır ve hatalı olabilir; sayfa "
-            + "görüntüsüyle çelişirse görüntüyü esas al; bu sayfaları sayfa sayısına katma.",
+            + "şekilleri, küçük yazıları ve şık harflerini (A, B, C…) atlama. Eğik ya da ters taranmış sayfaları düzelterek oku.",
         "2. Aynı sayfa birden çok kez taranmış (mükerrer) olabilir: en okunaklı olanı esas al, soruyu iki kez sayma ya da cevaplama.",
         "3. Her sorunun kimliği 'no' (kâğıtta yazan numara, tamsayı) ve 'bolum'dur. Belgelerde birden çok test, kitapçık ya da deneme "
             + "varsa ve numaralar yeniden başlıyorsa 'bolum' alanına bölümün kısa adını yaz ('Test 2', 'Deneme 3'); adı yoksa 'Belge N' "
@@ -77,8 +75,8 @@ enum ExamPrompts {
         "required": ["cevaplar"]
     ]
 
-    static let verifyPrompt: String = "Belgelerdeki bütün sayfaları incele ve bildir: her belge için sayfa sayısı (yalnız taranmış sayfa "
-        + "görüntüleri; sondaki 'okunan metin (OCR)' sayfalarını sayma) ve içindeki soru sayısı. Sonra belgelerdeki TÜM soruları, "
+    static let verifyPrompt: String = "Belgelerdeki bütün sayfaları incele ve bildir: her belge için sayfa sayısı (taranmış sayfa "
+        + "görüntüleri) ve içindeki soru sayısı. Sonra belgelerdeki TÜM soruları, "
         + "belgelerde göründükleri sırayla 'sorular' listesine yaz (her soru için kâğıttaki numarası 'no' ve gerekirse 'bolum'). "
         + "Okunamayan ya da kesik sayfa sayısını 'okunamayan_sayfa' alanına, varsa dikkat edilmesi gereken bir durumu (eksik sayfa, "
         + "ters tarama gibi) kısa bir cümleyle 'not' alanına yaz. Soruları çözme, yalnız say ve listele."

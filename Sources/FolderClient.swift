@@ -7,7 +7,7 @@ extension String {
 /// Kaydedilecek içerik: tek bir JPEG dosyası ya da bir veya birkaç JPEG'den yapılan PDF.
 enum UploadPayload {
     case jpeg(URL)
-    case pdf([URL], title: String, texts: [String])
+    case pdf([URL], title: String)
     /// Düz metin dosyası (deneme sınavı cevap anahtarı): PDF olmadığı için Gemini belge sohbetine karışmaz
     case text(URL)
     /// Kısa video (H.264 MP4); dosya olduğu gibi kaydedilir
@@ -67,12 +67,12 @@ final class FolderClient: GeminiFileSource, @unchecked Sendable {
         let source: URL
         var temporary: URL?
         switch payload {
-        case .pdf(let files, let title, let texts):
+        case .pdf(let files, let title):
             let tmp = fm.temporaryDirectory.appendingPathComponent("g526-kaydet-\(UUID().uuidString).pdf")
             fm.createFile(atPath: tmp.path, contents: nil)
             let handle = try FileHandle(forWritingTo: tmp)
             do {
-                try PDFWrap.write(jpegs: files, title: title, texts: texts, to: handle)
+                try PDFWrap.write(jpegs: files, title: title, to: handle)
                 try handle.close()
             } catch {
                 try? handle.close()

@@ -58,9 +58,7 @@ enum GeminiConfig {
             + "sayfaları düzelterek oku.",
         "7. Bütün belgeleri bir bütün olarak değerlendir: bir sorunun metni, şıkları ya da ilgili bilgi farklı belgelerde ya "
             + "da sayfalarda olabilir, hepsini birleştirerek cevapla. Aynı sayfa birden çok kez taranmış (mükerrer) olabilir: "
-            + "en temiz ve en okunaklı olanı esas al, diğerlerini yok say, aynı bilgiyi iki kez sayma. PDF'lerin sonunda "
-            + "'okunan metin (OCR)' başlıklı sayfalar olabilir: bunlar otomatik okumanın çıktısıdır ve hatalı olabilir; "
-            + "sayfa görüntüsüyle çelişirse görüntüyü esas al.",
+            + "en temiz ve en okunaklı olanı esas al, diğerlerini yok say, aynı bilgiyi iki kez sayma.",
         "@@KURAL8@@",
         "9. Kullanıcı konuşmayı bitirmek istiyorsa ('oturumu kapat', 'yeter', 'bu kadar', 'görüşürüz' gibi) 'kapat' alanını "
             + "true yap ve 'cevap' alanına kısa bir vedalaşma yaz; aksi hâlde 'kapat' false olsun.",
@@ -73,14 +71,6 @@ enum GeminiConfig {
         "Çıktı her zaman JSON olmalı: 'soru' alanına kullanıcının sorusunu (ses geldiyse duyduğun şekliyle yazarak) koy, "
             + "'cevap' alanına cevabını, 'kapat' ve 'model_degistir' alanlarına true ya da false, 'son_soru' alanına tamsayı koy."
     ].joined(separator: "\n")
-
-    /// Sayfa fotoğrafını metne döktüren OCR yönergesi
-    static let ocrPrompt = "Bu bir belge sayfasının fotoğrafıdır. Sayfadaki bütün yazıyı eksiksiz ve olduğu gibi metne dök. Kurallar: "
-        + "Okuma sırasını koru (sütun varsa soldan sağa, yukarıdan aşağıya). Soru numaralarını, şık harflerini (A, B, C…), "
-        + "madde işaretlerini, sayıları, tarihleri ve noktalama işaretlerini aynen koru. Tabloları satır satır yaz, "
-        + "hücreleri ' | ' ile ayır. Yazım hatalarını düzeltme, çeviri yapma, özetleme ya da yorum ekleme. Okuyamadığın "
-        + "yeri tahmin etme, orada [okunamadı] yaz. Sayfada hiç yazı yoksa yalnızca [yazı yok] yaz. Türkçe harfleri "
-        + "(ç, ğ, ı, İ, ö, ş, ü) doğru yaz. Yalnızca metni ver; başlık, açıklama ya da Markdown ekleme."
 
     /// Sesli sorunun yanında gönderilen yönerge
     static let audioInstruction = "Yukarıdaki sesli soruyu yanıtla. Sesin başında bir çağrı sözcüğü ('Gemini', 'hey dostum' gibi) varsa soruya dahil değildir, "
@@ -757,26 +747,6 @@ enum GeminiSupport {
         return (question.trimmed, answer)
     }
 
-    /// Tek sayfa fotoğrafını metne çeviren istek (görsel önce, yönerge sonra)
-    static func buildOCRRequest(jpeg: Data) throws -> Data {
-        let object: [String: Any] = [
-            "contents": [["role": "user", "parts": [
-                ["inlineData": ["mimeType": "image/jpeg", "data": jpeg.base64EncodedString()]],
-                ["text": GeminiConfig.ocrPrompt]
-            ]]],
-            "generationConfig": ["temperature": 0.0, "maxOutputTokens": 16384]
-        ]
-        return try JSONSerialization.data(withJSONObject: object, options: [.withoutEscapingSlashes])
-    }
-
-    /// OCR cevabındaki kod çerçevesini ve "[yazı yok]" işaretini atar
-    static func cleanOCRText(_ text: String) -> String {
-        let cleaned = stripFence(text).trimmed
-        let marker = cleaned.lowercased()
-        if marker == "[yazı yok]" || marker == "[yazi yok]" { return "" }
-        return cleaned
-    }
-
     /// /models cevabından generateContent destekleyen modellerin kısa adları ("models/" öneki atılır), sıralı
     static func parseModelList(_ json: [String: Any]) -> [String] {
         let models = (json["models"] as? [[String: Any]]) ?? []
@@ -974,14 +944,6 @@ final class GeminiClient: GeminiAsking, GeminiRemote {
         guard let data = GeminiSupport.stripFence(text).data(using: .utf8),
               let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return "" }
         return ((json["soru"] as? String) ?? "").trimmed
-    }
-
-    /// Sayfa fotoğrafındaki yazıyı okur (cihazdaki OCR'dan çok daha doğru). Yazı yoksa boş metin döner.
-    func ocrImage(_ jpeg: Data) async throws -> String {
-        let body = try GeminiSupport.buildOCRRequest(jpeg: jpeg)
-        let name = model.addingPercentEncoding(withAllowedCharacters: GeminiClient.pathAllowed) ?? model
-        let object = try await post(path: "/models/\(name):generateContent", body: body)
-        return GeminiSupport.cleanOCRText(try GeminiSupport.parseAnswer(object).answer)
     }
 
     /// Anahtarın görebildiği, metin üretebilen modellerin adları (ayarlardaki "Modelleri listele")

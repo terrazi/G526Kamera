@@ -84,18 +84,16 @@ final class UploadQueue: ObservableObject {
         pending = pendingFiles().count
         lastEnqueue = Date()
         captureLog.add(name)
-        if settings.ocrEnabled { OcrCenter.shared.submit(pendingDir.appendingPathComponent(name)) }
         kick()
         return name
     }
 
-    /// "Son fotoğrafı sil": bu oturumda çekilmiş, henüz yüklenmemiş son fotoğrafı (ve OCR metnini) siler.
+    /// "Son fotoğrafı sil": bu oturumda çekilmiş, henüz yüklenmemiş son fotoğrafı siler.
     func removeLast() -> CaptureLog.Outcome {
         let names = Set(pendingFiles().map { $0.lastPathComponent })
         let outcome = captureLog.takeLast(pending: names, inFlight: inFlight)
         if case .removed(let name) = outcome {
             let url = pendingDir.appendingPathComponent(name)
-            OcrCenter.shared.forget(url)
             remove(url)
             pending = pendingFiles().count
             status = pending > 0 ? "\(pending) fotoğraf kaydedilmeyi bekliyor" : ""
@@ -144,12 +142,11 @@ final class UploadQueue: ObservableObject {
         return pendingFiles().map { $0.lastPathComponent }
     }
 
-    /// Bekleyen belirli bir fotoğrafı (ve OCR metnini) siler; yüklenmekte olansa ya da yoksa false
+    /// Bekleyen belirli bir fotoğrafı siler; yüklenmekte olansa ya da yoksa false
     func removePending(_ name: String) -> Bool {
         guard !inFlight.contains(name) else { return false }
         let url = pendingDir.appendingPathComponent(name)
         guard fm.fileExists(atPath: url.path) else { return false }
-        OcrCenter.shared.forget(url)
         remove(url)
         captureLog.forget(name)
         pending = pendingFiles().count
@@ -190,14 +187,12 @@ final class UploadQueue: ObservableObject {
         let payload: UploadPayload
     }
 
-    /// Fotoğrafı ve varsa OCR metin dosyasını siler.
+    /// Fotoğrafı siler.
     private func remove(_ url: URL) {
         try? fm.removeItem(at: url)
-        try? fm.removeItem(at: OcrCenter.sidecar(url))
     }
 
     private func quarantine(_ url: URL) {
-        try? fm.removeItem(at: OcrCenter.sidecar(url))
         let bad = url.appendingPathExtension("bozuk")
         do {
             try fm.moveItem(at: url, to: bad)
@@ -235,12 +230,7 @@ final class UploadQueue: ObservableObject {
         let name = group.count == 1
             ? stem + ".pdf"
             : stem.replacingOccurrences(of: "Belge_", with: "Belgeler_") + "_\(group.count)sayfa.pdf"
-        var texts: [String] = []
-        if settings.ocrEnabled {
-            texts = group.map { OcrCenter.readText($0) }
-            if !texts.contains(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) { texts = [] }
-        }
-        return Job(files: group, name: name, payload: .pdf(group, title: stem, texts: texts))
+        return Job(files: group, name: name, payload: .pdf(group, title: stem))
     }
 
     private func run() async {
@@ -286,14 +276,6 @@ final class UploadQueue: ObservableObject {
 
             status = "Kaydediliyor… (\(files.count) bekliyor)"
             retryNow = false
-            if settings.ocrEnabled && usePDF {
-                let count = batch ? (settings.batchSize > 0 ? settings.batchSize : 30) : 1
-                let group = Array(files.prefix(count))
-                if group.contains(where: { OcrCenter.shared.isPending($0) }) {
-                    status = "Metin okunuyor (OCR)…"
-                    await OcrCenter.shared.waitFor(group, timeout: OcrCenter.shared.uploadWait)
-                }
-            }
             guard let job = prepareJob(files: files, batch: batch) else {
                 try? await Task.sleep(nanoseconds: 500_000_000)   // hepsi bozuktu/taşınamadı: ana iş parçacığını meşgul etmesin
                 continue

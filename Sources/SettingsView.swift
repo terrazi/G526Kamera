@@ -47,8 +47,6 @@ struct SettingsView: View {
             .onChange(of: settings.batchSize) { _ in model.queue.kick() }
             .onChange(of: settings.batchIdle) { _ in model.queue.kick() }
             .onChange(of: settings.uploadFormat) { _ in model.queue.kick() }
-            .onChange(of: settings.ocrEnabled) { _ in OcrCenter.shared.reset() }
-            .onChange(of: settings.ocrUseGemini) { _ in OcrCenter.shared.reset() }
             .onChange(of: settings.geminiSessionTimeout) { value in
                 if value < 0 { settings.geminiSessionTimeout = 0 }
                 if value > 86400 { settings.geminiSessionTimeout = 86400 }
@@ -401,7 +399,7 @@ struct SettingsView: View {
 
     private var powerSection: some View {
         Section(header: Text("Pil ve ısınma"),
-                footer: Text("Önizleme kapalıyken ekrana video çizilmez ve kareler seyreltilerek incelenir; fotoğraf çekme (düğme, sesli komut, görüntü değişince), OCR ve kaydetme aynen çalışır. Kamera kadrajını önce önizlemeyle ayarlayın. Ekran parlaklığını azaltmak pilin en büyük tüketicisini azaltır; uygulama açıkken ekran hep açık kalır. Kamera yayını, Wi-Fi ve mikrofon yine çalıştığı için pil ve ısınma tamamen sıfırlanmaz.")) {
+                footer: Text("Önizleme kapalıyken ekrana video çizilmez ve kareler seyreltilerek incelenir; fotoğraf çekme (düğme, sesli komut, görüntü değişince), kaydetme aynen çalışır. Kamera kadrajını önce önizlemeyle ayarlayın. Ekran parlaklığını azaltmak pilin en büyük tüketicisini azaltır; uygulama açıkken ekran hep açık kalır. Kamera yayını, Wi-Fi ve mikrofon yine çalıştığı için pil ve ısınma tamamen sıfırlanmaz.")) {
             Toggle("Canlı önizlemeyi kapat", isOn: $settings.previewOff)
             Toggle("Ekran parlaklığını azalt", isOn: $settings.dimScreen)
         }
@@ -458,7 +456,7 @@ struct SettingsView: View {
 
     private var saveSection: some View {
         Section(header: Text("Kaydetme"),
-                footer: Text("Dosyalar belge klasörüne (“G526 Belgeler”) kaydedilir; klasörü ilk ekrandaki “Belge klasörü” bölümünden seçersiniz. PDF: her fotoğraf (toplu modda birikenler tek çok sayfalı PDF olarak) kaydedilir; resim kalitesi bozulmaz. OCR açıkken her fotoğrafın yazısı arka planda okunur ve PDF'in sonuna ayrı sayfalar olarak eklenir; telefon ısınırsa ya da yavaşlarsa OCR kendini kapatır. Apple'ın yazı okuyucusu Türkçeyi destekler; büyük “İ” bazen “I” ya da “i” okunabilir. Okunan metin görüntünün üstüne yazılmaz.")) {
+                footer: Text("Dosyalar belge klasörüne (“G526 Belgeler”) kaydedilir; klasörü ilk ekrandaki “Belge klasörü” bölümünden seçersiniz. PDF: her fotoğraf (toplu modda birikenler tek çok sayfalı PDF olarak) kaydedilir; resim kalitesi bozulmaz.")) {
             Picker("Klasöre kaydetme", selection: $settings.sendMode) {
                 Text("Tek tek (hemen)").tag("single")
                 Text("Toplu (biriksin)").tag("batch")
@@ -477,13 +475,6 @@ struct SettingsView: View {
                 Text("JPEG").tag("jpeg")
             }
             .pickerStyle(.segmented)
-            Toggle("Metni oku (OCR), PDF sonuna ekle", isOn: $settings.ocrEnabled)
-            Toggle("OCR’ı Gemini ile yap (daha akıllı; sayfalar Google’a gider)", isOn: $settings.ocrUseGemini)
-                .accessibilityIdentifier("ocr-gemini")
-            if settings.ocrEnabled && settings.ocrUseGemini {
-                Text("Soru numaralarını, şıkları, tabloları ve küçük yazıyı telefondaki OCR’dan çok daha doğru okur; her sayfa için küçük bir Gemini ücreti çıkar. Gemini bölümünde gizlilik onayı ve anahtar gerekir, yoksa telefondaki OCR kullanılır.")
-                    .font(.footnote).foregroundColor(.secondary)
-            }
         }
     }
 }

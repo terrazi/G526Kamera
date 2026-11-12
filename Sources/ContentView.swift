@@ -234,7 +234,6 @@ struct VoiceRow: View {
 
 struct FolderStatusRow: View {
     @ObservedObject var queue: UploadQueue
-    @ObservedObject private var ocr = OcrCenter.shared
     @EnvironmentObject var settings: AppSettings
 
     var body: some View {
@@ -253,9 +252,6 @@ struct FolderStatusRow: View {
             }
             if queue.uploaded > 0 {
                 Text("Bu oturumda kaydedilen: \(queue.uploaded)").font(.caption).foregroundColor(.secondary)
-            }
-            if settings.ocrEnabled && !ocr.status.isEmpty {
-                Text(ocr.status).font(.caption).foregroundColor(.secondary)
             }
             if queue.pending > 0 && ready && settings.sendMode == "batch" {
                 Button("Şimdi kaydet (\(queue.pending))") { queue.retry() }

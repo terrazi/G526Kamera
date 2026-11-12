@@ -187,8 +187,8 @@ final class FolderClientTests: XCTestCase {
         let b = try temp("2.jpg", jpeg(.lightGray))
         defer { for f in [a, b] { try? FileManager.default.removeItem(at: f) } }
 
-        let first = try await client.save(.pdf([a, b], title: "deneme", texts: []), date: when)
-        let second = try await client.save(.pdf([a], title: "deneme", texts: []), date: when)
+        let first = try await client.save(.pdf([a, b], title: "deneme"), date: when)
+        let second = try await client.save(.pdf([a], title: "deneme"), date: when)
         let stamp = FileStamp.stamp(when)
         XCTAssertEqual(first.id, "\(stamp).pdf")
         XCTAssertEqual(second.id, "\(stamp)-2.pdf")
@@ -201,8 +201,8 @@ final class FolderClientTests: XCTestCase {
         try folder.choose(dir)
         let photo = try temp("f.jpg", jpeg(.white))
         defer { try? FileManager.default.removeItem(at: photo) }
-        let old = try await client.save(.pdf([photo], title: "a", texts: []), date: Date(timeIntervalSince1970: 1_800_000_000))
-        let new = try await client.save(.pdf([photo], title: "b", texts: []), date: Date(timeIntervalSince1970: 1_800_100_000))
+        let old = try await client.save(.pdf([photo], title: "a"), date: Date(timeIntervalSince1970: 1_800_000_000))
+        let new = try await client.save(.pdf([photo], title: "b"), date: Date(timeIntervalSince1970: 1_800_100_000))
         let note = try temp("n.txt", Data("x".utf8))
         defer { try? FileManager.default.removeItem(at: note) }
         _ = try await client.save(.text(note), date: Date(timeIntervalSince1970: 1_800_200_000))
