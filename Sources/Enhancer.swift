@@ -16,6 +16,8 @@ struct EnhanceOptions {
     var upscale: Double
     var timestamp: TimestampMode   // kameranın görüntüye işlediği tarih/saat
     var quality: Double     // JPEG kalitesi 0.5–1.0
+    /// Görüntü yönü: tüm iyileştirmeler sensör yönünde yapılır, resim en sonda tek dönüşümle çevrilir
+    var orientation: ImageOrientation = .normal
 }
 
 /// Core Image ile belge iyileştirme ve JPEG üretimi.
@@ -82,6 +84,11 @@ enum Enhancer {
             image = image.applyingFilter("CIUnsharpMask",
                                          parameters: [kCIInputRadiusKey: 1.0 * sharpScale, kCIInputIntensityKey: 0.5])
             image = image.applyingFilter("CIColorControls", parameters: [kCIInputContrastKey: 1.04])
+        }
+
+        // 7) Görüntü yönü (yalnız dönüşüm; piksel işi JPEG üretilirken yapılır)
+        if options.orientation != .normal {
+            image = normalizeOrigin(image.oriented(options.orientation.cgOrientation))
         }
 
         let extent = image.extent.integral

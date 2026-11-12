@@ -137,6 +137,8 @@ final class AppModel: ObservableObject {
     private var lastUnrecognizedAt: TimeInterval = 0
     /// Sesli konumlandırmanın çektiği bölüm (çekim bitince "Sol bölüm çekildi" demek için)
     private var capturePart: ColumnChoice?
+    /// Konuşma komutları son kez hangi yönle kuruldu (dik çevrilince "üst/alt" dinlenir)
+    private var speechQuarterTurn = false
     /// Tek tek gönderimde çekimden sonra "dosya gönderildi" demek için çekim anındaki yüklenen sayısı
     private var uploadWatchBase: Int?
     private var connection = ConnectionAnnouncer()
@@ -359,7 +361,7 @@ final class AppModel: ObservableObject {
             .store(in: &cancellables)
 
         // Sesli konumlandırma ayarları anında uygulanır
-        Publishers.CombineLatest4(settings.$guidanceEnabled, settings.$guidanceFlip,
+        Publishers.CombineLatest4(settings.$guidanceEnabled, settings.$imageOrientation,
                                   settings.$guidanceAutoCapture, settings.$guidanceSharpness)
             .sink { [weak self] _, _, _, _ in
                 Task { @MainActor in self?.updateGuidance() }
@@ -513,7 +515,8 @@ final class AppModel: ObservableObject {
             commands.append(SpeechTrigger.Command(id: "rechoose", phrases: GuidanceVocabulary.rechoose,
                                                   intent: GuidanceVocabulary.rechooseIntent))
             for c in ColumnChoice.allCases {
-                commands.append(SpeechTrigger.Command(id: "choice.\(c.rawValue)", tokens: c.tokens, looseTokens: c.looseTokens))
+                commands.append(SpeechTrigger.Command(id: "choice.\(c.rawValue)", tokens: c.tokens(for: guidance.orientation),
+                                                      looseTokens: c.looseTokens(for: guidance.orientation)))
             }
             commands.append(SpeechTrigger.Command(id: "choice.first", tokens: GuidanceVocabulary.first))
             commands.append(SpeechTrigger.Command(id: "choice.second", tokens: GuidanceVocabulary.second))
@@ -636,7 +639,8 @@ final class AppModel: ObservableObject {
             after: s.burstAfter,
             multiFrame: s.multiFrame,
             enhance: EnhanceOptions(level: s.enhancement, deskew: s.deskew, upscale: s.upscale,
-                                    timestamp: s.timestampMode, quality: s.jpegQuality),
+                                    timestamp: s.timestampMode, quality: s.jpegQuality,
+                                    orientation: s.imageOrientation),
             documentOnly: s.documentOnly)
         HealthMonitor.shared.mark("fotoğraf çekimi")
         let accepted = pipeline.engine.capture(reason: reason, options: options) { [weak self] result in
@@ -721,7 +725,12 @@ final class AppModel: ObservableObject {
     private func updateGuidance() {
         let on = started && guidanceWanted
         pipeline.guidanceOn = on
-        guidance.flip = settings.guidanceFlip
+        guidance.orientation = settings.imageOrientation
+        // dik çevrilmiş görüntüde sesli seçim "sol/sağ" yerine "üst/alt" dinler
+        if settings.imageOrientation.isQuarterTurn != speechQuarterTurn {
+            speechQuarterTurn = settings.imageOrientation.isQuarterTurn
+            if started { restartSpeech() }
+        }
         guidance.autoCapture = settings.guidanceAutoCapture
         guidance.triggerWord = triggerDisplay
         let floors = [0.30, 0.45, 0.60]
@@ -956,6 +965,9 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Bölümün ekranda gösterilen adı (dik çevrilmiş görüntüde "Üst" / "Alt")
+    func columnTitle(_ c: ColumnChoice) -> String { return guidance.title(c) }
+
     /// Ekrandaki düğme (yedek) ya da sesli seçim
     func chooseColumn(_ choice: ColumnChoice) {
         let reply = guidance.setChoice(choice)
@@ -1067,7 +1079,7 @@ final class AppModel: ObservableObject {
                 pipeline.markCaptured()
             }
         }
-        let text = SpokenReport.afterDelete(outcome, waiting: queue.pending, retake: retake, part: part?.title,
+        let text = SpokenReport.afterDelete(outcome, waiting: queue.pending, retake: retake, part: part.map { guidance.title($0) },
                                             guided: guidanceWasOn, trigger: triggerDisplay)
         flash(text, seconds: 6)
         say(text, interrupt: true, force: true)
@@ -1081,7 +1093,7 @@ final class AppModel: ObservableObject {
         }
         let batch = settings.sendMode == "batch"
         let ready = folderReady
-        say(SpokenReport.afterCapture(part: capturePart?.title, waiting: queue.pending,
+        say(SpokenReport.afterCapture(part: capturePart.map { guidance.title($0) }, waiting: queue.pending,
                                       folderReady: ready, batchMode: batch, batchSize: settings.batchSize))
         // Tek tek kaydetmede dosya kaydedilince "dosya kaydedildi" de denir
         uploadWatchBase = (!batch && ready) ? queue.uploaded : nil
@@ -1225,7 +1237,7 @@ final class AppModel: ObservableObject {
             say("Kamera görüntüsü yok, video kaydı açılamadı.", interrupt: true, force: true)
             return
         }
-        videoRecorder.start(to: VideoOutbox.shared.newFileURL(date: Date()))
+        videoRecorder.start(to: VideoOutbox.shared.newFileURL(date: Date()), orientation: settings.imageOrientation)
         videoRecording = true
         HealthMonitor.shared.mark("video kaydı")
         flash("● Video kaydı açık (en çok 30 sn)", seconds: 5)
@@ -1648,7 +1660,7 @@ final class AppModel: ObservableObject {
         guard examVideoState == .waiting else { return }
         examVideoTimer?.invalidate()
         examVideoTimer = nil
-        videoRecorder.start(to: VideoOutbox.shared.newFileURL(date: Date()))
+        videoRecorder.start(to: VideoOutbox.shared.newFileURL(date: Date()), orientation: settings.imageOrientation)
         examVideoState = .recording
         examVideoFinishing = false
         tlog("[sinav] video kaydı başladı")

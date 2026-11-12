@@ -39,6 +39,7 @@ final class VideoRecorder {
     private var input: AVAssetWriterInput?
     private var adaptor: AVAssetWriterInputPixelBufferAdaptor?
     private var fileURL: URL?
+    private var orientation: ImageOrientation = .normal
     private var firstTime: TimeInterval = 0
     private var lastPTS: Double = -1
     private var frames = 0
@@ -57,9 +58,11 @@ final class VideoRecorder {
     }
 
     /// Kaydı hazırlar; dosya ilk kare gelince, kare boyutuna göre açılır.
-    func start(to url: URL) {
+    /// `orientation`: video dosyasına yalnız oynatma dönüşümü yazılır (kareler çevrilmez; ısınma yok).
+    func start(to url: URL, orientation: ImageOrientation = .normal) {
         queue.sync {
             self.discardWriter()
+            self.orientation = orientation
             self.fileURL = url
             self.firstTime = 0
             self.lastPTS = -1
@@ -190,6 +193,7 @@ final class VideoRecorder {
             ]
             let inp = AVAssetWriterInput(mediaType: .video, outputSettings: settings)
             inp.expectsMediaDataInRealTime = true
+            inp.transform = orientation.videoTransform(width: CGFloat(width), height: CGFloat(height))
             let attributes: [String: Any] = [
                 kCVPixelBufferPixelFormatTypeKey as String: Int(CVPixelBufferGetPixelFormatType(buffer))
             ]

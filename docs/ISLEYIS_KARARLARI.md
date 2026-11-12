@@ -75,7 +75,7 @@ Sorulacak (kullanıcı kararı bekliyor):
 - "Sınav önce video çeksin" (examVideoFirst) ve "Sınav başlarken ses/internet/Gemini'yi sına" (examSelfCheck): yeni düzende ilk sınama hep var, video aşaması her zaman soruluyor.
 - Fotoğraf iyileştirme ayarları (deskew, upscale, tarih yazısı, birkaç kareyi birleştir, çekim öncesi/sonrası): sınav taramasında sadeleştirilebilir.
 
-Q. [İSTEK] Görüntü yönü: kamera dik (portre) tutulabilsin; ayarlarda "Görüntü yönü: Normal / 90° sağa / 90° sola / 180°". Önizleme, fotoğraf, PDF ve video bu yöne göre kaydedilir; sesli yönlendirme (sağa/sola/yukarı/aşağı) yöne göre uyarlanır. Kodda şu an görüntü döndürme yok ("ters takılı" ayarı yalnız sesli yönleri çevirir). Karar: Drive kaldırma sürümünden sonraki sürümde yapılacak.
+Q. [YAPILDI] Görüntü yönü: Ayarlar → Kamera → "Görüntü yönü" (Normal / 90° sağa / 90° sola / 180°). Önizleme katman dönüşümüyle, fotoğraf/PDF tüm iyileştirmeden sonra tek CIImage dönüşümüyle, video dosya başlığındaki oynatma dönüşümüyle çevrilir; kare kare piksel çevirme yoktur (ısınma). Sesli yönlendirme ekranda gördüğünüz yöne uyar (sensörün solu 90° sağada ekranda "yukarı" olur). 90° çevrilince bölüm sorusu "sol/sağ" yerine "üst/alt" olur ve "üst/alt" dinlenir. Eski "Kamera ters takılı" kutusu 180° olarak devralınır. Telefonda denenmedi.
 
 A'. [İSTEK] Açılıştaki ses sınaması: program "Beni duyabiliyor musunuz? Lütfen teyit edin." diye sorar; kullanıcı "evet" (ya da tamam) deyince iki taraflı ses sınaması (program konuştu + kullanıcıyı duydu) tamamlanmış sayılır. Şimdi bu sınama yalnız "deneme sınavı modu" denince yapılıyor ("tamam deyin" metniyle); 2. adımda programın açılışına taşınacak ve metin bu olacak.
 

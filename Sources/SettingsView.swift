@@ -149,6 +149,12 @@ struct SettingsView: View {
                 Text("Yüksek 1920×1080").tag(1)
                 Text("Düşük 640×360").tag(2)
             }
+            Picker("Görüntü yönü", selection: $settings.imageOrientation) {
+                ForEach(ImageOrientation.allCases, id: \.self) { o in
+                    Text(o.title).tag(o)
+                }
+            }
+            HelpRow("Görüntü yönü: kamera yan ya da ters takılıysa resmi çevirir. Önizleme, çekilen fotoğraflar ve PDF, kaydedilen video ve sesli yönlendirmedeki sağ/sol/yukarı/aşağı hep bu yöne uyar. 90° çevirince kadrajdaki bölümler “sol/sağ” yerine “üst/alt” diye sorulur. Önceki “Kamera ters takılı” ayarı açıktıysa 180° olarak devralınır.")
             HelpRow("Kamera adı (UID) hazır yazılı gelir; başka bir kamera için silip yenisini yazabilirsiniz. IP boş bırakılırsa kamera kendiliğinden bulunur. Telefon kameranın Wi-Fi ağına bağlı olmalıdır.")
         }
     }
@@ -373,7 +379,6 @@ struct SettingsView: View {
             Toggle("Uyarıları sesli söyle", isOn: $settings.guidanceVoice)
             Toggle("Kamera ve gönderim durumunu da söyle", isOn: $settings.statusNotices)
             Toggle("Konum uygunsa kendiliğinden çek", isOn: $settings.guidanceAutoCapture)
-            Toggle("Kamera ters takılı (yönleri çevir)", isOn: $settings.guidanceFlip)
             Picker("Netlik isteği", selection: $settings.guidanceSharpness) {
                 Text("Gevşek").tag(0)
                 Text("Normal").tag(1)

@@ -62,8 +62,8 @@ final class AppSettings: ObservableObject {
     @Published var statusNotices: Bool { didSet { d.set(statusNotices, forKey: "statusNotices") } }
     /// Konum uygun olunca kendiliğinden çek (kapalıysa "okey" demenizi bekler)
     @Published var guidanceAutoCapture: Bool { didSet { d.set(guidanceAutoCapture, forKey: "guidanceAutoCapture") } }
-    /// Kamera ters takılıysa sağ/sol ve yukarı/aşağı yönleri çevrilir
-    @Published var guidanceFlip: Bool { didSet { d.set(guidanceFlip, forKey: "guidanceFlip") } }
+    /// Görüntü yönü: önizleme, fotoğraf/PDF, video ve sesli yönlendirme bu yöne göre çevrilir
+    @Published var imageOrientation: ImageOrientation { didSet { d.set(imageOrientation.rawValue, forKey: "imageOrientation") } }
     /// 0 = gevşek, 1 = normal, 2 = sıkı netlik isteği
     @Published var guidanceSharpness: Int { didSet { d.set(guidanceSharpness, forKey: "guidanceSharpness") } }
     /// Sayfada parlama lekesi varsa uyar (birkaç uyarıdan sonra yine de çeker)
@@ -198,7 +198,7 @@ final class AppSettings: ObservableObject {
         speechRate = d.object(forKey: "speechRate") as? Double ?? 1.0
         statusNotices = d.object(forKey: "statusNotices") as? Bool ?? true
         guidanceAutoCapture = d.object(forKey: "guidanceAutoCapture") as? Bool ?? true
-        guidanceFlip = d.object(forKey: "guidanceFlip") as? Bool ?? false
+        imageOrientation = AppSettings.migratedOrientation(d)
         guidanceSharpness = d.object(forKey: "guidanceSharpness") as? Int ?? 1
         guidanceGlare = d.object(forKey: "guidanceGlare") as? Bool ?? true
         finishWord = d.string(forKey: "finishWord") ?? "hepsi tamamlandı"
@@ -303,6 +303,22 @@ extension AppSettings {
         d.removeObject(forKey: "cellularShortcutOn")
         d.removeObject(forKey: "cellularShortcutName")
         return name
+    }
+
+    /// Görüntü yönü: yeni anahtar varsa o; yoksa eski "kamera ters takılı" kutusu açıksa 180°, değilse normal.
+    /// Sonuç yeni anahtara yazılır, eski anahtar silinir.
+    static func migratedOrientation(_ d: UserDefaults) -> ImageOrientation {
+        let value: ImageOrientation
+        if let raw = d.object(forKey: "imageOrientation") as? Int, let o = ImageOrientation(rawValue: raw) {
+            value = o
+        } else if d.object(forKey: "guidanceFlip") as? Bool == true {
+            value = .rotate180
+        } else {
+            value = .normal
+        }
+        d.set(value.rawValue, forKey: "imageOrientation")
+        d.removeObject(forKey: "guidanceFlip")
+        return value
     }
 
     /// Eski sürümlerden kalan Google/Drive bilgilerini (jeton, istemci kimliği, klasör) siler

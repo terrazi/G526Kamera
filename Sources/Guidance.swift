@@ -638,6 +638,28 @@ enum ColumnChoice: String, CaseIterable {
         }
     }
 
+    /// Dik çevrilmiş görüntüde sensörün sol/sağ bölümleri ekranda üst/alt görünür: "sol/sağ" yerine "üst/alt" dinlenir.
+    func tokens(for o: ImageOrientation) -> [String] {
+        guard o.isQuarterTurn else { return tokens }
+        switch self {
+        case .left:
+            return ["ust", "uste", "ustte", "ustten", "ustteki", "usttekini", "ustu", "ustun", "ustundeki"]
+        case .right:
+            return ["alt", "alta", "altta", "alttan", "alttaki", "alttakini", "alti", "altin", "altindaki"]
+        default:
+            return tokens
+        }
+    }
+
+    func looseTokens(for o: ImageOrientation) -> [String] {
+        guard o.isQuarterTurn else { return looseTokens }
+        switch self {
+        case .left: return ["ust"]
+        case .right: return ["alt"]
+        default: return []
+        }
+    }
+
     /// Yalnızca soru beklenirken: "so", "sor", "sa", "sak" gibi kısa/bozuk duyumlar da kabul edilir
     var looseTokens: [String] {
         switch self {
@@ -928,8 +950,16 @@ final class GuidanceEngine {
 
     var config = GuidanceConfig()
     var sharpFloor = 0.45
-    /// Kamera ters takılıysa yönler (ve sol/sağ seçimi) çevrilir
-    var flip = false
+    /// Görüntü yönü: ekranda gördüğünüz yöne göre yönler (ve bölüm seçimi) çevrilir
+    var orientation: ImageOrientation = .normal
+    /// Eski ad: yalnız 180° (kamera ters takılı)
+    var flip: Bool {
+        get { return orientation == .rotate180 }
+        set { orientation = newValue ? .rotate180 : .normal }
+    }
+
+    /// Bölümün kullanıcıya söylenen adı (yön dik çevrilmişse "Üst" / "Alt")
+    func title(_ c: ColumnChoice) -> String { return orientation.title(c) }
     var autoCapture = true
     var triggerWord = "okey"
 
@@ -995,7 +1025,7 @@ final class GuidanceEngine {
         questionsAsked = q
         switch c {
         case .all: return "Tamam, hepsini kadraja alalım."
-        default: return "Tamam, \(c.title.lowercased(with: Locale(identifier: "tr_TR"))) bölüm."
+        default: return "Tamam, \(title(c).lowercased(with: Locale(identifier: "tr_TR"))) bölüm."
         }
     }
 
@@ -1010,22 +1040,21 @@ final class GuidanceEngine {
     }
 
     private func effective(_ c: ColumnChoice?) -> ColumnChoice? {
-        guard flip, let c = c else { return c }
-        switch c {
-        case .left: return .right
-        case .right: return .left
-        default: return c
-        }
+        guard let c = c else { return c }
+        return orientation.sensorChoice(c)
     }
 
     func questionText(options: [ColumnChoice], first: Bool) -> String {
         var s = ""
         if let l = lastCaptured {
-            s += "\(l.title) bölüm çekildi. "
+            s += "\(title(l)) bölüm çekildi. "
         } else if first {
             s += "Kadrajda ayrı bölümler var ve biri yarım kalıyor. "
         }
-        if options.contains(.middle) {
+        if orientation.isQuarterTurn {
+            s += options.contains(.middle) ? "Hangisini çekeyim? Üst mü, orta mı, alt mı, yoksa tamamı mı?"
+                                           : "Hangisini çekeyim? Üst mü, alt mı, yoksa ikisi birden mi?"
+        } else if options.contains(.middle) {
             s += "Hangisini çekeyim? Sol mu, orta mı, sağ mı, yoksa tamamı mı?"
         } else {
             s += "Hangisini çekeyim? Sol mu, sağ mı, yoksa ikisi birden mi?"
@@ -1035,16 +1064,7 @@ final class GuidanceEngine {
 
     /// `again`: aynı uyarı ardı ardına tekrarlanıyor ("Biraz daha sola…" diye ilerleme beklenir)
     func phrase(for advice: GuidanceAdvice, again: Bool = false) -> String {
-        var a = advice
-        if flip {
-            switch advice {
-            case .moveLeft: a = .moveRight
-            case .moveRight: a = .moveLeft
-            case .moveUp: a = .moveDown
-            case .moveDown: a = .moveUp
-            default: break
-            }
-        }
+        let a = orientation.displayed(advice)
         switch a {
         case .moveLeft: return again ? "Biraz daha sola kaydırın." : "Kamerayı biraz sola kaydırın."
         case .moveRight: return again ? "Biraz daha sağa kaydırın." : "Kamerayı biraz sağa kaydırın."
@@ -1072,7 +1092,7 @@ final class GuidanceEngine {
     }
 
     func statusText(for advice: GuidanceAdvice) -> String {
-        let prefix = choice.map { "\($0.title): " } ?? ""
+        let prefix = choice.map { "\(title($0)): " } ?? ""
         switch advice {
         case .ok: return prefix + (autoCapture ? "Konum uygun — sabit tutun" : "Konum uygun — “\(triggerWord)” deyin")
         case .blurry: return prefix + "Görüntü net değil"
@@ -1096,7 +1116,7 @@ final class GuidanceEngine {
         if stillFor < config.stillNeeded {
             consecutive = 0
             last = nil
-            return Output(status: choice == nil ? "Kamera hareket ediyor…" : "\(choice?.title ?? "") — kamera hareket ediyor…",
+            return Output(status: choice == nil ? "Kamera hareket ediyor…" : "\(choice.map { title($0) } ?? "") — kamera hareket ediyor…",
                           awaitingChoice: awaitingChoice, options: lastOptions)
         }
 

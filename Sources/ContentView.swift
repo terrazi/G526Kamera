@@ -60,15 +60,29 @@ struct ContentView: View {
         .navigationViewStyle(.stack)
     }
 
+    /// Dik çevrilmiş görüntüde alan uzun olur ama ekranı doldurmaz (en çok 420 pt); resim DisplayView içinde sığdırılır.
+    @ViewBuilder
+    private var previewVideo: some View {
+        if settings.imageOrientation.isQuarterTurn {
+            VideoLayerView(renderer: model.renderer, orientation: settings.imageOrientation)
+                .frame(maxWidth: .infinity)
+                .frame(height: min(UIScreen.main.bounds.width * 16.0 / 9.0, 420))
+                .background(Color.black)
+                .cornerRadius(12)
+        } else {
+            VideoLayerView(renderer: model.renderer, orientation: settings.imageOrientation)
+                .aspectRatio(16.0 / 9.0, contentMode: .fit)
+                .background(Color.black)
+                .cornerRadius(12)
+        }
+    }
+
     private var preview: some View {
         ZStack(alignment: .topLeading) {
             if settings.previewOff {
                 previewOffBox
             } else {
-                VideoLayerView(renderer: model.renderer)
-                    .aspectRatio(16.0 / 9.0, contentMode: .fit)
-                    .background(Color.black)
-                    .cornerRadius(12)
+                previewVideo
             }
             HStack(spacing: 6) {
                 Circle()
@@ -291,7 +305,7 @@ struct GuidanceRow: View {
             if model.guidanceAwaiting {
                 HStack(spacing: 8) {
                     ForEach(model.guidanceOptions, id: \.self) { choice in
-                        Button(choice == .all ? "Hepsi" : choice.title) { model.chooseColumn(choice) }
+                        Button(choice == .all ? "Hepsi" : model.columnTitle(choice)) { model.chooseColumn(choice) }
                             .buttonStyle(.bordered)
                             .accessibilityIdentifier("bolum-\(choice.rawValue)")
                     }
