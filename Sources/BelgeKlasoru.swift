@@ -196,8 +196,7 @@ struct DocumentFolderSection: View {
     @State private var message = ""
 
     var body: some View {
-        Section(header: Text("Belge klasörü"),
-                footer: Text("Dosyalar uygulamasında “Bu iPhone” altında “G526 Belgeler” adlı yeni bir klasör açıp seçin. Sınav dosyaları (PDF, video) buraya kaydedilir; program silinse de kalır.")) {
+        Section(header: Text("Belge klasörü")) {
             HStack {
                 Text("Durum")
                 Spacer()
@@ -212,6 +211,7 @@ struct DocumentFolderSection: View {
             if !message.isEmpty {
                 Text(message).font(.footnote)
             }
+            HelpRow("Dosyalar uygulamasında “Bu iPhone” altında “G526 Belgeler” adlı yeni bir klasör açıp seçin. Sınav dosyaları (PDF, video) buraya kaydedilir; program silinse de kalır.")
         }
         .onAppear { status = DocumentFolder.shared.statusText() }
     }
