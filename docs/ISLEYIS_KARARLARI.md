@@ -74,3 +74,5 @@ Sorulacak (kullanıcı kararı bekliyor):
 - "Büyük belge setlerini Gemini'nin hafızasına al" (geminiMemory) ve "Gemini'ye verilecek belge sayısı" (geminiDocCount): dosyalar bir kez Files API'ye yüklenecek.
 - "Sınav önce video çeksin" (examVideoFirst) ve "Sınav başlarken ses/internet/Gemini'yi sına" (examSelfCheck): yeni düzende ilk sınama hep var, video aşaması her zaman soruluyor.
 - Fotoğraf iyileştirme ayarları (deskew, upscale, tarih yazısı, birkaç kareyi birleştir, çekim öncesi/sonrası): sınav taramasında sadeleştirilebilir.
+
+Q. [İSTEK] Görüntü yönü: kamera dik (portre) tutulabilsin; ayarlarda "Görüntü yönü: Normal / 90° sağa / 90° sola / 180°". Önizleme, fotoğraf, PDF ve video bu yöne göre kaydedilir; sesli yönlendirme (sağa/sola/yukarı/aşağı) yöne göre uyarlanır. Kodda şu an görüntü döndürme yok ("ters takılı" ayarı yalnız sesli yönleri çevirir). Karar: Drive kaldırma sürümünden sonraki sürümde yapılacak.
