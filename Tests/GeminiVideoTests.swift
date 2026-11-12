@@ -26,6 +26,31 @@ final class GeminiVideoTests: XCTestCase {
         XCTAssertNoThrow(try JSONSerialization.data(withJSONObject: high))
     }
 
+    func testBigVideoRequestPointsToUploadedFileInsteadOfInlineData() throws {
+        let object = GeminiVideo.requestObject(fileURI: "https://example.test/files/abc", question: "Soru?", highResolution: true)
+        let contents = try XCTUnwrap(object["contents"] as? [[String: Any]])
+        let parts = try XCTUnwrap(contents[0]["parts"] as? [[String: Any]])
+        XCTAssertEqual(parts.count, 2)
+        XCTAssertNil(parts[0]["inlineData"], "büyük video istek içinde gitmez")
+        let file = try XCTUnwrap(parts[0]["fileData"] as? [String: Any])
+        XCTAssertEqual(file["mimeType"] as? String, "video/mp4")
+        XCTAssertEqual(file["fileUri"] as? String, "https://example.test/files/abc")
+        XCTAssertEqual(parts[1]["text"] as? String, "Soru?")
+        let config = try XCTUnwrap(object["generationConfig"] as? [String: Any])
+        XCTAssertEqual(config["mediaResolution"] as? String, "MEDIA_RESOLUTION_HIGH")
+        XCTAssertNoThrow(try JSONSerialization.data(withJSONObject: object))
+    }
+
+    func testUploadDecisionAndLimits() {
+        XCTAssertFalse(GeminiVideo.usesFilesAPI(bytes: GeminiVideo.inlineMaxBytes), "sınırda hâlâ doğrudan istek")
+        XCTAssertTrue(GeminiVideo.usesFilesAPI(bytes: GeminiVideo.inlineMaxBytes + 1))
+        XCTAssertTrue(GeminiVideo.usesFilesAPI(bytes: 40 * 1024 * 1024), "3 dk'lık kayıt ≈ 25–40 MB yüklenir")
+        XCTAssertLessThan(GeminiVideo.inlineMaxBytes * 4 / 3, 20 * 1024 * 1024, "base64 sonrası istek 20 MB altında")
+        XCTAssertGreaterThan(GeminiVideo.maxBytes, 40 * 1024 * 1024)
+        XCTAssertEqual(GeminiVideo.uploadTimeout(bytes: 1_000_000), 300, "küçük dosyada en az 300 sn")
+        XCTAssertGreaterThan(GeminiVideo.uploadTimeout(bytes: 40 * 1024 * 1024), 600, "büyük dosyada süre uzar")
+    }
+
     func testCandidatesStartWithActiveThenRotateAndSkipEmptyKeys() {
         let list = [profile(1), profile(2, key: ""), profile(3), profile(4), profile(5), profile(6)]
         XCTAssertEqual(GeminiVideo.candidates(profiles: list, active: 3, chain: true).map { $0.slot }, [3, 4, 5, 6, 1])

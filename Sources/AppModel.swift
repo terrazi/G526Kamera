@@ -159,7 +159,7 @@ final class AppModel: ObservableObject {
 
     private let client = CameraClient()
     private let decoder = H264Decoder()
-    /// Kısa video kaydı (en çok 30 sn): çözülen kareler küçük H.264 MP4'e yazılır, bitince belge klasörüne kaydedilir
+    /// Video kaydı (en çok 3 dk): çözülen kareler küçük H.264 MP4'e yazılır, bitince belge klasörüne kaydedilir
     private let videoRecorder = VideoRecorder()
     private var videoStopWork: DispatchWorkItem?
     // İnternet yoklaması ve kendi kendini onarma
@@ -1247,7 +1247,7 @@ final class AppModel: ObservableObject {
         videoRecorder.start(to: VideoOutbox.shared.newFileURL(date: Date()), orientation: settings.imageOrientation)
         videoRecording = true
         HealthMonitor.shared.mark("video kaydı")
-        flash("● Video kaydı açık (en çok 30 sn)", seconds: 5)
+        flash("● Video kaydı açık (en çok 3 dk)", seconds: 5)
         say("Video kaydı açık.", interrupt: true, force: true)
         let work = DispatchWorkItem { [weak self] in
             Task { @MainActor in self?.stopVideo(reason: "süre") }
@@ -1667,7 +1667,8 @@ final class AppModel: ObservableObject {
         guard examVideoState == .waiting else { return }
         examVideoTimer?.invalidate()
         examVideoTimer = nil
-        videoRecorder.start(to: VideoOutbox.shared.newFileURL(date: Date()), orientation: settings.imageOrientation)
+        videoRecorder.start(to: VideoOutbox.shared.newFileURL(date: Date()), orientation: settings.imageOrientation,
+                            maxSeconds: VideoRecorder.examMaxSeconds)
         examVideoState = .recording
         examVideoFinishing = false
         tlog("[sinav] video kaydı başladı")
@@ -1678,7 +1679,7 @@ final class AppModel: ObservableObject {
             Task { @MainActor in self?.examVideoFinish(token: token) }
         }
         examVideoWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + VideoRecorder.maxSeconds, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + VideoRecorder.examMaxSeconds, execute: work)
     }
 
     /// "Durdur" denince (sınav akışından) kaydı bitirir.

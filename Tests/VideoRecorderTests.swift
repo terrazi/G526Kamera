@@ -21,10 +21,11 @@ final class VideoRecorderTests: XCTestCase {
         return buffer
     }
 
-    private func record(width: Int, height: Int, seconds: Double, step: Double) -> (VideoRecorder.Output?, VideoRecorder.Failure?) {
+    private func record(width: Int, height: Int, seconds: Double, step: Double,
+                        limit: TimeInterval = VideoRecorder.maxSeconds) -> (VideoRecorder.Output?, VideoRecorder.Failure?) {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("test-\(UUID().uuidString).mp4")
         let recorder = VideoRecorder()
-        recorder.start(to: url)
+        recorder.start(to: url, maxSeconds: limit)
         XCTAssertTrue(recorder.isRecording)
         var t = 0.0
         var i = 0
@@ -53,7 +54,8 @@ final class VideoRecorderTests: XCTestCase {
         XCTAssertGreaterThan(full, 1_000_000)
         XCTAssertLessThanOrEqual(full, 1_500_000)
         XCTAssertEqual(VideoRecorder.bitrate(width: 640, height: 360), 250_000, "küçük çözünürlükte alt sınır")
-        XCTAssertEqual(VideoRecorder.maxSeconds, 30)
+        XCTAssertEqual(VideoRecorder.maxSeconds, 180, "elle başlatılan kayıt 3 dk")
+        XCTAssertEqual(VideoRecorder.examMaxSeconds, 30, "sınav videosu 30 sn (onaylı tasarım)")
     }
 
     func testRecordsPlayableH264Mp4AtCameraResolution() {
@@ -74,13 +76,23 @@ final class VideoRecorderTests: XCTestCase {
         try? FileManager.default.removeItem(at: out.url)
     }
 
-    func testNeverRecordsMoreThanThirtySeconds() {
-        let (output, failure) = record(width: 640, height: 360, seconds: 45, step: 0.2)
+    func testNeverRecordsMoreThanTheGivenLimit() {
+        let (output, failure) = record(width: 640, height: 360, seconds: 45, step: 0.2, limit: 30)
         XCTAssertNil(failure)
         guard let out = output else { return XCTFail("video üretilmedi") }
         XCTAssertLessThanOrEqual(out.seconds, 30.0)
         XCTAssertLessThanOrEqual(out.frames, 61)
         XCTAssertLessThanOrEqual(AVURLAsset(url: out.url).duration.seconds, 30.5)
+        try? FileManager.default.removeItem(at: out.url)
+    }
+
+    /// Elle başlatılan kayıtta varsayılan sınır 3 dk'dır: 40 sn'lik giriş kesilmeden yazılır
+    func testDefaultLimitAllowsMoreThanThirtySeconds() {
+        let (output, failure) = record(width: 640, height: 360, seconds: 40, step: 0.25)
+        XCTAssertNil(failure)
+        guard let out = output else { return XCTFail("video üretilmedi") }
+        XCTAssertGreaterThan(out.seconds, 35)
+        XCTAssertGreaterThan(out.frames, 70, "40 sn × 2 kare/sn ≈ 81 kare: \(out.frames)")
         try? FileManager.default.removeItem(at: out.url)
     }
 

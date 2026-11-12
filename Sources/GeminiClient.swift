@@ -1160,8 +1160,13 @@ extension GeminiClient {
         return base + "/upload/v1beta/files"
     }
 
-    /// Dosyayı Files API'ye yükler (kesintisiz-devam eden protokol, tek parça).
+    /// Dosyayı Files API'ye yükler (kesintisiz-devam eden protokol, tek parça). Belgeler PDF'tir.
     func uploadFile(name: String, data: Data) async throws -> RemoteFile {
+        return try await uploadFile(name: name, data: data, mimeType: "application/pdf", timeout: 300)
+    }
+
+    /// Aynısı, biçim ve yükleme süresi sınırı verilerek (video için).
+    func uploadFile(name: String, data: Data, mimeType: String, timeout: TimeInterval) async throws -> RemoteFile {
         let key = try requireKey()
         guard let startURL = URL(string: uploadURLString) else {
             throw GeminiError("Gemini adresi geçersiz.", .error)
@@ -1174,7 +1179,7 @@ extension GeminiClient {
         start.setValue("resumable", forHTTPHeaderField: "X-Goog-Upload-Protocol")
         start.setValue("start", forHTTPHeaderField: "X-Goog-Upload-Command")
         start.setValue(String(data.count), forHTTPHeaderField: "X-Goog-Upload-Header-Content-Length")
-        start.setValue("application/pdf", forHTTPHeaderField: "X-Goog-Upload-Header-Content-Type")
+        start.setValue(mimeType, forHTTPHeaderField: "X-Goog-Upload-Header-Content-Type")
         let meta = try JSONSerialization.data(withJSONObject: ["file": ["display_name": String(name.prefix(120))]])
         let first = try await send(start, body: meta)
         _ = try checked(first.status, first.data)
@@ -1183,7 +1188,7 @@ extension GeminiClient {
         }
         var finish = URLRequest(url: targetURL)
         finish.httpMethod = "POST"
-        finish.timeoutInterval = 300
+        finish.timeoutInterval = timeout
         finish.setValue(key, forHTTPHeaderField: "x-goog-api-key")
         finish.setValue("0", forHTTPHeaderField: "X-Goog-Upload-Offset")
         finish.setValue("upload, finalize", forHTTPHeaderField: "X-Goog-Upload-Command")
@@ -1236,6 +1241,15 @@ extension GeminiClient {
     /// Önbelleğin ömrünü uzatır
     func touchCache(_ name: String) async throws {
         _ = try await call("PATCH", path: "/" + name + "?updateMask=ttl", body: ["ttl": "\(GeminiConfig.cacheTTL)s"], timeout: 30)
+    }
+
+    /// Yüklenen dosyayı siler (en iyi çaba: olmazsa Gemini 48 saat sonra kendisi siler)
+    func deleteFile(name: String) async {
+        do {
+            _ = try await call("DELETE", path: "/" + name, body: nil, timeout: 30)
+        } catch {
+            tlog("[gemini] yüklenen dosya silinemedi: \(error.localizedDescription)")
+        }
     }
 
     func deleteCache(_ name: String) async {

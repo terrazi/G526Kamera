@@ -9,12 +9,14 @@ import CoreVideo
 /// Kare sayısı azaltılıp her kareye daha çok bit verilir ve her yarım saniyelik pencereden o penceredeki EN NET kare seçilir
 /// (netlik puanı çözme hattında zaten hesaplanır, ek iş yoktur). Böylece bir yanı bulanık, bir yanı net karelerden netleri yazılır.
 /// Çözünürlük kameranınkiyle aynı kalır (1920x1080); boyutu bit hızı belirler (hedef ≈ 1,2 Mbit/sn; kodlayıcı bunu bir miktar aşabilir,
-/// o yüzden 30 sn için ≈ 4,5–7 MB beklenir, durağan belge sahnesinde daha küçük çıkar). H.264 (High) + MP4, Gemini'nin ve Dosyalar
+/// o yüzden 30 sn için ≈ 4,5–7 MB, 3 dk için ≈ 25–40 MB beklenir, durağan belge sahnesinde daha küçük çıkar). H.264 (High) + MP4, Gemini'nin ve Dosyalar
 /// uygulamasının en güvenli biçimidir.
 /// Ses yoktur (kameranın akışında ses yok; telefon mikrofonu sesli komutlara ayrılmıştır).
 final class VideoRecorder {
-    /// Bir kayıt en çok bu kadar sürer (kareler bu süreden sonra yazılmaz)
-    static let maxSeconds: TimeInterval = 30
+    /// Elle başlatılan video kaydı en çok bu kadar sürer (kareler bu süreden sonra yazılmaz)
+    static let maxSeconds: TimeInterval = 180
+    /// Deneme sınavının video aşaması (onaylı tasarım: tek, 30 sn'lik kayıt)
+    static let examMaxSeconds: TimeInterval = 30
     static let fps: Double = 2
     static let bitsPerPixel: Double = 0.28
     static let minBitrate: Double = 250_000
@@ -46,6 +48,7 @@ final class VideoRecorder {
     private var lastPTS: Double = -1
     private var frames = 0
     private var failed: String?
+    private var limit: TimeInterval = VideoRecorder.maxSeconds
 
     /// Şu anki yarım saniyelik pencerenin şimdiye dek gelen en net karesi (yalnızca `queue` üzerinde).
     private struct Candidate {
@@ -69,9 +72,10 @@ final class VideoRecorder {
 
     /// Kaydı hazırlar; dosya ilk kare gelince, kare boyutuna göre açılır.
     /// `orientation`: video dosyasına yalnız oynatma dönüşümü yazılır (kareler çevrilmez; ısınma yok).
-    func start(to url: URL, orientation: ImageOrientation = .normal) {
+    func start(to url: URL, orientation: ImageOrientation = .normal, maxSeconds: TimeInterval = VideoRecorder.maxSeconds) {
         queue.sync {
             self.discardWriter()
+            self.limit = maxSeconds
             self.orientation = orientation
             self.fileURL = url
             self.firstTime = 0
@@ -123,7 +127,7 @@ final class VideoRecorder {
                 done(.failure(.writer(message)))
                 return
             }
-            let seconds = min(self.lastPTS + 1.0 / VideoRecorder.fps, VideoRecorder.maxSeconds)
+            let seconds = min(self.lastPTS + 1.0 / VideoRecorder.fps, self.limit)
             let count = self.frames
             inp.markAsFinished()
             w.endSession(atSourceTime: CMTime(seconds: seconds, preferredTimescale: 600))
@@ -173,8 +177,8 @@ final class VideoRecorder {
             firstTime = time
         }
         let t = time - firstTime
-        // 30 saniye sınırı: bundan sonraki kareler hiç yazılmaz
-        if t < 0 || t >= VideoRecorder.maxSeconds { return }
+        // süre sınırı: bundan sonraki kareler hiç yazılmaz
+        if t < 0 || t >= limit { return }
         let window = Int(t * VideoRecorder.fps)
         if let p = pending {
             if window < p.window { return }          // geç gelen eski kare
