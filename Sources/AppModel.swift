@@ -807,6 +807,8 @@ final class AppModel: ObservableObject {
         }
         // Sınavın sayfa videosunda sayfa uygun olunca kendiliğinden kaydedilir (çekim sözcüğü beklenmez)
         guidance.autoCapture = settings.guidanceAutoCapture || (pageVideoActive && pageVideoForExam)
+        // Sayfa videosunda sayfanın tamamı kaydedilir: "sol mu sağ mı" diye bölüm sorulmaz
+        guidance.forcedChoice = pageVideoActive ? .all : nil
         guidance.triggerWord = triggerDisplay
         let floors = [0.30, 0.45, 0.60]
         guidance.sharpFloor = floors[min(max(settings.guidanceSharpness, 0), 2)]
@@ -1473,22 +1475,24 @@ final class AppModel: ObservableObject {
         guard videoRecording else { return }
         videoRecording = false
         let pages = pageVideoPages
+        let pageMode = pageVideoActive
         setPageVideo(false, exam: false)
         updateGuidance()
         videoStopWork?.cancel()
         videoStopWork = nil
         videoRecorder.finish { [weak self] result in
-            Task { @MainActor in self?.videoFinished(result, reason: reason, pages: pages) }
+            Task { @MainActor in self?.videoFinished(result, reason: reason, pages: pages, pageMode: pageMode) }
         }
     }
 
-    private func videoFinished(_ result: Result<VideoRecorder.Output, VideoRecorder.Failure>, reason: String, pages: Int = 0) {
+    private func videoFinished(_ result: Result<VideoRecorder.Output, VideoRecorder.Failure>, reason: String, pages: Int = 0, pageMode: Bool = false) {
         HealthMonitor.shared.mark("")
         switch result {
         case .failure(let failure):
             let text: String
             switch failure {
-            case .noFrames: text = "Video kaydı boş kaldı: kameradan görüntü gelmedi."
+            case .noFrames:
+                text = pageMode ? "Hiç sayfa kaydedilmedi, video oluşmadı." : "Video kaydı boş kaldı: kameradan görüntü gelmedi."
             case .writer(let message): text = "Video kaydedilemedi: \(message)"
             }
             tlog("[video] \(text)")
@@ -2166,7 +2170,7 @@ final class AppModel: ObservableObject {
             examVideoState = .finished
         case .failure(let failure):
             switch failure {
-            case .noFrames: examVideoState = .failed("kameradan görüntü gelmedi")
+            case .noFrames: examVideoState = .failed(settings.examPageVideo && pageVideoPages == 0 ? "hiç sayfa kaydedilmedi" : "kameradan görüntü gelmedi")
             case .writer(let message): examVideoState = .failed(message)
             }
             tlog("[sinav] video kaydedilemedi: \(examVideoState)")

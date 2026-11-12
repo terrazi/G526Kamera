@@ -30,7 +30,7 @@ final class AudioRouteTests: XCTestCase {
     func testOutputNameForSettingsStatusRow() {
         XCTAssertEqual(AudioRoute.outputName([.bluetoothA2DP]), "kulaklık")
         XCTAssertEqual(AudioRoute.outputName([.headphones]), "kulaklık")
-        XCTAssertEqual(AudioRoute.outputName([.builtInSpeaker]), "telefon hoparlörü")
+        XCTAssertEqual(AudioRoute.outputName([.builtInSpeaker]), "telefon hoparlörü (ses verilmez)")
         XCTAssertTrue(AudioRoute.outputName([.usbAudio]).contains("kulaklık değil"))
         XCTAssertEqual(AudioRoute.outputName([]), "çıkış yok")
     }

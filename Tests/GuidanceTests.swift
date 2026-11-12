@@ -186,6 +186,29 @@ final class GuidanceTests: XCTestCase {
         XCTAssertEqual(advice, .moveLeft)
     }
 
+    /// Sayfa sayfa videoda sayfanın hepsi kaydedilir: bölüm sorusu sorulmaz, kamera tarifi verilir
+    func testForcedChoiceAllNeverAsksWhichColumnInPhotoStyleGuidance() {
+        let m = twoColumns(left: col(0.04, 0.57), right: col(0.60, 1.0))
+        let asking = GuidanceEngine()
+        var asked = false
+        for i in 0..<6 {
+            let o = step(asking, m, t: Double(i) * 0.3)
+            if o.awaitingChoice || (o.speak ?? "").contains("Hangisini çekeyim") { asked = true }
+        }
+        XCTAssertTrue(asked, "varsayılan davranış: kesik bölümde sorar")
+
+        let forced = GuidanceEngine()
+        forced.forcedChoice = .all
+        var spoken: [String] = []
+        for i in 0..<12 {
+            let o = step(forced, m, t: Double(i) * 0.3)
+            XCTAssertFalse(o.awaitingChoice, "zorunlu seçimde soru sorulmaz")
+            if let t = o.speak { spoken.append(t) }
+        }
+        XCTAssertFalse(spoken.contains(where: { $0.contains("Hangisini çekeyim") }), "\(spoken)")
+        XCTAssertFalse(spoken.isEmpty, "yine de konum tarifi verir: \(spoken)")
+    }
+
     func testVideoStepIsSilentWhileCameraMoves() {
         let e = GuidanceEngine()
         let m = metrics(x0: 0.4, x1: 0.995)

@@ -32,7 +32,7 @@ enum AudioRoute {
         if outputs.isEmpty { return "çıkış yok" }
         if outputs.contains(where: { $0 == .usbAudio || $0 == .lineOut }) { return "mikrofon alıcısı (kulaklık değil)" }
         if outputs.contains(where: { $0 == .bluetoothA2DP || $0 == .bluetoothHFP || $0 == .bluetoothLE || $0 == .headphones }) { return "kulaklık" }
-        if outputs.contains(where: { $0 == .builtInSpeaker || $0 == .builtInReceiver }) { return "telefon hoparlörü" }
+        if outputs.contains(where: { $0 == .builtInSpeaker || $0 == .builtInReceiver }) { return "telefon hoparlörü (ses verilmez)" }
         return "diğer çıkış"
     }
 

@@ -167,7 +167,7 @@ struct ContentView: View {
         } label: {
             HStack {
                 Image(systemName: "camera.fill")
-                Text(model.capturing ? "İşleniyor…" : "Fotoğraf Çek")
+                Text(model.capturing ? "İşleniyor…" : (model.pageVideoActive ? "Bu sayfayı kaydet" : "Fotoğraf Çek"))
                     .fontWeight(.semibold)
             }
             .frame(maxWidth: .infinity)

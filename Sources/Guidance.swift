@@ -977,6 +977,8 @@ final class GuidanceEngine {
     var triggerWord = "okey"
 
     private(set) var armed = true
+    /// Verilirse bölüm sorusu sorulmaz, hep bu seçim kullanılır (sayfa sayfa videoda `.all`: sayfanın hepsi hedeflenir)
+    var forcedChoice: ColumnChoice?
     /// Kullanıcının sesle seçtiği bölüm (kullanıcının gözünden sol/sağ)
     private(set) var choice: ColumnChoice?
     /// Soru ekranda bekliyor mu (sesle ya da dokunarak yanıt verilebilir)
@@ -1194,7 +1196,7 @@ final class GuidanceEngine {
                           awaitingChoice: awaitingChoice, options: lastOptions)
         }
 
-        let d = GuidanceAdvisor.decide(metrics, choice: choice, config: config, sharpFloor: sharpFloor)
+        let d = GuidanceAdvisor.decide(metrics, choice: forcedChoice ?? choice, config: config, sharpFloor: sharpFloor)
         lastFill = d.fill
         lastScale = d.scale
         var a = d.advice
