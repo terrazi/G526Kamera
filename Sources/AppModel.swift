@@ -418,6 +418,29 @@ final class AppModel: ObservableObject {
         applySettings(force: true)
         updatePowerSaving()
         updateGuidance()
+        scheduleStartupCheck()
+    }
+
+    /// Program açılınca (süreç başına bir kez) sınav hazırlık sınaması: ses tanıma açılana kadar 3 sn arayla en çok 6 kez denenir.
+    private var startupCheckTries = 0
+
+    private func scheduleStartupCheck() {
+        guard startupCheckTries == 0 else { return }
+        startupCheckTries = 1
+        startupCheckTick()
+    }
+
+    private func startupCheckTick() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+            Task { @MainActor in self?.startupCheckAttempt() }
+        }
+    }
+
+    private func startupCheckAttempt() {
+        guard started else { return }
+        if exam.startupCheck() || exam.startupFinished { return }
+        startupCheckTries += 1
+        if startupCheckTries <= 6 { startupCheckTick() }
     }
 
     /// Önizleme kapalıysa kare gönderimi ve analiz seyrekleşir; ekranı kıs seçiliyse parlaklık düşer (önizlemeden bağımsız).
@@ -831,19 +854,18 @@ final class AppModel: ObservableObject {
             videoEnabled: { [weak self] in self?.examVideoEnabled() ?? false },
             videoArm: { [weak self] in self?.examVideoArm() },
             videoPhase: { [weak self] in self?.examVideoPhase() ?? .idle },
+            videoBegin: { [weak self] in self?.examVideoBegin() },
             videoStop: { [weak self] in self?.examVideoStopRecording() },
             videoDiscard: { [weak self] in self?.examVideoDiscard() },
             videoSend: { [weak self] in await self?.examVideoSend() ?? "video yok" },
-            checkSystem: { [weak self] in await self?.examSystemCheck() ?? "" },
-            videosClear: { AppModel.examVideosClear() })
-        asker.videoProvider = { AppModel.examVideoAttachments() }
+            checkSystem: { [weak self] in await self?.examSystemCheck() ?? "" })
         let ports = ExamPortsReal(hooks: hooks, queue: queue, settings: settings,
                                   docStore: GeminiDocStore(source: FolderClient()), asker: asker)
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("G526", isDirectory: true)
         let s = settings
         return ExamMode(ports: ports,
-                        settings: { ExamSettings(group: s.examGroup, fetch: s.examFetch, cancelWindow: s.examCancelWindow, gap: s.examGap) },
+                        settings: { ExamSettings(group: ExamSettings.defaultGroup, fetch: ExamSettings.defaultFetch, cancelWindow: s.examCancelWindow, gap: s.examGap) },
                         directory: base)
     }
 
@@ -1773,11 +1795,22 @@ final class AppModel: ObservableObject {
         guard token == examVideoToken, examVideoState == .waiting else { return }
         examVideoChecking = false
         examVideoHits = isDoc ? examVideoHits + 1 : 0
-        if examVideoHits >= 2 { examVideoBegin() }
+        if examVideoHits >= 2 { examVideoFound() }
     }
 
-    private func examVideoBegin() {
+    /// Evrak göründü: ölçüm durur, kayıt BAŞLAMAZ; sınav "Kaydı başlatayım mı?" diye sorar, "evet" denince `examVideoBegin` çalışır.
+    private func examVideoFound() {
         guard examVideoState == .waiting else { return }
+        examVideoTimer?.invalidate()
+        examVideoTimer = nil
+        examVideoState = .found
+        tlog("[sinav] evrak göründü, kayıt onayı bekleniyor")
+        flash("Evrak göründü: kaydı başlatmak için evet deyin", seconds: 6)
+    }
+
+    /// "Evet" denince (evrak görünmüşse) kaydı başlatır
+    private func examVideoBegin() {
+        guard examVideoState == .found else { return }
         examVideoTimer?.invalidate()
         examVideoTimer = nil
         videoRecorder.start(to: VideoOutbox.shared.newFileURL(date: Date()), orientation: settings.imageOrientation,
@@ -1848,37 +1881,8 @@ final class AppModel: ObservableObject {
     }
 
     /// Hazır videoyu belge klasörüne kaydeder ve bitene kadar bekler; hata metni ("" = kaydedildi).
-    /// Sınav videolarının Gemini için saklanan kopyaları (klasöre kaydedilen dosya ayrıca gider)
-    nonisolated static func examVideoDir() -> URL {
-        return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("G526", isDirectory: true).appendingPathComponent("SinavVideolari", isDirectory: true)
-    }
-
-    nonisolated static func examVideoAttachments() -> [Data] {
-        let dir = examVideoDir()
-        let names = ((try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []).filter { $0.hasSuffix(".mp4") }.sorted()
-        return names.compactMap { try? Data(contentsOf: dir.appendingPathComponent($0), options: .mappedIfSafe) }
-    }
-
-    nonisolated static func examVideosClear() {
-        try? FileManager.default.removeItem(at: examVideoDir())
-    }
-
-    private func keepExamVideoCopy(_ url: URL) {
-        let dir = AppModel.examVideoDir()
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let target = dir.appendingPathComponent(url.lastPathComponent)
-        try? FileManager.default.removeItem(at: target)
-        do {
-            try FileManager.default.copyItem(at: url, to: target)
-        } catch {
-            tlog("[video] Gemini için kopya saklanamadı: \(error.localizedDescription)")
-        }
-    }
-
     private func examVideoSend() async -> String {
         guard let output = examVideoOutput else { return "video bulunamadı" }
-        keepExamVideoCopy(output.url)
         examVideoOutput = nil
         examVideoState = .idle
         return await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in

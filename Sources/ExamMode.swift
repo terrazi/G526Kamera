@@ -17,6 +17,9 @@ struct ExamBadReply: Error {
 }
 
 struct ExamSettings: Equatable {
+    /// Cevapların bir seferde okunan grup büyüklüğü ve Gemini'den bir seferde istenen soru sayısı: kullanıcı ayarı değil, programın varsayılanı
+    static let defaultGroup = 10
+    static let defaultFetch = 20
     var group = 10
     var fetch = 20
     var cancelWindow = 5
@@ -146,6 +149,8 @@ enum ExamVideoPhase: Equatable {
     case idle
     /// Evrak kadraja girmesi bekleniyor (belge görünmeden kayıt başlamaz)
     case waiting
+    /// Evrak göründü; kullanıcı "evet" deyince kayıt başlayacak ("Kaydı başlatayım mı?")
+    case found
     case recording
     /// Kayıt bitti (durdur ya da 30 sn doldu), dosya hazır
     case finished
@@ -171,8 +176,6 @@ protocol ExamPorts: AnyObject {
     func canGuide() -> Bool
     /// Sınav açılırken ses, internet ve Gemini sınansın mı
     func selfCheckOn() -> Bool
-    /// Yeni sınav başlarken ve sınav bitince: Gemini'ye eklenmek üzere saklanan sınav videolarını siler
-    func videosClear()
     /// Açılış sınaması: internet ve Gemini'ye ulaşılıyor mu. Boş = sorun yok, doluysa okunacak sorun metni
     func checkSystem() async -> String
     func sendError() -> String
@@ -197,6 +200,8 @@ protocol ExamPorts: AnyObject {
     /// Yeni video için hazırlanır: evrak kadraja girince kayıt kendiliğinden başlar (en çok 30 sn)
     func videoArm()
     func videoPhase() -> ExamVideoPhase
+    /// Evrak görünmüş ve kullanıcı onaylamışsa kaydı başlatır
+    func videoBegin()
     /// Kayıt sürüyorsa bitirir (dosya hazır olur)
     func videoStop()
     /// Hazır ya da çekilmekte olan videoyu göndermeden siler
@@ -211,11 +216,11 @@ extension ExamPorts {
     func videoEnabled() -> Bool { return false }
     func videoArm() {}
     func videoPhase() -> ExamVideoPhase { return .idle }
+    func videoBegin() {}
     func videoStop() {}
     func videoDiscard() {}
     func videoSend() async -> String { return "" }
     func selfCheckOn() -> Bool { return false }
-    func videosClear() {}
     func checkSystem() async -> String { return "" }
 }
 
@@ -264,6 +269,12 @@ final class ExamMode: ObservableObject {
     /// Açılış sınamasında "tamam" beklenen süreler (sn): ilk deneme, ikinci deneme
     var checkTimeouts: (first: Double, second: Double) = (15, 12)
     private var checkProblem = ""
+    /// Program açılınca yapılan sınama tamamlandı mı (bir açılışta bir kez) ve geçti mi; geçtiyse sınav başlarken yeniden sınanmaz
+    private var startupDone = false
+    private var startupRunning = false
+    @Published private(set) var startupReady = false
+    /// Açılış sınaması bu açılışta yapıldı (geçti ya da kaldı); yeniden denenmez
+    var startupFinished: Bool { return startupDone }
     /// "Dinle": sınav sırasında her an Gemini ile serbest sesli konuşma
     private var freeActive = false
     private var freeRestart = false
@@ -680,6 +691,10 @@ final class ExamMode: ObservableObject {
 
     @discardableResult
     func start() -> Bool {
+        if startupRunning {
+            bg { await self.sayNow("Önce hazırlık sınamasını tamamlayalım.") }
+            return false
+        }
         if running {
             bg { await self.sayNow("Deneme sınavı zaten açık.") }
             return false
@@ -701,6 +716,52 @@ final class ExamMode: ObservableObject {
             launch(resume: false)
         }
         return true
+    }
+
+    /// Program açılınca (bir açılışta bir kez): ses çıkışı ve mikrofon ("Beni duyabiliyor musunuz?" → evet), internet ve Gemini sınanır.
+    /// Hepsi tamamsa "Her şey tamam…" denir ve program BEKLER (sınav kendiliğinden başlamaz); sonuç hatırlanır, sınav başlarken yeniden
+    /// sınanmaz. Sorun varsa nedeni söylenir ve ekrana yazılır; "deneme sınavı modu" denince sınama yeniden yapılır.
+    @discardableResult
+    func startupCheck() -> Bool {
+        guard !running, !startupDone, ports.selfCheckOn() else { return false }
+        let why = ports.preflight(needCamera: false)
+        if !why.isEmpty {
+            // Henüz hazır değil (ör. ses tanıma açılıyor): çağıran birkaç kez yeniden dener; sınama başlamadığı için "yapıldı" sayılmaz
+            setStatus(why)
+            return false
+        }
+        startupDone = true
+        aborted = false
+        checking = true
+        checkProblem = ""
+        cmds.removeAll()
+        startupRunning = true
+        running = true
+        stage = "check"
+        refreshInfo()
+        runTask = Task { [weak self] in
+            guard let self = self else { return }
+            await self.runStartupCheck()
+        }
+        return true
+    }
+
+    private func runStartupCheck() async {
+        var ok = false
+        do {
+            let problem = try await stageCheck(startup: true)
+            if problem.isEmpty { ok = true } else { checkProblem = problem }
+        } catch {
+            if !isStop(error) { tlog("[sinav] açılış sınaması hatası: \(error.localizedDescription)") }
+        }
+        valid = []
+        checking = false
+        startupRunning = false
+        running = false
+        stage = "idle"
+        startupReady = ok
+        setStatus(ok ? "" : checkProblem)
+        refreshInfo()
     }
 
     /// Mod kapalıyken "tarama tamamlandı" denince: son taramalarla gönderme adımından başlar.
@@ -738,7 +799,6 @@ final class ExamMode: ObservableObject {
     private func launch(resume: Bool) {
         aborted = false
         videoDone = false
-        if !resume { ports.videosClear() }
         checking = false
         checkProblem = ""
         cmds.removeAll()
@@ -820,7 +880,7 @@ final class ExamMode: ObservableObject {
         do {
             if resume {
                 try await resumePrompt()
-            } else if !st.adopted && ports.selfCheckOn() {
+            } else if !st.adopted && ports.selfCheckOn() && !startupReady {
                 checking = true
                 let problem = try await stageCheck()
                 if !problem.isEmpty {
@@ -897,7 +957,6 @@ final class ExamMode: ObservableObject {
         } else if leftDuringCheck {
             await sayNow("Deneme sınavı kapatıldı.")
         } else if finished {
-            ports.videosClear()
             await sayNow("Deneme sınavı tamamlandı.")
         } else if held > 0 {
             await sayNow("Deneme sınavı kapatıldı. Taranan \(held) sayfa, ayarlarınızdaki yöntemle klasöre kaydedilecek.")
@@ -928,15 +987,15 @@ final class ExamMode: ObservableObject {
     /// "sil" göndermeden siler, "atla" video aşamasını geçer. Her videodan sonra "devam edeyim mi?": evet → yeni video, hayır → fotoğraf taraması.
     /// Açılış sınaması: ses çıkışı ve mikrofon (kullanıcı "tamam" der), internet ve Gemini (arka planda).
     /// Boş döner: her şey hazır. Doluysa okunan sorun metni.
-    private func stageCheck() async throws -> String {
+    private func stageCheck(startup: Bool = false) async throws -> String {
         setStatus("Hazırlık: ses, internet ve Gemini sınanıyor")
         let system = Task { await self.ports.checkSystem() }
         var heard = false
         do {
-            try await say("Hazırlık sınaması başlıyor. Beni duyuyorsanız tamam deyin.")
+            try await say("Beni duyabiliyor musunuz? Lütfen teyit edin.")
             heard = try await wait(["yes"], timeout: checkTimeouts.first).name != nil
             if !heard {
-                try await say("Sizi duyamadım. Beni duyuyorsanız bir kez daha tamam deyin.")
+                try await say("Sizi duyamadım. Beni duyabiliyor musunuz? Lütfen bir kez daha teyit edin.")
                 heard = try await wait(["yes"], timeout: checkTimeouts.second).name != nil
             }
         } catch {
@@ -954,7 +1013,11 @@ final class ExamMode: ObservableObject {
             try await say(text)
             return text
         }
-        try await say("Ses, internet ve Gemini hazır.")
+        if startup {
+            try await say("Her şey tamam, istediğiniz zaman deneme sınavına başlayabiliriz.")
+        } else {
+            try await say("Ses, internet ve Gemini hazır.")
+        }
         return ""
     }
 
@@ -968,19 +1031,20 @@ final class ExamMode: ObservableObject {
         var round = 0
         while true {
             let intro = round == 0
-                ? "Deneme sınavı modu açık. Önce video çekeceğiz. Evrakı kadraja alın; görününce kayıt kendiliğinden başlar ve en çok 30 saniye sürer. "
+                ? "Deneme sınavı modu açık. Önce video çekeceğiz. Evrakı kadraja alın; görününce kaydı başlatayım mı diye soracağım. Kayıt en çok 30 saniye sürer. "
                     + "Durdurmak için durdur, silmek için sil deyin. Video istemiyorsanız atla deyin."
-                : "Yeni video için evrakı kadraja alın. Durdurmak için durdur, silmek için sil deyin."
+                : "Yeni video için evrakı kadraja alın; görününce kaydı başlatayım mı diye soracağım. Durdurmak için durdur, silmek için sil deyin."
             try await say(intro)
             ports.videoArm()
             var deleted = false
             var failure = ""
             var told = false
+            var asked = false
             loop: while true {
                 let r = try await wait(["vstop", "vdel", "vskip"], timeout: 0.3)
                 switch r.name {
                 case "vstop"?:
-                    if ports.videoPhase() == .waiting {
+                    if ports.videoPhase() == .waiting || ports.videoPhase() == .found {
                         if !told {
                             told = true
                             try await say("Kayıt henüz başlamadı. Evrakı kadraja alın; atlamak için atla deyin.")
@@ -1001,6 +1065,13 @@ final class ExamMode: ObservableObject {
                 }
                 switch ports.videoPhase() {
                 case .waiting: setStatus("Video: evrak bekleniyor")
+                case .found:
+                    setStatus("Video: kayıt onayı bekleniyor")
+                    if !asked {
+                        asked = true
+                        let go = try await confirmRecording()
+                        if !go { return "scan" }
+                    }
                 case .recording: setStatus("Video kaydediliyor")
                 case .finished: break loop
                 case .failed(let why):
@@ -1031,6 +1102,25 @@ final class ExamMode: ObservableObject {
             let a = try await wait(["yes", "no"])
             if a.name == "no" { return "scan" }
         }
+    }
+
+    /// Evrak göründü: "Kaydı başlatayım mı?" Evet → kayıt başlar; hayır → "kaydı başlat" denene kadar beklenir.
+    /// false: kullanıcı video aşamasını atladı ya da videoyu sildi (fotoğraf taramasına geçilir).
+    private func confirmRecording() async throws -> Bool {
+        try await say("Evrak göründü. Kaydı başlatayım mı? Evet ya da hayır deyin.")
+        var r = try await wait(["yes", "no"])
+        if r.name == "no" {
+            setStatus("Video: kayıt bekletiliyor")
+            try await say("Tamam. Hazır olunca kaydı başlat deyin; fotoğraf taramasına geçmek için atla deyin.")
+            r = try await wait(["yes", "vskip", "vdel"])
+            if r.name != "yes" {
+                ports.videoDiscard()
+                videoDone = true
+                return false
+            }
+        }
+        ports.videoBegin()
+        return true
     }
 
     // MARK: 1) Tarama
@@ -1208,7 +1298,7 @@ final class ExamMode: ObservableObject {
 
     private func stageVerify() async throws -> String? {
         try await ensureDocs()
-        let task = ExamTask(prompt: ExamPrompts.verifyPrompt, schema: ExamPrompts.verifySchema, video: true)
+        let task = ExamTask(prompt: ExamPrompts.verifyPrompt, schema: ExamPrompts.verifySchema)
         var data: [String: Any] = [:]
         while true {
             do {
@@ -1315,7 +1405,7 @@ final class ExamMode: ObservableObject {
                 guard let q = qmap[k] else { return nil }
                 return (bolum: q.bolum, no: q.no)
             }
-            let task = ExamTask(prompt: ExamPrompts.answerPrompt(asked), schema: ExamPrompts.answerSchema, video: true)
+            let task = ExamTask(prompt: ExamPrompts.answerPrompt(asked), schema: ExamPrompts.answerSchema)
             let data = try await askJSON(task, key: "cevaplar")
             var got = 0
             for item in (data["cevaplar"] as? [Any]) ?? [] {

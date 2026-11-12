@@ -8,14 +8,8 @@ struct ExamTask {
     let maxTokens: Int
     /// Sesli istek (16 kHz WAV); varsa istemin önüne eklenir ("dinle … tamam" serbest konuşması)
     let audio: Data?
-    /// Sınav videoları istekle gitsin mi (soruları okuyan görevler)
-    let useVideo: Bool
-    /// Gönderilecek video baytları (ExamAsker sığanları seçer)
-    var videos: [Data] = []
 
-    init(prompt: String, schema: [String: Any], system: String = ExamPrompts.system, maxTokens: Int = 16384, audio: Data? = nil,
-         video: Bool = false) {
-        self.useVideo = video
+    init(prompt: String, schema: [String: Any], system: String = ExamPrompts.system, maxTokens: Int = 16384, audio: Data? = nil) {
         self.prompt = prompt
         self.schema = schema
         self.system = system
@@ -156,13 +150,6 @@ extension GeminiSupport {
             }
         }
         var tail: [[String: Any]] = []
-        if !task.videos.isEmpty {
-            tail.append(["text": GeminiConfig.examVideoIntro])
-            for (n, video) in task.videos.enumerated() {
-                tail.append(["text": "Video \(n + 1):"])
-                tail.append(["inlineData": ["mimeType": "video/mp4", "data": video.base64EncodedString()]])
-            }
-        }
         if let wav = task.audio {
             tail.append(["inlineData": ["mimeType": "audio/wav", "data": wav.base64EncodedString()]])
         }

@@ -65,6 +65,7 @@ private final class FakePorts: ExamPorts {
     var videoStops = 0
     var videoDiscards = 0
     var videoSends = 0
+    var videoBegins = 0
     var videoSendError = ""
 
     func videoEnabled() -> Bool { return videoOn }
@@ -73,6 +74,10 @@ private final class FakePorts: ExamPorts {
         videoPhaseValue = .waiting
     }
     func videoPhase() -> ExamVideoPhase { return videoPhaseValue }
+    func videoBegin() {
+        videoBegins += 1
+        if videoPhaseValue == .found { videoPhaseValue = .recording }
+    }
     func videoStop() {
         videoStops += 1
         if videoPhaseValue == .recording { videoPhaseValue = .finished }
@@ -862,7 +867,7 @@ final class ExamModeTests: XCTestCase {
         p.checkOn = true
         let exam = make(p)
         XCTAssertTrue(exam.start())
-        let asked = await until { self.spoke(p, "Hazırlık sınaması başlıyor") }
+        let asked = await until { self.spoke(p, "Beni duyabiliyor musunuz") }
         XCTAssertTrue(asked, "\(p.spoken)")
         await say(exam, "tamam")
         let ready = await until { exam.status == "Tarama: 0 sayfa" }
@@ -907,7 +912,7 @@ final class ExamModeTests: XCTestCase {
         p.systemProblem = "İnternet yok. Hücresel veriyi kontrol edin."
         let exam = make(p)
         XCTAssertTrue(exam.start())
-        _ = await until { self.spoke(p, "Hazırlık sınaması başlıyor") }
+        _ = await until { self.spoke(p, "Beni duyabiliyor musunuz") }
         await say(exam, "tamam")
         let done = await exam.waitDone(timeout: 8)
         XCTAssertTrue(done)
@@ -922,7 +927,7 @@ final class ExamModeTests: XCTestCase {
         p.checkOn = true
         let exam = make(p)
         XCTAssertTrue(exam.start())
-        _ = await until { self.spoke(p, "Hazırlık sınaması başlıyor") }
+        _ = await until { self.spoke(p, "Beni duyabiliyor musunuz") }
         await finish(exam)
         XCTAssertNil(exam.savedSummary())
         XCTAssertTrue(spoke(p, "Deneme sınavı kapatıldı."))
@@ -942,8 +947,113 @@ final class ExamModeTests: XCTestCase {
         XCTAssertTrue(again.start())
         let asked = await until { self.spoke(p, "Yarım kalan bir deneme sınavı var") }
         XCTAssertTrue(asked, "\(p.spoken)")
-        XCTAssertFalse(spoke(p, "Hazırlık sınaması"), "devam eden sınavda yeniden sınanmaz")
+        XCTAssertFalse(spoke(p, "Beni duyabiliyor musunuz"), "devam eden sınavda yeniden sınanmaz")
         await finish(again)
+    }
+
+    // MARK: Program açılınca sınama (A, B)
+
+    func testStartupCheckAsksThenSaysAllGoodAndWaits() async {
+        let p = FakePorts()
+        p.checkOn = true
+        let exam = make(p)
+        XCTAssertTrue(exam.startupCheck())
+        let asked = await until { self.spoke(p, "Beni duyabiliyor musunuz? Lütfen teyit edin.") }
+        XCTAssertTrue(asked, "\(p.spoken)")
+        await say(exam, "evet")
+        let ready = await until { exam.startupReady }
+        XCTAssertTrue(ready, "\(p.spoken) / \(exam.status)")
+        XCTAssertTrue(spoke(p, "Her şey tamam, istediğiniz zaman deneme sınavına başlayabiliriz."))
+        let closed = await exam.waitDone(timeout: 8)
+        XCTAssertTrue(closed, "sınama bitince program beklemeye geçmeli")
+        XCTAssertEqual(exam.stage, "idle")
+        XCTAssertFalse(p.videoArms > 0, "sınav kendiliğinden başlamaz: video kaydı hazırlanmaz")
+        XCTAssertNil(exam.savedSummary(), "sınama sınav kaydı oluşturmaz")
+        XCTAssertEqual(p.systemChecks, 1)
+    }
+
+    func testStartupCheckIsRememberedSoExamStartDoesNotCheckAgain() async {
+        let p = FakePorts()
+        p.checkOn = true
+        let exam = make(p)
+        XCTAssertTrue(exam.startupCheck())
+        _ = await until { self.spoke(p, "Beni duyabiliyor musunuz") }
+        await say(exam, "tamam")
+        _ = await until { exam.startupReady }
+        _ = await exam.waitDone(timeout: 8)
+        p.spoken.removeAll()
+        XCTAssertTrue(exam.start())
+        let scanning = await until { exam.status == "Tarama: 0 sayfa" }
+        XCTAssertTrue(scanning, "\(p.spoken) / \(exam.status)")
+        XCTAssertFalse(spoke(p, "Beni duyabiliyor musunuz"), "açılışta geçen sınama sınav başında yinelenmez")
+        XCTAssertEqual(p.systemChecks, 1)
+        await finish(exam)
+    }
+
+    func testStartupCheckProblemIsReadAndExamStartChecksAgain() async {
+        let p = FakePorts()
+        p.checkOn = true
+        p.systemProblem = "İnternet yok. Hücresel veriyi kontrol edin."
+        let exam = make(p)
+        XCTAssertTrue(exam.startupCheck())
+        _ = await until { self.spoke(p, "Beni duyabiliyor musunuz") }
+        await say(exam, "tamam")
+        let closed = await exam.waitDone(timeout: 8)
+        XCTAssertTrue(closed)
+        XCTAssertFalse(exam.startupReady)
+        XCTAssertEqual(exam.status, "İnternet yok. Hücresel veriyi kontrol edin.")
+        XCTAssertTrue(spoke(p, "İnternet yok."))
+        XCTAssertFalse(spoke(p, "Her şey tamam"))
+        // Sorun giderildi: sınav başlarken sınama yeniden yapılır
+        p.systemProblem = ""
+        p.spoken.removeAll()
+        XCTAssertTrue(exam.start())
+        let again = await until { self.spoke(p, "Beni duyabiliyor musunuz") }
+        XCTAssertTrue(again, "sorunlu açılış sınaması sınav başında yinelenmeli: \(p.spoken)")
+        await say(exam, "tamam")
+        let scanning = await until { exam.status == "Tarama: 0 sayfa" }
+        XCTAssertTrue(scanning, "\(p.spoken) / \(exam.status)")
+        XCTAssertEqual(p.systemChecks, 2)
+        await finish(exam)
+    }
+
+    func testStartupCheckRunsOnlyOncePerLaunchAndNotWhenOff() async {
+        let off = FakePorts()
+        off.checkOn = false
+        XCTAssertFalse(make(off).startupCheck(), "ayar kapalıysa açılış sınaması yapılmaz")
+        let p = FakePorts()
+        p.checkOn = true
+        let exam = make(p)
+        XCTAssertTrue(exam.startupCheck())
+        _ = await until { self.spoke(p, "Beni duyabiliyor musunuz") }
+        await say(exam, "tamam")
+        _ = await exam.waitDone(timeout: 8)
+        XCTAssertFalse(exam.startupCheck(), "bir açılışta bir kez")
+        XCTAssertTrue(exam.startupFinished)
+    }
+
+    func testPreflightProblemDelaysStartupCheckWithoutCountingItAsDone() async {
+        let p = FakePorts()
+        p.checkOn = true
+        p.preflightText = "Sesli komut kapalı."
+        let exam = make(p)
+        XCTAssertFalse(exam.startupCheck())
+        XCTAssertFalse(exam.startupFinished, "başlamayan sınama yapıldı sayılmaz; yeniden denenebilir")
+        p.preflightText = ""
+        XCTAssertTrue(exam.startupCheck())
+        await finish(exam)
+    }
+
+    func testStartDuringStartupCheckWaitsForIt() async {
+        let p = FakePorts()
+        p.checkOn = true
+        let exam = make(p)
+        XCTAssertTrue(exam.startupCheck())
+        _ = await until { self.spoke(p, "Beni duyabiliyor musunuz") }
+        XCTAssertFalse(exam.start())
+        let told = await until { self.spoke(p, "Önce hazırlık sınamasını tamamlayalım.") }
+        XCTAssertTrue(told, "\(p.spoken)")
+        await finish(exam)
     }
 
     // MARK: Cevap anahtarı
@@ -1106,6 +1216,52 @@ final class ExamModeTests: XCTestCase {
         XCTAssertTrue(scanning, "taramaya geçilmedi: \(exam.status)")
         XCTAssertTrue(spoke(p, "Şimdi fotoğraf taraması"))
         XCTAssertFalse(spoke(p, "Deneme sınavı modu açık. Soru sayfalarını"), "tarama aşaması açılışı yinelenmemeli")
+        await finish(exam)
+    }
+
+    /// Evrak göründü: kayıt kendiliğinden başlamaz; "Kaydı başlatayım mı?" sorulur, evet denince başlar
+    func testFoundDocumentAsksBeforeRecordingAndYesStartsIt() async {
+        let p = FakePorts()
+        let exam = await videoExam(p)
+        p.videoPhaseValue = .found
+        let asked = await until { self.spoke(p, "Kaydı başlatayım mı?") }
+        XCTAssertTrue(asked, "\(p.spoken)")
+        XCTAssertEqual(p.videoBegins, 0, "evet denmeden kayıt başlamaz")
+        await say(exam, "evet")
+        let began = await until { p.videoBegins == 1 }
+        XCTAssertTrue(began)
+        let rec = await until { exam.status == "Video kaydediliyor" }
+        XCTAssertTrue(rec, exam.status)
+        await finish(exam)
+    }
+
+    func testNoThenStartRecordingWaitsForTheStartCommand() async {
+        let p = FakePorts()
+        let exam = await videoExam(p)
+        p.videoPhaseValue = .found
+        _ = await until { self.spoke(p, "Kaydı başlatayım mı?") }
+        await say(exam, "hayır")
+        let waiting = await until { self.spoke(p, "Hazır olunca kaydı başlat deyin") }
+        XCTAssertTrue(waiting, "\(p.spoken)")
+        XCTAssertEqual(p.videoBegins, 0)
+        await say(exam, "kaydı başlat")
+        let began = await until { p.videoBegins == 1 }
+        XCTAssertTrue(began, "\(p.spoken)")
+        await finish(exam)
+    }
+
+    func testNoThenSkipGoesToPhotoScanningWithoutRecording() async {
+        let p = FakePorts()
+        let exam = await videoExam(p)
+        p.videoPhaseValue = .found
+        _ = await until { self.spoke(p, "Kaydı başlatayım mı?") }
+        await say(exam, "hayır")
+        _ = await until { self.spoke(p, "Hazır olunca kaydı başlat deyin") }
+        await say(exam, "atla")
+        let scanning = await until { exam.status == "Tarama: 0 sayfa" }
+        XCTAssertTrue(scanning, "\(p.spoken) / \(exam.status)")
+        XCTAssertEqual(p.videoBegins, 0)
+        XCTAssertEqual(p.videoSends, 0)
         await finish(exam)
     }
 

@@ -428,13 +428,16 @@ struct ExamRow: View {
 
     private var headline: String {
         switch exam.stage {
+        case "check": return "Deneme sınavı: hazırlık sınaması"
         case "video": return "Deneme sınavı: video"
         case "scan": return "Deneme sınavı: tarama"
         case "send": return "Deneme sınavı: klasöre kaydetme"
         case "prepare", "verify": return "Deneme sınavı: belgeler okunuyor"
         case "answer": return "Deneme sınavı: cevaplar"
         case "review": return "Deneme sınavı: soru numarası bekleniyor"
-        default: return exam.info.saved ? "Deneme sınavı: yarım kalan sınav var" : "Deneme sınavı"
+        default:
+            if exam.info.saved { return "Deneme sınavı: yarım kalan sınav var" }
+            return exam.startupReady ? "Deneme sınavı: hazır, başlatabilirsiniz" : "Deneme sınavı"
         }
     }
 

@@ -143,9 +143,7 @@ final class AppSettings: ObservableObject {
 
     // MARK: Deneme sınavı
     /// Cevaplar bu kadarlık gruplar halinde okunur (3-20)
-    @Published var examGroup: Int { didSet { d.set(examGroup, forKey: "examGroup") } }
     /// Gemini'den bir seferde en çok bu kadar sorunun cevabı istenir (5-40)
-    @Published var examFetch: Int { didSet { d.set(examFetch, forKey: "examFetch") } }
     /// "Tarama tamamlandı"dan sonra gönderimden önce vazgeçme süresi, sn (0-15)
     @Published var examCancelWindow: Int { didSet { d.set(examCancelWindow, forKey: "examCancelWindow") } }
     /// Cevap grupları arasındaki duraklama, sn (0-10); bu sürede "duraklat" denebilir
@@ -260,8 +258,6 @@ final class AppSettings: ObservableObject {
             geminiOptionCodes = GeminiConfig.defaultOptionCodes
         }
         geminiBatchLast = min(max(d.object(forKey: "geminiBatchLast") as? Int ?? 0, 0), 100000)
-        examGroup = min(max(d.object(forKey: "examGroup") as? Int ?? 10, 3), 20)
-        examFetch = min(max(d.object(forKey: "examFetch") as? Int ?? 20, 5), 40)
         examCancelWindow = min(max(d.object(forKey: "examCancelWindow") as? Int ?? 5, 0), 15)
         examGap = min(max(d.object(forKey: "examGap") as? Int ?? 3, 0), 10)
         examVideoFirst = d.object(forKey: "examVideoFirst") as? Bool ?? true
@@ -354,8 +350,14 @@ extension AppSettings {
     /// Eski sürümlerden kalan Google/Drive bilgilerini (jeton, istemci kimliği, klasör) siler
     static func removeOldGoogleData(_ d: UserDefaults) {
         for key in ["googleRefreshToken", "googleClientID", "googleClientSecret"] { Keychain.remove(key) }
-        for key in ["googleEmail", "driveFolderName", "driveFolderID", "keepLocalCopies", "driveFolderResolvedName", "ocrEnabled", "ocrUseGemini"] {
+        for key in ["googleEmail", "driveFolderName", "driveFolderID", "keepLocalCopies", "driveFolderResolvedName", "ocrEnabled", "ocrUseGemini",
+                    "examGroup", "examFetch"] {
             d.removeObject(forKey: key)
+        }
+        // Sınav videosu artık Gemini'ye eklenmez: eski sürümlerin sakladığı kopyalar silinir
+        if let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+            try? FileManager.default.removeItem(at: base.appendingPathComponent("G526", isDirectory: true)
+                .appendingPathComponent("SinavVideolari", isDirectory: true))
         }
     }
 }

@@ -401,12 +401,6 @@ struct SettingsView: View {
 
     private var examSection: some View {
         Section(header: Text("Deneme sınavı")) {
-            Stepper(value: $settings.examGroup, in: 3...20) {
-                Text("Cevap grubu: \(settings.examGroup) soru")
-            }
-            Stepper(value: $settings.examFetch, in: 5...40) {
-                Text("Gemini’den bir seferde: \(settings.examFetch) soru")
-            }
             Stepper(value: $settings.examCancelWindow, in: 0...15) {
                 Text("Gönderimden önce vazgeçme süresi: \(settings.examCancelWindow) sn")
             }
