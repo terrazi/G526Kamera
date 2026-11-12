@@ -27,18 +27,26 @@ enum GeminiVideo {
     /// Yükleme süre sınırı (sn): en kötü 50 KB/sn bağlantı varsayılır, en az 300 sn
     static func uploadTimeout(bytes: Int) -> TimeInterval { return max(300, Double(bytes) / 50_000) }
 
-    static func requestObject(video: Data, question: String, highResolution: Bool) -> [String: Any] {
+    /// Gemini'nin videodan okuyacağı kare hızı: kaydın kare hızıyla aynı (varsayılan 1 kare/sn olurdu; kayıttaki karelerin
+    /// yarısı boşa giderdi). Belgelerde `videoMetadata.fps` 0–24 arasındadır; ayar reddedilirse ayarsız yeniden denenir.
+    /// Belirteç harcaması kare hızıyla orantılı artar (yaklaşık iki kat).
+    static let sampleFPS: Double = VideoRecorder.fps
+
+    static func requestObject(video: Data, question: String, highResolution: Bool, fps: Double? = nil) -> [String: Any] {
         let videoPart: [String: Any] = ["inlineData": ["mimeType": "video/mp4", "data": video.base64EncodedString()]]
-        return requestObject(videoPart: videoPart, question: question, highResolution: highResolution)
+        return requestObject(videoPart: videoPart, question: question, highResolution: highResolution, fps: fps)
     }
 
     /// Yüklenmiş dosyaya (Files API adresi) bağlanan istek
-    static func requestObject(fileURI: String, question: String, highResolution: Bool) -> [String: Any] {
+    static func requestObject(fileURI: String, question: String, highResolution: Bool, fps: Double? = nil) -> [String: Any] {
         let videoPart: [String: Any] = ["fileData": ["mimeType": "video/mp4", "fileUri": fileURI]]
-        return requestObject(videoPart: videoPart, question: question, highResolution: highResolution)
+        return requestObject(videoPart: videoPart, question: question, highResolution: highResolution, fps: fps)
     }
 
-    private static func requestObject(videoPart: [String: Any], question: String, highResolution: Bool) -> [String: Any] {
+    private static func requestObject(videoPart: [String: Any], question: String, highResolution: Bool,
+                                      fps: Double?) -> [String: Any] {
+        var videoPart = videoPart
+        if let fps = fps { videoPart["videoMetadata"] = ["fps": fps] }
         var config: [String: Any] = ["temperature": 0.3, "maxOutputTokens": 4096]
         if highResolution { config["mediaResolution"] = "MEDIA_RESOLUTION_HIGH" }
         return [
@@ -77,12 +85,6 @@ enum GeminiVideo {
         guard !order.isEmpty else {
             throw GeminiError("Gemini API anahtarı girilmemiş. Ayarlardan yapıştırın.", .key)
         }
-        // küçük video: gövde bir kez hazırlanır; büyük video: her profilde önce yüklenir
-        var inlineBody: Data?
-        if !usesFilesAPI(bytes: videoData.count) {
-            let object = requestObject(video: videoData, question: question, highResolution: highResolution)
-            inlineBody = try JSONSerialization.data(withJSONObject: object)
-        }
         var lastError = GeminiError("Gemini cevap vermedi.", .error)
         for (i, profile) in order.enumerated() {
             let isLast = i == order.count - 1
@@ -90,22 +92,39 @@ enum GeminiVideo {
             let client = GeminiClient(key: { profile.key }, model: { profile.model })
             var uploaded: RemoteFile?
             do {
-                let body: Data
-                if let ready = inlineBody {
-                    body = ready
-                } else {
+                // küçük video istekte gider; büyük video bu profilde önce yüklenir (bir kez)
+                let uri: String?
+                if usesFilesAPI(bytes: videoData.count) {
                     if i == 0 { notify("Video büyük, önce yükleniyor. Birkaç dakika sürebilir.") }
                     let file = try await client.uploadFile(name: "video", data: videoData, mimeType: "video/mp4",
                                                            timeout: uploadTimeout(bytes: videoData.count))
                     uploaded = file
-                    let active = try await client.waitActive(file)
-                    let object = requestObject(fileURI: active.uri, question: question, highResolution: highResolution)
-                    body = try JSONSerialization.data(withJSONObject: object)
+                    uri = try await client.waitActive(file).uri
+                } else {
+                    uri = nil
                 }
-                let reply = try await client.postVideoTask(model: profile.model, key: profile.key, body: body, timeout: limit)
-                let answer = try GeminiSupport.parseAnswer(reply)
+                func ask(fps: Double?) async throws -> VideoAnalysis {
+                    let object: [String: Any]
+                    if let uri = uri {
+                        object = requestObject(fileURI: uri, question: question, highResolution: highResolution, fps: fps)
+                    } else {
+                        object = requestObject(video: videoData, question: question, highResolution: highResolution, fps: fps)
+                    }
+                    let body = try JSONSerialization.data(withJSONObject: object)
+                    let reply = try await client.postVideoTask(model: profile.model, key: profile.key, body: body, timeout: limit)
+                    let answer = try GeminiSupport.parseAnswer(reply)
+                    return VideoAnalysis(text: answer.answer, model: profile.name, promptTokens: answer.promptTokens)
+                }
+                let result: VideoAnalysis
+                do {
+                    result = try await ask(fps: sampleFPS)
+                } catch let e as GeminiError where e.status == 400 {
+                    // kare hızı ayarı bu model/biçimde kabul edilmemiş olabilir: ayarsız (1 kare/sn) bir kez daha denenir
+                    tlog("[video] kare hızı ayarıyla istek reddedildi (\(e.message)); ayarsız yeniden deneniyor")
+                    result = try await ask(fps: nil)
+                }
                 if let file = uploaded { await client.deleteFile(name: file.name) }
-                return VideoAnalysis(text: answer.answer, model: profile.name, promptTokens: answer.promptTokens)
+                return result
             } catch let e as GeminiError {
                 if let file = uploaded { await client.deleteFile(name: file.name) }
                 lastError = e

@@ -41,6 +41,27 @@ final class GeminiVideoTests: XCTestCase {
         XCTAssertNoThrow(try JSONSerialization.data(withJSONObject: object))
     }
 
+    func testFrameRateIsSentAsVideoMetadataOnlyWhenGiven() throws {
+        let video = Data([1, 2, 3])
+        let plain = GeminiVideo.requestObject(video: video, question: "S", highResolution: false)
+        let plainParts = try XCTUnwrap((plain["contents"] as? [[String: Any]])?[0]["parts"] as? [[String: Any]])
+        XCTAssertNil(plainParts[0]["videoMetadata"], "kare hızı verilmezse ayar gönderilmez (Gemini 1 kare/sn okur)")
+
+        let inline = GeminiVideo.requestObject(video: video, question: "S", highResolution: false, fps: GeminiVideo.sampleFPS)
+        let inlineParts = try XCTUnwrap((inline["contents"] as? [[String: Any]])?[0]["parts"] as? [[String: Any]])
+        let meta = try XCTUnwrap(inlineParts[0]["videoMetadata"] as? [String: Any], "videoMetadata video parçasının içinde olmalı")
+        XCTAssertEqual(meta["fps"] as? Double, VideoRecorder.fps)
+        XCTAssertNotNil(inlineParts[0]["inlineData"])
+        XCTAssertNil(inlineParts[1]["videoMetadata"], "soru metnine ayar eklenmez")
+
+        let file = GeminiVideo.requestObject(fileURI: "https://example.test/f", question: "S", highResolution: false, fps: 2)
+        let fileParts = try XCTUnwrap((file["contents"] as? [[String: Any]])?[0]["parts"] as? [[String: Any]])
+        XCTAssertEqual((fileParts[0]["videoMetadata"] as? [String: Any])?["fps"] as? Double, 2)
+        XCTAssertNotNil(fileParts[0]["fileData"])
+        XCTAssertNoThrow(try JSONSerialization.data(withJSONObject: file))
+        XCTAssertEqual(GeminiVideo.sampleFPS, 2, "Gemini kayıttaki kare hızıyla okur")
+    }
+
     func testUploadDecisionAndLimits() {
         XCTAssertFalse(GeminiVideo.usesFilesAPI(bytes: GeminiVideo.inlineMaxBytes), "sınırda hâlâ doğrudan istek")
         XCTAssertTrue(GeminiVideo.usesFilesAPI(bytes: GeminiVideo.inlineMaxBytes + 1))
