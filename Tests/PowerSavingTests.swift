@@ -69,6 +69,27 @@ final class PowerSavingTests: XCTestCase {
         dimmer.update(dim: false)
         XCTAssertFalse(dimmer.isDimmed)
     }
+
+    @MainActor
+    func testDimmedBrightnessIsRememberedOnDiskAndClearedAfterRestore() {
+        let dimmer = ScreenDimmer.shared
+        let defaults = UserDefaults.standard
+        dimmer.update(dim: false)
+        defaults.removeObject(forKey: ScreenDimmer.savedKey)
+        dimmer.update(dim: true)
+        XCTAssertNotNil(defaults.object(forKey: ScreenDimmer.savedKey), "çökmeye karşı diske yazılmalı")
+        dimmer.update(dim: false)
+        XCTAssertNil(defaults.object(forKey: ScreenDimmer.savedKey), "geri verilince silinmeli")
+    }
+
+    @MainActor
+    func testRestoreIfLeftDimmedClearsStaleValue() {
+        let dimmer = ScreenDimmer.shared
+        dimmer.update(dim: false)
+        UserDefaults.standard.set(0.6, forKey: ScreenDimmer.savedKey)
+        dimmer.restoreIfLeftDimmed()
+        XCTAssertNil(UserDefaults.standard.object(forKey: ScreenDimmer.savedKey))
+    }
 }
 
 final class OptionCodeDefaultsTests: XCTestCase {

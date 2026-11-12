@@ -192,7 +192,7 @@ final class FolderPicker: NSObject, UIDocumentPickerDelegate {
 
 /// Ayarlarda "Belge klasörü" bölümü: seç, durum, deneme dosyası yaz
 struct DocumentFolderSection: View {
-    @State private var status = DocumentFolder.shared.statusText()
+    @State private var status = "Kontrol ediliyor…"
     @State private var message = ""
 
     var body: some View {
@@ -213,7 +213,15 @@ struct DocumentFolderSection: View {
             }
             HelpRow("Dosyalar uygulamasında “Bu iPhone” altında “G526 Belgeler” adlı yeni bir klasör açıp seçin. Sınav dosyaları (PDF, video) buraya kaydedilir; program silinse de kalır.")
         }
-        .onAppear { status = DocumentFolder.shared.statusText() }
+        .onAppear { refreshStatus() }
+    }
+
+    /// Durum (klasöre deneme yazması dosya işi yapar) ana iş parçacığını tutmadan ölçülür
+    private func refreshStatus() {
+        Task {
+            let text = await Task.detached(priority: .utility) { DocumentFolder.shared.statusText() }.value
+            await MainActor.run { status = text }
+        }
     }
 
     private func pick() {
@@ -230,7 +238,7 @@ struct DocumentFolderSection: View {
             } catch {
                 message = "Klasör hatırlanamadı: \(error.localizedDescription)"
             }
-            status = DocumentFolder.shared.statusText()
+            refreshStatus()
         })
         if !opened { message = "Klasör seçici açılamadı. Programı kapatıp yeniden açın." }
     }
@@ -243,6 +251,6 @@ struct DocumentFolderSection: View {
         } catch {
             message = "Yazılamadı: \(error.localizedDescription)"
         }
-        status = DocumentFolder.shared.statusText()
+        refreshStatus()
     }
 }

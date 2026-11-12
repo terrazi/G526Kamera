@@ -146,6 +146,12 @@ final class FolderClientTests: XCTestCase {
         return url
     }
 
+    func testNewestFirstOrderKeepsSameSecondFilesInWriteOrder() {
+        let names = ["20261112091245.pdf", "20261112091245-2.pdf", "20261112091244.pdf", "20261112091245-3.pdf", "20261112091300.pdf"]
+        let sorted = names.sorted { FolderClient.isNewer($0, than: $1) }
+        XCTAssertEqual(sorted, ["20261112091300.pdf", "20261112091245-3.pdf", "20261112091245-2.pdf", "20261112091245.pdf", "20261112091244.pdf"])
+    }
+
     func testIsNotReadyUntilAFolderIsChosen() async throws {
         XCTAssertFalse(client.isReady)
         let file = try temp("a.txt", Data("x".utf8))

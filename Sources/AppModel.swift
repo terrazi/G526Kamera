@@ -211,6 +211,7 @@ final class AppModel: ObservableObject {
     var renderer: VideoRenderer { return pipeline.renderer }
 
     init() {
+        ScreenDimmer.shared.restoreIfLeftDimmed()
         let pipeline = self.pipeline
         let decoder = self.decoder
         let clock = self.decodeClock
@@ -265,10 +266,10 @@ final class AppModel: ObservableObject {
             Task { @MainActor in self?.voiceCommand(id, heard: text) }
         }
         speech.onHealth = { [weak self] text in
-            Task { @MainActor in
-                self?.setNotice(.mic, text)
-                if text.isEmpty { self?.micRepair.reset() }
-            }
+            Task { @MainActor in self?.setNotice(.mic, text) }
+        }
+        speech.onRecovered = { [weak self] in
+            Task { @MainActor in self?.micRepair.reset() }
         }
         speech.onSilent = { [weak self] in
             Task { @MainActor in self?.runAudioShortcut(reason: "mikrofon sessiz") }
@@ -1433,7 +1434,9 @@ final class AppModel: ObservableObject {
     private func stopSelfChecks() {
         netTimer?.invalidate()
         netTimer = nil
-        offlineTracker = OfflineTracker()
+        // Kestirme çalışırken program arka plana geçer: deneme sayıları ve bekleme süreleri bilerek korunur (sonsuz döngü olmasın)
+        offlineTracker.suspend()
+        routeWarnSince = nil
         setNotice(.network, "")
         setNotice(.mic, "")
         setNotice(.route, "")

@@ -82,6 +82,21 @@ final class FolderClient: GeminiFileSource, @unchecked Sendable {
         return (id: stored.lastPathComponent, size: size)
     }
 
+    /// Ad sırası anahtarı: "20261112091245.pdf" < "20261112091245-2.pdf" < "20261112091246.pdf" (aynı saniyedeki -2, -3 sonradan yazılmıştır)
+    static func sortKey(_ name: String) -> (stamp: String, number: Int) {
+        let stem = (name as NSString).deletingPathExtension
+        if let dash = stem.lastIndex(of: "-"), let number = Int(stem[stem.index(after: dash)...]) {
+            return (String(stem[..<dash]), number)
+        }
+        return (stem, 1)
+    }
+
+    /// a adlı dosya b'den sonra mı kaydedilmiş
+    static func isNewer(_ a: String, than b: String) -> Bool {
+        let x = sortKey(a), y = sortKey(b)
+        return x.stamp != y.stamp ? x.stamp > y.stamp : x.number > y.number
+    }
+
     /// Listeden istenecek PDF sayısı (Gemini ayarındaki belge sayısı, en çok 50)
     static func listPageSize(_ count: Int) -> Int {
         return min(max(count, 1), 50)
@@ -95,7 +110,7 @@ final class FolderClient: GeminiFileSource, @unchecked Sendable {
             try target.withAccess { dir in
                 let urls = try FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.fileSizeKey])
                 let pdfs = urls.filter { $0.pathExtension.lowercased() == "pdf" }
-                    .sorted { $0.lastPathComponent > $1.lastPathComponent }
+                    .sorted { FolderClient.isNewer($0.lastPathComponent, than: $1.lastPathComponent) }
                     .prefix(limit)
                 return pdfs.map { url -> StoredFileInfo in
                     let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0

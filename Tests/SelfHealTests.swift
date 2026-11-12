@@ -110,6 +110,21 @@ final class SelfHealTests: XCTestCase {
 
     // MARK: Kestirme adları ve sınırlayıcı
 
+    func testSuspendKeepsRepairCountAndCooldownSoShortcutCannotLoopForever() {
+        var t = OfflineTracker()
+        var now: TimeInterval = 0
+        func tick(_ n: Int) -> [OfflineTracker.Action] {
+            var out: [OfflineTracker.Action] = []
+            for _ in 0..<n { now += 45; out.append(t.record(online: false, now: now, canRepair: true)) }
+            return out
+        }
+        XCTAssertTrue(tick(2).contains(.repair), "ilk kesintide kestirme çalışır")
+        t.suspend()                       // kestirme çalışırken program arka plana geçti
+        let after = tick(10)              // yaklaşık 7,5 dakika, bekleme süresi (10 dk) dolmadı
+        XCTAssertFalse(after.contains(.repair), "bekleme süresi dolmadan yeniden çalışmamalı")
+        XCTAssertTrue(after.contains(.warn), "uyarı yeniden söylenir")
+    }
+
     func testRepairThrottleWaitsBetweenTriesAndStopsAfterMax() {
         var t = RepairThrottle(cooldown: 180, maxTries: 3)
         XCTAssertTrue(t.allow(now: 0))

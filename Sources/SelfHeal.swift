@@ -24,6 +24,13 @@ struct OfflineTracker {
     private(set) var repairs = 0
     private var lastRepair: TimeInterval?
 
+    /// Uygulama arka plana geçince (kestirme çalışırken de geçer) yoklama sayacı ve uyarı sıfırlanır; deneme sayısı ve
+    /// bekleme süresi KORUNUR: yoksa her kestirme dönüşünde sayaç sıfırlanır ve kestirme sonsuza dek yeniden çalışırdı.
+    mutating func suspend() {
+        failures = 0
+        warned = false
+    }
+
     mutating func record(online: Bool, now: TimeInterval, canRepair: Bool) -> Action {
         if online {
             let wasDown = warned
