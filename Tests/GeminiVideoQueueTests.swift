@@ -129,4 +129,13 @@ final class GeminiVideoQueueTests: XCTestCase {
         XCTAssertTrue(q.contains("Birinci sorunun cevabı D, altmış sekiz."))
         XCTAssertTrue(q.contains("sıralı"))
     }
+
+    func testPrivacyConsentIsOnByDefaultAndStoredChoiceIsKept() {
+        UserDefaults.standard.removeObject(forKey: "geminiPrivacyOK")
+        XCTAssertTrue(AppSettings().geminiPrivacyOK, "varsayılan: gizlilik onayı işaretli")
+        let s = AppSettings()
+        s.geminiPrivacyOK = false
+        XCTAssertFalse(AppSettings().geminiPrivacyOK, "kullanıcı kaldırdıysa kayıtlı seçim korunur")
+        UserDefaults.standard.removeObject(forKey: "geminiPrivacyOK")
+    }
 }

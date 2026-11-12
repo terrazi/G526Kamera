@@ -247,7 +247,7 @@ struct SettingsView: View {
         Section(header: Text("Gizlilik onayı")) {
             Toggle("Ses kaydımın ve PDF’lerimin Google’a gönderilmesini onaylıyorum", isOn: $settings.geminiPrivacyOK)
                 .accessibilityIdentifier("gemini-gizlilik")
-            HelpRow("Onay vermezseniz Gemini’ye hiçbir şey gönderilmez ve sesle soru sorulamaz. Onayladığınızda soru sesiniz ve belge klasörünüzdeki PDF’ler Google’ın Gemini hizmetine gönderilir.")
+            HelpRow("Onay varsayılan olarak işaretli gelir; kaldırırsanız Gemini’ye hiçbir şey gönderilmez ve sesle soru sorulamaz. Onayladığınızda soru sesiniz ve belge klasörünüzdeki PDF’ler Google’ın Gemini hizmetine gönderilir.")
         }
     }
 

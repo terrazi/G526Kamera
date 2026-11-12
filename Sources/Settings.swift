@@ -249,7 +249,8 @@ final class AppSettings: ObservableObject {
         geminiThinking = AppSettings.validThinking(d.string(forKey: "geminiThinking"))
         listenEnd = (d.string(forKey: "listenEnd") == "silence") ? "silence" : "word"
         listenSilence = min(max(d.object(forKey: "listenSilence") as? Int ?? 15, 5), 60)
-        geminiPrivacyOK = d.object(forKey: "geminiPrivacyOK") as? Bool ?? false
+        // Kullanıcı kararı: gizlilik onayı varsayılan olarak işaretli gelir (her kurulumda yeniden işaretlemek zorunda kalınmasın)
+        geminiPrivacyOK = d.object(forKey: "geminiPrivacyOK") as? Bool ?? true
         geminiDocCount = min(max(d.object(forKey: "geminiDocCount") as? Int ?? 3, 1), GeminiConfig.maxPages)
         geminiMemory = d.object(forKey: "geminiMemory") as? Bool ?? true
         let storedCodes = d.string(forKey: "geminiOptionCodes")
