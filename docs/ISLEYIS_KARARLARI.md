@@ -58,7 +58,7 @@ F. [TASLAK] Telefon yükü ilkeleri (ısınma/kasılma): dosyalar RAM'de değil 
 ## Koddaki mevcut durumdan farklar (revizyonda düzeltilecek)
 - Sınama şu an sınav başlarken yapılıyor; açılışta yapılacak ve sonucu hatırlanacak.
 - Video şu an "evet" sorulmadan, evrak görününce kendiliğinden başlıyor; evet sorulacak.
-- Videodan sonra "Videoya devam edeyim mi?" döngüsü var; kalkacak.
+- Videodan sonra "Videoya devam edeyim mi?" döngüsü sınav modunda KALIR (kullanıcı kararı, 2026-11-12: "sorun yok"). Normal video akışı sormaz; yalnız "video sıraya alındı" der.
 - Sınav videosu şu an Gemini isteklerine ekleniyor (son sürümde eklendi); kaldırılacak (D maddesi).
 
 ## Gereksiz kalanlar taraması (2026-11-12)
