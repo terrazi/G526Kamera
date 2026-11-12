@@ -379,6 +379,9 @@ final class VideoOutbox {
 enum VideoVocabulary {
     static let start = "video kaydını aç, video kaydı aç, video kaydını başlat, video kaydı başlat, videoyu aç, videoyu başlat, "
         + "video çek, video çekmeye başla, kaydı aç, kaydı başlat, kayıt aç, kayıt başlat"
+    /// Sıradaki videoları sırayla Gemini'ye gönderir ("gemini" kelimesi geçmez: Gemini çağrı komutuyla karışmasın)
+    static let send = "videoları gönder, videoları yolla, videoları analiz et, videoları okut, videoları sırayla gönder, "
+        + "videoyu gönder, videoyu analiz et"
     static let stop = "kapat, kaydı kapat, kayıt kapat, video kaydını kapat, video kaydı kapat, videoyu kapat, "
         + "kaydı durdur, videoyu durdur, video kaydını durdur"
 }

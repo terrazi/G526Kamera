@@ -14,6 +14,7 @@ struct ContentView: View {
                     powerToggles
                     captureButton
                     videoButton
+                    if model.queuedVideos > 0 || model.sendingVideos { sendVideosButton }
                     if !model.videoAnswer.isEmpty {
                         Text(model.videoAnswer)
                             .font(.footnote)
@@ -195,6 +196,27 @@ struct ContentView: View {
         }
         .disabled(!model.isLive && !model.videoRecording)
         .accessibilityIdentifier("videoKaydi")
+    }
+
+    /// Sıradaki videoları tek tek Gemini'ye gönderir ("videoları gönder" demekle aynı)
+    private var sendVideosButton: some View {
+        Button {
+            model.sendQueuedVideos()
+        } label: {
+            HStack {
+                Image(systemName: "paperplane.fill")
+                Text(model.sendingVideos ? "Gemini'ye gönderiliyor… (\(model.queuedVideos) kaldı)"
+                                         : "Videoları gönder (\(model.queuedVideos))")
+                    .fontWeight(.semibold)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .background(model.sendingVideos ? Color.gray : Color.orange)
+            .foregroundColor(.white)
+            .cornerRadius(12)
+        }
+        .disabled(model.sendingVideos || model.videoRecording)
+        .accessibilityIdentifier("videolariGonder")
     }
 
     @ViewBuilder

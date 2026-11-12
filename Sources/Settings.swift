@@ -108,7 +108,9 @@ final class AppSettings: ObservableObject {
     @Published var geminiWaitLimit: Int { didSet { d.set(geminiWaitLimit, forKey: "geminiWaitLimit") } }
     /// Video kaydı bitince video Gemini'ye de gönderilir ("Bu videoda ne oluyor?"); cevap sesle okunur
     @Published var videoToGemini: Bool { didSet { d.set(videoToGemini, forKey: "videoToGemini") } }
-    /// Video sorusu (boşsa varsayılan soru)
+    /// Videoların Gemini'ye ne zaman gideceği: 1 = "videoları gönder" deyince, sırayla tek tek (varsayılan); 0 = her video bitince hemen
+    @Published var videoSendMode: Int { didSet { d.set(videoSendMode, forKey: "videoSendMode") } }
+    /// Video sorusu (boşsa varsayılan talimat: videodaki yazıları oku, soruları çöz)
     @Published var videoQuestion: String { didSet { d.set(videoQuestion, forKey: "videoQuestion") } }
     /// Videoyu yüksek çözünürlükle oku (küçük yazı için; kare başına token ≈ 4 kat). Varsayılan açık.
     @Published var videoHighRes: Bool { didSet { d.set(videoHighRes, forKey: "videoHighRes") } }
@@ -233,6 +235,7 @@ final class AppSettings: ObservableObject {
         geminiWaitLimit = min(max(d.object(forKey: "geminiWaitLimit") as? Int ?? 30, 0), 600)
         geminiAutoFallback = d.object(forKey: "geminiAutoFallback") as? Bool ?? true
         videoToGemini = d.object(forKey: "videoToGemini") as? Bool ?? true
+        videoSendMode = d.object(forKey: "videoSendMode") as? Int == 0 ? 0 : 1
         videoQuestion = d.string(forKey: "videoQuestion") ?? ""
         videoHighRes = d.object(forKey: "videoHighRes") as? Bool ?? true
         geminiOverloadFallback = d.object(forKey: "geminiOverloadFallback") as? Bool ?? true

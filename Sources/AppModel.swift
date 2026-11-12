@@ -62,6 +62,10 @@ final class AppModel: ObservableObject {
     @Published private(set) var videoRecording = false
     /// Gemini'nin son videoya verdiği cevap (ana ekranda gösterilir)
     @Published private(set) var videoAnswer = ""
+    /// Gemini'ye gönderilmeyi bekleyen video sayısı ("videoları gönder" kipinde)
+    @Published private(set) var queuedVideos = GeminiVideoQueue.shared.count
+    /// Sıradaki videolar şu an Gemini'ye gönderiliyor
+    @Published private(set) var sendingVideos = false
     /// Ana ekranda kırmızı uyarı olarak gösterilen kendi kendini denetleme haberleri ("" = sorun yok)
     @Published private(set) var networkNotice = ""
     @Published private(set) var micNotice = ""
@@ -520,6 +524,7 @@ final class AppModel: ObservableObject {
                                               intent: GuidanceVocabulary.retakeIntent))
         commands.append(SpeechTrigger.Command(id: "videoStart", phrases: VideoVocabulary.start))
         commands.append(SpeechTrigger.Command(id: "videoStop", phrases: VideoVocabulary.stop))
+        commands.append(SpeechTrigger.Command(id: "videoSend", phrases: VideoVocabulary.send))
         if guidanceWanted {
             commands.append(SpeechTrigger.Command(id: "rechoose", phrases: GuidanceVocabulary.rechoose,
                                                   intent: GuidanceVocabulary.rechooseIntent))
@@ -1024,6 +1029,8 @@ final class AppModel: ObservableObject {
             deleteLast(retake: true)
         case "videoStart":
             startVideo()
+        case "videoSend":
+            sendQueuedVideos()
         case "videoStop":
             // Yalnız kayıt açıkken anlamı var; değilse ("kapat" başka bağlamda geçebilir) yok sayılır
             if videoRecording { stopVideo(reason: "kapat") }
@@ -1282,11 +1289,11 @@ final class AppModel: ObservableObject {
         case .success(let output):
             let seconds = Int(output.seconds.rounded())
             let mb = String(format: "%.1f", Double(output.bytes) / 1_048_576).replacingOccurrences(of: ".", with: ",")
-            let head = reason == "süre" ? "Otuz saniye doldu, kayıt kapandı." : "Kayıt kapandı."
+            let head = reason == "süre" ? "Üç dakika doldu, kayıt kapandı." : "Kayıt kapandı."
             tlog("[video] \(output.url.lastPathComponent): \(seconds) sn, \(output.frames) kare, \(output.bytes) bayt")
             flash("Video \(seconds) sn, \(mb) MB: klasöre kaydediliyor", seconds: 6)
             say("\(head) \(seconds) saniye, \(mb) megabayt. Klasöre kaydediliyor.", interrupt: true, force: true)
-            analyzeVideoWithGemini(output.url)
+            routeVideoToGemini(output.url)
             VideoOutbox.shared.submit(output.url) { [weak self] ok, message in
                 guard let self = self else { return }
                 if ok {
@@ -1298,6 +1305,112 @@ final class AppModel: ObservableObject {
                     self.say("Video klasöre kaydedilemedi. Telefonda saklandı, klasör hazır olunca yeniden denenecek.", interrupt: false, force: true)
                 }
             }
+        }
+    }
+
+    /// Biten video: "her video bitince" kipinde hemen Gemini'ye gider; "videoları gönder" kipinde sıraya alınır (klasöre her durumda kaydedilir).
+    private func routeVideoToGemini(_ url: URL) {
+        guard settings.videoToGemini else { return }
+        guard settings.videoSendMode == 1 else {
+            analyzeVideoWithGemini(url)
+            return
+        }
+        if GeminiVideoQueue.shared.add(url) {
+            queuedVideos = GeminiVideoQueue.shared.count
+            flash("Video sıraya alındı (\(queuedVideos) video bekliyor)", seconds: 5)
+            say("Video sıraya alındı. Sırada \(queuedVideos) video var. Göndermek için videoları gönder deyin.", interrupt: false, force: true)
+        } else {
+            tlog("[video] gönderim sırasına alınamadı: \(url.lastPathComponent)")
+            flash("Video gönderim sırasına alınamadı (klasöre yine kaydedilir)", seconds: 6)
+        }
+    }
+
+    /// Sıradaki videoları eskiden yeniye, tek tek Gemini'ye gönderir; her cevap sırayla sesle okunur ve ekranda birikir.
+    /// Bir video başarısız olursa durur; kalanlar sırada bekler (yeniden "videoları gönder" denir).
+    func sendQueuedVideos() {
+        guard !sendingVideos else {
+            say("Videolar zaten gönderiliyor.", interrupt: false, force: true)
+            return
+        }
+        guard !videoRecording else {
+            say("Önce video kaydını kapatın.", interrupt: false, force: true)
+            return
+        }
+        let queue = GeminiVideoQueue.shared
+        let files = queue.files
+        queuedVideos = files.count
+        guard !files.isEmpty else {
+            flash("Gönderilecek video yok", seconds: 4)
+            say("Gönderilecek video yok.", interrupt: true, force: true)
+            return
+        }
+        let s = settings
+        guard s.geminiEnabled, s.geminiPrivacyOK else {
+            flash("Gemini kapalı ya da gizlilik onayı verilmemiş", seconds: 6)
+            say("Gemini kapalı ya da gizlilik onayı verilmemiş. Ayarlardan açın.", interrupt: true, force: true)
+            return
+        }
+        s.refreshGeminiCapFallback()
+        let active = s.activeGeminiProfile
+        guard !active.key.isEmpty else {
+            flash("Gemini API anahtarı girilmemiş", seconds: 6)
+            say("Gemini API anahtarı girilmemiş. Ayarlardan yapıştırın.", interrupt: true, force: true)
+            return
+        }
+        let profiles = s.geminiProfileInfos()
+        let custom = s.videoQuestion.trimmed
+        let question = custom.isEmpty ? GeminiVideo.defaultQuestion : custom
+        let high = s.videoHighRes
+        let chain = s.geminiChainFallback
+        let limit = TimeInterval(s.geminiWaitLimit)
+        let total = files.count
+        sendingVideos = true
+        videoAnswer = ""
+        flash("\(total) video sırayla Gemini'ye gönderiliyor…", seconds: 8)
+        say("\(total) video sırayla Gemini'ye gönderiliyor.", interrupt: false, force: true)
+        Task { [weak self] in
+            var number = 0
+            for url in files {
+                guard let self = self else { return }
+                guard let data = try? Data(contentsOf: url) else {
+                    queue.remove(url)
+                    continue
+                }
+                number += 1
+                self.flash("\(number). video / \(total): Gemini'ye gönderiliyor…", seconds: 8)
+                do {
+                    let result = try await GeminiVideo.analyze(
+                        videoData: data, question: question, highResolution: high, profiles: profiles, active: active.slot,
+                        chain: chain, waitLimit: limit,
+                        notify: { text in Task { @MainActor in self.say(text, interrupt: false, force: true) } })
+                    queue.remove(url)
+                    self.queuedVideos = queue.count
+                    tlog("[video] \(number). video cevabı: \(result.model), \(result.promptTokens) giriş token'ı, \(result.text.count) karakter")
+                    self.videoAnswer += (self.videoAnswer.isEmpty ? "" : "\n\n") + "\(number). video: " + result.text
+                    // önceki cevap hâlâ okunuyorsa bitmesi beklenir (okuma birbirini kesmesin); sonraki videonun yüklemesi bu arada sürmez
+                    await self.waitForSpeechEnd()
+                    _ = self.speakGemini("\(number). video. " + result.text)
+                } catch {
+                    let message = (error as? GeminiError)?.message ?? error.localizedDescription
+                    tlog("[video] \(number). video Gemini hatası: \(message)")
+                    self.flash("Gemini \(number). videoyu okuyamadı: \(message)", seconds: 10)
+                    self.say("Gemini \(number). videoyu okuyamadı. \(message) Kalan videolar sırada bekliyor.", interrupt: false, force: true)
+                    self.sendingVideos = false
+                    self.queuedVideos = queue.count
+                    return
+                }
+            }
+            self?.sendingVideos = false
+            self?.queuedVideos = queue.count
+        }
+    }
+
+    /// Konuşma bitene dek bekler (en çok `maxSeconds`)
+    private func waitForSpeechEnd(maxSeconds: Double = 180) async {
+        var waited = 0.0
+        while speaker.isSpeaking && waited < maxSeconds {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            waited += 0.5
         }
     }
 

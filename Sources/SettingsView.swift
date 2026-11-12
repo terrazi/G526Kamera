@@ -354,9 +354,13 @@ struct SettingsView: View {
             }
             Toggle("Video bitince Gemini'ye de sor", isOn: $settings.videoToGemini)
             if settings.videoToGemini {
-                TextField("Video sorusu (boşsa: “Bu videoda ne oluyor?”)", text: $settings.videoQuestion)
+                Picker("Videoları gönderme", selection: $settings.videoSendMode) {
+                    Text("“Videoları gönder” deyince, sırayla").tag(1)
+                    Text("Her video bitince hemen").tag(0)
+                }
+                TextField("Talimat (boşsa: yazıları oku, soruları çöz)", text: $settings.videoQuestion)
                 Toggle("Videoyu yüksek çözünürlükle oku", isOn: $settings.videoHighRes)
-                HelpRow("Video kaydı (en çok 3 dk) bitince dosya telefondan Gemini'ye gönderilir (klasöre ayrıca kaydedilir; büyük dosya önce yüklenir, birkaç dakika sürebilir) ve cevap sesle okunur. Her video bir Gemini isteğidir: ücretsiz kotadan düşer. Gemini kayıttaki bütün kareleri okur (saniyede 2 kare). Harcama bu yüzden 1 kare/sn'ye göre yaklaşık iki kat olur: 3 dk için tahminen 36.000 token, yüksek çözünürlükte tahminen 108.000 (Gemini belgeleri 1 kare/sn için saniyede yaklaşık 100 / 300 token der). Küçük yazı okuması için yüksek çözünürlük varsayılan açıktır; token tasarrufu için kapatabilirsiniz. Gemini ve gizlilik onayı açık olmalıdır.")
+                HelpRow("Video kaydı (en çok 3 dk) bitince klasöre kaydedilir. “Videoları gönder” kipinde videolar sıraya girer; “videoları gönder” deyince (ya da ana ekrandaki düğmeye basınca) eskiden yeniye, tek tek Gemini'ye gönderilir ve her cevap sırayla sesle okunur. Her videoya aynı talimat verilir (varsayılan: videodaki yazıları oku, soruları çöz, okunamayanı uydurma). Büyük dosya önce yüklenir, birkaç dakika sürebilir; o sırada uygulama ön planda ve ekran açık olmalıdır. Bir video başarısız olursa durur, kalanlar sırada bekler. Her video bir Gemini isteğidir: ücretsiz kotadan düşer. Gemini kayıttaki bütün kareleri okur (saniyede 2 kare). Harcama bu yüzden 1 kare/sn'ye göre yaklaşık iki kat olur: 3 dk için tahminen 36.000 token, yüksek çözünürlükte tahminen 108.000 (Gemini belgeleri 1 kare/sn için saniyede yaklaşık 100 / 300 token der). Küçük yazı okuması için yüksek çözünürlük varsayılan açıktır; token tasarrufu için kapatabilirsiniz. Gemini ve gizlilik onayı açık olmalıdır.")
             }
             Toggle("Model yoğunsa ya da kotası dolunca yedek modele geç", isOn: $settings.geminiOverloadFallback)
             if settings.geminiOverloadFallback {
