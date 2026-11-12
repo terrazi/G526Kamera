@@ -356,7 +356,7 @@ struct SettingsView: View {
             if settings.videoToGemini {
                 TextField("Video sorusu (boşsa: “Bu videoda ne oluyor?”)", text: $settings.videoQuestion)
                 Toggle("Videoyu yüksek çözünürlükle oku", isOn: $settings.videoHighRes)
-                HelpRow("Video kaydı (en çok 3 dk) bitince dosya telefondan Gemini'ye gönderilir (klasöre ayrıca kaydedilir; büyük dosya önce yüklenir, birkaç dakika sürebilir) ve cevap sesle okunur. Her video bir Gemini isteğidir: ücretsiz kotadan düşer. Gemini kayıttaki 2 karenin ikisini de okur (saniyede 2 kare): 3 dk için yaklaşık 36.000 token, yüksek çözünürlükte yaklaşık 108.000 (Gemini belgelerinde 1 kare/sn için saniyede yaklaşık 100 / 300 token yazar; bu tahminin iki katıdır). Küçük yazı okuması için yüksek çözünürlük varsayılan açıktır; token tasarrufu için kapatabilirsiniz. Gemini ve gizlilik onayı açık olmalıdır.")
+                HelpRow("Video kaydı (en çok 3 dk) bitince dosya telefondan Gemini'ye gönderilir (klasöre ayrıca kaydedilir; büyük dosya önce yüklenir, birkaç dakika sürebilir) ve cevap sesle okunur. Her video bir Gemini isteğidir: ücretsiz kotadan düşer. Gemini kayıttaki bütün kareleri okur (saniyede 2 kare). Harcama bu yüzden 1 kare/sn'ye göre yaklaşık iki kat olur: 3 dk için tahminen 36.000 token, yüksek çözünürlükte tahminen 108.000 (Gemini belgeleri 1 kare/sn için saniyede yaklaşık 100 / 300 token der). Küçük yazı okuması için yüksek çözünürlük varsayılan açıktır; token tasarrufu için kapatabilirsiniz. Gemini ve gizlilik onayı açık olmalıdır.")
             }
             Toggle("Model yoğunsa ya da kotası dolunca yedek modele geç", isOn: $settings.geminiOverloadFallback)
             if settings.geminiOverloadFallback {
