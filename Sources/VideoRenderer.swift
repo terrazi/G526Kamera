@@ -64,6 +64,25 @@ final class DisplayView: UIView {
         }
     }
 
+    /// true: görünüm dikey sayfa kadrajıdır; kare görünümü boyuna ya da enine doldurur, kadrajın dışı kırpılır (yalnız ekranda;
+    /// çekilen fotoğraf kırpılmaz). Kırpılan bölüm `PageFrame.verticalPage` ile aynıdır.
+    var cropToPage = false {
+        didSet {
+            if cropToPage != oldValue { setNeedsLayout() }
+        }
+    }
+
+    /// Katmanın (çevrilmemiş) boyutu. Kırpmada: sayfa görünümü doldurur, kare ortada kalır, taşan kısım kırpılır.
+    static func layerSize(in view: CGSize, orientation: ImageOrientation, cropToPage: Bool,
+                          aspect: CGFloat = 16.0 / 9.0) -> CGSize {
+        if cropToPage {
+            // normal/180°: sayfa görünümün boyunu, 90°: eni doldurur (çevrilmemiş katmanın yüksekliği = görünümün eni)
+            let h = orientation.isQuarterTurn ? view.width : view.height
+            return CGSize(width: h * aspect, height: h)
+        }
+        return orientation.isQuarterTurn ? CGSize(width: view.height, height: view.width) : view
+    }
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         displayLayer.videoGravity = .resizeAspect
@@ -82,9 +101,8 @@ final class DisplayView: UIView {
         CATransaction.setDisableActions(true)
         let b = bounds
         displayLayer.transform = CATransform3DIdentity
-        displayLayer.bounds = orientation.isQuarterTurn
-            ? CGRect(x: 0, y: 0, width: b.height, height: b.width)
-            : CGRect(x: 0, y: 0, width: b.width, height: b.height)
+        let size = DisplayView.layerSize(in: b.size, orientation: orientation, cropToPage: cropToPage)
+        displayLayer.bounds = CGRect(x: 0, y: 0, width: size.width, height: size.height)
         displayLayer.position = CGPoint(x: b.midX, y: b.midY)
         if orientation != .normal {
             displayLayer.transform = CATransform3DMakeRotation(orientation.angle, 0, 0, 1)
@@ -96,15 +114,18 @@ final class DisplayView: UIView {
 struct VideoLayerView: UIViewRepresentable {
     let renderer: VideoRenderer
     var orientation: ImageOrientation = .normal
+    var cropToPage = false
 
     func makeUIView(context: Context) -> DisplayView {
         let view = DisplayView()
         view.orientation = orientation
+        view.cropToPage = cropToPage
         renderer.attach(view.displayLayer)
         return view
     }
 
     func updateUIView(_ uiView: DisplayView, context: Context) {
         uiView.orientation = orientation
+        uiView.cropToPage = cropToPage
     }
 }

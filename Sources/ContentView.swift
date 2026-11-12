@@ -60,10 +60,18 @@ struct ContentView: View {
         .navigationViewStyle(.stack)
     }
 
-    /// Dik çevrilmiş görüntüde alan uzun olur ama ekranı doldurmaz (en çok 420 pt); resim DisplayView içinde sığdırılır.
+    /// Kadraj "dikey tam sayfa" iken önizleme de dikeydir (A4 oranı) ve yalnız o kadrajı gösterir; kameranın yanlardaki kısmı
+    /// ekranda görünmez ama fotoğrafa girer. "Bütün kare" seçiliyse bütün kare gösterilir (yönü dikse uzun, değilse yatay).
+    private var pageBox: CGSize { return PageFrame.previewBox(screen: UIScreen.main.bounds.size) }
+
     @ViewBuilder
     private var previewVideo: some View {
-        if settings.imageOrientation.isQuarterTurn {
+        if settings.guidanceFrame == 1 {
+            VideoLayerView(renderer: model.renderer, orientation: settings.imageOrientation, cropToPage: true)
+                .frame(width: pageBox.width, height: pageBox.height)
+                .background(Color.black)
+                .cornerRadius(12)
+        } else if settings.imageOrientation.isQuarterTurn {
             VideoLayerView(renderer: model.renderer, orientation: settings.imageOrientation)
                 .frame(maxWidth: .infinity)
                 .frame(height: min(UIScreen.main.bounds.width * 16.0 / 9.0, 420))
@@ -106,6 +114,7 @@ struct ContentView: View {
             .cornerRadius(10)
             .padding(8)
         }
+        .frame(maxWidth: .infinity, alignment: .center)
         .overlay(alignment: .bottom) {
             if !model.banner.isEmpty {
                 Text(model.banner)

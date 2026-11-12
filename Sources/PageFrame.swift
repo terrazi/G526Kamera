@@ -1,4 +1,5 @@
 import Foundation
+import CoreGraphics
 
 /// Sesli yönlendirmenin hedef kadrajı: karenin içinde, kare oranlarıyla (sensör yönünde) yatay aralık.
 /// Dikey (portre) bir tam sayfa kadraj: sayfa kadrajı doldurunca "tamam" denir; yazı bu kadrajın dışına çıkarsa kaydırma önerilir.
@@ -23,6 +24,15 @@ struct PageFrame: Equatable {
         let share = orientation.isQuarterTurn ? (1.0 / pageRatio) / aspect : pageRatio / aspect
         let w = min(1.0, max(0.05, share))
         return PageFrame(x0: (1 - w) / 2, x1: (1 + w) / 2)
+    }
+}
+
+extension PageFrame {
+    /// Ana ekrandaki dikey önizleme alanı (nokta): A4 oranlı; genişlik ekrana, boy ekranın yarısına sığar.
+    static func previewBox(screen: CGSize, sideMargin: CGFloat = 32, maxHeightShare: CGFloat = 0.5) -> CGSize {
+        let ratio = CGFloat(pageRatio)
+        let h = max(60, min((screen.width - sideMargin) / ratio, screen.height * maxHeightShare))
+        return CGSize(width: h * ratio, height: h)
     }
 }
 

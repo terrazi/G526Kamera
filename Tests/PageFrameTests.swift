@@ -113,4 +113,42 @@ final class PageFrameTests: XCTestCase {
         let d = GuidanceAdvisor.decide(m, choice: nil, config: config, sharpFloor: 0.45)
         XCTAssertEqual(d.advice, .chooseColumn)
     }
+
+    // MARK: Dikey önizleme
+
+    func testPreviewBoxIsPortraitWithPageRatioAndFitsTheScreen() {
+        let screen = CGSize(width: 375, height: 812)   // iPhone 12 mini
+        let box = PageFrame.previewBox(screen: screen)
+        XCTAssertGreaterThan(box.height, box.width, "dikey")
+        XCTAssertEqual(box.width / box.height, CGFloat(PageFrame.pageRatio), accuracy: 0.001)
+        XCTAssertLessThanOrEqual(box.width, screen.width - 32)
+        XCTAssertLessThanOrEqual(box.height, screen.height * 0.5 + 0.5)
+        // dar ekranda genişlik sınırı belirler
+        let narrow = PageFrame.previewBox(screen: CGSize(width: 200, height: 2000))
+        XCTAssertLessThanOrEqual(narrow.width, 168 + 0.5)
+        XCTAssertEqual(narrow.width / narrow.height, CGFloat(PageFrame.pageRatio), accuracy: 0.001)
+    }
+
+    func testPreviewCropShowsExactlyTheGuidanceFrame() {
+        // önizlemede görünen yatay pay, yönlendirmenin kullandığı kadrajla aynı olmalı
+        let box = PageFrame.previewBox(screen: CGSize(width: 375, height: 812))
+        let normal = DisplayView.layerSize(in: box, orientation: .normal, cropToPage: true)
+        XCTAssertEqual(normal.width / normal.height, 16.0 / 9.0, accuracy: 0.001)
+        XCTAssertEqual(box.width / normal.width, CGFloat(PageFrame.verticalPage(orientation: .normal).width), accuracy: 0.001)
+        XCTAssertEqual(normal.height, box.height, accuracy: 0.001, "sayfa görünümün boyunu doldurur")
+
+        // 90°: katman döner; ekranda görünen boy = katmanın eni
+        let turned = DisplayView.layerSize(in: box, orientation: .right90, cropToPage: true)
+        XCTAssertEqual(turned.height, box.width, accuracy: 0.001, "sayfa görünümün enini doldurur")
+        XCTAssertEqual(box.height / turned.width, CGFloat(PageFrame.verticalPage(orientation: .right90).width), accuracy: 0.001)
+        XCTAssertEqual(DisplayView.layerSize(in: box, orientation: .left90, cropToPage: true), turned)
+        XCTAssertEqual(DisplayView.layerSize(in: box, orientation: .rotate180, cropToPage: true), normal)
+    }
+
+    func testWholeFramePreviewKeepsTheOldLayout() {
+        let v = CGSize(width: 340, height: 191)
+        XCTAssertEqual(DisplayView.layerSize(in: v, orientation: .normal, cropToPage: false), v)
+        XCTAssertEqual(DisplayView.layerSize(in: v, orientation: .rotate180, cropToPage: false), v)
+        XCTAssertEqual(DisplayView.layerSize(in: v, orientation: .right90, cropToPage: false), CGSize(width: 191, height: 340))
+    }
 }
