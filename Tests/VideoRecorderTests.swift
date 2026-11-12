@@ -62,7 +62,7 @@ final class VideoRecorderTests: XCTestCase {
         guard let out = output else { return XCTFail("video üretilmedi") }
         XCTAssertGreaterThan(out.bytes, 0)
         XCTAssertLessThan(out.bytes, 3 * 1024 * 1024, "12 sn'lik video küçük kalmalı")
-        XCTAssertTrue(out.frames >= 34 && out.frames <= 50, "yaklaşık 4 kare/sn (giriş 10 kare/sn): \(out.frames)")
+        XCTAssertTrue(out.frames >= 22 && out.frames <= 26, "yaklaşık 2 kare/sn (giriş 10 kare/sn): \(out.frames)")
         let asset = AVURLAsset(url: out.url)
         XCTAssertEqual(asset.duration.seconds, 12, accuracy: 1.0)
         guard let track = asset.tracks(withMediaType: .video).first else { return XCTFail("video izi yok") }
@@ -79,9 +79,81 @@ final class VideoRecorderTests: XCTestCase {
         XCTAssertNil(failure)
         guard let out = output else { return XCTFail("video üretilmedi") }
         XCTAssertLessThanOrEqual(out.seconds, 30.0)
-        XCTAssertLessThanOrEqual(out.frames, 121)
+        XCTAssertLessThanOrEqual(out.frames, 61)
         XCTAssertLessThanOrEqual(AVURLAsset(url: out.url).duration.seconds, 30.5)
         try? FileManager.default.removeItem(at: out.url)
+    }
+
+    /// Her yarım saniyelik pencereden en net kare seçilir: pencerede tek kare parlak (200), diğerleri koyu (40); o kare puanı en yüksek.
+    func testPicksSharpestFramePerHalfSecondWindow() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("net-\(UUID().uuidString).mp4")
+        let recorder = VideoRecorder()
+        recorder.start(to: url)
+        // 6 pencere (3 sn), pencere başına 5 kare (10 kare/sn); en net kare pencerenin farklı sıralarında
+        for window in 0..<6 {
+            let best = window % 5
+            for k in 0..<5 {
+                let t = Double(window) * 0.5 + Double(k) * 0.1
+                let isBest = k == best
+                recorder.offer(makeBuffer(width: 320, height: 180, shade: isBest ? 200 : 40),
+                               time: 3000 + t, sharpness: isBest ? 500 : Double(10 + k))
+            }
+        }
+        let done = expectation(description: "video bitti")
+        var output: VideoRecorder.Output?
+        recorder.finish { result in
+            if case .success(let o) = result { output = o }
+            done.fulfill()
+        }
+        wait(for: [done], timeout: 60)
+        guard let out = output else { return XCTFail("video üretilmedi") }
+        defer { try? FileManager.default.removeItem(at: out.url) }
+        XCTAssertEqual(out.frames, 6, "pencere başına tek kare")
+
+        let asset = AVURLAsset(url: out.url)
+        guard let track = asset.tracks(withMediaType: .video).first else { return XCTFail("video izi yok") }
+        let reader = try AVAssetReader(asset: asset)
+        let settings: [String: Any] = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange]
+        let trackOutput = AVAssetReaderTrackOutput(track: track, outputSettings: settings)
+        reader.add(trackOutput)
+        XCTAssertTrue(reader.startReading())
+        var times: [Double] = []
+        var lumas: [Int] = []
+        while let sample = trackOutput.copyNextSampleBuffer() {
+            times.append(CMSampleBufferGetPresentationTimeStamp(sample).seconds)
+            guard let pb = CMSampleBufferGetImageBuffer(sample) else { continue }
+            CVPixelBufferLockBaseAddress(pb, .readOnly)
+            let base = CVPixelBufferGetBaseAddressOfPlane(pb, 0)!.assumingMemoryBound(to: UInt8.self)
+            let stride = CVPixelBufferGetBytesPerRowOfPlane(pb, 0)
+            lumas.append(Int(base[90 * stride + 160]))
+            CVPixelBufferUnlockBaseAddress(pb, .readOnly)
+        }
+        XCTAssertEqual(times.count, 6)
+        for (i, t) in times.enumerated() {
+            XCTAssertEqual(t, Double(i) * 0.5, accuracy: 0.02, "kareler düzenli aralıklı")
+        }
+        for (i, y) in lumas.enumerated() {
+            XCTAssertGreaterThan(y, 150, "\(i). pencerede en net (parlak) kare seçilmeliydi: parlaklık \(y)")
+        }
+    }
+
+    func testEqualSharpnessKeepsFirstFrameOfWindow() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("esit-\(UUID().uuidString).mp4")
+        let recorder = VideoRecorder()
+        recorder.start(to: url)
+        for k in 0..<10 {
+            recorder.append(makeBuffer(width: 320, height: 180, shade: k == 0 ? 200 : 40), time: 4000 + Double(k) * 0.1)
+        }
+        let done = expectation(description: "video bitti")
+        var output: VideoRecorder.Output?
+        recorder.finish { result in
+            if case .success(let o) = result { output = o }
+            done.fulfill()
+        }
+        wait(for: [done], timeout: 60)
+        guard let out = output else { return XCTFail("video üretilmedi") }
+        defer { try? FileManager.default.removeItem(at: out.url) }
+        XCTAssertEqual(out.frames, 2, "1 saniye = 2 pencere")
     }
 
     func testNoFramesGivesNoFramesFailureAndNoFile() {

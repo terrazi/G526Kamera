@@ -5,16 +5,18 @@ import CoreVideo
 
 /// Kameranın çözülmüş karelerini küçük boyutlu H.264 MP4 dosyasına yazar.
 ///
-/// Neden bu ayarlar: Gemini videoyu saniyede 1 kare örnekler; 4 kare/sn yeterlidir ve anahtar kare her saniye konur,
-/// böylece Gemini'nin gördüğü kareler en keskin (anahtar) karelere denk gelir; küçük yazı okunur.
-/// Çözünürlük kameranınkiyle aynı kalır (1920x1080); boyutu bit hızı sınırlar (1080p'de en çok ≈ 1,5 Mbit/sn: 30 sn ≤ ≈ 5,6 MB;
-/// durağan belge sahnesinde çok daha küçük çıkar). H.264 (High) + MP4, Gemini'nin ve Dosyalar uygulamasının en güvenli biçimidir.
+/// Neden bu ayarlar: Gemini videoyu (bildiğim kadarıyla) saniyede 1 kare örnekler; saniyede 2 kare yeterlidir.
+/// Kare sayısı azaltılıp her kareye daha çok bit verilir ve her yarım saniyelik pencereden o penceredeki EN NET kare seçilir
+/// (netlik puanı çözme hattında zaten hesaplanır, ek iş yoktur). Böylece bir yanı bulanık, bir yanı net karelerden netleri yazılır.
+/// Çözünürlük kameranınkiyle aynı kalır (1920x1080); boyutu bit hızı belirler (hedef ≈ 1,2 Mbit/sn; kodlayıcı bunu bir miktar aşabilir,
+/// o yüzden 30 sn için ≈ 4,5–7 MB beklenir, durağan belge sahnesinde daha küçük çıkar). H.264 (High) + MP4, Gemini'nin ve Dosyalar
+/// uygulamasının en güvenli biçimidir.
 /// Ses yoktur (kameranın akışında ses yok; telefon mikrofonu sesli komutlara ayrılmıştır).
 final class VideoRecorder {
     /// Bir kayıt en çok bu kadar sürer (kareler bu süreden sonra yazılmaz)
     static let maxSeconds: TimeInterval = 30
-    static let fps: Double = 4
-    static let bitsPerPixel: Double = 0.15
+    static let fps: Double = 2
+    static let bitsPerPixel: Double = 0.28
     static let minBitrate: Double = 250_000
     static let maxBitrate: Double = 1_500_000
 
@@ -45,6 +47,14 @@ final class VideoRecorder {
     private var frames = 0
     private var failed: String?
 
+    /// Şu anki yarım saniyelik pencerenin şimdiye dek gelen en net karesi (yalnızca `queue` üzerinde).
+    private struct Candidate {
+        let buffer: CVPixelBuffer
+        let sharpness: Double
+        let window: Int
+    }
+    private var pending: Candidate?
+
     var isRecording: Bool {
         lock.lock()
         defer { lock.unlock() }
@@ -74,13 +84,19 @@ final class VideoRecorder {
         lock.unlock()
     }
 
-    /// Çözülen her kare buraya verilir (kayıt kapalıyken hemen döner).
-    func append(_ buffer: CVPixelBuffer, time: TimeInterval) {
+    /// Çözülen her kare netlik puanıyla buraya verilir (kayıt kapalıyken hemen döner).
+    /// Her `1/fps` saniyelik pencereden en yüksek puanlı kare yazılır; eşit puanda pencerenin ilk karesi kalır.
+    func offer(_ buffer: CVPixelBuffer, time: TimeInterval, sharpness: Double) {
         lock.lock()
         let on = armed
         lock.unlock()
         guard on else { return }
-        queue.async { self.write(buffer, time: time) }
+        queue.async { self.consider(buffer, time: time, sharpness: sharpness) }
+    }
+
+    /// Netlik puanı olmayan kare (hepsi eşit sayılır: her pencerenin ilk karesi yazılır).
+    func append(_ buffer: CVPixelBuffer, time: TimeInterval) {
+        offer(buffer, time: time, sharpness: 0)
     }
 
     /// Kaydı bitirir ve dosyayı kapatır.
@@ -89,6 +105,11 @@ final class VideoRecorder {
         armed = false
         lock.unlock()
         queue.async {
+            // son (yarım kalmış) pencerenin en net karesi de yazılır
+            if let last = self.pending {
+                self.pending = nil
+                self.commit(last)
+            }
             guard let w = self.writer, let inp = self.input, let url = self.fileURL, self.frames > 0 else {
                 self.discardWriter()
                 if let url = self.fileURL { try? FileManager.default.removeItem(at: url) }
@@ -138,12 +159,14 @@ final class VideoRecorder {
 
     private func discardWriter() {
         if let w = writer, w.status == .writing { w.cancelWriting() }
+        pending = nil
         writer = nil
         input = nil
         adaptor = nil
     }
 
-    private func write(_ buffer: CVPixelBuffer, time: TimeInterval) {
+    /// Kareyi pencerelerine göre değerlendirir: yeni pencere başlarsa öncekinin en net karesi yazılır.
+    private func consider(_ buffer: CVPixelBuffer, time: TimeInterval, sharpness: Double) {
         guard let url = fileURL, failed == nil else { return }
         if writer == nil {
             guard open(url: url, buffer: buffer) else { return }
@@ -151,19 +174,31 @@ final class VideoRecorder {
         }
         let t = time - firstTime
         // 30 saniye sınırı: bundan sonraki kareler hiç yazılmaz
-        if t > VideoRecorder.maxSeconds { return }
-        // Kare hızını seyrelt (kamera genelde daha hızlıdır)
-        if lastPTS >= 0 && t - lastPTS < 1.0 / VideoRecorder.fps - 0.02 { return }
+        if t < 0 || t >= VideoRecorder.maxSeconds { return }
+        let window = Int(t * VideoRecorder.fps)
+        if let p = pending {
+            if window < p.window { return }          // geç gelen eski kare
+            if window > p.window {
+                pending = nil
+                commit(p)
+            }
+        }
+        if let p = pending, p.sharpness >= sharpness { return }
+        pending = Candidate(buffer: buffer, sharpness: sharpness, window: window)
+    }
+
+    /// Seçilen kareyi pencerenin başlangıç zamanıyla yazar (zamanlar düzenli aralıklıdır; oynatma gerçek hızdadır).
+    private func commit(_ c: Candidate) {
         guard let w = writer, let inp = input, let ad = adaptor, w.status == .writing else { return }
-        // Kodlayıcı o an yetişemiyorsa kısa süre beklenir (kare zamanı çözücüden gelir, bekleme zamanı bozmaz); yine de hazır değilse kare atılır
+        // Kodlayıcı o an yetişemiyorsa kısa süre beklenir; yine de hazır değilse kare atılır
         var waited = 0
         while !inp.isReadyForMoreMediaData && waited < 60 {
             Thread.sleep(forTimeInterval: 0.005)
             waited += 1
         }
         guard inp.isReadyForMoreMediaData else { return }
-        let pts = CMTime(seconds: t, preferredTimescale: 600)
-        if ad.append(buffer, withPresentationTime: pts) {
+        let t = Double(c.window) / VideoRecorder.fps
+        if ad.append(c.buffer, withPresentationTime: CMTime(seconds: t, preferredTimescale: 600)) {
             frames += 1
             lastPTS = t
         } else {

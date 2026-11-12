@@ -23,6 +23,9 @@ final class FramePipeline {
     /// Görüntü değişti ve sahne durulduysa çağrılır (analiz kuyruğundan).
     var onMotionTrigger: (() -> Void)?
 
+    /// Her analiz edilen kare için (kare, zaman, netlik puanı) çağrılır (analiz kuyruğundan). Video kaydı en net kareyi seçmek için kullanır.
+    var onAnalyzed: ((CVPixelBuffer, TimeInterval, Double) -> Void)?
+
     /// Sesli konumlandırma: sayfa/yazı ölçüsü + kameranın ne kadar süredir durgun olduğu (analiz kuyruğundan).
     struct GuidanceSample {
         var metrics: PageMetrics
@@ -87,6 +90,7 @@ final class FramePipeline {
             if let result = FrameAnalysis.analyze(pixelBuffer, skipTop: Int(Double(height) * 0.05)) {
                 self.store.add(buffer: pixelBuffer, time: time,
                                sharpness: result.sharpness, signature: result.signature)
+                self.onAnalyzed?(pixelBuffer, time, result.sharpness)
                 if self.motion.process(signature: result.signature, time: time, busy: self.engine.isBusy) {
                     self.onMotionTrigger?()
                 }

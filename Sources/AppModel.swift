@@ -233,7 +233,10 @@ final class AppModel: ObservableObject {
         decoder.onDecoded = { pixelBuffer, time in
             clock.mark()
             pipeline.handle(pixelBuffer, time: time)
-            recorder.append(pixelBuffer, time: time)
+        }
+        // Video kaydı kareleri netlik puanıyla alır: her yarım saniyeden en net kare yazılır
+        pipeline.onAnalyzed = { pixelBuffer, time, sharpness in
+            recorder.offer(pixelBuffer, time: time, sharpness: sharpness)
         }
         decoder.onResolution = { [weak self] width, height in
             Task { @MainActor in self?.resolutionChanged(width: width, height: height) }
