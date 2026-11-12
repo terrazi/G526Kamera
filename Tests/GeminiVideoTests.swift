@@ -65,7 +65,7 @@ final class GeminiVideoTests: XCTestCase {
     func testUploadDecisionAndLimits() {
         XCTAssertFalse(GeminiVideo.usesFilesAPI(bytes: GeminiVideo.inlineMaxBytes), "sınırda hâlâ doğrudan istek")
         XCTAssertTrue(GeminiVideo.usesFilesAPI(bytes: GeminiVideo.inlineMaxBytes + 1))
-        XCTAssertTrue(GeminiVideo.usesFilesAPI(bytes: 40 * 1024 * 1024), "3 dk'lık kayıt ≈ 25–40 MB yüklenir")
+        XCTAssertTrue(GeminiVideo.usesFilesAPI(bytes: 40 * 1024 * 1024), "40 MB'lık video yüklenir (90 sn'lik kayıt ≈ 14–24 MB)")
         XCTAssertLessThan(GeminiVideo.inlineMaxBytes * 4 / 3, 20 * 1024 * 1024, "base64 sonrası istek 20 MB altında")
         XCTAssertGreaterThan(GeminiVideo.maxBytes, 40 * 1024 * 1024)
         XCTAssertEqual(GeminiVideo.uploadTimeout(bytes: 1_000_000), 300, "küçük dosyada en az 300 sn")

@@ -9,12 +9,12 @@ import CoreVideo
 /// Kare sayısı azaltılıp her kareye daha çok bit verilir ve her yarım saniyelik pencereden o penceredeki EN NET kare seçilir
 /// (netlik puanı çözme hattında zaten hesaplanır, ek iş yoktur). Böylece bir yanı bulanık, bir yanı net karelerden netleri yazılır.
 /// Çözünürlük kameranınkiyle aynı kalır (1920x1080); boyutu bit hızı belirler (hedef ≈ 1,2 Mbit/sn; kodlayıcı bunu bir miktar aşabilir,
-/// o yüzden 30 sn için ≈ 4,5–7 MB, 3 dk için ≈ 25–40 MB beklenir, durağan belge sahnesinde daha küçük çıkar). H.264 (High) + MP4, Gemini'nin ve Dosyalar
+/// o yüzden 30 sn için ≈ 4,5–8 MB, 90 sn için ≈ 14–24 MB beklenir, durağan belge sahnesinde daha küçük çıkar). H.264 (High) + MP4, Gemini'nin ve Dosyalar
 /// uygulamasının en güvenli biçimidir.
 /// Ses yoktur (kameranın akışında ses yok; telefon mikrofonu sesli komutlara ayrılmıştır).
 final class VideoRecorder {
     /// Elle başlatılan video kaydı en çok bu kadar sürer (kareler bu süreden sonra yazılmaz)
-    static let maxSeconds: TimeInterval = 180
+    static let maxSeconds: TimeInterval = 90
     /// Deneme sınavının video aşaması (onaylı tasarım: tek, 30 sn'lik kayıt)
     static let examMaxSeconds: TimeInterval = 30
     static let fps: Double = 2

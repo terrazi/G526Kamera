@@ -163,7 +163,7 @@ final class AppModel: ObservableObject {
 
     private let client = CameraClient()
     private let decoder = H264Decoder()
-    /// Video kaydı (en çok 3 dk): çözülen kareler küçük H.264 MP4'e yazılır, bitince belge klasörüne kaydedilir
+    /// Video kaydı (en çok 90 sn): çözülen kareler küçük H.264 MP4'e yazılır, bitince belge klasörüne kaydedilir
     private let videoRecorder = VideoRecorder()
     private var videoStopWork: DispatchWorkItem?
     // İnternet yoklaması ve kendi kendini onarma
@@ -1254,7 +1254,7 @@ final class AppModel: ObservableObject {
         videoRecorder.start(to: VideoOutbox.shared.newFileURL(date: Date()), orientation: settings.imageOrientation)
         videoRecording = true
         HealthMonitor.shared.mark("video kaydı")
-        flash("● Video kaydı açık (en çok 3 dk)", seconds: 5)
+        flash("● Video kaydı açık (en çok 90 sn)", seconds: 5)
         say("Video kaydı açık.", interrupt: true, force: true)
         let work = DispatchWorkItem { [weak self] in
             Task { @MainActor in self?.stopVideo(reason: "süre") }
@@ -1289,7 +1289,7 @@ final class AppModel: ObservableObject {
         case .success(let output):
             let seconds = Int(output.seconds.rounded())
             let mb = String(format: "%.1f", Double(output.bytes) / 1_048_576).replacingOccurrences(of: ".", with: ",")
-            let head = reason == "süre" ? "Üç dakika doldu, kayıt kapandı." : "Kayıt kapandı."
+            let head = reason == "süre" ? "Doksan saniye doldu, kayıt kapandı." : "Kayıt kapandı."
             tlog("[video] \(output.url.lastPathComponent): \(seconds) sn, \(output.frames) kare, \(output.bytes) bayt")
             flash("Video \(seconds) sn, \(mb) MB: klasöre kaydediliyor", seconds: 6)
             say("\(head) \(seconds) saniye, \(mb) megabayt. Klasöre kaydediliyor.", interrupt: true, force: true)

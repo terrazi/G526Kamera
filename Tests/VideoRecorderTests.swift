@@ -54,7 +54,7 @@ final class VideoRecorderTests: XCTestCase {
         XCTAssertGreaterThan(full, 1_000_000)
         XCTAssertLessThanOrEqual(full, 1_500_000)
         XCTAssertEqual(VideoRecorder.bitrate(width: 640, height: 360), 250_000, "küçük çözünürlükte alt sınır")
-        XCTAssertEqual(VideoRecorder.maxSeconds, 180, "elle başlatılan kayıt 3 dk")
+        XCTAssertEqual(VideoRecorder.maxSeconds, 90, "elle başlatılan kayıt 90 sn (1,5 dk)")
         XCTAssertEqual(VideoRecorder.examMaxSeconds, 30, "sınav videosu 30 sn (onaylı tasarım)")
     }
 
@@ -86,7 +86,7 @@ final class VideoRecorderTests: XCTestCase {
         try? FileManager.default.removeItem(at: out.url)
     }
 
-    /// Elle başlatılan kayıtta varsayılan sınır 3 dk'dır: 40 sn'lik giriş kesilmeden yazılır
+    /// Elle başlatılan kayıtta varsayılan sınır 90 sn'dir: 40 sn'lik giriş kesilmeden yazılır
     func testDefaultLimitAllowsMoreThanThirtySeconds() {
         let (output, failure) = record(width: 640, height: 360, seconds: 40, step: 0.25)
         XCTAssertNil(failure)

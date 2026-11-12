@@ -9,7 +9,7 @@ struct VideoAnalysis {
 
 /// Videoyu Gemini'ye tek seferlik gönderir ("Bu videoda ne oluyor?"). Belge sohbetinden bağımsızdır.
 /// Küçük video (≤ 14 MB) doğrudan istekte (base64, inlineData) gider: ayrıca dosya yükleme adımı gerekmez.
-/// Daha büyüğü (3 dk'lık kayıt ≈ 25–40 MB) önce Files API'ye yüklenir, işlenmesi beklenir, istekte dosya adresiyle verilir ve
+/// Daha büyüğü (90 sn'lik kayıt ≈ 14–24 MB; 14 MB'ı aşarsa) önce Files API'ye yüklenir, işlenmesi beklenir, istekte dosya adresiyle verilir ve
 /// iş bitince silinir (istek sınırı 20 MB'tır; belgelere göre bundan büyük istekte Files API şart).
 /// Her profilin anahtarı ayrı proje olabileceğinden yüklenen dosya yalnız o profille kullanılır; profil değişirse yeniden yüklenir.
 /// Gemini varsayılan olarak saniyede 1 kare okur; `videoMetadata.fps` ile kayıttaki kare hızı verilir (token harcaması kare sayısıyla orantılı).
@@ -47,7 +47,7 @@ enum GeminiVideo {
     static let system = "Türkçe cevap ver. Cevap sesli okunacak: madde işareti, başlık ve biçimlendirme kullanma."
     /// Bu boyuta kadar video doğrudan istekte gider (base64 sonrası istek 20 MB'ın altında kalsın)
     static let inlineMaxBytes = 14 * 1024 * 1024
-    /// Gönderilebilecek en büyük video (bellekte tutulur; 3 dk'lık kayıt bunun çok altındadır)
+    /// Gönderilebilecek en büyük video (bellekte tutulur; 90 sn'lik kayıt bunun çok altındadır)
     static let maxBytes = 100 * 1024 * 1024
 
     /// Video doğrudan istekte mi gider, yoksa önce yüklenir mi
