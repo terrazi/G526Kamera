@@ -14,11 +14,10 @@ struct VideoAnalysis {
 /// Her profilin anahtarı ayrı proje olabileceğinden yüklenen dosya yalnız o profille kullanılır; profil değişirse yeniden yüklenir.
 /// Gemini varsayılan olarak saniyede 1 kare okur; `videoMetadata.fps` ile kayıttaki kare hızı verilir (token harcaması kare sayısıyla orantılı).
 enum GeminiVideo {
-    static let defaultQuestion = "Bu videoda görünen yazıları oku ve soruları sırayla çöz. Her soru için önce soru numarasını, sonra cevabı söyle: "
-        + "\"11. sorunun cevabı Ceyhan\" gibi; şık varsa şıkkın harfini ve metnini de ver. Okunamayan, eksik ya da emin olmadığın soruyu "
-        + "uydurma: \"okunamadı\" ya da \"emin değilim\" de. Aynı soru birden çok karede görünüyorsa bir kez cevapla."
-    static let system = "Videodaki yazı ve soruları temel al; soruları kendi bilginle çöz, okunamayan ya da emin olmadığın yeri uydurma. "
-        + "Türkçe, kısa ve net cevap ver. Cevap sesli okunacak: madde işareti, başlık ve biçimlendirme kullanma."
+    /// Kullanıcının istediği sade talimat: Gemini'nin okuma ve çözme işine karışılmaz (biçim, "uydurma" gibi ek kural yok)
+    static let defaultQuestion = "Videodaki yazıları oku ve analiz et. Soruları çöz ve cevaplarını ver."
+    /// Yalnızca çıktı biçimi: cevap sesle okunacağı için işaret ve başlık olmasın
+    static let system = "Türkçe cevap ver. Cevap sesli okunacak: madde işareti, başlık ve biçimlendirme kullanma."
     /// Bu boyuta kadar video doğrudan istekte gider (base64 sonrası istek 20 MB'ın altında kalsın)
     static let inlineMaxBytes = 14 * 1024 * 1024
     /// Gönderilebilecek en büyük video (bellekte tutulur; 3 dk'lık kayıt bunun çok altındadır)

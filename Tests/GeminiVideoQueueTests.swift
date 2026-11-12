@@ -98,14 +98,13 @@ final class GeminiVideoQueueTests: XCTestCase {
         UserDefaults.standard.removeObject(forKey: "videoSendMode")
     }
 
-    func testDefaultInstructionAsksToReadAndSolveButNotToInvent() {
+    func testDefaultInstructionIsTheSimpleOneAndAddsNoExtraRules() {
         let q = GeminiVideo.defaultQuestion
-        XCTAssertTrue(q.contains("oku"))
-        XCTAssertTrue(q.contains("çöz"))
-        XCTAssertTrue(q.contains("sorunun cevabı"), "cevap biçimi örneği (sesle okunacak)")
-        XCTAssertTrue(q.contains("uydurma"))
-        XCTAssertTrue(q.contains("okunamadı"))
-        XCTAssertTrue(GeminiVideo.system.contains("uydurma"))
+        XCTAssertEqual(q, "Videodaki yazıları oku ve analiz et. Soruları çöz ve cevaplarını ver.")
+        XCTAssertFalse(q.contains("uydurma"), "Gemini'nin okuma işine ek kural konmaz")
+        XCTAssertFalse(q.contains("okunamadı"))
+        XCTAssertTrue(GeminiVideo.system.contains("sesli"), "yalnız çıktı biçimi: sesle okunacak")
+        XCTAssertFalse(GeminiVideo.system.contains("uydurma"))
         let object = GeminiVideo.requestObject(video: Data([1]), question: q, highResolution: true)
         let config = object["generationConfig"] as? [String: Any]
         XCTAssertGreaterThanOrEqual(config?["maxOutputTokens"] as? Int ?? 0, 8192, "çok soru: uzun cevap")
