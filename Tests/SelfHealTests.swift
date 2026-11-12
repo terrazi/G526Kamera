@@ -91,7 +91,7 @@ final class SelfHealTests: XCTestCase {
     // MARK: Kestirme bağlantısı
 
     func testShortcutURLEncodesNameAndReturns() throws {
-        let url = try XCTUnwrap(CellularShortcut.url(name: "Hücresel Yenile"))
+        let url = try XCTUnwrap(ShortcutLink.url(name: "Hücresel Yenile"))
         let text = url.absoluteString
         XCTAssertTrue(text.hasPrefix("shortcuts://x-callback-url/run-shortcut?name="), text)
         XCTAssertTrue(text.contains("H%C3%BCcresel%20Yenile"), text)
@@ -99,13 +99,71 @@ final class SelfHealTests: XCTestCase {
     }
 
     func testShortcutURLKeepsSpecialCharactersInsideTheName() throws {
-        let url = try XCTUnwrap(CellularShortcut.url(name: "a&b=c"))
+        let url = try XCTUnwrap(ShortcutLink.url(name: "a&b=c"))
         XCTAssertTrue(url.absoluteString.contains("name=a%26b%3Dc&"), url.absoluteString)
     }
 
     func testShortcutURLNeedsAName() {
-        XCTAssertNil(CellularShortcut.url(name: ""))
-        XCTAssertNil(CellularShortcut.url(name: "   "))
+        XCTAssertNil(ShortcutLink.url(name: ""))
+        XCTAssertNil(ShortcutLink.url(name: "   "))
+    }
+
+    // MARK: Kestirme adları ve sınırlayıcı
+
+    func testRepairThrottleWaitsBetweenTriesAndStopsAfterMax() {
+        var t = RepairThrottle(cooldown: 180, maxTries: 3)
+        XCTAssertTrue(t.allow(now: 0))
+        XCTAssertFalse(t.allow(now: 100), "bekleme süresi dolmadı")
+        XCTAssertTrue(t.allow(now: 181))
+        XCTAssertTrue(t.allow(now: 400))
+        XCTAssertFalse(t.allow(now: 1000), "en çok 3 deneme")
+    }
+
+    func testRepairThrottleResetAllowsAgain() {
+        var t = RepairThrottle(cooldown: 180, maxTries: 1)
+        XCTAssertTrue(t.allow(now: 0))
+        XCTAssertFalse(t.allow(now: 500))
+        t.reset()
+        XCTAssertTrue(t.allow(now: 501))
+    }
+
+    private func freshDefaults() -> UserDefaults {
+        let name = "kestirme-test-\(UUID().uuidString)"
+        let d = UserDefaults(suiteName: name)!
+        addTeardownBlock { d.removePersistentDomain(forName: name) }
+        return d
+    }
+
+    func testConnectionShortcutNameStartsEmpty() {
+        let d = freshDefaults()
+        XCTAssertEqual(AppSettings.migratedConnectionShortcutName(d), "")
+    }
+
+    func testConnectionShortcutNameKeepsOldNameOnlyIfOldSwitchWasOn() {
+        let on = freshDefaults()
+        on.set(true, forKey: "cellularShortcutOn")
+        on.set("Hücresel Yenile", forKey: "cellularShortcutName")
+        XCTAssertEqual(AppSettings.migratedConnectionShortcutName(on), "Hücresel Yenile")
+        XCTAssertEqual(on.string(forKey: "connectionShortcutName"), "Hücresel Yenile", "yeni anahtara yazılır")
+        XCTAssertNil(on.object(forKey: "cellularShortcutOn"))
+        XCTAssertEqual(AppSettings.migratedConnectionShortcutName(on), "Hücresel Yenile", "ikinci açılışta da kalır")
+
+        let off = freshDefaults()
+        off.set(false, forKey: "cellularShortcutOn")
+        off.set("Hücresel Yenile", forKey: "cellularShortcutName")
+        XCTAssertEqual(AppSettings.migratedConnectionShortcutName(off), "", "kapalıysa ad taşınmaz")
+    }
+
+    func testConnectionShortcutNameUserChoiceWins() {
+        let d = freshDefaults()
+        d.set("Benim Kestirmem", forKey: "connectionShortcutName")
+        d.set(true, forKey: "cellularShortcutOn")
+        XCTAssertEqual(AppSettings.migratedConnectionShortcutName(d), "Benim Kestirmem")
+    }
+
+    func testDefaultCameraUIDIsValid() {
+        XCTAssertEqual(AppSettings.defaultCameraUID, "G526029XJPDT")
+        XCTAssertNotNil(CameraUID(AppSettings.defaultCameraUID))
     }
 
     func testRouteWarningOnlyForMicReceiver() {

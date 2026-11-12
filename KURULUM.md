@@ -3,8 +3,9 @@
 Bu uygulama G526 (LookCam / MYKJ) Wi-Fi kameranızdan canlı görüntü alır, "Okey" deyince
 (veya görüntü değişince) en net kareyi seçer, iyileştirir ve Google Drive'a yükler.
 
-> **Önemli:** Kamera UID'si kodun içinde değildir. Uygulamada **Ayarlar > Kamera UID** alanına
-> bir kez yazarsınız, yalnızca telefonda saklanır. Bu depoyu herkese açık (public) yapmayın.
+> **Önemli:** Kamera adı (UID) ilk açılışta **Ayarlar > Kamera > Kamera adı (UID)** alanında hazır yazılı gelir;
+> başka bir kamera için silip yenisini yazabilirsiniz. Kamera parolasını kameranın kendi uygulamasından
+> varsayılandan (`123456`) değiştirmeniz önerilir.
 
 ## 1) Derleme (GitHub Actions)
 
@@ -53,7 +54,7 @@ aynı olmalı), aynı adlı klasör sayısı ve bulunan PDF sayısı yazılır.
 
 1. Telefonu **kameranın Wi-Fi ağına** bağlayın.
 2. Uygulamayı açın. İzinleri verin: **Yerel Ağ**, **Mikrofon**, **Konuşma Tanıma**.
-3. Sağ üst **dişli > Kamera**: UID'yi yazın (örn. `G123456ABCDE`). Parola varsayılan `123456`.
+3. Sağ üst **dişli > Kamera**: kamera adı (UID) hazır yazılı gelir, gerekirse değiştirin. Parola varsayılan `123456`.
    IP'yi boş bırakın (kendiliğinden bulunur). Birkaç saniyede "Canlı" görünür.
 4. **Dişli > Google Drive > Google hesabı ve bağlantı**: İstemci Kimliği ve Sırrını yapıştırın →
    **Google ile giriş yap** → ekranda kod çıkar → **Kodu kopyala ve Google sayfasını aç** →

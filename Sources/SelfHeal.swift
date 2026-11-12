@@ -93,9 +93,10 @@ enum AudioHealth {
     }
 }
 
-/// Hücresel yenileme kestirmesini çalıştıran bağlantı (Kestirmeler uygulamasının URL şeması)
-enum CellularShortcut {
-    static let defaultName = "Hücresel Yenile"
+/// Kullanıcının Kestirmeler uygulamasında yaptığı kestirmeleri çalıştıran bağlantı (Kestirmeler uygulamasının URL şeması).
+/// İki kestirme vardır; adları Ayarlar'dan yazılır, ad boşsa o kestirme kapalıdır:
+/// bağlantı kestirmesi (hücresel veriyi kapat-aç) ve ses kestirmesi (Bluetooth'u kapat-aç).
+enum ShortcutLink {
     static let callbackScheme = "g526kamera"
 
     /// shortcuts://x-callback-url/run-shortcut?name=…: kestirme bitince uygulamaya geri dönülür
@@ -107,6 +108,34 @@ enum CellularShortcut {
         guard let encoded = trimmed.addingPercentEncoding(withAllowedCharacters: allowed) else { return nil }
         let back = "\(callbackScheme)://kestirme"
         return URL(string: "shortcuts://x-callback-url/run-shortcut?name=\(encoded)&x-success=\(back)&x-cancel=\(back)&x-error=\(back)")
+    }
+}
+
+/// Aynı onarımın arka arkaya çalıştırılmasını sınırlar: iki deneme arası en az `cooldown` sn, bir arıza süresince en çok
+/// `maxTries` deneme; sorun giderilince (`reset`) sayaç sıfırlanır. Saf mantıktır (zaman dışarıdan verilir).
+struct RepairThrottle {
+    var cooldown: TimeInterval
+    var maxTries: Int
+    private(set) var tries = 0
+    private var last: TimeInterval?
+
+    init(cooldown: TimeInterval, maxTries: Int) {
+        self.cooldown = cooldown
+        self.maxTries = maxTries
+    }
+
+    /// true: şimdi denenebilir (deneme sayılır)
+    mutating func allow(now: TimeInterval) -> Bool {
+        guard tries < maxTries else { return false }
+        if let last = last, now - last < cooldown { return false }
+        tries += 1
+        last = now
+        return true
+    }
+
+    mutating func reset() {
+        tries = 0
+        last = nil
     }
 }
 

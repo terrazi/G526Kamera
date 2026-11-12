@@ -1,12 +1,14 @@
 import Foundation
 
-/// Kullanıcı ayarları. Hepsi telefonda saklanır; kamera kimliği (UID) koda yazılmaz.
+/// Kullanıcı ayarları. Hepsi telefonda saklanır. Kamera adı (UID) ilk açılışta hazır gelir; Ayarlar'dan silinip başkası yazılabilir.
 final class AppSettings: ObservableObject {
     static let shared = AppSettings()
 
     private let d = UserDefaults.standard
 
     // MARK: Kamera
+    /// İlk açılışta Ayarlar'da hazır yazılı gelen kamera adı (UID); kullanıcı silip yenisini yazarsa onun seçimi kalır
+    static let defaultCameraUID = "G526029XJPDT"
     @Published var uid: String { didSet { d.set(uid, forKey: "uid") } }
     @Published var cameraIP: String { didSet { d.set(cameraIP, forKey: "cameraIP") } }
     @Published var cameraPassword: String { didSet { Keychain.set(cameraPassword, for: "cameraPassword") } }
@@ -141,9 +143,10 @@ final class AppSettings: ObservableObject {
     @Published var examVideoFirst: Bool { didSet { d.set(examVideoFirst, forKey: "examVideoFirst") } }
     /// Sınav açılırken ses, mikrofon, internet ve Gemini sınanır
     @Published var examSelfCheck: Bool { didSet { d.set(examSelfCheck, forKey: "examSelfCheck") } }
-    /// İnternet gidince kullanıcının yaptığı "hücresel yenileme" kestirmesini (Kestirmeler uygulaması) çalıştır; varsayılan kapalı
-    @Published var cellularShortcutOn: Bool { didSet { d.set(cellularShortcutOn, forKey: "cellularShortcutOn") } }
-    @Published var cellularShortcutName: String { didSet { d.set(cellularShortcutName, forKey: "cellularShortcutName") } }
+    /// Bağlantı kestirmesinin adı (Kestirmeler uygulamasındaki kestirme: hücresel veriyi kapat-aç). İnternet gidince çalışır; boşsa kapalı
+    @Published var connectionShortcutName: String { didSet { d.set(connectionShortcutName, forKey: "connectionShortcutName") } }
+    /// Ses kestirmesinin adı (Bluetooth'u kapat-aç). Mikrofon uzun süre sessiz kalınca ya da ses mikrofon alıcısına gidince çalışır; boşsa kapalı
+    @Published var audioShortcutName: String { didSet { d.set(audioShortcutName, forKey: "audioShortcutName") } }
 
     // MARK: Kaydetme (belge klasörü)
     /// "single": her fotoğraf hemen gider · "batch": biriksin, toplu gitsin
@@ -156,7 +159,7 @@ final class AppSettings: ObservableObject {
     @Published var uploadFormat: String { didSet { d.set(uploadFormat, forKey: "uploadFormat") } }
 
     init() {
-        uid = d.string(forKey: "uid") ?? ""
+        uid = d.string(forKey: "uid") ?? AppSettings.defaultCameraUID
         cameraIP = d.string(forKey: "cameraIP") ?? ""
         cameraPassword = Keychain.get("cameraPassword") ?? "123456"
         streamQuality = d.object(forKey: "streamQuality") as? Int ?? 1
@@ -245,8 +248,8 @@ final class AppSettings: ObservableObject {
         examGap = min(max(d.object(forKey: "examGap") as? Int ?? 3, 0), 10)
         examVideoFirst = d.object(forKey: "examVideoFirst") as? Bool ?? true
         examSelfCheck = d.object(forKey: "examSelfCheck") as? Bool ?? true
-        cellularShortcutOn = d.object(forKey: "cellularShortcutOn") as? Bool ?? false
-        cellularShortcutName = d.string(forKey: "cellularShortcutName") ?? CellularShortcut.defaultName
+        connectionShortcutName = AppSettings.migratedConnectionShortcutName(d)
+        audioShortcutName = d.string(forKey: "audioShortcutName") ?? ""
         previewOff = d.object(forKey: "previewOff") as? Bool ?? false
         dimScreen = d.object(forKey: "dimScreen") as? Bool ?? false
     }
@@ -283,6 +286,23 @@ extension AppSettings {
         guard !geminiCapMonth.isEmpty, geminiCapMonth != GeminiProfiles.monthKey(now) else { return }
         if activeGeminiProfile.free { geminiActive = geminiCapPrev }
         geminiCapMonth = ""
+    }
+
+    /// Bağlantı kestirmesi adı: yeni anahtar varsa o; yoksa eski sürümde kutu açıktıysa eski ad, değilse boş (kapalı).
+    /// Sonuç yeni anahtara yazılır, eski anahtarlar silinir.
+    static func migratedConnectionShortcutName(_ d: UserDefaults) -> String {
+        let name: String
+        if let current = d.string(forKey: "connectionShortcutName") {
+            name = current
+        } else if d.object(forKey: "cellularShortcutOn") as? Bool == true {
+            name = d.string(forKey: "cellularShortcutName") ?? "Hücresel Yenile"
+        } else {
+            name = ""
+        }
+        d.set(name, forKey: "connectionShortcutName")
+        d.removeObject(forKey: "cellularShortcutOn")
+        d.removeObject(forKey: "cellularShortcutName")
+        return name
     }
 
     /// Eski sürümlerden kalan Google/Drive bilgilerini (jeton, istemci kimliği, klasör) siler

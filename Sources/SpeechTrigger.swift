@@ -244,6 +244,8 @@ final class SpeechTrigger {
     // Ses sağlığı: tamponlar geliyor mu, mikrofon tamamen sessiz mi (ses iş parçacığından yazılır, kilitle okunur)
     /// Sağlık sorunu bildirimi ("" = sorun geçti)
     var onHealth: ((String) -> Void)?
+    /// Mikrofon uzun süredir sessizken her sağlık yoklamasında (5 sn) çağrılır; onarımı (kestirme) sınırlamak çağıranın işidir
+    var onSilent: (() -> Void)?
     private let healthLock = NSLock()
     private var engineStartedAt: TimeInterval = 0
     private var lastBufferAt: TimeInterval?
@@ -438,6 +440,7 @@ final class SpeechTrigger {
             tlog("[ses] sağlık: mikrofondan veri gelmiyor, ses motoru yeniden kuruluyor")
             restartAll(after: 0.5, reason: "mikrofondan veri gelmiyor")
         case .silent:
+            onSilent?()
             if !healthReported {
                 healthReported = true
                 tlog("[ses] sağlık: mikrofon 90 sn boyunca tamamen sessiz")

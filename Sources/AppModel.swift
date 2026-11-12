@@ -162,6 +162,11 @@ final class AppModel: ObservableObject {
     private var videoStopWork: DispatchWorkItem?
     // İnternet yoklaması ve kendi kendini onarma
     private var offlineTracker = OfflineTracker()
+    /// Ses kestirmesi (Bluetooth kapat-aç): mikrofon sessizliği ve ses yolu için ayrı sınırlayıcılar (3 dakikada bir, en çok 3 kez)
+    private var micRepair = RepairThrottle(cooldown: 180, maxTries: 3)
+    private var routeRepair = RepairThrottle(cooldown: 180, maxTries: 3)
+    /// Ses yolu uyarısı ilk ne zaman görüldü (yok = uyarı yok)
+    private var routeWarnSince: TimeInterval?
     private var netTimer: Timer?
     private var netProbing = false
     private var routeObserver: NSObjectProtocol?
@@ -261,7 +266,13 @@ final class AppModel: ObservableObject {
             Task { @MainActor in self?.voiceCommand(id, heard: text) }
         }
         speech.onHealth = { [weak self] text in
-            Task { @MainActor in self?.setNotice(.mic, text) }
+            Task { @MainActor in
+                self?.setNotice(.mic, text)
+                if text.isEmpty { self?.micRepair.reset() }
+            }
+        }
+        speech.onSilent = { [weak self] in
+            Task { @MainActor in self?.runAudioShortcut(reason: "mikrofon sessiz") }
         }
         speech.onUnrecognized = { [weak self] text in
             Task { @MainActor in self?.voiceUnrecognized(text) }
@@ -1433,14 +1444,33 @@ final class AppModel: ObservableObject {
         HealthMonitor.shared.pause()
     }
 
-    /// Ses yalnız mikrofon alıcısına gidiyorsa uyarı yazar (program bunu kendisi değiştiremez)
+    /// Ses yalnız mikrofon alıcısına gidiyorsa uyarı yazar (program çıkışı kendisi değiştiremez; ses kestirmesi varsa
+    /// uyarı 20 saniyeden uzun sürerse netTick onu çalıştırır)
     private func checkRoute() {
         let outputs = AVAudioSession.sharedInstance().currentRoute.outputs.map { $0.portType }
-        setNotice(.route, AudioRoute.routeWarning(outputs))
+        let warning = AudioRoute.routeWarning(outputs)
+        setNotice(.route, warning)
+        if warning.isEmpty {
+            routeWarnSince = nil
+            routeRepair.reset()
+        } else if routeWarnSince == nil {
+            routeWarnSince = ProcessInfo.processInfo.systemUptime
+        }
+    }
+
+    /// Ses yolu uyarısı bu kadar saniyedir sürüyorsa ses kestirmesi çalıştırılır
+    static let routeRepairDelay: TimeInterval = 20
+
+    private func routeTick() {
+        guard let since = routeWarnSince,
+              ProcessInfo.processInfo.systemUptime - since >= AppModel.routeRepairDelay else { return }
+        runAudioShortcut(reason: "ses kulaklığa gitmiyor")
     }
 
     private func netTick() {
-        guard started, !netProbing else { return }
+        guard started else { return }
+        routeTick()
+        guard !netProbing else { return }
         netProbing = true
         Task { [weak self] in
             let online = await InternetProbe.isOnline()
@@ -1451,8 +1481,7 @@ final class AppModel: ObservableObject {
     private func netResult(_ online: Bool) {
         netProbing = false
         guard started else { return }
-        let canRepair = settings.cellularShortcutOn
-            && CellularShortcut.url(name: settings.cellularShortcutName) != nil
+        let canRepair = ShortcutLink.url(name: settings.connectionShortcutName) != nil
             && UIApplication.shared.applicationState == .active
         let action = offlineTracker.record(online: online, now: ProcessInfo.processInfo.systemUptime, canRepair: canRepair)
         switch action {
@@ -1462,9 +1491,9 @@ final class AppModel: ObservableObject {
             setNotice(.network, "İnternet yok. Fotoğraflar ve videolar telefonda bekliyor, internet gelince kendiliğinden gider.")
             say("İnternet yok.", interrupt: false, force: true)
         case .repair:
-            setNotice(.network, "İnternet yok: hücresel yenileme kestirmesi çalıştırılıyor.")
-            say("İnternet yok, hücresel veri yenileniyor.", interrupt: false, force: true)
-            runCellularShortcut()
+            setNotice(.network, "İnternet yok: bağlantı kestirmesi çalıştırılıyor.")
+            say("İnternet yok, bağlantı kestirmesi çalıştırılıyor.", interrupt: false, force: true)
+            runShortcut(named: settings.connectionShortcutName)
         case .recovered:
             setNotice(.network, "")
             say("İnternet geri geldi.", interrupt: false, force: true)
@@ -1473,13 +1502,25 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// Kestirmeler uygulamasında kullanıcının "hücresel yenileme" kestirmesini çalıştırır; bitince uygulamaya döner
-    private func runCellularShortcut() {
-        guard let url = CellularShortcut.url(name: settings.cellularShortcutName) else { return }
-        tlog("[onarım] kestirme çalıştırılıyor: \(settings.cellularShortcutName)")
+    /// Kestirmeler uygulamasında verilen adlı kestirmeyi çalıştırır; bitince uygulamaya döner
+    private func runShortcut(named name: String) {
+        guard let url = ShortcutLink.url(name: name) else { return }
+        tlog("[onarım] kestirme çalıştırılıyor: \(name)")
         UIApplication.shared.open(url) { opened in
             if !opened { tlog("[onarım] Kestirmeler açılamadı") }
         }
+    }
+
+    /// Ses kestirmesini çalıştırır (ad yazılmışsa, uygulama öndeyse ve sınırlayıcı izin veriyorsa)
+    private func runAudioShortcut(reason: String) {
+        guard started, ShortcutLink.url(name: settings.audioShortcutName) != nil,
+              UIApplication.shared.applicationState == .active else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        let allowed = reason == "mikrofon sessiz" ? micRepair.allow(now: now) : routeRepair.allow(now: now)
+        guard allowed else { return }
+        tlog("[onarım] ses kestirmesi: \(reason)")
+        say("Ses sorunu, ses kestirmesi çalıştırılıyor.", interrupt: false, force: true)
+        runShortcut(named: settings.audioShortcutName)
     }
 
     // MARK: - Sınavda video

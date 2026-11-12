@@ -96,14 +96,18 @@ struct SettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 
-    /// İnternet gidince hücresel yenileme kestirmesini çalıştırma
+    /// Kestirmeler uygulamasındaki iki kestirmenin adı (ad boşsa o kestirme çalıştırılmaz)
     private var selfHealSection: some View {
-        Section(header: Text("Kendi kendini onarma"),
-                footer: Text("İnternet 1-2 dakikadır yoksa program bunu ekranda söyler. Aşağıdaki kutu açıksa ayrıca Kestirmeler uygulamasındaki kestirmenizi çalıştırır (en çok 3 kez, 10 dakika arayla). Kestirme: Kestirmeler → + → “Hücresel Veriyi Ayarla” (Kapalı) → “Bekle” (3 saniye) → “Hücresel Veriyi Ayarla” (Açık); adını aşağıdakiyle aynı yazın. Çalışırken Kestirmeler birkaç saniye öne gelir; kamera bağlantısı bu sırada kopabilir. iPhone ilk çalıştırmada izin isteyebilir.")) {
-            Toggle("İnternet gidince kestirmeyi çalıştır", isOn: $settings.cellularShortcutOn)
-            TextField("Kestirme adı", text: $settings.cellularShortcutName)
+        Section(header: Text("Kendi kendini onarma (kestirmeler)"),
+                footer: Text("Kestirmeler uygulamasında yaptığınız kestirmelerin adını aynen yazın; boş bırakılan kapalıdır. Bağlantı kestirmesi: internet 1-2 dakikadır yoksa çalışır (Hücresel Veriyi Ayarla Kapalı → Bekle 3 sn → Hücresel Veriyi Ayarla Açık). Ses kestirmesi: mikrofon 90 saniyedir hiç ses vermiyorsa ya da ses kulaklığa değil mikrofon alıcısına gidiyorsa çalışır (Bluetooth Kapalı → Bekle → Açık). Her kestirme en çok 3 kez, aralarında bekleyerek denenir. Çalışırken Kestirmeler birkaç saniye öne gelir, kamera bağlantısı bu sırada kopabilir; iPhone ilk çalıştırmada izin isteyebilir.")) {
+            TextField("Bağlantı kestirmesinin adı", text: $settings.connectionShortcutName)
                 .textInputAutocapitalization(.never)
                 .disableAutocorrection(true)
+                .accessibilityIdentifier("baglanti-kestirmesi")
+            TextField("Ses kestirmesinin adı", text: $settings.audioShortcutName)
+                .textInputAutocapitalization(.never)
+                .disableAutocorrection(true)
+                .accessibilityIdentifier("ses-kestirmesi")
         }
     }
 
@@ -127,8 +131,8 @@ struct SettingsView: View {
 
     private var cameraSection: some View {
         Section(header: Text("Kamera"),
-                footer: Text("UID yalnızca bu telefonda saklanır. IP boş bırakılırsa kamera kendiliğinden bulunur. Telefon kameranın Wi-Fi ağına bağlı olmalıdır.")) {
-            TextField("Kamera UID (örn. G123456ABCDE)", text: $settings.uid)
+                footer: Text("Kamera adı (UID) hazır yazılı gelir; başka bir kamera için silip yenisini yazabilirsiniz. IP boş bırakılırsa kamera kendiliğinden bulunur. Telefon kameranın Wi-Fi ağına bağlı olmalıdır.")) {
+            TextField("Kamera adı (UID)", text: $settings.uid)
                 .textInputAutocapitalization(.characters)
                 .disableAutocorrection(true)
             TextField("Kamera IP (isteğe bağlı)", text: $settings.cameraIP)
