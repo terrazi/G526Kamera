@@ -73,7 +73,7 @@ private final class FakePorts: ExamPorts {
     var videoSendError = ""
     /// Sayfa sayfa video
     var pageBegins = 0
-    var asks = 0
+    var videoAsks = 0
     var askAnswers: [String] = ["Birinci sorunun cevabı ADANA."]
     var askError = ""
     func videoBeginPages() {
@@ -81,7 +81,7 @@ private final class FakePorts: ExamPorts {
         videoPhaseValue = .recording
     }
     func videoAsk() async -> (answer: String, error: String) {
-        asks += 1
+        videoAsks += 1
         await Task.yield()
         if !askError.isEmpty { return ("", askError) }
         return (askAnswers.isEmpty ? "" : askAnswers.removeFirst(), "")
@@ -1278,13 +1278,13 @@ final class ExamModeTests: XCTestCase {
         let first = await until { exam.status == "Video: devam edilsin mi?" }
         XCTAssertTrue(first, "\(p.spoken) / \(exam.status)")
         XCTAssertEqual(p.videoSends, 1)
-        XCTAssertEqual(p.asks, 1)
+        XCTAssertEqual(p.videoAsks, 1)
         XCTAssertTrue(spoke(p, "Gemini cevabı. Birinci sorunun cevabı ADANA."), "\(p.spoken)")
         await say(exam, "evet")
         let second = await until { p.pageBegins == 2 }
         XCTAssertTrue(second, "ikinci video başlamadı")
         await say(exam, "bitti")
-        let again = await until { p.asks == 2 && exam.status == "Video: devam edilsin mi?" }
+        let again = await until { p.videoAsks == 2 && exam.status == "Video: devam edilsin mi?" }
         XCTAssertTrue(again, "\(p.spoken) / \(exam.status)")
         XCTAssertEqual(p.videoSends, 2, "her video ayrı kaydedilir")
         XCTAssertTrue(spoke(p, "Gemini cevabı. Birinci sorunun cevabı BURSA."))
@@ -1314,7 +1314,7 @@ final class ExamModeTests: XCTestCase {
         await say(exam, "sil")
         let deleted = await until { self.spoke(p, "Video silindi, gönderilmedi.") }
         XCTAssertTrue(deleted, "\(p.spoken)")
-        XCTAssertEqual(p.asks, 0)
+        XCTAssertEqual(p.videoAsks, 0)
         XCTAssertEqual(p.videoSends, 0)
         await say(exam, "hayır")
         let closed = await exam.waitDone(timeout: 8)
@@ -1327,7 +1327,7 @@ final class ExamModeTests: XCTestCase {
         await say(exam, "atla")
         let scanning = await until { exam.status == "Tarama: 0 sayfa" }
         XCTAssertTrue(scanning, "taramaya geçilmedi: \(exam.status) / \(p.spoken)")
-        XCTAssertEqual(p.asks, 0)
+        XCTAssertEqual(p.videoAsks, 0)
         await finish(exam)
     }
 
