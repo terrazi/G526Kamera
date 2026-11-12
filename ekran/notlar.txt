@@ -1,0 +1,21 @@
+Sistem penceresi: “G526 Kamera” Would Like to Access Speech Recognition | Speech data from this app will be sent to Apple to process your requests. This will also help Apple improve its speech recognition technology.
+
+Sesli komutu anlamak için konuşma tanıma gerekir. Mümkünse cihaz içinde çalışır.
+Sistem penceresi: “G526 Kamera” Would Like to Access the Microphone | Sesli komutu (örneğin “Okey”) algılamak ve belgeler hakkındaki sesli sorunuzu kaydetmek için mikrofon gerekir.
+Bulunamadı, atlandı: Tarih/saat yazısı
+Seçenek bulunamadı: Olduğu gibi bırak
+Bulunamadı, atlandı: Tarih/saat yazısı
+Seçenek bulunamadı: Bulanıklaştır
+Bulunamadı, atlandı: Toplu (biriksin)
+Bulunamadı, atlandı: Tek tek (hemen)
+Bulunamadı, atlandı: Google hesabı ve bağlantı
+Canlı görüntü: true
+Bulunamadı, atlandı: Tarih/saat yazısı
+Seçenek bulunamadı: Olduğu gibi bırak
+Bulunamadı, atlandı: Tarih/saat yazısı
+Seçenek bulunamadı: Kes
+Bulunamadı, atlandı: Tarih/saat yazısı
+Seçenek bulunamadı: Bulanıklaştır
+Bulunamadı, atlandı: OCR anahtarı
+Bulunamadı, atlandı: önizleme anahtarı
+Bulunamadı, atlandı: sesle konumlandır anahtarı

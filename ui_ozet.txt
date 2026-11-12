@@ -1,0 +1,9 @@
+Ignoring --strip-bitcode because --sign was not passed
+Ignoring --strip-bitcode because --sign was not passed
+Test Case '-[G526CameraDriveUITests.EkranGoruntuleriUITests test1_ilkAcilisVeAyarlar]' started (Iteration 1 of 3).
+Test Case '-[G526CameraDriveUITests.EkranGoruntuleriUITests test1_ilkAcilisVeAyarlar]' passed (425.747 seconds).
+Test Case '-[G526CameraDriveUITests.EkranGoruntuleriUITests test2_kameraylaCalisma]' started (Iteration 1 of 3).
+Test Case '-[G526CameraDriveUITests.EkranGoruntuleriUITests test2_kameraylaCalisma]' passed (940.401 seconds).
+Test Suite 'EkranGoruntuleriUITests' passed at 2026-11-12 11:16:53.928.
+Test Suite 'G526CameraDriveUITests.xctest' passed at 2026-11-12 11:16:53.930.
+Test Suite 'All tests' passed at 2026-11-12 11:16:53.930.
