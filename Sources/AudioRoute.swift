@@ -22,7 +22,7 @@ enum AudioRoute {
             return "Ses, mikrofon alıcısına (Lightning/USB) gidiyor, kulaklığa gitmiyor. Yandaki ses çıkışı düğmesine basıp kulaklığınızı seçin."
         }
         if outputs.contains(where: { $0 == .builtInSpeaker || $0 == .builtInReceiver }) {
-            return "Ses telefonun hoparlöründen çıkıyor. Kulaklıktan dinlemek için ses çıkışı düğmesine basıp kulaklığı seçin."
+            return "Ses telefonun hoparlörüne gidiyor; program telefon hoparlöründen ses vermez, bu yüzden hiçbir şey söylenmez. Kulaklığı bağlayın ya da ses çıkışı düğmesine basıp kulaklığı seçin."
         }
         return ""
     }

@@ -191,7 +191,7 @@ struct SettingsView: View {
                 .textInputAutocapitalization(.never)
                 .disableAutocorrection(true)
                 .accessibilityIdentifier("ses-kestirmesi")
-            HelpRow("Kestirmeler uygulamasında yaptığınız kestirmelerin adını aynen yazın; boş bırakılan kapalıdır. Bağlantı kestirmesi: internet 1-2 dakikadır yoksa çalışır (Hücresel Veriyi Ayarla Kapalı → Bekle 3 sn → Hücresel Veriyi Ayarla Açık). Ses kestirmesi: mikrofon 90 saniyedir hiç ses vermiyorsa ya da ses kulaklığa değil mikrofon alıcısına gidiyorsa çalışır (Bluetooth Kapalı → Bekle → Açık). Her kestirme en çok 3 kez, aralarında bekleyerek denenir. Çalışırken Kestirmeler birkaç saniye öne gelir, kamera bağlantısı bu sırada kopabilir; iPhone ilk çalıştırmada izin isteyebilir.")
+            HelpRow("Kestirmeler uygulamasında yaptığınız kestirmelerin adını aynen yazın; boş bırakılan kapalıdır. Bağlantı kestirmesi: internet 1-2 dakikadır yoksa çalışır (Hücresel Veriyi Ayarla Kapalı → Bekle 3 sn → Hücresel Veriyi Ayarla Açık). Ses kestirmesi: mikrofon 90 saniyedir hiç ses vermiyorsa ya da ses kulaklığa değil mikrofon alıcısına gidiyorsa çalışır (Bluetooth Kapalı → Bekle → Açık). Her kestirme en çok 3 kez, aralarında bekleyerek denenir. Deneme sınavı sürerken kestirmeyi sınav çalıştırır: önce sesli haber verir (internet kesilmişse internet gereken aşamaya gelince), sonra kestirmeye geçer ve bağlantıyı bekler. Çalışırken Kestirmeler birkaç saniye öne gelir, kamera bağlantısı bu sırada kopabilir; iPhone ilk çalıştırmada izin isteyebilir.")
         }
     }
 
@@ -213,6 +213,7 @@ struct SettingsView: View {
             if !voiceTestResult.isEmpty {
                 Text(voiceTestResult).font(.footnote).foregroundColor(.secondary)
             }
+            HelpRow("Program telefonun hoparlöründen hiç ses vermez: kulaklık bağlı değilse konuşmalar söylenmez, ekrana yazılır ve deneme sınavı başlamaz. Deneme sınavı sürerken kulaklık, mikrofon ya da internet kesilirse sınav bekler, kesilen bağlantının kestirmesi çalışır, bağlantı gelince kaldığı yerden sürer (kulaklık kopmuşsa sesli haber verilemez, ekrana yazılır).")
             HelpRow("Kulaklıktan dinlemek için ses çıkışı düğmesine basıp kulaklığınızı seçin. “Sesi dene” sesin hangi çıkışa ve hangi mikrofona gittiğini yazar. Ses düzeni: “Kulaklık çıkış + harici mikrofon” (varsayılan) sesi Bluetooth kulaklıktan verir, soruyu telefona takılı harici mikrofondan alır; “Kulaklığın kendi mikrofonu” soruyu kulaklığın mikrofonundan alır (kulaklık bu durumda daha düşük ses kalitesine geçer). Değişiklik sesli komut dinleyicisi yeniden kurulunca geçerli olur.")
         }
     }
