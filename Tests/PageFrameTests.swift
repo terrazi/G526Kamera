@@ -151,4 +151,37 @@ final class PageFrameTests: XCTestCase {
         XCTAssertEqual(DisplayView.layerSize(in: v, orientation: .rotate180, cropToPage: false), v)
         XCTAssertEqual(DisplayView.layerSize(in: v, orientation: .right90, cropToPage: false), CGSize(width: 191, height: 340))
     }
+
+    // MARK: Yatay / dikey kadraj yönü
+
+    func testLandscapeFrameIsTheWholeFrameWhenUpright() {
+        XCTAssertEqual(PageFrame.region(portrait: false, orientation: .normal), .full)
+        XCTAssertEqual(PageFrame.region(portrait: false, orientation: .rotate180), .full)
+        XCTAssertEqual(PageFrame.region(portrait: true, orientation: .normal), PageFrame.verticalPage(orientation: .normal))
+    }
+
+    func testLandscapeFrameOfATurnedPictureIsNarrow() {
+        // 90° çevrilmiş görüntü ekranda dikeydir; içindeki yatay 16:9 kadraj sensörün dar bir şeridine denk gelir
+        let f = PageFrame.region(portrait: false, orientation: .right90)
+        XCTAssertEqual(f.width, 1.0 / (16.0 / 9.0) / (16.0 / 9.0), accuracy: 0.001)
+        XCTAssertEqual(f.x0 + f.x1, 1, accuracy: 0.0001)
+    }
+
+    func testPreviewBoxFollowsTheChosenDirection() {
+        let screen = CGSize(width: 375, height: 812)
+        let tall = PageFrame.previewBox(screen: screen, portrait: true)
+        let wide = PageFrame.previewBox(screen: screen, portrait: false)
+        XCTAssertGreaterThan(tall.height, tall.width, "Dikey seçili: dikey kutu")
+        XCTAssertGreaterThan(wide.width, wide.height, "Yatay seçili: yatay kutu")
+        XCTAssertEqual(wide.width / wide.height, 16.0 / 9.0, accuracy: 0.001)
+        XCTAssertEqual(wide.width, screen.width - 32, accuracy: 0.001)
+    }
+
+    func testLandscapeBoxCropMatchesTheGuidanceFrameInBothOrientations() {
+        let box = PageFrame.previewBox(screen: CGSize(width: 375, height: 812), portrait: false)
+        let upright = DisplayView.layerSize(in: box, orientation: .normal, cropToPage: true)
+        XCTAssertEqual(box.width / upright.width, CGFloat(PageFrame.region(portrait: false, orientation: .normal).width), accuracy: 0.002)
+        let turned = DisplayView.layerSize(in: box, orientation: .left90, cropToPage: true)
+        XCTAssertEqual(box.height / turned.width, CGFloat(PageFrame.region(portrait: false, orientation: .left90).width), accuracy: 0.002)
+    }
 }

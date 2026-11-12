@@ -60,29 +60,17 @@ struct ContentView: View {
         .navigationViewStyle(.stack)
     }
 
-    /// Kadraj "dikey tam sayfa" iken önizleme de dikeydir (A4 oranı) ve yalnız o kadrajı gösterir; kameranın yanlardaki kısmı
-    /// ekranda görünmez ama fotoğrafa girer. "Bütün kare" seçiliyse bütün kare gösterilir (yönü dikse uzun, değilse yatay).
-    private var pageBox: CGSize { return PageFrame.previewBox(screen: UIScreen.main.bounds.size) }
+    /// Önizleme kutusu "Kadraj yönü" ayarını izler: Dikey seçiliyse dikey (A4 oranı), Yatay seçiliyse yatay (16:9).
+    /// Kutu yalnız o kadrajı gösterir; kameranın dışarıda kalan kısmı ekranda görünmez ama fotoğrafa girer.
+    private var previewSize: CGSize {
+        return PageFrame.previewBox(screen: UIScreen.main.bounds.size, portrait: settings.guidanceFrame == 1)
+    }
 
-    @ViewBuilder
     private var previewVideo: some View {
-        if settings.guidanceFrame == 1 {
-            VideoLayerView(renderer: model.renderer, orientation: settings.imageOrientation, cropToPage: true)
-                .frame(width: pageBox.width, height: pageBox.height)
-                .background(Color.black)
-                .cornerRadius(12)
-        } else if settings.imageOrientation.isQuarterTurn {
-            VideoLayerView(renderer: model.renderer, orientation: settings.imageOrientation)
-                .frame(maxWidth: .infinity)
-                .frame(height: min(UIScreen.main.bounds.width * 16.0 / 9.0, 420))
-                .background(Color.black)
-                .cornerRadius(12)
-        } else {
-            VideoLayerView(renderer: model.renderer, orientation: settings.imageOrientation)
-                .aspectRatio(16.0 / 9.0, contentMode: .fit)
-                .background(Color.black)
-                .cornerRadius(12)
-        }
+        VideoLayerView(renderer: model.renderer, orientation: settings.imageOrientation, cropToPage: true)
+            .frame(width: previewSize.width, height: previewSize.height)
+            .background(Color.black)
+            .cornerRadius(12)
     }
 
     private var preview: some View {

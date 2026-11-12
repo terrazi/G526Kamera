@@ -379,9 +379,9 @@ struct SettingsView: View {
             Toggle("Uyarıları sesli söyle", isOn: $settings.guidanceVoice)
             Toggle("Kamera ve gönderim durumunu da söyle", isOn: $settings.statusNotices)
             Toggle("Konum uygunsa kendiliğinden çek", isOn: $settings.guidanceAutoCapture)
-            Picker("Kadraj", selection: $settings.guidanceFrame) {
-                Text("Dikey tam sayfa").tag(1)
-                Text("Bütün kare").tag(0)
+            Picker("Kadraj yönü", selection: $settings.guidanceFrame) {
+                Text("Dikey (tam sayfa)").tag(1)
+                Text("Yatay").tag(0)
             }
             Picker("Netlik isteği", selection: $settings.guidanceSharpness) {
                 Text("Gevşek").tag(0)
@@ -391,7 +391,7 @@ struct SettingsView: View {
             Toggle("Parlama uyarısı", isOn: $settings.guidanceGlare)
             TextField("Bitirme sözcüğü", text: $settings.finishWord)
                 .disableAutocorrection(true)
-            HelpRow("Kadraj: “Dikey tam sayfa” seçiliyken yönlendirme, hedefi dikey bir tam sayfa sayar (A4 gibi; kamera karesi yataydır, bu yüzden sayfa karenin ortasındaki dikey bölümü kaplar). Sayfanın yazısı bu kadrajın içinde, yeterince büyük ve ortada olunca “tamam” der; kadrajın dışına taşarsa kaydırma, kadraja sığmazsa uzaklaşma önerir. Ana ekrandaki önizleme de dikey ve sayfa oranlıdır, yalnız bu kadrajı gösterir. Fotoğraf bu kadraja kırpılmaz: kamera karesinin tamamı çekilir, yani önizlemede görünmeyen yanlar da fotoğrafa girer. “Bütün kare” eski davranıştır: yazı ve önizleme bütün kareye göre olur (yatay). Görüntü yönünü 90° çevirdiyseniz kadraj buna göre kendiliğinden uyar.")
+            HelpRow("Kadraj yönü: Ana ekrandaki önizleme kutusu ve sesli yönlendirme bu seçime uyar. “Dikey”: kutu dikeydir (A4 sayfa oranı) ve yönlendirme hedefi dikey bir tam sayfadır; kamera karesi yatay olduğundan dikey sayfa karenin ortasındaki bölümü kaplar. “Yatay”: kutu yataydır (16:9) ve yönlendirme bütün kareye göre çalışır. Sayfanın yazısı kadrajın içinde, yeterince büyük ve ortada olunca “tamam” denir; kadrajın dışına taşarsa kaydırma, sığmazsa uzaklaşma önerilir. Fotoğraf kadraja kırpılmaz: kamera karesinin tamamı çekilir, önizlemede görünmeyen yanlar da fotoğrafa girer. Görüntü yönünü 90° çevirdiyseniz kadraj buna göre kendiliğinden uyar.")
             HelpRow("Program sayfayı ölçer ve “biraz sağa”, “yukarı”, “uzaklaş”, “yaklaş” gibi sesli yönlendirir; konum uygun olunca birkaç kareyi seri çekip en netini alır. Kadrajda birden çok sütun ya da yan yana sayfa varsa ve biri yarım kalıyorsa “Sol mu, sağ mı?” diye sorar: “sol”, “sağ”, “orta”, “ikisi birden” (ya da “soldaki”, “sağ sütun”, “birinci”, “son”…) deyin; “yeniden seç” seçimi siler. “Hepsi tamamlandı”, “hepsini gönder”, “tümünü gönder”, “pdf yap”, “bitirdim” gibi söylenişlerin hepsi bekleyen fotoğrafları tek PDF olarak gönderir (en çok 30 sayfa / 15 MB; fazlası ikinci PDF olur). “Rapor ver” bugün kaç sayfa çekildiğini ve kaçının PDF olarak gittiğini söyler. “Son fotoğrafı sil”, “sonuncuyu sil”, “geri al” henüz gönderilmemiş son fotoğrafı siler; “yeniden çek” onu silip aynı bölümü yeniden kadraja aldırır. Çekimden sonra program “Çekim tamamlandı, N sayfa gönderilmeyi bekliyor” der; PDF sayfa sınırına yaklaşınca bunu da söyler. Sayfada parlama (doymuş beyaz leke) görürse en çok iki kez uyarır, sonra yine de çeker; bu kontrol gerçek kamerada denenmemiştir, rahatsız ederse kapatın. Anlaşılmayan komutta program “anlayamadım” der. Bu özellik açılınca gönderim “toplu, yalnız komutla” olur ve “görüntü değişince çek” kapanır. “Kamera ve gönderim durumunu da söyle” açıkken kamera koptu / geri geldi, mikrofon izni yok, dosya gönderildi / gönderilemedi gibi haberler konuşma arasında kısaca söylenir; aynı haber tekrarlanmaz. Sesli yanıt için mikrofon izni gerekir.")
         }
     }

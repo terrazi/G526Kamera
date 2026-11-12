@@ -1,10 +1,10 @@
 import Foundation
 import CoreGraphics
 
-/// Sesli yönlendirmenin hedef kadrajı: karenin içinde, kare oranlarıyla (sensör yönünde) yatay aralık.
-/// Dikey (portre) bir tam sayfa kadraj: sayfa kadrajı doldurunca "tamam" denir; yazı bu kadrajın dışına çıkarsa kaydırma önerilir.
-/// Kamera karesi yatay 16:9 olduğundan dikey sayfa karenin yalnız ortadaki bölümünü kaplar. Fotoğraf bu kadraja kırpılmaz;
-/// yalnız yönlendirme kararları bu kadrajı esas alır.
+/// Hedef kadraj: karenin içinde, kare oranlarıyla (sensör yönünde) yatay aralık. Ayarlarda "Kadraj yönü" ile seçilir:
+/// Dikey: A4 gibi dikey bir tam sayfa; Yatay: kamera karesi gibi 16:9 yatay kadraj (ekranda gördüğünüz yöne göre).
+/// Sayfa kadrajı doldurunca "tamam" denir; yazı kadrajın dışına çıkarsa kaydırma önerilir. Önizleme kutusu da aynı kadrajı gösterir.
+/// Fotoğraf bu kadraja kırpılmaz; yalnız yönlendirme kararları ve önizleme bu kadrajı esas alır.
 struct PageFrame: Equatable {
     var x0 = 0.0
     var x1 = 1.0
@@ -17,21 +17,33 @@ struct PageFrame: Equatable {
     /// A4 gibi dikey sayfanın en/boy oranı
     static let pageRatio = 1.0 / 2.0.squareRoot()
 
-    /// Dikey tam sayfa. Ekranda gördüğünüz yönde sayfa görüntüyü boyuna (normal / 180°) ya da enine (90°) doldurur;
-    /// 90° çevrilmiş görüntüde sensör karesinin dar kenarı sayfanın eni, geniş kenarı boyu olur.
-    /// `aspect`: sensör karesinin en/boy oranı (kamera 16:9).
-    static func verticalPage(orientation: ImageOrientation, aspect: Double = 16.0 / 9.0) -> PageFrame {
-        let share = orientation.isQuarterTurn ? (1.0 / pageRatio) / aspect : pageRatio / aspect
+    /// Kadraj: dikey (A4 oranı) ya da yatay (kamera karesi oranı, 16:9). Ekranda gördüğünüz yönde kadraj görüntüyü
+    /// boyuna (normal / 180°) ya da enine (90°) doldurur; sensörde yalnız ortadaki yatay pay kalır (dikey eksen tamdır).
+    /// `aspect`: sensör karesinin en/boy oranı (kamera 16:9). Yatay kadraj normal / 180°'de bütün karedir.
+    static func region(portrait: Bool, orientation: ImageOrientation, aspect: Double = 16.0 / 9.0) -> PageFrame {
+        let ratio = portrait ? pageRatio : aspect      // ekranda görünen kadrajın en/boy oranı
+        let share = orientation.isQuarterTurn ? 1.0 / (aspect * ratio) : ratio / aspect
         let w = min(1.0, max(0.05, share))
         return PageFrame(x0: (1 - w) / 2, x1: (1 + w) / 2)
+    }
+
+    /// Dikey tam sayfa kadrajı
+    static func verticalPage(orientation: ImageOrientation, aspect: Double = 16.0 / 9.0) -> PageFrame {
+        return region(portrait: true, orientation: orientation, aspect: aspect)
     }
 }
 
 extension PageFrame {
-    /// Ana ekrandaki dikey önizleme alanı (nokta): A4 oranlı; genişlik ekrana, boy ekranın yarısına sığar.
-    static func previewBox(screen: CGSize, sideMargin: CGFloat = 32, maxHeightShare: CGFloat = 0.5) -> CGSize {
+    /// Ana ekrandaki önizleme alanı (nokta). Dikey: A4 oranlı, genişlik ekrana, boy ekranın yarısına sığar.
+    /// Yatay: ekran genişliğinde 16:9.
+    static func previewBox(screen: CGSize, portrait: Bool = true, sideMargin: CGFloat = 32,
+                           maxHeightShare: CGFloat = 0.5) -> CGSize {
+        let available = max(60, screen.width - sideMargin)
+        if !portrait {
+            return CGSize(width: available, height: available * 9.0 / 16.0)
+        }
         let ratio = CGFloat(pageRatio)
-        let h = max(60, min((screen.width - sideMargin) / ratio, screen.height * maxHeightShare))
+        let h = max(60, min(available / ratio, screen.height * maxHeightShare))
         return CGSize(width: h * ratio, height: h)
     }
 }
