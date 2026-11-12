@@ -24,6 +24,8 @@ struct ExamSettings: Equatable {
     var fetch = 20
     var cancelWindow = 5
     var gap = 3
+    /// Sınav videosunun en uzun süresi (sn); okunan ilk cümlede söylenir
+    var videoSeconds = 30
 }
 
 /// klasöre giden bir dosya (PDF)
@@ -1001,7 +1003,7 @@ final class ExamMode: ObservableObject {
 
     // MARK: 0) Video
 
-    /// Sınavın ilk aşaması: evrak kadraja girince kayıt başlar (en çok 30 sn). "durdur" ya da süre dolması videoyu klasöre gönderir,
+    /// Sınavın ilk aşaması: evrak kadraja girince kayıt başlar (en çok ayardaki süre, varsayılan 30 sn). "durdur" ya da süre dolması videoyu klasöre gönderir,
     /// "sil" göndermeden siler, "atla" video aşamasını geçer. Her videodan sonra "devam edeyim mi?": evet → yeni video, hayır → fotoğraf taraması.
     /// Açılış sınaması: ses çıkışı ve mikrofon (kullanıcı "tamam" der), internet ve Gemini (arka planda).
     /// Boş döner: her şey hazır. Doluysa okunan sorun metni.
@@ -1049,7 +1051,7 @@ final class ExamMode: ObservableObject {
         var round = 0
         while true {
             let intro = round == 0
-                ? "Deneme sınavı modu açık. Önce video çekeceğiz. Evrakı kadraja alın; görününce kaydı başlatayım mı diye soracağım. Kayıt en çok 30 saniye sürer. "
+                ? "Deneme sınavı modu açık. Önce video çekeceğiz. Evrakı kadraja alın; görününce kaydı başlatayım mı diye soracağım. Kayıt en çok \(settings().videoSeconds) saniye sürer. "
                     + "Durdurmak için durdur, silmek için sil deyin. Video istemiyorsanız atla deyin."
                 : "Yeni video için evrakı kadraja alın; görününce kaydı başlatayım mı diye soracağım. Durdurmak için durdur, silmek için sil deyin."
             try await say(intro)

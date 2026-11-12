@@ -58,6 +58,9 @@ final class AppSettings: ObservableObject {
     @Published var guidanceEnabled: Bool { didSet { d.set(guidanceEnabled, forKey: "guidanceEnabled") } }
     /// Uyarıları sesli söyle (kapalıysa yalnız ekranda yazar)
     @Published var guidanceVoice: Bool { didSet { d.set(guidanceVoice, forKey: "guidanceVoice") } }
+    /// Elle çekilen video en çok kaç saniye sürsün (varsayılan 90; 10–300) ve sınav videosu (varsayılan 30; 10–120)
+    @Published var videoMaxSeconds: Int { didSet { d.set(videoMaxSeconds, forKey: "videoMaxSeconds") } }
+    @Published var examVideoMaxSeconds: Int { didSet { d.set(examVideoMaxSeconds, forKey: "examVideoMaxSeconds") } }
     /// Video kaydı sürerken de (elle ya da sınav videosu) konum tarifi ver: sağa, sola, yukarı, aşağı, yaklaş, uzaklaş (çekim yok)
     @Published var videoGuidance: Bool { didSet { d.set(videoGuidance, forKey: "videoGuidance") } }
     /// Sesli konumlandırma açıkken kamera / gönderim durumunu da sesle haber ver (kamera koptu, dosya gönderildi…)
@@ -171,6 +174,11 @@ final class AppSettings: ObservableObject {
     /// Klasöre kaydedilen dosya türü: "pdf" ya da "jpeg"
     @Published var uploadFormat: String { didSet { d.set(uploadFormat, forKey: "uploadFormat") } }
 
+    /// Kayıtlı süreyi izin verilen aralığa çeker (kayıt yoksa varsayılan)
+    static func clampSeconds(_ value: Int?, range: ClosedRange<Int>, fallback: Int) -> Int {
+        return min(max(value ?? fallback, range.lowerBound), range.upperBound)
+    }
+
     init() {
         uid = d.string(forKey: "uid") ?? AppSettings.defaultCameraUID
         cameraIP = d.string(forKey: "cameraIP") ?? ""
@@ -208,6 +216,10 @@ final class AppSettings: ObservableObject {
         guidanceEnabled = d.object(forKey: "guidanceEnabled") as? Bool ?? false
         guidanceVoice = d.object(forKey: "guidanceVoice") as? Bool ?? true
         videoGuidance = d.object(forKey: "videoGuidance") as? Bool ?? true
+        videoMaxSeconds = AppSettings.clampSeconds(d.object(forKey: "videoMaxSeconds") as? Int, range: VideoRecorder.manualSecondsRange,
+                                                   fallback: Int(VideoRecorder.maxSeconds))
+        examVideoMaxSeconds = AppSettings.clampSeconds(d.object(forKey: "examVideoMaxSeconds") as? Int, range: VideoRecorder.examSecondsRange,
+                                                       fallback: Int(VideoRecorder.examMaxSeconds))
         speechVoiceID = d.string(forKey: "speechVoiceID") ?? ""
         speechRate = d.object(forKey: "speechRate") as? Double ?? 1.0
         statusNotices = d.object(forKey: "statusNotices") as? Bool ?? true

@@ -164,7 +164,7 @@ final class AppModel: ObservableObject {
 
     private let client = CameraClient()
     private let decoder = H264Decoder()
-    /// Video kaydı (en çok 90 sn): çözülen kareler küçük H.264 MP4'e yazılır, bitince belge klasörüne kaydedilir
+    /// Video kaydı (ayardaki süre, varsayılan 90 sn): çözülen kareler küçük H.264 MP4'e yazılır, bitince belge klasörüne kaydedilir
     private let videoRecorder = VideoRecorder()
     private var videoStopWork: DispatchWorkItem?
     // İnternet yoklaması ve kendi kendini onarma
@@ -902,7 +902,8 @@ final class AppModel: ObservableObject {
             .appendingPathComponent("G526", isDirectory: true)
         let s = settings
         return ExamMode(ports: ports,
-                        settings: { ExamSettings(group: ExamSettings.defaultGroup, fetch: ExamSettings.defaultFetch, cancelWindow: s.examCancelWindow, gap: s.examGap) },
+                        settings: { ExamSettings(group: ExamSettings.defaultGroup, fetch: ExamSettings.defaultFetch, cancelWindow: s.examCancelWindow, gap: s.examGap,
+                                                  videoSeconds: s.examVideoMaxSeconds) },
                         directory: base)
     }
 
@@ -1299,7 +1300,7 @@ final class AppModel: ObservableObject {
         if videoRecording { stopVideo(reason: "kapat") } else { startVideo() }
     }
 
-    /// Video kaydını açar: en çok `VideoRecorder.maxSeconds` sürer, "kapat" denince ya da süre dolunca biter.
+    /// Video kaydını açar: en çok ayardaki süre (`videoMaxSeconds`, varsayılan 90 sn) sürer, "kapat" denince ya da süre dolunca biter.
     func startVideo() {
         guard !videoRecording else { return }
         guard !examActive, !gemini.isActive else {
@@ -1316,17 +1317,18 @@ final class AppModel: ObservableObject {
             say("Kamera görüntüsü yok, video kaydı açılamadı.", interrupt: true, force: true)
             return
         }
-        videoRecorder.start(to: VideoOutbox.shared.newFileURL(date: Date()), orientation: settings.imageOrientation)
+        let limit = TimeInterval(settings.videoMaxSeconds)
+        videoRecorder.start(to: VideoOutbox.shared.newFileURL(date: Date()), orientation: settings.imageOrientation, maxSeconds: limit)
         videoRecording = true
         updateGuidance()
         HealthMonitor.shared.mark("video kaydı")
-        flash("● Video kaydı açık (en çok 90 sn)", seconds: 5)
+        flash("● Video kaydı açık (en çok \(Int(limit)) sn)", seconds: 5)
         say("Video kaydı açık.", interrupt: true, force: true)
         let work = DispatchWorkItem { [weak self] in
             Task { @MainActor in self?.stopVideo(reason: "süre") }
         }
         videoStopWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + VideoRecorder.maxSeconds, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + limit, execute: work)
     }
 
     /// Kaydı kapatır, dosyayı bitirir ve belge klasörüne kaydeder.
@@ -1356,7 +1358,7 @@ final class AppModel: ObservableObject {
         case .success(let output):
             let seconds = Int(output.seconds.rounded())
             let mb = String(format: "%.1f", Double(output.bytes) / 1_048_576).replacingOccurrences(of: ".", with: ",")
-            let head = reason == "süre" ? "Doksan saniye doldu, kayıt kapandı." : "Kayıt kapandı."
+            let head = reason == "süre" ? "Süre doldu, kayıt kapandı." : "Kayıt kapandı."
             tlog("[video] \(output.url.lastPathComponent): \(seconds) sn, \(output.frames) kare, \(output.bytes) bayt")
             flash("Video \(seconds) sn, \(mb) MB: klasöre kaydediliyor", seconds: 6)
             say("\(head) \(seconds) saniye, \(mb) megabayt. Klasöre kaydediliyor.", interrupt: true, force: true)
@@ -1856,22 +1858,23 @@ final class AppModel: ObservableObject {
     /// "Evet" denince (evrak görünmüşse) kaydı başlatır
     private func examVideoBegin() {
         guard examVideoState == .found else { return }
+        let examLimit = TimeInterval(settings.examVideoMaxSeconds)
         examVideoTimer?.invalidate()
         examVideoTimer = nil
         videoRecorder.start(to: VideoOutbox.shared.newFileURL(date: Date()), orientation: settings.imageOrientation,
-                            maxSeconds: VideoRecorder.examMaxSeconds)
+                            maxSeconds: examLimit)
         examVideoState = .recording
         examVideoFinishing = false
         updateGuidance()
         tlog("[sinav] video kaydı başladı")
-        flash("● Sınav videosu kaydediliyor (en çok 30 sn)", seconds: 5)
+        flash("● Sınav videosu kaydediliyor (en çok \(Int(examLimit)) sn)", seconds: 5)
         say("Kayıt başladı.", interrupt: false, force: true)
         let token = examVideoToken
         let work = DispatchWorkItem { [weak self] in
             Task { @MainActor in self?.examVideoFinish(token: token) }
         }
         examVideoWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + VideoRecorder.examMaxSeconds, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + examLimit, execute: work)
     }
 
     /// "Durdur" denince (sınav akışından) kaydı bitirir.

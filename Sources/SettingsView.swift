@@ -99,6 +99,7 @@ struct SettingsView: View {
 
     private var cameraAdvancedPage: some View {
         Form {
+            videoSection
             photoSection
             motionSection
             guidanceSection
@@ -440,7 +441,7 @@ struct SettingsView: View {
                 }
                 TextField("Talimat (boşsa: oku, çöz, şehir kodlu sıralı cevap)", text: $settings.videoQuestion)
                 Toggle("Videoyu yüksek çözünürlükle oku", isOn: $settings.videoHighRes)
-                HelpRow("Video kaydı (en çok 90 sn) bitince klasöre kaydedilir. “Videoları gönder” kipinde videolar sıraya girer; “videoları gönder” deyince (ya da ana ekrandaki düğmeye basınca) eskiden yeniye, tek tek Gemini'ye gönderilir ve her cevap sırayla sesle okunur. Her videoya aynı talimat verilir (varsayılan: “Videodaki yazıları oku ve analiz et. Soruları çöz ve cevaplarını ver.” ve cevap düzeni: her soru için soru numarası, “Şık kodları” ayarındaki şehir adıyla kodlanmış şık, ardından cevap metni; cevaplar soru numarası sırasıyla. Okuma işine başka kural eklenmez; kendi talimatınızı yazarsanız yalnız o gider). Büyük dosya önce yüklenir, birkaç dakika sürebilir; o sırada uygulama ön planda ve ekran açık olmalıdır. Bir video başarısız olursa durur, kalanlar sırada bekler. Her video bir Gemini isteğidir: ücretsiz kotadan düşer. Gemini kayıttaki bütün kareleri okur (saniyede 2 kare). Harcama bu yüzden 1 kare/sn'ye göre yaklaşık iki kat olur: 90 sn için tahminen 18.000 token, yüksek çözünürlükte tahminen 54.000 (Gemini belgeleri 1 kare/sn için saniyede yaklaşık 100 / 300 token der). Küçük yazı okuması için yüksek çözünürlük varsayılan açıktır; token tasarrufu için kapatabilirsiniz. Gemini ve gizlilik onayı açık olmalıdır.")
+                HelpRow("Video kaydı (en çok ayardaki süre, varsayılan 90 sn) bitince klasöre kaydedilir. “Videoları gönder” kipinde videolar sıraya girer; “videoları gönder” deyince (ya da ana ekrandaki düğmeye basınca) eskiden yeniye, tek tek Gemini'ye gönderilir ve her cevap sırayla sesle okunur. Her videoya aynı talimat verilir (varsayılan: “Videodaki yazıları oku ve analiz et. Soruları çöz ve cevaplarını ver.” ve cevap düzeni: her soru için soru numarası, “Şık kodları” ayarındaki şehir adıyla kodlanmış şık, ardından cevap metni; cevaplar soru numarası sırasıyla. Okuma işine başka kural eklenmez; kendi talimatınızı yazarsanız yalnız o gider). Büyük dosya önce yüklenir, birkaç dakika sürebilir; o sırada uygulama ön planda ve ekran açık olmalıdır. Bir video başarısız olursa durur, kalanlar sırada bekler. Her video bir Gemini isteğidir: ücretsiz kotadan düşer. Gemini kayıttaki bütün kareleri okur (saniyede 2 kare). Harcama bu yüzden 1 kare/sn'ye göre yaklaşık iki kat olur: 90 sn için tahminen 18.000 token, yüksek çözünürlükte tahminen 54.000 (Gemini belgeleri 1 kare/sn için saniyede yaklaşık 100 / 300 token der). Küçük yazı okuması için yüksek çözünürlük varsayılan açıktır; token tasarrufu için kapatabilirsiniz. Gemini ve gizlilik onayı açık olmalıdır.")
             }
             Toggle("Model yoğunsa ya da kotası dolunca yedek modele geç", isOn: $settings.geminiOverloadFallback)
             if settings.geminiOverloadFallback {
@@ -457,6 +458,18 @@ struct SettingsView: View {
                 Text(modelListText).font(.footnote).foregroundColor(.secondary).textSelection(.enabled)
             }
             HelpRow("Her profilin kendi API anahtarı vardır (aistudio.google.com); anahtarlar yalnız bu telefonun Keychain’inde saklanır, kimseyle paylaşmayın. Ücretli ya da ücretsiz olmak modelin değil anahtarın özelliğidir: faturalandırma bağlı projenin anahtarı ücretli, bağlı olmayan ücretsizdir; “Ücretsiz anahtar” kutusunu buna göre işaretleyin. Varsayılanlar ücretsiz katmanda kullanılabilen modellerdir: performans sırasıyla 1. Gemini 3.8 Flash, 2. Gemini 3.6 Flash, 3. Gemini 2.5 Pro, 4. Gemini 3.5 Flash-Lite, 5. Gemini 3.1 Flash-Lite, 6. ücretli Gemini 3.1 Flash-Lite (kendi ücretli anahtarıyla; ucuzdur, yaklaşık 0,25 $ giriş / 1,50 $ çıkış milyon belirteç başına; en sonda). Model adları hesabınızda yoksa ya da ücretsiz hakkı yoksa (ör. 2.5 Pro) değiştirin ya da boş bırakın: kota hatasında program sıradakine geçer. Günlük ücretsiz haklar Google’da değişebilir; en güçlü modellerde azdır (≈20). “Model değiştir” deyince uygulama hesabınızdaki modellerden en çok 7’sini sıralar; “birinci model”, “ikinci model” diye seçersiniz, “tekrarla” listeyi yineler, “vazgeç” bırakır. “Birinci alternatif model seç” 2. profil, “ikinci…” 3., “üçüncü…” 4., “dördüncü…” 5., “beşinci alternatif model seç” 6. profil için aynısını yapar. Anahtarı girilmiş profil seçilince hemen kullanılır. AI Studio’da Spend sayfasından aylık harcama sınırı (ör. 20 dolar) koyabilirsiniz; sınır dolunca ücretli profilden “ücretsiz” işaretli profile kendiliğinden geçilir, yeni ayda eski profile dönülür. Google harcamayı yaklaşık 10 dakika gecikmeyle saydığı için sınır biraz aşılabilir. Dikkat: ücretsiz katmanda Google gönderdiğiniz içeriği ürünlerini geliştirmek için kullanabilir; gizli belgeleriniz varsa bu geçişi kapatın.")
+        }
+    }
+
+    private var videoSection: some View {
+        Section(header: Text("Video kaydı")) {
+            Stepper(value: $settings.videoMaxSeconds, in: VideoRecorder.manualSecondsRange, step: VideoRecorder.secondsStep) {
+                Text("Elle çekilen video: en çok \(settings.videoMaxSeconds) sn")
+            }
+            Stepper(value: $settings.examVideoMaxSeconds, in: VideoRecorder.examSecondsRange, step: VideoRecorder.secondsStep) {
+                Text("Sınav videosu: en çok \(settings.examVideoMaxSeconds) sn")
+            }
+            HelpRow("Kayıt “kapat” ya da “durdur” denince ya da bu süre dolunca biter. Elle çekilen video 10–300 sn, sınav videosu 10–120 sn arasında 10’ar sn adımla ayarlanır (varsayılan 90 ve 30 sn). Video saniyede 2 kare yazılır; tahmini boyut: 30 sn ≈ 4,5–8 MB, 90 sn ≈ 14–24 MB, 300 sn ≈ 45–80 MB (durağan belgede daha küçük çıkar). 14 MB’ı aşan video Gemini’ye yüklenerek gönderilir; yükleme süresi boyutla orantılı uzar, Gemini’nin sınırı 100 MB’tır. Değişiklik bir sonraki kayıttan itibaren geçerlidir.")
         }
     }
 
@@ -490,7 +503,7 @@ struct SettingsView: View {
             }
             Toggle("Sınav önce video çeksin", isOn: $settings.examVideoFirst)
             Toggle("Sınav başlarken ses, internet ve Gemini'yi sına", isOn: $settings.examSelfCheck)
-            HelpRow("“Deneme sınavı modu” deyince soru sayfaları sesli yönlendirmeyle taranır (fotoğraflar gönderilmeden birikir); “tarama tamamlandı” deyince PDF’ler belge klasörüne kaydedilir, Gemini yalnız bu sınavın PDF’lerini okur ve “N belge, M sayfa, K soru görüyorum” der. Cevaplar gruplar hâlinde okunur, her grup bir kez tekrarlanır; sonra soru numarasını söyleyerek ya da “tüm cevapları oku” diyerek istediğiniz cevabı yeniden dinlersiniz (tekrarlar Gemini’ye gitmez, kayıttan okunur). “Sınav tamamlandı” sınavı kapatır. Program konuşurken mikrofon kapalıdır; komutlar cümle bitince söylenmelidir. Okunamayan sorular uydurulmaz, “okunamadı” denir. “Sınav önce video çeksin” açıksa sınav önce video aşamasıyla başlar: evrak kadraja girince kayıt kendiliğinden başlar (en çok 30 sn), “durdur” kaydı bitirip belge klasörüne kaydeder, “sil” kaydetmeden siler, “atla” video aşamasını geçer; her videodan sonra “videoya devam edeyim mi?” diye sorar: “evet” yeni video, “hayır” fotoğraf taraması. Sınav videosu yalnız belge klasörüne kaydedilir (Gemini’ye sorulmaz).")
+            HelpRow("“Deneme sınavı modu” deyince soru sayfaları sesli yönlendirmeyle taranır (fotoğraflar gönderilmeden birikir); “tarama tamamlandı” deyince PDF’ler belge klasörüne kaydedilir, Gemini yalnız bu sınavın PDF’lerini okur ve “N belge, M sayfa, K soru görüyorum” der. Cevaplar gruplar hâlinde okunur, her grup bir kez tekrarlanır; sonra soru numarasını söyleyerek ya da “tüm cevapları oku” diyerek istediğiniz cevabı yeniden dinlersiniz (tekrarlar Gemini’ye gitmez, kayıttan okunur). “Sınav tamamlandı” sınavı kapatır. Program konuşurken mikrofon kapalıdır; komutlar cümle bitince söylenmelidir. Okunamayan sorular uydurulmaz, “okunamadı” denir. “Sınav önce video çeksin” açıksa sınav önce video aşamasıyla başlar: evrak kadraja girince “Kaydı başlatayım mı?” diye sorar, “evet” deyince kayıt başlar (en çok ayardaki süre, varsayılan 30 sn), “durdur” kaydı bitirip belge klasörüne kaydeder, “sil” kaydetmeden siler, “atla” video aşamasını geçer; her videodan sonra “videoya devam edeyim mi?” diye sorar: “evet” yeni video, “hayır” fotoğraf taraması. Sınav videosu yalnız belge klasörüne kaydedilir (Gemini’ye sorulmaz).")
         }
     }
 

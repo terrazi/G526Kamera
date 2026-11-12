@@ -244,9 +244,9 @@ final class ExamModeTests: XCTestCase {
     }
 
     private func make(_ ports: FakePorts, group: Int = 10, cancel: Int = 0, gap: Int = 0, dir: URL? = nil,
-                      uptime: (() -> Double)? = nil, guardSeconds: Double = 0) -> ExamMode {
+                      uptime: (() -> Double)? = nil, guardSeconds: Double = 0, videoSeconds: Int = 30) -> ExamMode {
         let up: () -> Double = uptime ?? { ProcessInfo.processInfo.systemUptime }
-        let e = ExamMode(ports: ports, settings: { ExamSettings(group: group, fetch: 20, cancelWindow: cancel, gap: gap) },
+        let e = ExamMode(ports: ports, settings: { ExamSettings(group: group, fetch: 20, cancelWindow: cancel, gap: gap, videoSeconds: videoSeconds) },
                          directory: dir ?? tmpDir(), now: { 1000 }, uptime: up)
         e.echoGuard = guardSeconds
         return e
@@ -1227,6 +1227,16 @@ final class ExamModeTests: XCTestCase {
         let waiting = await until { exam.status == "Video: evrak bekleniyor" }
         XCTAssertTrue(waiting, "video beklemesi başlamadı: \(p.spoken) / \(exam.status)")
         return exam
+    }
+
+    func testVideoStageSaysTheConfiguredMaximumSeconds() async {
+        let p = FakePorts()
+        p.videoOn = true
+        let exam = make(p, videoSeconds: 45)
+        XCTAssertTrue(exam.start())
+        let waiting = await until { exam.status == "Video: evrak bekleniyor" }
+        XCTAssertTrue(waiting, "video beklemesi başlamadı: \(p.spoken) / \(exam.status)")
+        XCTAssertTrue(spoke(p, "en çok 45 saniye"), "söylenen: \(p.spoken)")
     }
 
     func testStartsWithVideoStageAndSendsAfterStop() async {

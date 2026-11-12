@@ -17,6 +17,10 @@ final class VideoRecorder {
     static let maxSeconds: TimeInterval = 90
     /// Deneme sınavının video aşaması (onaylı tasarım: tek, 30 sn'lik kayıt)
     static let examMaxSeconds: TimeInterval = 30
+    /// Ayarlarda seçilebilen kayıt süresi aralıkları (sn) ve adım; varsayılanlar yukarıdaki iki değerdir
+    static let manualSecondsRange = 10...300
+    static let examSecondsRange = 10...120
+    static let secondsStep = 10
     static let fps: Double = 2
     static let bitsPerPixel: Double = 0.28
     static let minBitrate: Double = 250_000

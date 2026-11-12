@@ -58,6 +58,32 @@ final class VideoRecorderTests: XCTestCase {
         XCTAssertEqual(VideoRecorder.examMaxSeconds, 30, "sınav videosu 30 sn (onaylı tasarım)")
     }
 
+    func testVideoSecondsAreSettingsWithDefaultsAndLimits() {
+        let keys = ["videoMaxSeconds", "examVideoMaxSeconds"]
+        keys.forEach { UserDefaults.standard.removeObject(forKey: $0) }
+        defer { keys.forEach { UserDefaults.standard.removeObject(forKey: $0) } }
+        let s = AppSettings()
+        XCTAssertEqual(s.videoMaxSeconds, 90)
+        XCTAssertEqual(s.examVideoMaxSeconds, 30)
+        s.videoMaxSeconds = 120
+        s.examVideoMaxSeconds = 45
+        let t = AppSettings()
+        XCTAssertEqual(t.videoMaxSeconds, 120, "seçim kaydedilir")
+        XCTAssertEqual(t.examVideoMaxSeconds, 45)
+        UserDefaults.standard.set(5000, forKey: "videoMaxSeconds")
+        UserDefaults.standard.set(1, forKey: "examVideoMaxSeconds")
+        let u = AppSettings()
+        XCTAssertEqual(u.videoMaxSeconds, 300, "üst sınır")
+        XCTAssertEqual(u.examVideoMaxSeconds, 10, "alt sınır")
+    }
+
+    func testClampSeconds() {
+        XCTAssertEqual(AppSettings.clampSeconds(nil, range: 10...300, fallback: 90), 90)
+        XCTAssertEqual(AppSettings.clampSeconds(60, range: 10...300, fallback: 90), 60)
+        XCTAssertEqual(AppSettings.clampSeconds(0, range: 10...300, fallback: 90), 10)
+        XCTAssertEqual(AppSettings.clampSeconds(999, range: 10...120, fallback: 30), 120)
+    }
+
     func testRecordsPlayableH264Mp4AtCameraResolution() {
         let (output, failure) = record(width: 1920, height: 1080, seconds: 12, step: 0.1)
         XCTAssertNil(failure)

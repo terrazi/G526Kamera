@@ -178,14 +178,14 @@ struct ContentView: View {
         .disabled(model.capturing || !model.isLive)
     }
 
-    /// Video kaydı: açıkken kırmızı; en çok 90 sn sürer, "kapat" denince ya da süre dolunca biter ve belge klasörüne kaydedilir
+    /// Video kaydı: açıkken kırmızı; en çok ayardaki süre (varsayılan 90 sn) sürer, "kapat" denince ya da süre dolunca biter ve belge klasörüne kaydedilir
     private var videoButton: some View {
         Button {
             model.toggleVideo()
         } label: {
             HStack {
                 Image(systemName: model.videoRecording ? "stop.circle.fill" : "video.fill")
-                Text(model.videoRecording ? "Kaydı kapat" : "Video kaydı (en çok 90 sn)")
+                Text(model.videoRecording ? "Kaydı kapat" : "Video kaydı (en çok \(settings.videoMaxSeconds) sn)")
                     .fontWeight(.semibold)
             }
             .frame(maxWidth: .infinity)
