@@ -182,7 +182,12 @@ final class AppModel: ObservableObject {
     /// Boş yer çok az mı (video kaydı açılmaz / açık kayıt kapatılır)
     private var diskCritical = false
     private var diskNoticeCritical = false
-    private var loadShed: Bool { return thermalHot || ProcessInfo.processInfo.systemUptime < stallShedUntil }
+    /// Art arda beklenmedik kapanıştan sonra bu ana kadar "hafif mod" (önizleme kapalı); arka plana geçilince de korunur
+    private var safeModeUntil = 0.0
+    private var loadShed: Bool {
+        let now = ProcessInfo.processInfo.systemUptime
+        return thermalHot || now < stallShedUntil || now < safeModeUntil
+    }
     // Sınavın video aşaması (normal video kaydından ayrı: kayıt düğmesi / "kapat" komutu bunu etkilemez)
     private var examVideoState: ExamVideoPhase = .idle
     private var examVideoOutput: VideoRecorder.Output?
@@ -258,13 +263,14 @@ final class AppModel: ObservableObject {
         }
         speech.onStatus = { [weak self] text in
             Task { @MainActor in
-                self?.speechStatus = text
+                if self?.speechStatus != text { self?.speechStatus = text }
                 self?.announceSpeechProblem(text)
             }
         }
         speech.onHeard = { [weak self] text in
             Task { @MainActor in
-                self?.heardText = text
+                // Konuşma tanıma aynı kısmi metni sık tekrarlar: değişmediyse ekran yeniden çizilmesin
+                if self?.heardText != text { self?.heardText = text }
                 self?.examHeard(text)
             }
         }
@@ -1386,6 +1392,9 @@ final class AppModel: ObservableObject {
         monitor.onPreviousUnclean = { [weak self] text in
             Task { @MainActor in self?.previousUncleanFound(text) }
         }
+        monitor.onSafeMode = { [weak self] streak in
+            Task { @MainActor in self?.enterSafeMode(streak) }
+        }
         monitor.start()
         checkRoute()
         thermalChanged()
@@ -1444,6 +1453,14 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Art arda beklenmedik kapanıştan sonra bir süre yük azaltılır: önizleme kapalı, inceleme seyrek
+    private func enterSafeMode(_ streak: Int) {
+        safeModeUntil = ProcessInfo.processInfo.systemUptime + HealthMath.safeModeSeconds
+        tlog("[sağlık] art arda \(streak) beklenmedik kapanış: hafif mod")
+        HealthMonitor.shared.event("art arda \(streak) beklenmedik kapanış: \(Int(HealthMath.safeModeSeconds / 60)) dk hafif mod")
+        if started { refreshLoadNotice() }
+    }
+
     private func previousUncleanFound(_ report: String) {
         tlog("[sağlık] \(report)")
         setNotice(.crash, "Program son kullanımda beklenmedik kapanmış. Ayrıntı: Ayarlar → Tanı ve günlük → Sağlık raporu.")
@@ -1473,6 +1490,8 @@ final class AppModel: ObservableObject {
             text = "Telefon çok ısındı: yükü azaltmak için canlı önizleme kapatıldı; soğuyunca kendiliğinden açılır."
         } else if memoryCriticalNow {
             text = "Bellek çok doldu: yükü azaltmak için canlı önizleme kapatıldı; bellek boşalınca kendiliğinden açılır."
+        } else if ProcessInfo.processInfo.systemUptime < safeModeUntil {
+            text = "Program art arda beklenmedik kapandı: hafif mod açık (önizleme kapalı). Sorun sürerse telefonu yeniden başlatın."
         } else if loadShed {
             text = "Program takılıyor: yükü azaltmak için canlı önizleme kapatıldı; takılmalar durunca kendiliğinden açılır."
         } else {

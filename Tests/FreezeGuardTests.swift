@@ -53,6 +53,15 @@ final class FreezeGuardTests: XCTestCase {
         XCTAssertTrue(report.contains("ayrı olay"), report)
     }
 
+    // MARK: Hafif mod
+
+    func testSafeModeStartsOnlyAfterRepeatedUncleanExits() {
+        XCTAssertFalse(HealthMath.needsSafeMode(uncleanStreak: 0))
+        XCTAssertFalse(HealthMath.needsSafeMode(uncleanStreak: 1), "tek kapanış (ör. kullanıcı kapattı) hafif mod açmaz")
+        XCTAssertTrue(HealthMath.needsSafeMode(uncleanStreak: 2))
+        XCTAssertTrue(HealthMath.needsSafeMode(uncleanStreak: 5))
+    }
+
     // MARK: Ses yeniden başlatma fırtınası
 
     func testRestartStreakCountsConsecutiveRestartsAndResetsAfterHealthyGap() {

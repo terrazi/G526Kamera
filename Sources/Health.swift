@@ -26,6 +26,12 @@ enum HealthMath {
     static let stallThresholdMs = 1000        // bundan uzun donukluk "takılma" sayılır
     static let sampleCap = 360                // 10 sn × 360 = son 1 saat
     static let eventCap = 60
+    /// Art arda bu kadar beklenmedik kapanıştan sonra program "hafif mod"da açılır (önizleme kapalı, yük az)
+    static let safeModeAfterUncleanExits = 2
+    static let safeModeSeconds = 600.0
+
+    static func needsSafeMode(uncleanStreak: Int) -> Bool { return uncleanStreak >= safeModeAfterUncleanExits }
+
     static let hangThresholdMs = 3000         // bundan uzun donukluk raporda ayrı olay olarak yazılır (son işlemle birlikte)
 
     /// Ekran uzun süre donuk kaldığında rapora yazılan olay metni; son işlem biliniyorsa eklenir
@@ -184,8 +190,11 @@ final class HealthMonitor {
     var onSample: ((HealthSample, Int) -> Void)?
     /// Önceki kullanım beklenmedik kapandıysa açılışta bir kez ana iş parçacığında çağrılır
     var onPreviousUnclean: ((String) -> Void)?
+    /// Art arda beklenmedik kapanış sayısı eşiğe ulaştıysa açılışta bir kez ana iş parçacığında çağrılır (parametre: kaçıncı kapanış)
+    var onSafeMode: ((Int) -> Void)?
 
     private static let activeKey = "health.foregroundActive"
+    private static let uncleanStreakKey = "health.uncleanStreak"
     private let q = DispatchQueue(label: "g526.health", qos: .utility)
     private var timer: DispatchSourceTimer?
     private var began = false
@@ -222,6 +231,11 @@ final class HealthMonitor {
                    let old = try? JSONDecoder().decode(HealthStore.self, from: data) {
                     previous = old
                 }
+                let streak = previousUnclean ? UserDefaults.standard.integer(forKey: Self.uncleanStreakKey) + 1 : 0
+                UserDefaults.standard.set(streak, forKey: Self.uncleanStreakKey)
+                if HealthMath.needsSafeMode(uncleanStreak: streak) {
+                    DispatchQueue.main.async { self.onSafeMode?(streak) }
+                }
                 if previousUnclean {
                     let full = HealthMath.summary(HealthStore(), previous: previous, previousUnclean: true)
                     let text = full.split(separator: "\n").dropFirst().joined(separator: "\n")
@@ -242,6 +256,7 @@ final class HealthMonitor {
     func pause() {
         q.async { [self] in
             UserDefaults.standard.set(false, forKey: Self.activeKey)
+            UserDefaults.standard.set(0, forKey: Self.uncleanStreakKey)        // temiz kapanış: art arda sayacı sıfırlanır
             timer?.cancel()
             timer = nil
             pending = false
