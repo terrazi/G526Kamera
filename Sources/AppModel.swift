@@ -31,12 +31,13 @@ private final class DecodeClock {
 }
 
 /// Uygulamanın orkestratörü: kamera → çözücü → ekran / kare deposu; ses ve değişim tetikleyicileri;
-/// çekim → Drive kuyruğu.
+/// çekim → belge klasörü kuyruğu.
 @MainActor
 final class AppModel: ObservableObject {
     let settings = AppSettings.shared
-    let auth = GoogleAuth.shared
     let queue = UploadQueue.shared
+    /// Belge klasörü seçilmiş mi (kayıtlar ancak o zaman yazılabilir)
+    var folderReady: Bool { return DocumentFolder.shared.hasChoice }
     let logStore = AppLog.shared
 
     @Published private(set) var cameraState: CameraState = .stopped
@@ -92,7 +93,7 @@ final class AppModel: ObservableObject {
         let memory = GeminiMemory(remote: client, enabled: { AppSettings.shared.geminiMemory })
         let chat = GeminiChat(
             client: client,
-            docs: GeminiDocStore(source: DriveClient(auth: GoogleAuth.shared)),
+            docs: GeminiDocStore(source: FolderClient()),
             recorder: QuestionRecorder(),
             options: {
                 let s = AppSettings.shared
@@ -156,7 +157,7 @@ final class AppModel: ObservableObject {
 
     private let client = CameraClient()
     private let decoder = H264Decoder()
-    /// Kısa video kaydı (en çok 30 sn): çözülen kareler küçük H.264 MP4'e yazılır, bitince Drive'a gider
+    /// Kısa video kaydı (en çok 30 sn): çözülen kareler küçük H.264 MP4'e yazılır, bitince belge klasörüne kaydedilir
     private let videoRecorder = VideoRecorder()
     private var videoStopWork: DispatchWorkItem?
     // İnternet yoklaması ve kendi kendini onarma
@@ -186,7 +187,7 @@ final class AppModel: ObservableObject {
     private let pipeline = FramePipeline()
     private let decodeClock = DecodeClock()
     private let speech = SpeechTrigger()
-    /// Deneme sınavı (sesli rehberli tarama → Drive → Gemini cevapları); ilk kullanımda kurulur
+    /// Deneme sınavı (sesli rehberli tarama → belge klasörü → Gemini cevapları); ilk kullanımda kurulur
     private var examStore: ExamMode?
     /// Sınavda "dinle" kaydı için kayıtçı (sohbetinkinden ayrı; ikisi aynı anda kayıt yapmaz)
     private let examRecorder = QuestionRecorder()
@@ -293,7 +294,7 @@ final class AppModel: ObservableObject {
         gemini.stopSpeaking = { [weak self] in
             self?.speaker.stop()
         }
-        // Gemini'ye sormadan önce biriken fotoğraflar Drive'a gönderilir
+        // Gemini'ye sormadan önce biriken fotoğraflar belge klasörüne kaydedilir
         gemini.flushUploads = {
             return await UploadQueue.shared.flushAndWait(timeout: 90)
         }
@@ -326,15 +327,6 @@ final class AppModel: ObservableObject {
                 }
                 .store(in: &cancellables)
         }
-
-        // Drive'a giriş yapılınca (daha önce çekilip bekleyen fotoğraflar için) yükleme kuyruğu hemen uyandırılır;
-        // aksi halde bir sonraki çekime ya da "Şimdi gönder"e kadar beklerlerdi
-        auth.$phase
-            .sink { [weak self] phase in
-                guard phase == .signedIn else { return }
-                Task { @MainActor in self?.queue.kick() }
-            }
-            .store(in: &cancellables)
 
         // Pil tasarrufu ayarları anında uygulanır
         Publishers.CombineLatest(settings.$previewOff, settings.$dimScreen)
@@ -719,7 +711,7 @@ final class AppModel: ObservableObject {
             guidanceAwaiting = false
             guidanceNotice = ""
             speech.choiceMode = false
-            if on && examGuide != true { say(SpokenReport.startup(signedIn: auth.isSignedIn, waiting: queue.pending)) }
+            if on && examGuide != true { say(SpokenReport.startup(folderReady: folderReady, waiting: queue.pending)) }
         }
     }
 
@@ -796,8 +788,8 @@ final class AppModel: ObservableObject {
             checkSystem: { [weak self] in await self?.examSystemCheck() ?? "" },
             videosClear: { AppModel.examVideosClear() })
         asker.videoProvider = { AppModel.examVideoAttachments() }
-        let ports = ExamPortsReal(hooks: hooks, queue: queue, settings: settings, auth: auth,
-                                  docStore: GeminiDocStore(source: DriveClient(auth: GoogleAuth.shared)), asker: asker)
+        let ports = ExamPortsReal(hooks: hooks, queue: queue, settings: settings,
+                                  docStore: GeminiDocStore(source: FolderClient()), asker: asker)
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("G526", isDirectory: true)
         let s = settings
@@ -1063,11 +1055,11 @@ final class AppModel: ObservableObject {
             return
         }
         let batch = settings.sendMode == "batch"
-        let signedIn = auth.isSignedIn
+        let ready = folderReady
         say(SpokenReport.afterCapture(part: capturePart?.title, waiting: queue.pending,
-                                      signedIn: signedIn, batchMode: batch, batchSize: settings.batchSize))
-        // Tek tek gönderimde dosya yüklenince "dosya gönderildi" de denir
-        uploadWatchBase = (!batch && signedIn) ? queue.uploaded : nil
+                                      folderReady: ready, batchMode: batch, batchSize: settings.batchSize))
+        // Tek tek kaydetmede dosya kaydedilince "dosya kaydedildi" de denir
+        uploadWatchBase = (!batch && ready) ? queue.uploaded : nil
     }
 
     /// Soru beklenirken komut olmayan konuşma duyuldu: açıkça belirt
@@ -1101,8 +1093,8 @@ final class AppModel: ObservableObject {
             say("Gönderilecek sayfa yok.", interrupt: true, force: true)
             return
         }
-        guard auth.isSignedIn else {
-            say("Drive'a giriş yapılmamış. \(waiting) sayfa bekliyor. Ayarlardan giriş yapın.", interrupt: true, force: true)
+        guard folderReady else {
+            say("Belge klasörü seçilmemiş. \(waiting) sayfa bekliyor. Ayarlardan klasörü seçin.", interrupt: true, force: true)
             return
         }
         finishWatch = FinishWatch(docs: queue.uploadedDocs, photos: queue.uploaded)
@@ -1127,7 +1119,7 @@ final class AppModel: ObservableObject {
             notify(SpokenReport.autoSent(), .status, group: "gonderim")
         } else if !queue.lastError.isEmpty && queue.pending > 0 && !uploadErrorAnnounced {
             uploadErrorAnnounced = true
-            notify(SpokenReport.uploadFailed(signedIn: auth.isSignedIn, waiting: queue.pending), .alert, group: "gonderim")
+            notify(SpokenReport.uploadFailed(folderReady: folderReady, waiting: queue.pending), .alert, group: "gonderim")
         }
     }
 
@@ -1162,7 +1154,7 @@ final class AppModel: ObservableObject {
     func reportText() -> String {
         let today = DailyStatsStore.shared.today()
         return SpokenReport.make(captured: today.captured, sentPhotos: today.sentPhotos, sentDocs: today.sentDocs,
-                                 waiting: queue.pending, signedIn: auth.isSignedIn,
+                                 waiting: queue.pending, folderReady: folderReady,
                                  hasError: !queue.lastError.isEmpty, pdf: settings.uploadFormat == "pdf",
                                  batchMode: settings.sendMode == "batch")
     }
@@ -1214,7 +1206,7 @@ final class AppModel: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + VideoRecorder.maxSeconds, execute: work)
     }
 
-    /// Kaydı kapatır, dosyayı bitirir ve Drive'a gönderir.
+    /// Kaydı kapatır, dosyayı bitirir ve belge klasörüne kaydeder.
     func stopVideo(reason: String) {
         guard videoRecording else { return }
         videoRecording = false
@@ -1241,25 +1233,25 @@ final class AppModel: ObservableObject {
             let mb = String(format: "%.1f", Double(output.bytes) / 1_048_576).replacingOccurrences(of: ".", with: ",")
             let head = reason == "süre" ? "Otuz saniye doldu, kayıt kapandı." : "Kayıt kapandı."
             tlog("[video] \(output.url.lastPathComponent): \(seconds) sn, \(output.frames) kare, \(output.bytes) bayt")
-            flash("Video \(seconds) sn, \(mb) MB: Drive'a gönderiliyor", seconds: 6)
-            say("\(head) \(seconds) saniye, \(mb) megabayt. Drive'a gönderiliyor.", interrupt: true, force: true)
+            flash("Video \(seconds) sn, \(mb) MB: klasöre kaydediliyor", seconds: 6)
+            say("\(head) \(seconds) saniye, \(mb) megabayt. Klasöre kaydediliyor.", interrupt: true, force: true)
             analyzeVideoWithGemini(output.url)
             VideoOutbox.shared.submit(output.url) { [weak self] ok, message in
                 guard let self = self else { return }
                 if ok {
-                    self.flash("Video Drive'a gönderildi", seconds: 5)
-                    self.say("Video Drive'a gönderildi.", interrupt: false, force: true)
+                    self.flash("Video klasöre kaydedildi", seconds: 5)
+                    self.say("Video klasöre kaydedildi.", interrupt: false, force: true)
                 } else {
                     let why = message.isEmpty ? "" : " (\(message))"
-                    self.flash("Video gönderilemedi\(why); sonra yeniden denenecek", seconds: 8)
-                    self.say("Video gönderilemedi. Telefonda saklandı, bağlantı gelince yeniden denenecek.", interrupt: false, force: true)
+                    self.flash("Video kaydedilemedi\(why); sonra yeniden denenecek", seconds: 8)
+                    self.say("Video klasöre kaydedilemedi. Telefonda saklandı, klasör hazır olunca yeniden denenecek.", interrupt: false, force: true)
                 }
             }
         }
     }
 
-    /// Biten videoyu (telefondaki dosyadan, Drive'dan indirmeden) Gemini'ye gönderir; cevabı sesle okur.
-    /// Gemini, gizlilik onayı ve anahtar yoksa ya da ayar kapalıysa hiçbir şey yapmaz (video yine Drive'a gider).
+    /// Biten videoyu (telefondaki dosyadan) Gemini'ye gönderir; cevabı sesle okur.
+    /// Gemini, gizlilik onayı ve anahtar yoksa ya da ayar kapalıysa hiçbir şey yapmaz (video yine klasöre kaydedilir).
     private func analyzeVideoWithGemini(_ url: URL) {
         let s = settings
         guard s.videoToGemini, s.geminiEnabled, s.geminiPrivacyOK else { return }
@@ -1606,8 +1598,8 @@ final class AppModel: ObservableObject {
         examVideoState = .idle
     }
 
-    /// Hazır videoyu Drive'a gönderir ve bitene kadar bekler; hata metni ("" = gönderildi).
-    /// Sınav videolarının Gemini için saklanan kopyaları (Drive'a giden dosya ayrıca gider)
+    /// Hazır videoyu belge klasörüne kaydeder ve bitene kadar bekler; hata metni ("" = kaydedildi).
+    /// Sınav videolarının Gemini için saklanan kopyaları (klasöre kaydedilen dosya ayrıca gider)
     nonisolated static func examVideoDir() -> URL {
         return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("G526", isDirectory: true).appendingPathComponent("SinavVideolari", isDirectory: true)

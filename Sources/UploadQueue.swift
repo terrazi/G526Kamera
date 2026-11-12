@@ -1,8 +1,7 @@
 import Foundation
-import Network
 
-/// Çekilen fotoğrafları diske yazar ve Drive'a yükler. Bağlantı yoksa kuyrukta bekler,
-/// uygulama kapansa bile kaybolmaz; başarısız yüklemeler artan aralıklarla yeniden denenir.
+/// Çekilen fotoğrafları diske yazar ve belge klasörüne ("G526 Belgeler") PDF/JPEG olarak kaydeder. Klasör seçilmemişse kuyrukta bekler,
+/// uygulama kapansa bile kaybolmaz; başarısız kayıtlar artan aralıklarla yeniden denenir.
 /// Gönderme biçimi ayarlardan seçilir: tek tek (her fotoğraf hemen) ya da toplu (biriksin, birlikte gitsin);
 /// dosya türü PDF (JPEG yeniden işlenmeden sarılır) ya da JPEG olabilir.
 @MainActor
@@ -11,7 +10,7 @@ final class UploadQueue: ObservableObject {
 
     @Published private(set) var pending = 0
     @Published private(set) var uploaded = 0
-    /// Bu oturumda Drive'a giden dosya (PDF ya da JPEG) sayısı
+    /// Bu oturumda klasöre kaydedilen dosya (PDF ya da JPEG) sayısı
     @Published private(set) var uploadedDocs = 0
     @Published private(set) var status = ""
     @Published private(set) var lastError = ""
@@ -19,22 +18,20 @@ final class UploadQueue: ObservableObject {
     private let fm = FileManager.default
     private let settings = AppSettings.shared
     private let pendingDir: URL
-    private let localDir: URL
-    private lazy var drive = DriveClient(auth: GoogleAuth.shared)
+    private let folder = FolderClient()
     private var worker: Task<Void, Never>?
     private var retryNow = false
     private var flush = false        // "şimdi gönder" istendi
     private var draining = false     // toplu gönderim başladı: kuyruk boşalana kadar sürer
     private var lastEnqueue = Date.distantPast
     private var failures = 0
-    private let monitor = NWPathMonitor()
     private var captureLog = CaptureLog()
     private var inFlight = Set<String>()
     /// Deneme sınavı taraması: fotoğraflar gönderilmeden birikir
     private(set) var examHold = false
     /// Deneme sınavı: dosyalar ayardan bağımsız olarak PDF'e çevrilip toplu gönderilir
     private(set) var examMode = false
-    /// Drive'a giden PDF'ler (eskiden yeniye; diskte tutulur, en çok 200)
+    /// Klasöre kaydedilen PDF'ler (eskiden yeniye; diskte tutulur, en çok 200)
     private(set) var sentLog: [ExamSentFile] = []
     private let sentLogURL: URL
     /// Art arda başarısız yükleme sayısı
@@ -43,31 +40,16 @@ final class UploadQueue: ObservableObject {
     init() {
         let manager = FileManager.default
         let support = manager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let docs = manager.urls(for: .documentDirectory, in: .userDomainMask)[0]
         let pendingURL = support.appendingPathComponent("G526/Bekleyen", isDirectory: true)
-        let localURL = docs.appendingPathComponent("Belgeler", isDirectory: true)
         try? manager.createDirectory(at: pendingURL, withIntermediateDirectories: true)
-        try? manager.createDirectory(at: localURL, withIntermediateDirectories: true)
         pendingDir = pendingURL
-        localDir = localURL
         sentLogURL = support.appendingPathComponent("G526/gonderilenler.json")
         if let data = try? Data(contentsOf: sentLogURL),
            let list = try? JSONDecoder().decode([ExamSentFile].self, from: data) {
             sentLog = list
         }
         pending = pendingFiles().count
-        status = pending > 0 ? "\(pending) fotoğraf yüklenmeyi bekliyor" : ""
-
-        monitor.pathUpdateHandler = { [weak self] path in
-            guard path.status == .satisfied else { return }
-            Task { @MainActor in self?.networkChanged() }
-        }
-        monitor.start(queue: DispatchQueue(label: "g526.netmon"))
-    }
-
-    private func networkChanged() {
-        if pending > 0 && failures > 0 { retryNow = true }
-        kick()
+        status = pending > 0 ? "\(pending) fotoğraf kaydedilmeyi bekliyor" : ""
     }
 
     private func pendingFiles() -> [URL] {
@@ -82,8 +64,7 @@ final class UploadQueue: ObservableObject {
         let base = "Belge_" + f.string(from: date)
         var name = base + ".jpg"
         var n = 2
-        while fm.fileExists(atPath: pendingDir.appendingPathComponent(name).path)
-                || fm.fileExists(atPath: localDir.appendingPathComponent(name).path) {
+        while fm.fileExists(atPath: pendingDir.appendingPathComponent(name).path) {
             name = "\(base)_\(n).jpg"
             n += 1
         }
@@ -99,9 +80,6 @@ final class UploadQueue: ObservableObject {
         } catch {
             tlog("[kuyruk] yazılamadı: \(error.localizedDescription)")
             return nil
-        }
-        if settings.keepLocalCopies {
-            try? jpeg.write(to: localDir.appendingPathComponent(name), options: .atomic)
         }
         pending = pendingFiles().count
         lastEnqueue = Date()
@@ -119,9 +97,8 @@ final class UploadQueue: ObservableObject {
             let url = pendingDir.appendingPathComponent(name)
             OcrCenter.shared.forget(url)
             remove(url)
-            try? fm.removeItem(at: localDir.appendingPathComponent(name))
             pending = pendingFiles().count
-            status = pending > 0 ? "\(pending) fotoğraf yüklenmeyi bekliyor" : ""
+            status = pending > 0 ? "\(pending) fotoğraf kaydedilmeyi bekliyor" : ""
             tlog("[kuyruk] silindi: \(name)")
         }
         return outcome
@@ -134,10 +111,10 @@ final class UploadQueue: ObservableObject {
         kick()
     }
 
-    /// Gemini'ye sormadan önce: biriken (toplu modda bekleyen) fotoğrafları şimdi gönderir ve yüklenmelerini bekler.
-    /// En fazla `timeout` sn bekler; art arda 2 yeni hata olursa (internet yok) vazgeçer. Hâlâ yüklenmeyen sayıyı döndürür.
+    /// Gemini'ye sormadan önce: biriken (toplu modda bekleyen) fotoğrafları şimdi klasöre kaydeder ve bitmesini bekler.
+    /// En fazla `timeout` sn bekler; art arda 2 yeni hata olursa vazgeçer. Hâlâ kaydedilmeyen sayıyı döndürür.
     func flushAndWait(timeout: TimeInterval = 90, aborted: () -> Bool = { false }) async -> Int {
-        guard !pendingFiles().isEmpty, GoogleAuth.shared.isSignedIn else {
+        guard !pendingFiles().isEmpty, folder.isReady else {
             pending = pendingFiles().count
             return pending
         }
@@ -175,14 +152,13 @@ final class UploadQueue: ObservableObject {
         OcrCenter.shared.forget(url)
         remove(url)
         captureLog.forget(name)
-        try? fm.removeItem(at: localDir.appendingPathComponent(name))
         pending = pendingFiles().count
-        status = pending > 0 ? "\(pending) fotoğraf yüklenmeyi bekliyor" : ""
+        status = pending > 0 ? "\(pending) fotoğraf kaydedilmeyi bekliyor" : ""
         tlog("[kuyruk] silindi: \(name)")
         return true
     }
 
-    /// since'ten (Unix saniyesi) sonra Drive'a giden PDF'ler, eskiden yeniye
+    /// since'ten (Unix saniyesi) sonra klasöre kaydedilen PDF'ler, eskiden yeniye
     func sent(since: Double) -> [ExamSentFile] {
         return sentLog.filter { $0.time >= since }
     }
@@ -274,15 +250,15 @@ final class UploadQueue: ObservableObject {
             guard !files.isEmpty else {
                 draining = false
                 flush = false
-                status = uploaded > 0 ? "Tüm fotoğraflar yüklendi" : ""
+                status = uploaded > 0 ? "Tüm fotoğraflar klasöre kaydedildi" : ""
                 return
             }
             if examHold {
                 status = "Deneme sınavı: \(files.count) sayfa tarandı, gönderim bekletiliyor"
                 return
             }
-            guard GoogleAuth.shared.isSignedIn else {
-                status = "Drive'a giriş yapılmadı — \(files.count) fotoğraf bekliyor"
+            guard folder.isReady else {
+                status = "Belge klasörü seçilmedi — \(files.count) fotoğraf bekliyor"
                 return
             }
 
@@ -308,7 +284,7 @@ final class UploadQueue: ObservableObject {
             }
             flush = false
 
-            status = "Yükleniyor… (\(files.count) bekliyor)"
+            status = "Kaydediliyor… (\(files.count) bekliyor)"
             retryNow = false
             if settings.ocrEnabled && usePDF {
                 let count = batch ? (settings.batchSize > 0 ? settings.batchSize : 30) : 1
@@ -325,7 +301,7 @@ final class UploadQueue: ObservableObject {
             inFlight = Set(job.files.map { $0.lastPathComponent })
             defer { inFlight = [] }
             do {
-                let result = try await drive.uploadFile(job.payload, name: job.name)
+                let result = try await folder.save(job.payload)
                 for file in job.files { remove(file) }
                 uploaded += job.files.count
                 uploadedDocs += 1
@@ -333,45 +309,25 @@ final class UploadQueue: ObservableObject {
                 DailyStatsStore.shared.recordSent(photos: job.files.count, docs: 1)
                 failures = 0
                 lastError = ""
-                tlog("[drive] yüklendi: \(job.name) (\(job.files.count) fotoğraf)")
+                tlog("[klasör] kaydedildi: \(result.id) (\(job.files.count) fotoğraf)")
                 if pendingFiles().isEmpty { draining = false }
             } catch {
                 inFlight = []
                 failures += 1
                 lastError = error.localizedDescription
                 let wait = min(5.0 * pow(2.0, Double(failures - 1)), 300.0)
-                tlog("[drive] yükleme hatası: \(lastError)")
-                if let drv = error as? DriveError, case .notSignedIn = drv {
-                    status = "Drive oturumu gerekli — \(files.count) fotoğraf bekliyor"
+                tlog("[klasör] kaydetme hatası: \(lastError)")
+                if !folder.isReady {
+                    status = "Belge klasörü seçilmedi — \(files.count) fotoğraf bekliyor"
                     return
                 }
                 var waited = 0.0
                 while waited < wait && !retryNow && !Task.isCancelled {
-                    status = "Yükleme başarısız (\(lastError)) — \(Int(wait - waited)) sn sonra yeniden"
+                    status = "Kaydedilemedi (\(lastError)) — \(Int(wait - waited)) sn sonra yeniden"
                     try? await Task.sleep(nanoseconds: 1_000_000_000)
                     waited += 1
                 }
             }
-        }
-    }
-
-    /// Ayarlar ekranındaki "bağlantıyı sına" düğmesi.
-    func testConnection() async -> String {
-        do {
-            let info = try await drive.diagnose()
-            var lines = ["Bağlantı tamam. Klasör hazır: “\(info.folderName)” (kimlik \(info.folderID.prefix(8)))."]
-            lines.append("İstemci kimliği: \(DriveClient.clientTag(settings.googleClientID)). Windows programında da AYNI kimlik girilmeli; farklıysa iki program birbirinin PDF’lerini göremez.")
-            if info.folders > 1 {
-                lines.append("Dikkat: bu kimlikle aynı adlı \(info.folders) klasör görünüyor; en eskisi kullanılıyor. Diğerlerini Drive’dan silin.")
-            }
-            if info.pdfs.isEmpty {
-                lines.append("Klasörde henüz PDF görünmüyor. PDF’ler bu uygulamayla ya da AYNI Google kimliğiyle çalışan Windows programıyla yüklenmeli; Drive’da elle açılan klasör ve elle atılan dosyalar görünmez.")
-            } else {
-                lines.append("Klasörde \(info.pdfs.count) PDF görünüyor (Gemini bunları okur): " + info.pdfs.prefix(3).map { $0.name }.joined(separator: ", "))
-            }
-            return lines.joined(separator: "\n")
-        } catch {
-            return error.localizedDescription
         }
     }
 }

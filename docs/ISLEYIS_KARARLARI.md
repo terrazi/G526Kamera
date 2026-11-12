@@ -76,3 +76,5 @@ Sorulacak (kullanıcı kararı bekliyor):
 - Fotoğraf iyileştirme ayarları (deskew, upscale, tarih yazısı, birkaç kareyi birleştir, çekim öncesi/sonrası): sınav taramasında sadeleştirilebilir.
 
 Q. [İSTEK] Görüntü yönü: kamera dik (portre) tutulabilsin; ayarlarda "Görüntü yönü: Normal / 90° sağa / 90° sola / 180°". Önizleme, fotoğraf, PDF ve video bu yöne göre kaydedilir; sesli yönlendirme (sağa/sola/yukarı/aşağı) yöne göre uyarlanır. Kodda şu an görüntü döndürme yok ("ters takılı" ayarı yalnız sesli yönleri çevirir). Karar: Drive kaldırma sürümünden sonraki sürümde yapılacak.
+
+A'. [İSTEK] Açılıştaki ses sınaması: program "Beni duyabiliyor musunuz? Lütfen teyit edin." diye sorar; kullanıcı "evet" (ya da tamam) deyince iki taraflı ses sınaması (program konuştu + kullanıcıyı duydu) tamamlanmış sayılır. Şimdi bu sınama yalnız "deneme sınavı modu" denince yapılıyor ("tamam deyin" metniyle); 2. adımda programın açılışına taşınacak ve metin bu olacak.

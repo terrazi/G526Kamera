@@ -30,7 +30,7 @@ struct GeminiOptions {
     var waitLimit: TimeInterval = 0
 }
 
-/// Gemini ile belge sohbeti: sesli soru → Drive'daki son PDF'ler + Gemini → sesli cevap.
+/// Gemini ile belge sohbeti: sesli soru → belge klasöründeki son PDF'ler + Gemini → sesli cevap.
 /// (Windows sürümündeki g526/chat.py'nin karşılığı.) Durum: boşta → dinliyor → düşünüyor → okuyor.
 @MainActor
 final class GeminiChat: ObservableObject {
@@ -59,7 +59,7 @@ final class GeminiChat: ObservableObject {
     var onProfileSwitch: ((GeminiProfileInfo, GeminiProfileInfo) -> Void)?
     /// Kullanıcı "model değiştir" dedi: oturum biter, sesli model seçimi başlar
     var onModelChoice: (() -> Void)?
-    /// Drive'dan okumadan önce bekleyen (toplu modda biriken) fotoğrafları gönderip bekler; hâlâ yüklenmeyen sayıyı döndürür
+    /// Klasörden okumadan önce bekleyen (toplu modda biriken) fotoğrafları gönderip bekler; hâlâ yüklenmeyen sayıyı döndürür
     var flushUploads: (() async -> Int)?
     /// Toplu cevap kullanıcıya SONUNA KADAR okunup ulaşınca çağrılır (parametre: verilen en büyük soru numarası); kalıcı sıra buradan ilerler
     var onBatchProgress: ((Int) -> Void)?
@@ -207,7 +207,7 @@ final class GeminiChat: ObservableObject {
         }
     }
 
-    /// Drive'dan okumadan önce bekleyen fotoğrafları gönderir; hâlâ yüklenmeyen fotoğraf sayısını döndürür
+    /// Klasörden okumadan önce bekleyen fotoğrafları gönderir; hâlâ yüklenmeyen fotoğraf sayısını döndürür
     private func syncUploads() async -> Int {
         guard let flush = flushUploads else { return 0 }
         return await flush()

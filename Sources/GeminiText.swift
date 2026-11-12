@@ -16,9 +16,9 @@ enum GeminiText {
     /// Oturumda geçici bir hata söylendikten sonra
     static let retryLine = "Sorunuzu yeniden söyleyebilirsiniz."
 
-    /// Drive'a henüz yüklenmemiş fotoğraflar için uyarı (Gemini onları göremez)
+    /// Klasöre henüz kaydedilmemiş fotoğraflar için uyarı (Gemini onları göremez)
     static func unsentNote(_ count: Int) -> String {
-        return "\(count) fotoğraf henüz Drive'a yüklenmedi, Gemini onları göremez."
+        return "\(count) fotoğraf henüz klasöre kaydedilmedi, Gemini onları göremez."
     }
 
     /// Oturum başında söylenen hazırlık cümlesi. `new`: önceki hazırlıktan beri gelen yeni belge sayısı (ilkinde nil).

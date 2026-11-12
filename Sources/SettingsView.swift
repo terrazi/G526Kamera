@@ -14,10 +14,7 @@ struct SettingsView: View {
             Form {
                 cameraSection
                 Section(header: Text("Bağlantılar"),
-                        footer: Text("Drive hesabınızı ve Gemini API anahtarınızı buradan girersiniz. Diğer bütün ayarlar “Gelişmiş ayarlar” içindedir; varsayılan değerlerle çalışır, değiştirmeniz gerekmez.")) {
-                    NavigationLink(destination: DriveSetupView(auth: model.auth, queue: model.queue)) {
-                        Text("Google Drive hesabı ve bağlantı")
-                    }
+                        footer: Text("Gemini API anahtarınızı buradan girersiniz. Diğer bütün ayarlar “Gelişmiş ayarlar” içindedir; varsayılan değerlerle çalışır, değiştirmeniz gerekmez.")) {
                     NavigationLink(destination: geminiPage) {
                         Text("Gemini ve API anahtarları")
                     }
@@ -94,7 +91,7 @@ struct SettingsView: View {
             photoSection
             powerSection
             motionSection
-            driveSection
+            saveSection
             selfHealSection
         }
         .navigationTitle("Gelişmiş ayarlar")
@@ -228,7 +225,7 @@ struct SettingsView: View {
 
     private var geminiSection: some View {
         Section(header: Text("Gemini ile belge sohbeti"),
-                footer: Text("Drive’a gönderdiğiniz son PDF’leri Gemini’ye verir; çağrı sözcüğünü söyleyip (kısa bir “tık” sesinden sonra) ya da ana ekrandaki düğmeyle belgeler hakkında sesli soru sorarsınız, cevap Türkçe sesle okunur. Çağrı sözcüğünü değiştirebilirsiniz (ör. “hey dostum”; virgülle birden çok yazabilirsiniz, en az 3 harf); gündelik konuşmada sık geçen bir sözcük seçerseniz Gemini yanlışlıkla açılabilir, fotoğraf çekme ve gönder sözcüklerinden de farklı olsun. Çağrı sözcüğü için Sesli komut açık olmalıdır; düğme her zaman çalışır. Oturum açıkken uygulama “N belge hazır, sorunuzu bekliyorum” der, her cevaptan sonra “Sonraki sorunuzu bekliyorum” diyerek yeni soruyu kendiliğinden dinler. Oturum siz “oturumu kapat” diyene, Durdur’a basana ya da aşağıda yazdığınız sessizlik süresi dolana kadar açık kalır; süreyi 0 bırakırsanız hiç kapanmaz. Oturum açıkken mikrofon sürekli açıktır: duyulan her konuşma Gemini’ye gider ve ücretlendirilir, “okey” gibi diğer sesli komutlar çalışmaz. Her soruda ses kaydınız ve seçilen PDF’ler Google’a gönderilir; IBAN, vergi numarası gibi bilgiler içeren belgeler için ücretli anahtarı tercih edin. Belgelerin PDF olarak Drive’a gitmesi gerekir (Google Drive bölümünde dosya türü “PDF”).")) {
+                footer: Text("Belge klasörüne kaydettiğiniz son PDF’leri Gemini’ye verir; çağrı sözcüğünü söyleyip (kısa bir “tık” sesinden sonra) ya da ana ekrandaki düğmeyle belgeler hakkında sesli soru sorarsınız, cevap Türkçe sesle okunur. Çağrı sözcüğünü değiştirebilirsiniz (ör. “hey dostum”; virgülle birden çok yazabilirsiniz, en az 3 harf); gündelik konuşmada sık geçen bir sözcük seçerseniz Gemini yanlışlıkla açılabilir, fotoğraf çekme ve gönder sözcüklerinden de farklı olsun. Çağrı sözcüğü için Sesli komut açık olmalıdır; düğme her zaman çalışır. Oturum açıkken uygulama “N belge hazır, sorunuzu bekliyorum” der, her cevaptan sonra “Sonraki sorunuzu bekliyorum” diyerek yeni soruyu kendiliğinden dinler. Oturum siz “oturumu kapat” diyene, Durdur’a basana ya da aşağıda yazdığınız sessizlik süresi dolana kadar açık kalır; süreyi 0 bırakırsanız hiç kapanmaz. Oturum açıkken mikrofon sürekli açıktır: duyulan her konuşma Gemini’ye gider ve ücretlendirilir, “okey” gibi diğer sesli komutlar çalışmaz. Her soruda ses kaydınız ve seçilen PDF’ler Google’a gönderilir; IBAN, vergi numarası gibi bilgiler içeren belgeler için ücretli anahtarı tercih edin. Belgelerin PDF olarak Drive’a gitmesi gerekir (Google Drive bölümünde dosya türü “PDF”).")) {
             Toggle("Gemini’ye sesle soru sor", isOn: $settings.geminiEnabled)
                 .accessibilityIdentifier("gemini-ac")
             Toggle("Oturum: “hazırım” de, cevaptan sonra yeni soruyu dinle", isOn: $settings.geminiSession)
@@ -341,7 +338,7 @@ struct SettingsView: View {
             if settings.videoToGemini {
                 TextField("Video sorusu (boşsa: “Bu videoda ne oluyor?”)", text: $settings.videoQuestion)
                 Toggle("Videoyu yüksek çözünürlükle oku", isOn: $settings.videoHighRes)
-                Text("Video kaydı bitince dosya telefondan doğrudan Gemini'ye gönderilir (Drive'a ayrıca yedeklenir) ve cevap sesle okunur. Her video bir Gemini isteğidir: ücretsiz kotadan düşer. Gemini videoyu saniyede 1 kare okur; 30 sn ≈ 2.100 token (yüksek çözünürlükte ≈ 8.400). Küçük yazı okuması için yüksek çözünürlük varsayılan açıktır; token tasarrufu için kapatabilirsiniz. Gemini ve gizlilik onayı açık olmalıdır.")
+                Text("Video kaydı bitince dosya telefondan doğrudan Gemini'ye gönderilir (klasöre ayrıca kaydedilir) ve cevap sesle okunur. Her video bir Gemini isteğidir: ücretsiz kotadan düşer. Gemini videoyu saniyede 1 kare okur; 30 sn ≈ 2.100 token (yüksek çözünürlükte ≈ 8.400). Küçük yazı okuması için yüksek çözünürlük varsayılan açıktır; token tasarrufu için kapatabilirsiniz. Gemini ve gizlilik onayı açık olmalıdır.")
                     .font(.footnote).foregroundColor(.secondary)
             }
             Toggle("Model yoğunsa ya da kotası dolunca yedek modele geç", isOn: $settings.geminiOverloadFallback)
@@ -384,7 +381,7 @@ struct SettingsView: View {
 
     private var examSection: some View {
         Section(header: Text("Deneme sınavı"),
-                footer: Text("“Deneme sınavı modu” deyince soru sayfaları sesli yönlendirmeyle taranır (fotoğraflar gönderilmeden birikir); “tarama tamamlandı” deyince PDF’ler Drive’a gider, Gemini yalnız bu sınavın PDF’lerini okur ve “N belge, M sayfa, K soru görüyorum” der. Cevaplar gruplar hâlinde okunur, her grup bir kez tekrarlanır; sonra soru numarasını söyleyerek ya da “tüm cevapları oku” diyerek istediğiniz cevabı yeniden dinlersiniz (tekrarlar Gemini’ye gitmez, kayıttan okunur). “Sınav tamamlandı” sınavı kapatır. Program konuşurken mikrofon kapalıdır; komutlar cümle bitince söylenmelidir. Okunamayan sorular uydurulmaz, “okunamadı” denir. “Sınav önce video çeksin” açıksa sınav önce video aşamasıyla başlar: evrak kadraja girince kayıt kendiliğinden başlar (en çok 30 sn), “durdur” kaydı bitirip Drive’a gönderir, “sil” göndermeden siler, “atla” video aşamasını geçer; her videodan sonra “videoya devam edeyim mi?” diye sorar: “evet” yeni video, “hayır” fotoğraf taraması. Sınav videosu yalnız Drive’a gider (Gemini’ye sorulmaz).")) {
+                footer: Text("“Deneme sınavı modu” deyince soru sayfaları sesli yönlendirmeyle taranır (fotoğraflar gönderilmeden birikir); “tarama tamamlandı” deyince PDF’ler belge klasörüne kaydedilir, Gemini yalnız bu sınavın PDF’lerini okur ve “N belge, M sayfa, K soru görüyorum” der. Cevaplar gruplar hâlinde okunur, her grup bir kez tekrarlanır; sonra soru numarasını söyleyerek ya da “tüm cevapları oku” diyerek istediğiniz cevabı yeniden dinlersiniz (tekrarlar Gemini’ye gitmez, kayıttan okunur). “Sınav tamamlandı” sınavı kapatır. Program konuşurken mikrofon kapalıdır; komutlar cümle bitince söylenmelidir. Okunamayan sorular uydurulmaz, “okunamadı” denir. “Sınav önce video çeksin” açıksa sınav önce video aşamasıyla başlar: evrak kadraja girince kayıt kendiliğinden başlar (en çok 30 sn), “durdur” kaydı bitirip Drive’a gönderir, “sil” göndermeden siler, “atla” video aşamasını geçer; her videodan sonra “videoya devam edeyim mi?” diye sorar: “evet” yeni video, “hayır” fotoğraf taraması. Sınav videosu yalnız Drive’a gider (Gemini’ye sorulmaz).")) {
             Stepper(value: $settings.examGroup, in: 3...20) {
                 Text("Cevap grubu: \(settings.examGroup) soru")
             }
@@ -404,7 +401,7 @@ struct SettingsView: View {
 
     private var powerSection: some View {
         Section(header: Text("Pil ve ısınma"),
-                footer: Text("Önizleme kapalıyken ekrana video çizilmez ve kareler seyreltilerek incelenir; fotoğraf çekme (düğme, sesli komut, görüntü değişince), OCR ve Drive aynen çalışır. Kamera kadrajını önce önizlemeyle ayarlayın. Ekran parlaklığını azaltmak pilin en büyük tüketicisini azaltır; uygulama açıkken ekran hep açık kalır. Kamera yayını, Wi-Fi ve mikrofon yine çalıştığı için pil ve ısınma tamamen sıfırlanmaz.")) {
+                footer: Text("Önizleme kapalıyken ekrana video çizilmez ve kareler seyreltilerek incelenir; fotoğraf çekme (düğme, sesli komut, görüntü değişince), OCR ve kaydetme aynen çalışır. Kamera kadrajını önce önizlemeyle ayarlayın. Ekran parlaklığını azaltmak pilin en büyük tüketicisini azaltır; uygulama açıkken ekran hep açık kalır. Kamera yayını, Wi-Fi ve mikrofon yine çalıştığı için pil ve ısınma tamamen sıfırlanmaz.")) {
             Toggle("Canlı önizlemeyi kapat", isOn: $settings.previewOff)
             Toggle("Ekran parlaklığını azalt", isOn: $settings.dimScreen)
         }
@@ -459,14 +456,10 @@ struct SettingsView: View {
         }
     }
 
-    private var driveSection: some View {
-        Section(header: Text("Google Drive"),
-                footer: Text("PDF: her fotoğraf (toplu modda birikenler tek çok sayfalı PDF olarak) gider; resim kalitesi bozulmaz. Gemini gibi yapay zekâlara PDF eklemek kolaydır. Telefondaki kopya her zaman JPEG'dir. OCR açıkken her fotoğrafın yazısı arka planda okunur ve PDF'in sonuna ayrı sayfalar olarak eklenir; telefon ısınırsa ya da yavaşlarsa OCR kendini kapatır. Apple'ın yazı okuyucusu Türkçeyi destekler; büyük “İ” bazen “I” ya da “i” okunabilir. Okunan metin görüntünün üstüne yazılmaz.")) {
-            NavigationLink(destination: DriveSetupView(auth: model.auth, queue: model.queue)) {
-                Text("Google hesabı ve bağlantı")
-            }
-            TextField("Drive klasör adı", text: $settings.driveFolderName)
-            Picker("Drive'a gönderme", selection: $settings.sendMode) {
+    private var saveSection: some View {
+        Section(header: Text("Kaydetme"),
+                footer: Text("Dosyalar belge klasörüne (“G526 Belgeler”) kaydedilir; klasörü ilk ekrandaki “Belge klasörü” bölümünden seçersiniz. PDF: her fotoğraf (toplu modda birikenler tek çok sayfalı PDF olarak) kaydedilir; resim kalitesi bozulmaz. OCR açıkken her fotoğrafın yazısı arka planda okunur ve PDF'in sonuna ayrı sayfalar olarak eklenir; telefon ısınırsa ya da yavaşlarsa OCR kendini kapatır. Apple'ın yazı okuyucusu Türkçeyi destekler; büyük “İ” bazen “I” ya da “i” okunabilir. Okunan metin görüntünün üstüne yazılmaz.")) {
+            Picker("Klasöre kaydetme", selection: $settings.sendMode) {
                 Text("Tek tek (hemen)").tag("single")
                 Text("Toplu (biriksin)").tag("batch")
             }
@@ -491,83 +484,7 @@ struct SettingsView: View {
                 Text("Soru numaralarını, şıkları, tabloları ve küçük yazıyı telefondaki OCR’dan çok daha doğru okur; her sayfa için küçük bir Gemini ücreti çıkar. Gemini bölümünde gizlilik onayı ve anahtar gerekir, yoksa telefondaki OCR kullanılır.")
                     .font(.footnote).foregroundColor(.secondary)
             }
-            Toggle("Telefonda da kopya sakla (Dosyalar uygulaması)", isOn: $settings.keepLocalCopies)
         }
-    }
-}
-
-struct DriveSetupView: View {
-    @ObservedObject var auth: GoogleAuth
-    @ObservedObject var queue: UploadQueue
-    @EnvironmentObject var settings: AppSettings
-    @State private var testResult = ""
-    @State private var testing = false
-
-    var body: some View {
-        Form {
-            Section(header: Text("Google Cloud istemcisi"),
-                    footer: Text("Türü “TV ve Sınırlı Girişli Cihazlar” olan bir OAuth istemcisi oluşturun (KURULUM.md). Bu bilgiler yalnızca bu telefonun Keychain'inde saklanır. Google parolanızı uygulamaya yazmazsınız.")) {
-                TextField("İstemci Kimliği (Client ID)", text: $settings.googleClientID)
-                    .textInputAutocapitalization(.never)
-                    .disableAutocorrection(true)
-                SecureField("İstemci Sırrı (Client secret)", text: $settings.googleClientSecret)
-            }
-
-            Section(header: Text("Hesap")) {
-                switch auth.phase {
-                case .signedIn:
-                    Label(auth.email.isEmpty ? "Giriş yapıldı" : auth.email, systemImage: "checkmark.seal.fill")
-                        .foregroundColor(.green)
-                    Button("Çıkış yap", role: .destructive) { auth.signOut() }
-                case .waiting(let code, let url):
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Google sayfasında bu kodu girin:").font(.footnote)
-                        Text(code)
-                            .font(.system(size: 30, weight: .bold, design: .monospaced))
-                            .textSelection(.enabled)
-                    }
-                    Button("Kodu kopyala ve Google sayfasını aç") {
-                        UIPasteboard.general.string = code
-                        if let link = URL(string: url) { UIApplication.shared.open(link) }
-                    }
-                    Button("İptal", role: .cancel) { auth.cancelSignIn() }
-                case .signedOut:
-                    Button("Google ile giriş yap") { auth.startSignIn() }
-                }
-                if !auth.message.isEmpty {
-                    Text(auth.message).font(.footnote).foregroundColor(.secondary)
-                }
-            }
-
-            if auth.isSignedIn {
-                Section(header: Text("Bağlantı")) {
-                    Button(testing ? "Sınanıyor…" : "Bağlantıyı sına / klasörü oluştur") {
-                        testing = true
-                        Task { @MainActor in
-                            let text = await queue.testConnection()
-                            testResult = text
-                            testing = false
-                        }
-                    }
-                    .disabled(testing)
-                    if !testResult.isEmpty {
-                        Text(testResult).font(.footnote).foregroundColor(.secondary)
-                    }
-                }
-            }
-
-            Section(header: Text("Yükleme kuyruğu")) {
-                Text(queue.pending > 0 ? "\(queue.pending) fotoğraf bekliyor" : "Bekleyen fotoğraf yok")
-                if !queue.status.isEmpty {
-                    Text(queue.status).font(.footnote).foregroundColor(.secondary)
-                }
-                if queue.pending > 0 {
-                    Button(settings.sendMode == "batch" ? "Şimdi gönder" : "Şimdi yeniden dene") { queue.retry() }
-                }
-            }
-        }
-        .navigationTitle("Google Drive")
-        .navigationBarTitleDisplayMode(.inline)
     }
 }
 

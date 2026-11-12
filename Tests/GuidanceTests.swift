@@ -413,53 +413,53 @@ final class GuidanceTests: XCTestCase {
     // MARK: - Sesli rapor
 
     func testReportText() {
-        let t = SpokenReport.make(captured: 12, sentPhotos: 10, sentDocs: 1, waiting: 2, signedIn: true,
+        let t = SpokenReport.make(captured: 12, sentPhotos: 10, sentDocs: 1, waiting: 2, folderReady: true,
                                   hasError: false, pdf: true, batchMode: true)
         XCTAssertTrue(t.contains("12 sayfanın fotoğrafı çekildi"), t)
-        XCTAssertTrue(t.contains("10 sayfa 1 PDF olarak Drive'a gönderildi"), t)
+        XCTAssertTrue(t.contains("10 sayfa 1 PDF olarak klasöre kaydedildi"), t)
         XCTAssertTrue(t.contains("2 sayfa gönderilmeyi bekliyor"), t)
         XCTAssertTrue(t.contains("hepsi tamamlandı deyin"), t)
     }
 
     func testReportTextEmptyAndProblems() {
-        let empty = SpokenReport.make(captured: 0, sentPhotos: 0, sentDocs: 0, waiting: 0, signedIn: true,
+        let empty = SpokenReport.make(captured: 0, sentPhotos: 0, sentDocs: 0, waiting: 0, folderReady: true,
                                       hasError: false, pdf: true, batchMode: true)
         XCTAssertEqual(empty, "Bugün henüz fotoğraf çekilmedi.")
-        let signedOut = SpokenReport.make(captured: 3, sentPhotos: 0, sentDocs: 0, waiting: 3, signedIn: false,
+        let notReady = SpokenReport.make(captured: 3, sentPhotos: 0, sentDocs: 0, waiting: 3, folderReady: false,
                                           hasError: false, pdf: true, batchMode: true)
-        XCTAssertTrue(signedOut.contains("giriş yapılmadığı"), signedOut)
-        XCTAssertTrue(signedOut.contains("Henüz hiçbir şey Drive'a gönderilmedi"), signedOut)
-        let failed = SpokenReport.make(captured: 3, sentPhotos: 0, sentDocs: 0, waiting: 3, signedIn: true,
+        XCTAssertTrue(notReady.contains("seçilmediği"), notReady)
+        XCTAssertTrue(notReady.contains("Henüz hiçbir şey klasöre kaydedilmedi"), notReady)
+        let failed = SpokenReport.make(captured: 3, sentPhotos: 0, sentDocs: 0, waiting: 3, folderReady: true,
                                        hasError: true, pdf: true, batchMode: false)
         XCTAssertTrue(failed.contains("başarısız"), failed)
-        let done = SpokenReport.make(captured: 5, sentPhotos: 5, sentDocs: 1, waiting: 0, signedIn: true,
+        let done = SpokenReport.make(captured: 5, sentPhotos: 5, sentDocs: 1, waiting: 0, folderReady: true,
                                      hasError: false, pdf: true, batchMode: true)
         XCTAssertTrue(done.contains("Bekleyen sayfa yok"), done)
     }
 
     func testAfterCaptureText() {
-        XCTAssertEqual(SpokenReport.afterCapture(part: nil, waiting: 4, signedIn: true, batchMode: true),
+        XCTAssertEqual(SpokenReport.afterCapture(part: nil, waiting: 4, folderReady: true, batchMode: true),
                        "Çekim tamamlandı. 4 sayfa gönderilmeyi bekliyor.")
-        XCTAssertEqual(SpokenReport.afterCapture(part: "Sol", waiting: 1, signedIn: true, batchMode: true),
+        XCTAssertEqual(SpokenReport.afterCapture(part: "Sol", waiting: 1, folderReady: true, batchMode: true),
                        "Sol bölüm çekildi. 1 sayfa gönderilmeyi bekliyor.")
-        XCTAssertEqual(SpokenReport.afterCapture(part: nil, waiting: 1, signedIn: true, batchMode: false),
+        XCTAssertEqual(SpokenReport.afterCapture(part: nil, waiting: 1, folderReady: true, batchMode: false),
                        "Çekim tamamlandı. Dosya gönderiliyor.")
-        XCTAssertEqual(SpokenReport.afterCapture(part: "Sağ", waiting: 2, signedIn: false, batchMode: true),
-                       "Sağ bölüm çekildi. Drive'a giriş yapılmadığı için dosya bekliyor.")
+        XCTAssertEqual(SpokenReport.afterCapture(part: "Sağ", waiting: 2, folderReady: false, batchMode: true),
+                       "Sağ bölüm çekildi. Belge klasörü seçilmediği için dosya bekliyor.")
     }
 
     func testAfterCapturePageLimitWarnings() {
-        XCTAssertEqual(SpokenReport.afterCapture(part: nil, waiting: 10, signedIn: true, batchMode: true, batchSize: 10),
+        XCTAssertEqual(SpokenReport.afterCapture(part: nil, waiting: 10, folderReady: true, batchMode: true, batchSize: 10),
                        "Çekim tamamlandı. 10 sayfa gönderilmeyi bekliyor. PDF dolduğu için gönderiliyor, sonraki sayfalar yeni PDF olacak.")
-        XCTAssertEqual(SpokenReport.afterCapture(part: nil, waiting: 9, signedIn: true, batchMode: true, batchSize: 10),
+        XCTAssertEqual(SpokenReport.afterCapture(part: nil, waiting: 9, folderReady: true, batchMode: true, batchSize: 10),
                        "Çekim tamamlandı. 9 sayfa gönderilmeyi bekliyor.")
-        XCTAssertEqual(SpokenReport.afterCapture(part: nil, waiting: 30, signedIn: true, batchMode: true, batchSize: 0),
+        XCTAssertEqual(SpokenReport.afterCapture(part: nil, waiting: 30, folderReady: true, batchMode: true, batchSize: 0),
                        "Çekim tamamlandı. 30 sayfa gönderilmeyi bekliyor. PDF'e en çok 30 sayfa girer, sonraki sayfalar yeni PDF olacak.")
-        XCTAssertEqual(SpokenReport.afterCapture(part: nil, waiting: 29, signedIn: true, batchMode: true, batchSize: 0),
+        XCTAssertEqual(SpokenReport.afterCapture(part: nil, waiting: 29, folderReady: true, batchMode: true, batchSize: 0),
                        "Çekim tamamlandı. 29 sayfa gönderilmeyi bekliyor.")
-        XCTAssertEqual(SpokenReport.afterCapture(part: nil, waiting: 10, signedIn: false, batchMode: true, batchSize: 10),
-                       "Çekim tamamlandı. Drive'a giriş yapılmadığı için dosya bekliyor.")
-        XCTAssertEqual(SpokenReport.afterCapture(part: nil, waiting: 40, signedIn: true, batchMode: false, batchSize: 10),
+        XCTAssertEqual(SpokenReport.afterCapture(part: nil, waiting: 10, folderReady: false, batchMode: true, batchSize: 10),
+                       "Çekim tamamlandı. Belge klasörü seçilmediği için dosya bekliyor.")
+        XCTAssertEqual(SpokenReport.afterCapture(part: nil, waiting: 40, folderReady: true, batchMode: false, batchSize: 10),
                        "Çekim tamamlandı. Dosya gönderiliyor.")
     }
 
@@ -473,7 +473,7 @@ final class GuidanceTests: XCTestCase {
         XCTAssertEqual(text(.removed("a.jpg"), retake: true), "Son fotoğraf silindi. Sayfayı yeniden kadraja alın.")
         XCTAssertEqual(text(.removed("a.jpg"), retake: true, part: "Sol"), "Son fotoğraf silindi. Sol bölümü yeniden kadraja alın.")
         XCTAssertEqual(text(.removed("a.jpg"), retake: true, guided: false), "Son fotoğraf silindi. Yeniden çekmek için okey deyin.")
-        XCTAssertEqual(text(.alreadySent), "Son sayfa zaten Drive'a gönderildi, silemem.")
+        XCTAssertEqual(text(.alreadySent), "Son sayfa zaten klasöre kaydedildi, silemem.")
         XCTAssertEqual(text(.uploading), "Son sayfa şu an gönderiliyor, silemem.")
         XCTAssertEqual(text(.none), "Bu oturumda silinecek fotoğraf yok.")
     }
@@ -612,8 +612,8 @@ final class GuidanceTests: XCTestCase {
     }
 
     func testFinishedText() {
-        XCTAssertEqual(SpokenReport.finished(photos: 8, docs: 1, pdf: true), "Tamamlandı. 8 sayfa 1 PDF olarak Drive'a gönderildi.")
-        XCTAssertEqual(SpokenReport.finished(photos: 3, docs: 3, pdf: false), "Tamamlandı. 3 fotoğraf Drive'a gönderildi.")
+        XCTAssertEqual(SpokenReport.finished(photos: 8, docs: 1, pdf: true), "Tamamlandı. 8 sayfa 1 PDF olarak klasöre kaydedildi.")
+        XCTAssertEqual(SpokenReport.finished(photos: 3, docs: 3, pdf: false), "Tamamlandı. 3 fotoğraf klasöre kaydedildi.")
     }
 
     // MARK: - Gerçek kamera kareleri ve ışık düşüşü (vinyet)

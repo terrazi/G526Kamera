@@ -69,17 +69,17 @@ final class AnnouncementTests: XCTestCase {
     }
 
     func testStartupTellsWhatIsMissing() {
-        XCTAssertEqual(SpokenReport.startup(signedIn: true, waiting: 0), "Sesli konumlandırma açık.")
-        let out = SpokenReport.startup(signedIn: false, waiting: 3)
-        XCTAssertTrue(out.contains("giriş yok"))
+        XCTAssertEqual(SpokenReport.startup(folderReady: true, waiting: 0), "Sesli konumlandırma açık.")
+        let out = SpokenReport.startup(folderReady: false, waiting: 3)
+        XCTAssertTrue(out.contains("seçilmedi"))
         XCTAssertTrue(out.contains("3 sayfa"))
     }
 
     func testAnnouncementsAreShort() {
         // Dinleyiciyi yormamak için her bildirim kısa olmalı
         var all: [String] = [ConnectionAnnouncer.Message.ready, .lost, .restored, .unreachable, .stillDown].map { $0.text }
-        all += [SpokenReport.startup(signedIn: false, waiting: 5), SpokenReport.autoSent(),
-                SpokenReport.uploadFailed(signedIn: true, waiting: 3), SpokenReport.uploadFailed(signedIn: false, waiting: 3),
+        all += [SpokenReport.startup(folderReady: false, waiting: 5), SpokenReport.autoSent(),
+                SpokenReport.uploadFailed(folderReady: true, waiting: 3), SpokenReport.uploadFailed(folderReady: false, waiting: 3),
                 SpokenReport.speechProblem("Mikrofon izni verilmedi") ?? ""]
         for t in all {
             XCTAssertLessThanOrEqual(t.split(separator: " ").count, 16, t)
@@ -100,9 +100,9 @@ final class AnnouncementTests: XCTestCase {
 
     func testBackgroundUploadSentences() {
         XCTAssertEqual(SpokenReport.autoSent(), "Dosya gönderildi.")
-        XCTAssertTrue(SpokenReport.uploadFailed(signedIn: true, waiting: 2).contains("yeniden denenecek"))
-        let out = SpokenReport.uploadFailed(signedIn: false, waiting: 2)
-        XCTAssertTrue(out.contains("giriş yok"))
+        XCTAssertTrue(SpokenReport.uploadFailed(folderReady: true, waiting: 2).contains("yeniden denenecek"))
+        let out = SpokenReport.uploadFailed(folderReady: false, waiting: 2)
+        XCTAssertTrue(out.contains("seçilmedi"))
         XCTAssertTrue(out.contains("2 sayfa"))
     }
 

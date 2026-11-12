@@ -105,3 +105,131 @@ final class DocumentFolderTests: XCTestCase {
         XCTAssertFalse(f.hasChoice)
     }
 }
+
+import PDFKit
+import UIKit
+
+final class FolderClientTests: XCTestCase {
+    private var dir: URL!
+    private var suite: UserDefaults!
+    private var suiteName: String!
+    private var folder: DocumentFolder!
+    private var client: FolderClient!
+
+    override func setUpWithError() throws {
+        dir = FileManager.default.temporaryDirectory.appendingPathComponent("klasor-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        suiteName = "klasor-test-\(UUID().uuidString)"
+        suite = UserDefaults(suiteName: suiteName)
+        folder = DocumentFolder(defaults: suite, key: "k")
+        client = FolderClient(folder: folder)
+    }
+
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(at: dir)
+        suite.removePersistentDomain(forName: suiteName)
+    }
+
+    private func jpeg(_ color: UIColor) -> Data {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 200, height: 300), format: format).image { ctx in
+            color.setFill()
+            ctx.fill(CGRect(x: 0, y: 0, width: 200, height: 300))
+        }
+        return image.jpegData(compressionQuality: 0.9)!
+    }
+
+    private func temp(_ name: String, _ data: Data) throws -> URL {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString)-\(name)")
+        try data.write(to: url)
+        return url
+    }
+
+    func testIsNotReadyUntilAFolderIsChosen() async throws {
+        XCTAssertFalse(client.isReady)
+        let file = try temp("a.txt", Data("x".utf8))
+        defer { try? FileManager.default.removeItem(at: file) }
+        do {
+            _ = try await client.save(.text(file))
+            XCTFail("klasör seçilmeden kaydedilmemeli")
+        } catch let error as DocumentFolderError {
+            XCTAssertTrue(error.message.contains("seçilmedi"))
+        }
+        try folder.choose(dir)
+        XCTAssertTrue(client.isReady)
+    }
+
+    func testSavesTextVideoAndJpegWithStampedNames() async throws {
+        try folder.choose(dir)
+        let when = Date(timeIntervalSince1970: 1_800_000_000)
+        let stamp = FileStamp.stamp(when)
+        let text = try temp("a.txt", Data("cevaplar".utf8))
+        let video = try temp("v.mp4", Data("video".utf8))
+        let photo = try temp("f.jpg", jpeg(.white))
+        defer { for f in [text, video, photo] { try? FileManager.default.removeItem(at: f) } }
+
+        let t = try await client.save(.text(text), date: when)
+        let v = try await client.save(.video(video), date: when)
+        let p = try await client.save(.jpeg(photo), date: when)
+        XCTAssertEqual(t.id, "\(stamp).txt")
+        XCTAssertEqual(v.id, "\(stamp).mp4")
+        XCTAssertEqual(p.id, "\(stamp).jpg")
+        XCTAssertEqual(t.size, 8)
+        XCTAssertEqual(try String(contentsOf: dir.appendingPathComponent(t.id), encoding: .utf8), "cevaplar")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: text.path), "kaynak dosya silinmemeli")
+    }
+
+    func testPdfIsWrittenAndSameSecondGetsASuffix() async throws {
+        try folder.choose(dir)
+        let when = Date(timeIntervalSince1970: 1_800_000_100)
+        let a = try temp("1.jpg", jpeg(.white))
+        let b = try temp("2.jpg", jpeg(.lightGray))
+        defer { for f in [a, b] { try? FileManager.default.removeItem(at: f) } }
+
+        let first = try await client.save(.pdf([a, b], title: "deneme", texts: []), date: when)
+        let second = try await client.save(.pdf([a], title: "deneme", texts: []), date: when)
+        let stamp = FileStamp.stamp(when)
+        XCTAssertEqual(first.id, "\(stamp).pdf")
+        XCTAssertEqual(second.id, "\(stamp)-2.pdf")
+        let document = PDFDocument(url: dir.appendingPathComponent(first.id))
+        XCTAssertEqual(document?.pageCount, 2)
+        XCTAssertGreaterThan(first.size, 0)
+    }
+
+    func testListsNewestPdfsFirstAndReadsThemBack() async throws {
+        try folder.choose(dir)
+        let photo = try temp("f.jpg", jpeg(.white))
+        defer { try? FileManager.default.removeItem(at: photo) }
+        let old = try await client.save(.pdf([photo], title: "a", texts: []), date: Date(timeIntervalSince1970: 1_800_000_000))
+        let new = try await client.save(.pdf([photo], title: "b", texts: []), date: Date(timeIntervalSince1970: 1_800_100_000))
+        let note = try temp("n.txt", Data("x".utf8))
+        defer { try? FileManager.default.removeItem(at: note) }
+        _ = try await client.save(.text(note), date: Date(timeIntervalSince1970: 1_800_200_000))
+
+        let listing = try await client.listPDFs(count: 10)
+        XCTAssertEqual(listing.map { $0.id }, [new.id, old.id], "yalnız PDF'ler, en yeni önce")
+        XCTAssertEqual(listing[0].size, new.size)
+        let data = try await client.download(fileID: new.id)
+        XCTAssertEqual(data.count, new.size)
+        XCTAssertNotNil(PDFDocument(data: data))
+        let limited = try await client.listPDFs(count: 1)
+        XCTAssertEqual(limited.count, 1)
+    }
+
+    func testDownloadOfAMissingFileFailsClearly() async throws {
+        try folder.choose(dir)
+        do {
+            _ = try await client.download(fileID: "yok.pdf")
+            XCTFail("olmayan dosya okunmamalı")
+        } catch let error as DocumentFolderError {
+            XCTAssertTrue(error.message.contains("yok.pdf"))
+        }
+    }
+
+    func testListPageSizeFollowsTheDocumentCountSetting() {
+        XCTAssertEqual(FolderClient.listPageSize(3), 3)
+        XCTAssertEqual(FolderClient.listPageSize(0), 1)
+        XCTAssertEqual(FolderClient.listPageSize(500), 50)
+    }
+}

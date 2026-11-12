@@ -103,7 +103,7 @@ final class ExamPortsReal: ExamPorts {
         var videoPhase: () -> ExamVideoPhase = { .idle }
         var videoStop: () -> Void = {}
         var videoDiscard: () -> Void = {}
-        /// Hazır videoyu Drive'a gönderir, bitene kadar bekler; hata metni ("" = gönderildi)
+        /// Hazır videoyu belge klasörüne kaydeder, bitene kadar bekler; hata metni ("" = kaydedildi)
         var videoSend: () async -> String = { "" }
         /// Açılış sınaması: internet ve Gemini (boş = sorun yok)
         var checkSystem: () async -> String = { "" }
@@ -114,15 +114,14 @@ final class ExamPortsReal: ExamPorts {
     private let hooks: Hooks
     private let queue: UploadQueue
     private let settings: AppSettings
-    private let auth: GoogleAuth
+    private let folder = FolderClient()
     private let docStore: GeminiDocStore
     private let asker: ExamAsker
 
-    init(hooks: Hooks, queue: UploadQueue, settings: AppSettings, auth: GoogleAuth, docStore: GeminiDocStore, asker: ExamAsker) {
+    init(hooks: Hooks, queue: UploadQueue, settings: AppSettings, docStore: GeminiDocStore, asker: ExamAsker) {
         self.hooks = hooks
         self.queue = queue
         self.settings = settings
-        self.auth = auth
         self.docStore = docStore
         self.asker = asker
     }
@@ -131,7 +130,7 @@ final class ExamPortsReal: ExamPorts {
         if !hooks.speechOn() { return "Sesli komut kapalı. Ayarlardan sesle çekimi ya da sesle konumlandırmayı açın." }
         if settings.activeGeminiProfile.key.isEmpty { return "Gemini API anahtarı girilmemiş. Ayarlardan yapıştırın." }
         if !settings.geminiPrivacyOK { return "Gemini gizlilik onayı verilmemiş. Ayarlardan onaylayın." }
-        if !auth.isSignedIn { return "Drive'a giriş yapılmamış. Ayarlardan giriş yapın." }
+        if !folder.isReady { return "Belge klasörü seçilmemiş. Ayarlardan klasörü seçin." }
         if needCamera && !hooks.cameraLive() { return "Kamera görüntüsü yok. Kameraya bağlanınca tekrar söyleyin." }
         return ""
     }
@@ -172,14 +171,14 @@ final class ExamPortsReal: ExamPorts {
     func checkSystem() async -> String { return await hooks.checkSystem() }
 
     func sendError() -> String {
-        if !auth.isSignedIn { return "Drive'a giriş yapılmamış" }
+        if !folder.isReady { return "Belge klasörü seçilmemiş" }
         return queue.lastError
     }
 
     func sent(since: Double) -> [ExamSentFile] { return queue.sent(since: since) }
 
     func docs(for files: [ExamSentFile]) async throws -> (docs: [GeminiDoc], notes: [String]) {
-        let infos = files.map { DriveFileInfo(id: $0.id, name: $0.name, size: $0.size, created: "") }
+        let infos = files.map { StoredFileInfo(id: $0.id, name: $0.name, size: $0.size, created: "") }
         return try await docStore.docs(for: infos)
     }
 
@@ -204,16 +203,16 @@ final class ExamPortsReal: ExamPorts {
     }
 
     func saveKey(_ name: String, _ text: String) async -> String {
-        guard auth.isSignedIn else { return "" }
+        guard folder.isReady else { return "" }
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("anahtar-\(UUID().uuidString).txt")
         defer { try? FileManager.default.removeItem(at: file) }
         do {
             try Data(text.utf8).write(to: file, options: .atomic)
-            let result = try await DriveClient(auth: auth).uploadFile(.text(file), name: name)
-            tlog("[sinav] cevap anahtarı Drive'a yüklendi: \(name)")
-            return result.id.isEmpty ? "" : "https://drive.google.com/file/d/\(result.id)/view"
+            let result = try await folder.save(.text(file))
+            tlog("[sinav] cevap anahtarı klasöre kaydedildi: \(result.id)")
+            return result.id
         } catch {
-            tlog("[sinav] cevap anahtarı yüklenemedi: \(error.localizedDescription)")
+            tlog("[sinav] cevap anahtarı kaydedilemedi: \(error.localizedDescription)")
             return ""
         }
     }

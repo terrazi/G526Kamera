@@ -40,7 +40,7 @@ final class AppSettings: ObservableObject {
     @Published var motionSensitivity: Int { didSet { d.set(motionSensitivity, forKey: "motionSensitivity") } }
 
     // MARK: Pil tasarrufu
-    /// Canlı önizleme kapalı: ekrana video çizilmez, kare çözme/çekim/ses/Drive aynen sürer (varsayılan: önizleme açık)
+    /// Canlı önizleme kapalı: ekrana video çizilmez, kare çözme/çekim/ses/kaydetme aynen sürer (varsayılan: önizleme açık)
     @Published var previewOff: Bool { didSet { d.set(previewOff, forKey: "previewOff") } }
     /// Program çalışırken ekran parlaklığını çok azalt (ekran pilin en büyük tüketicisidir); önizlemeden bağımsız
     @Published var dimScreen: Bool { didSet { d.set(dimScreen, forKey: "dimScreen") } }
@@ -145,19 +145,14 @@ final class AppSettings: ObservableObject {
     @Published var cellularShortcutOn: Bool { didSet { d.set(cellularShortcutOn, forKey: "cellularShortcutOn") } }
     @Published var cellularShortcutName: String { didSet { d.set(cellularShortcutName, forKey: "cellularShortcutName") } }
 
-    // MARK: Drive
-    @Published var driveFolderName: String { didSet { d.set(driveFolderName, forKey: "driveFolderName") } }
-    @Published var driveFolderID: String { didSet { d.set(driveFolderID, forKey: "driveFolderID") } }
-    @Published var googleClientID: String { didSet { Keychain.set(googleClientID, for: "googleClientID") } }
-    @Published var googleClientSecret: String { didSet { Keychain.set(googleClientSecret, for: "googleClientSecret") } }
-    @Published var keepLocalCopies: Bool { didSet { d.set(keepLocalCopies, forKey: "keepLocalCopies") } }
+    // MARK: Kaydetme (belge klasörü)
     /// "single": her fotoğraf hemen gider · "batch": biriksin, toplu gitsin
     @Published var sendMode: String { didSet { d.set(sendMode, forKey: "sendMode") } }
     /// Toplu modda bu kadar fotoğraf birikince gönder (0 = yalnızca düğmeyle)
     @Published var batchSize: Int { didSet { d.set(batchSize, forKey: "batchSize") } }
     /// Toplu modda son çekimden bu kadar saniye sonra gönder (0 = kapalı)
     @Published var batchIdle: Int { didSet { d.set(batchIdle, forKey: "batchIdle") } }
-    /// Drive'a giden dosya türü: "pdf" ya da "jpeg" (telefondaki kopya her zaman JPEG)
+    /// Klasöre kaydedilen dosya türü: "pdf" ya da "jpeg"
     @Published var uploadFormat: String { didSet { d.set(uploadFormat, forKey: "uploadFormat") } }
     /// Fotoğraftaki yazıyı oku (OCR) ve PDF'in sonuna ayrı metin sayfaları olarak ekle (varsayılan kapalı)
     @Published var ocrEnabled: Bool { didSet { d.set(ocrEnabled, forKey: "ocrEnabled") } }
@@ -193,11 +188,7 @@ final class AppSettings: ObservableObject {
         motionEnabled = d.object(forKey: "motionEnabled") as? Bool ?? false
         motionSensitivity = d.object(forKey: "motionSensitivity") as? Int ?? 1
 
-        driveFolderName = d.string(forKey: "driveFolderName") ?? "G526 Belgeler"
-        driveFolderID = d.string(forKey: "driveFolderID") ?? ""
-        googleClientID = Keychain.get("googleClientID") ?? ""
-        googleClientSecret = Keychain.get("googleClientSecret") ?? ""
-        keepLocalCopies = d.object(forKey: "keepLocalCopies") as? Bool ?? true
+        AppSettings.removeOldGoogleData(d)
         sendMode = d.string(forKey: "sendMode") ?? "single"
         batchSize = d.object(forKey: "batchSize") as? Int ?? 10
         batchIdle = d.object(forKey: "batchIdle") as? Int ?? 0
@@ -298,5 +289,13 @@ extension AppSettings {
         guard !geminiCapMonth.isEmpty, geminiCapMonth != GeminiProfiles.monthKey(now) else { return }
         if activeGeminiProfile.free { geminiActive = geminiCapPrev }
         geminiCapMonth = ""
+    }
+
+    /// Eski sürümlerden kalan Google/Drive bilgilerini (jeton, istemci kimliği, klasör) siler
+    static func removeOldGoogleData(_ d: UserDefaults) {
+        for key in ["googleRefreshToken", "googleClientID", "googleClientSecret"] { Keychain.remove(key) }
+        for key in ["googleEmail", "driveFolderName", "driveFolderID", "keepLocalCopies", "driveFolderResolvedName"] {
+            d.removeObject(forKey: key)
+        }
     }
 }

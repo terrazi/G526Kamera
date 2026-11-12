@@ -123,12 +123,12 @@ struct GeminiDoc {
     let size: Int
     /// Sayfa sayısı (0 = bilinmiyor; boyuttan tahmin edilir)
     var pages: Int
-    /// Eşleme anahtarı (Drive dosya kimliği + boyut); boşsa içerik özetinden türetilir
+    /// Eşleme anahtarı (klasördeki dosya adı + boyut); boşsa içerik özetinden türetilir
     var key: String
     /// Files API adresi ve adı ("files/abc"); belge yüklendiyse dolu
     var uri = ""
     var remote = ""
-    /// Dosya diskte yoksa baytları getirir (ör. Drive'dan yeniden indirir)
+    /// Dosya diskte yoksa baytları getirir (ör. belge klasöründen yeniden okur)
     var loader: (() async throws -> Data)?
 
     init(name: String, data: Data) {

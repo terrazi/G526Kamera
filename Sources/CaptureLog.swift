@@ -1,12 +1,12 @@
 import Foundation
 
 /// Bu oturumda kuyruğa alınan fotoğrafların sırası. "Son fotoğrafı sil" yalnız bu oturumda çekilmiş,
-/// henüz Drive'a gitmemiş fotoğrafı siler (saf mantık; birim testle denenir).
+/// henüz klasöre kaydedilmemiş fotoğrafı siler (saf mantık; birim testle denenir).
 struct CaptureLog {
     enum Outcome: Equatable {
         /// Silindi (dosya adı)
         case removed(String)
-        /// Son fotoğraf zaten Drive'a gitti
+        /// Son fotoğraf zaten klasöre kaydedildi
         case alreadySent
         /// Son fotoğraf şu an yükleniyor
         case uploading

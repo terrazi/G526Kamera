@@ -33,7 +33,7 @@ struct ContentView: View {
                     .padding(12)
                     .background(Color(UIColor.secondarySystemBackground))
                     .cornerRadius(12)
-                    DriveStatusRow(auth: model.auth, queue: model.queue)
+                    FolderStatusRow(queue: model.queue)
                     lastPhoto
                 }
                 .padding(16)
@@ -131,7 +131,7 @@ struct ContentView: View {
             Image(systemName: "eye.slash").font(.title3)
             Text("Önizleme kapalı (pil tasarrufu)")
                 .font(.footnote.weight(.semibold))
-            Text("Çekim, sesli komut ve Drive çalışıyor. Çekilen fotoğrafı aşağıda görürsünüz.")
+            Text("Çekim ve sesli komut çalışıyor. Çekilen fotoğrafı aşağıda görürsünüz.")
                 .font(.caption2)
                 .multilineTextAlignment(.center)
                 .foregroundColor(.white.opacity(0.7))
@@ -166,7 +166,7 @@ struct ContentView: View {
         .disabled(model.capturing || !model.isLive)
     }
 
-    /// Video kaydı: açıkken kırmızı; en çok 30 sn sürer, "kapat" denince ya da süre dolunca biter ve Drive'a gider
+    /// Video kaydı: açıkken kırmızı; en çok 30 sn sürer, "kapat" denince ya da süre dolunca biter ve belge klasörüne kaydedilir
     private var videoButton: some View {
         Button {
             model.toggleVideo()
@@ -232,20 +232,19 @@ struct VoiceRow: View {
     }
 }
 
-struct DriveStatusRow: View {
-    @ObservedObject var auth: GoogleAuth
+struct FolderStatusRow: View {
     @ObservedObject var queue: UploadQueue
     @ObservedObject private var ocr = OcrCenter.shared
     @EnvironmentObject var settings: AppSettings
 
     var body: some View {
+        let ready = DocumentFolder.shared.hasChoice
         VStack(alignment: .leading, spacing: 4) {
-            if auth.isSignedIn {
-                Label(auth.email.isEmpty ? "Google Drive bağlı" : "Drive: \(auth.email)",
-                      systemImage: "icloud.and.arrow.up")
+            if ready {
+                Label("Belge klasörü seçildi", systemImage: "folder.fill")
                     .font(.subheadline)
             } else {
-                Label("Google Drive bağlı değil (Ayarlar > Google Drive)", systemImage: "icloud.slash")
+                Label("Belge klasörü seçilmedi (Ayarlar > Belge klasörü)", systemImage: "folder.badge.questionmark")
                     .font(.subheadline)
                     .foregroundColor(.orange)
             }
@@ -253,13 +252,13 @@ struct DriveStatusRow: View {
                 Text(queue.status).font(.caption).foregroundColor(.secondary)
             }
             if queue.uploaded > 0 {
-                Text("Bu oturumda yüklenen: \(queue.uploaded)").font(.caption).foregroundColor(.secondary)
+                Text("Bu oturumda kaydedilen: \(queue.uploaded)").font(.caption).foregroundColor(.secondary)
             }
             if settings.ocrEnabled && !ocr.status.isEmpty {
                 Text(ocr.status).font(.caption).foregroundColor(.secondary)
             }
-            if queue.pending > 0 && auth.isSignedIn && settings.sendMode == "batch" {
-                Button("Şimdi gönder (\(queue.pending))") { queue.retry() }
+            if queue.pending > 0 && ready && settings.sendMode == "batch" {
+                Button("Şimdi kaydet (\(queue.pending))") { queue.retry() }
                     .font(.subheadline)
             }
         }
@@ -402,7 +401,7 @@ struct ExamRow: View {
         switch exam.stage {
         case "video": return "Deneme sınavı: video"
         case "scan": return "Deneme sınavı: tarama"
-        case "send": return "Deneme sınavı: Drive’a gönderim"
+        case "send": return "Deneme sınavı: klasöre kaydetme"
         case "prepare", "verify": return "Deneme sınavı: belgeler okunuyor"
         case "answer": return "Deneme sınavı: cevaplar"
         case "review": return "Deneme sınavı: soru numarası bekleniyor"

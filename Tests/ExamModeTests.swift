@@ -38,7 +38,7 @@ private final class FakePorts: ExamPorts {
     /// Sıradaki ikinci çözüm isteklerinde fırlatılacak hatalar
     var failRecheck: [Error] = []
     var recheckCalls = 0
-    /// Drive'a yüklenen cevap anahtarları
+    /// klasöre yüklenen cevap anahtarları
     var keys: [(name: String, text: String)] = []
     var keyLink = "https://drive.example/anahtar"
     /// "Dinle": sırayla verilecek kayıtlar (nil = duyulmadı); bitince nil
@@ -412,7 +412,7 @@ final class ExamModeTests: XCTestCase {
         XCTAssertTrue(p.spoken.contains("Soru sayfalarını sırayla tarayın. Bitince tarama tamamlandı deyin.") ||
                       p.spoken.first?.hasPrefix("Deneme sınavı modu açık.") == true)
         XCTAssertTrue(p.spoken.contains("Gemini belgeleri okuyabildi: 1 belge, 3 sayfa, 5 soru görüyorum."), "\(p.spoken)")
-        XCTAssertTrue(p.spoken.contains("3 sayfa Drive'a gönderiliyor."))
+        XCTAssertTrue(p.spoken.contains("3 sayfa klasöre kaydediliyor."))
         XCTAssertEqual(p.flushCalls, 1)
         XCTAssertEqual(p.holds.first, true)
         XCTAssertEqual(p.holds.contains(false), true)
@@ -526,7 +526,7 @@ final class ExamModeTests: XCTestCase {
         XCTAssertTrue(exam.start())
         await scanPages(exam, p, ["a.jpg", "b.jpg"])
         exam.command("scan_done")
-        let asked = await until { p.spoken.contains(where: { $0.contains("5 saniye içinde Drive'a gönderilecek") }) }
+        let asked = await until { p.spoken.contains(where: { $0.contains("5 saniye içinde klasöre kaydedilecek") }) }
         XCTAssertTrue(asked, "\(p.spoken)")
         XCTAssertTrue(exam.command("cancel"))
         let back = await until { p.spoken.contains("Gönderim iptal edildi. Taramaya devam edebilirsiniz.") }
@@ -642,7 +642,7 @@ final class ExamModeTests: XCTestCase {
         XCTAssertTrue(exam.hear("tarama tamamlandı"))
         let reached = await until { exam.status == "Soru numarası bekleniyor" }
         XCTAssertTrue(reached, "\(p.spoken)")
-        XCTAssertTrue(p.spoken.contains(where: { $0.hasPrefix("Deneme sınavı modu açıldı. 2 sayfa Drive'a gönderiliyor") }), "\(p.spoken)")
+        XCTAssertTrue(p.spoken.contains(where: { $0.hasPrefix("Deneme sınavı modu açıldı. 2 sayfa klasöre kaydediliyor") }), "\(p.spoken)")
         XCTAssertEqual(p.flushCalls, 1)
         XCTAssertEqual(p.docsCalls, 1)
         await finish(exam)
@@ -710,7 +710,7 @@ final class ExamModeTests: XCTestCase {
         let reached = await until { exam.status == "Soru numarası bekleniyor" }
         XCTAssertTrue(reached, "\(p.spoken)")
         XCTAssertEqual(p.flushCalls, 2)
-        XCTAssertTrue(p.spoken.contains("Tüm sayfalar Drive'a gönderildi."))
+        XCTAssertTrue(p.spoken.contains("Tüm sayfalar klasöre kaydedildi."))
         await finish(exam)
     }
 
@@ -975,7 +975,7 @@ final class ExamModeTests: XCTestCase {
         XCTAssertTrue(text.contains("1. soru: B - Bursa, 10 metre"), text)
         XCTAssertTrue(text.contains("2. soru: C - Denizli, 20 metre (emin değil; ikinci çözüm: C - Denizli, 29)"), text)
         XCTAssertTrue(text.contains("3. soru: okunamadı"), text)
-        XCTAssertTrue(p.keys.isEmpty, "sınav sürerken Drive'a yüklenmez")
+        XCTAssertTrue(p.keys.isEmpty, "sınav sürerken klasöre yüklenmez")
 
         exam.command("end", source: "ui")
         let done = await exam.waitDone(timeout: 8)
@@ -1098,7 +1098,7 @@ final class ExamModeTests: XCTestCase {
         XCTAssertTrue(ask, "devam sorusuna gelinmedi: \(p.spoken)")
         XCTAssertEqual(p.videoStops, 1)
         XCTAssertEqual(p.videoSends, 1)
-        XCTAssertTrue(spoke(p, "Video Drive'a gönderildi."))
+        XCTAssertTrue(spoke(p, "Video klasöre kaydedildi."))
         XCTAssertTrue(spoke(p, "Videoya devam edeyim mi?"))
         // Hayır: fotoğraf taramasına hazırlanır
         await say(exam, "hayır")
@@ -1146,7 +1146,7 @@ final class ExamModeTests: XCTestCase {
         XCTAssertEqual(p.videoSends, 0, "silinen video gönderilmemeli")
         XCTAssertGreaterThan(p.videoDiscards, before)
         XCTAssertTrue(spoke(p, "Video silindi, gönderilmedi."))
-        XCTAssertFalse(spoke(p, "Video Drive'a gönderildi."))
+        XCTAssertFalse(spoke(p, "Video klasöre kaydedildi."))
         await say(exam, "hayır")
         let scanning = await until { exam.status == "Tarama: 0 sayfa" }
         XCTAssertTrue(scanning)
@@ -1185,7 +1185,7 @@ final class ExamModeTests: XCTestCase {
         let ask = await until { exam.status == "Video: devam edilsin mi?" }
         XCTAssertTrue(ask)
         XCTAssertTrue(spoke(p, "Video gönderilemedi. Telefonda saklandı"))
-        XCTAssertFalse(spoke(p, "Video Drive'a gönderildi."))
+        XCTAssertFalse(spoke(p, "Video klasöre kaydedildi."))
         await say(exam, "hayır")
         let scanning = await until { exam.status == "Tarama: 0 sayfa" }
         XCTAssertTrue(scanning)

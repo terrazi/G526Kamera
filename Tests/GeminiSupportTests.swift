@@ -186,22 +186,6 @@ final class GeminiSupportTests: XCTestCase {
         XCTAssertEqual(picked.chosen, [1])
         XCTAssertEqual(picked.skipped, ["dev"])
     }
-
-    // MARK: Drive listesi
-
-    func testDriveListingParsing() {
-        let json: [String: Any] = ["files": [
-            ["id": "a", "name": "x.pdf", "size": "1234", "createdTime": "2026-11-01T10:00:00Z"],
-            ["name": "kimliksiz"],
-            ["id": "b", "size": 99]
-        ]]
-        let files = DriveClient.parseListing(json)
-        XCTAssertEqual(files.count, 2)
-        XCTAssertEqual(files[0], DriveFileInfo(id: "a", name: "x.pdf", size: 1234, created: "2026-11-01T10:00:00Z"))
-        XCTAssertEqual(files[1].size, 99)
-        XCTAssertEqual(files[1].name, "belge.pdf")
-        XCTAssertTrue(DriveClient.parseListing([:]).isEmpty)
-    }
 }
 
 final class GeminiTextTests: XCTestCase {
@@ -539,17 +523,11 @@ final class GeminiOcrTextTests: XCTestCase {
         }
     }
 
-    func testClientTagIsShortAndComparable() {
-        XCTAssertEqual(DriveClient.clientTag("123456789012-abcdefghijklmnop.apps.googleusercontent.com"), "123456...klmnop")
-        XCTAssertEqual(DriveClient.clientTag("CID-123"), "CID-123")
-        XCTAssertEqual(DriveClient.clientTag("  "), "(girilmemiş)")
-    }
-
-    func testDriveListSizeFollowsTheDocumentCountSetting() {
-        XCTAssertEqual(DriveClient.listPageSize(3), 3)
-        XCTAssertEqual(DriveClient.listPageSize(30), 30, "belge sayısı 30 olabilir; 10'da kesilmemeli")
-        XCTAssertEqual(DriveClient.listPageSize(0), 1)
-        XCTAssertEqual(DriveClient.listPageSize(500), 50)
+    func testFolderListSizeFollowsTheDocumentCountSetting() {
+        XCTAssertEqual(FolderClient.listPageSize(3), 3)
+        XCTAssertEqual(FolderClient.listPageSize(30), 30, "belge sayısı 30 olabilir; 10'da kesilmemeli")
+        XCTAssertEqual(FolderClient.listPageSize(0), 1)
+        XCTAssertEqual(FolderClient.listPageSize(500), 50)
     }
 
     func testPromptSpeaksOptionCodesInsteadOfLetters() {

@@ -1,7 +1,7 @@
 import Foundation
 import Security
 
-/// Parolaları ve Google jetonlarını Keychain'de saklar (UserDefaults'ta değil).
+/// Parolaları Keychain'de saklar (UserDefaults'ta değil).
 enum Keychain {
     private static let service = "com.huseyinozer.g526"
 

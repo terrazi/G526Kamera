@@ -329,11 +329,11 @@ final class GeminiChatTests: XCTestCase {
         XCTAssertTrue(chat.error.contains("PDF bulunamadı"))
     }
 
-    func testDriveErrorIsReported() async {
-        docs.result = .failure(DriveError.notSignedIn)
+    func testFolderErrorIsReported() async {
+        docs.result = .failure(DocumentFolderError(message: "Belge klasörü seçilmedi."))
         chat.ask()
         _ = await waitUntil { self.chat.phase == .speaking }
-        XCTAssertTrue(chat.error.contains("Drive"))
+        XCTAssertTrue(chat.error.contains("klasör"))
     }
 
     func testGeminiErrorIsSpoken() async {
@@ -707,7 +707,7 @@ final class GeminiChatTests: XCTestCase {
         XCTAssertEqual(log.spoken.filter { $0.hasSuffix("Sorunuzu yeniden söyleyebilirsiniz.") }.count, 2)
     }
 
-    func testPendingPhotosAreFlushedBeforeEachDriveRead() async {
+    func testPendingPhotosAreFlushedBeforeEachFolderRead() async {
         log.autoFinish = true
         options.session = true
         let flush = FlushLog()
@@ -719,7 +719,7 @@ final class GeminiChatTests: XCTestCase {
         XCTAssertEqual(flush.calls, 2, "oturum başında ve soruda")
         XCTAssertEqual(log.spoken, ["1 belge hazır. Sorunuzu bekliyorum.", "Cevap 1. Sonraki sorunuzu bekliyorum."],
                        "her şey yüklendiyse uyarı yok")
-        XCTAssertFalse(chat.notes.contains { $0.contains("henüz Drive") })
+        XCTAssertFalse(chat.notes.contains { $0.contains("henüz klasöre") })
     }
 
     func testPhotosStillUnsentAreWarnedAboutInTheGreetingAndTheAnswer() async {
@@ -732,14 +732,14 @@ final class GeminiChatTests: XCTestCase {
         chat.ask()
         let ended = await waitUntil { self.chat.status == "Oturum bitti" }
         XCTAssertTrue(ended)
-        let note = "2 fotoğraf henüz Drive'a yüklenmedi, Gemini onları göremez."
+        let note = "2 fotoğraf henüz klasöre kaydedilmedi, Gemini onları göremez."
         XCTAssertEqual(log.spoken, ["1 belge hazır. Dikkat: \(note) Sorunuzu bekliyorum.",
                                     "Dikkat: \(note) Cevap 1. Sonraki sorunuzu bekliyorum."])
         XCTAssertTrue(chat.notes.contains(note))
     }
 
     func testUnsentNoteText() {
-        XCTAssertEqual(GeminiText.unsentNote(3), "3 fotoğraf henüz Drive'a yüklenmedi, Gemini onları göremez.")
+        XCTAssertEqual(GeminiText.unsentNote(3), "3 fotoğraf henüz klasöre kaydedilmedi, Gemini onları göremez.")
     }
 
     func testSpendingCapSwitchesToTheFreeProfileAndRetries() async {
@@ -1322,8 +1322,8 @@ final class GeminiChatTests: XCTestCase {
 
 // MARK: - Belge önbelleği
 
-private final class FakeDrive: GeminiDriveSource, @unchecked Sendable {
-    var listing: [DriveFileInfo] = []
+private final class FakeFiles: GeminiFileSource, @unchecked Sendable {
+    var listing: [StoredFileInfo] = []
     private let lock = NSLock()
     private var log: [String] = []
     /// Veri sayfa işaretleri içersin diye PDF gibi görünen baytlar (her sayfa "/Type /Page")
@@ -1334,7 +1334,7 @@ private final class FakeDrive: GeminiDriveSource, @unchecked Sendable {
         return log
     }
 
-    func listPDFs(count: Int) async throws -> [DriveFileInfo] {
+    func listPDFs(count: Int) async throws -> [StoredFileInfo] {
         return Array(listing.prefix(count))
     }
 
@@ -1367,12 +1367,12 @@ final class GeminiDocStoreTests: XCTestCase {
         super.tearDown()
     }
 
-    private func info(_ id: String, _ size: Int) -> DriveFileInfo {
-        return DriveFileInfo(id: id, name: "\(id).pdf", size: size, created: "")
+    private func info(_ id: String, _ size: Int) -> StoredFileInfo {
+        return StoredFileInfo(id: id, name: "\(id).pdf", size: size, created: "")
     }
 
     func testDownloadsOnceThenUsesCache() async throws {
-        let drive = FakeDrive()
+        let drive = FakeFiles()
         drive.listing = [info("yeni", 120), info("eski", 80)]
         let store = GeminiDocStore(source: drive, cacheDirectory: directory)
 
@@ -1387,7 +1387,7 @@ final class GeminiDocStoreTests: XCTestCase {
     }
 
     func testChangedSizeInvalidatesCache() async throws {
-        let drive = FakeDrive()
+        let drive = FakeFiles()
         drive.listing = [info("a", 100)]
         let store = GeminiDocStore(source: drive, cacheDirectory: directory)
         _ = try await store.fetch(count: 1)
@@ -1398,7 +1398,7 @@ final class GeminiDocStoreTests: XCTestCase {
     }
 
     func testPageBudgetKeepsNewestAndReportsSkipped() async throws {
-        let drive = FakeDrive()
+        let drive = FakeFiles()
         drive.listing = [info("a", 300), info("b", 300), info("c", 300)]
         drive.pagesPerFile = ["a": 200, "b": 200, "c": 150]
         let store = GeminiDocStore(source: drive, cacheDirectory: directory, maxPages: 500)
@@ -1409,7 +1409,7 @@ final class GeminiDocStoreTests: XCTestCase {
     }
 
     func testExactly500PagesFitAndThe501stDoesNot() async throws {
-        let drive = FakeDrive()
+        let drive = FakeFiles()
         drive.listing = [info("a", 300), info("b", 300), info("c", 300)]
         drive.pagesPerFile = ["a": 100, "b": 200, "c": 200]
         let store = GeminiDocStore(source: drive, cacheDirectory: directory, maxPages: 500)
@@ -1424,7 +1424,7 @@ final class GeminiDocStoreTests: XCTestCase {
     }
 
     func testPageCountsAreRememberedBetweenFetches() async throws {
-        let drive = FakeDrive()
+        let drive = FakeFiles()
         drive.listing = [info("a", 300), info("b", 300)]
         drive.pagesPerFile = ["a": 10, "b": 20]
         let store = GeminiDocStore(source: drive, cacheDirectory: directory)
@@ -1437,7 +1437,7 @@ final class GeminiDocStoreTests: XCTestCase {
     }
 
     func testDocumentBytesAreReloadedWhenTheCacheFileIsGone() async throws {
-        let drive = FakeDrive()
+        let drive = FakeFiles()
         drive.listing = [info("a", 300)]
         drive.pagesPerFile = ["a": 3]
         let store = GeminiDocStore(source: drive, cacheDirectory: directory)
@@ -1449,14 +1449,14 @@ final class GeminiDocStoreTests: XCTestCase {
     }
 
     func testEmptyFolderGivesNote() async throws {
-        let store = GeminiDocStore(source: FakeDrive(), cacheDirectory: directory)
+        let store = GeminiDocStore(source: FakeFiles(), cacheDirectory: directory)
         let result = try await store.fetch(count: 3)
         XCTAssertTrue(result.docs.isEmpty)
         XCTAssertTrue(result.notes.joined().contains("PDF"))
     }
 
     func testCacheKeepsOnlyNewestFiles() async throws {
-        let drive = FakeDrive()
+        let drive = FakeFiles()
         drive.listing = (1...6).map { info("f\($0)", 10 + $0) }
         let store = GeminiDocStore(source: drive, cacheDirectory: directory, keep: 3)
         _ = try await store.fetch(count: 6)

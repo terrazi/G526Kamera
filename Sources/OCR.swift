@@ -88,7 +88,7 @@ enum OcrRecognizer {
 
 /// İsteğe bağlı OCR: sonuç, fotoğrafın yanına "<ad>.jpg.txt" olarak yazılır; PDF oluşturulurken sonuna metin sayfaları eklenir.
 /// Tek iş, en çok `OcrConfig.maxQueue` bekleyen iş; cihaz ısındıysa ya da düşük güç modundaysa atlanır;
-/// art arda hata ya da aşırı yavaşlıkta kendini kapatır (fotoğraf çekme ve Drive'a gönderme etkilenmez).
+/// art arda hata ya da aşırı yavaşlıkta kendini kapatır (fotoğraf çekme ve klasöre kaydetme etkilenmez).
 @MainActor
 final class OcrCenter: ObservableObject {
     static let shared = OcrCenter()

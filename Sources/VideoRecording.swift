@@ -2,14 +2,13 @@ import Foundation
 import AVFoundation
 import CoreMedia
 import CoreVideo
-import Network
 
 /// Kameranın çözülmüş karelerini küçük boyutlu H.264 MP4 dosyasına yazar.
 ///
 /// Neden bu ayarlar: Gemini videoyu saniyede 1 kare örnekler; 4 kare/sn yeterlidir ve anahtar kare her saniye konur,
 /// böylece Gemini'nin gördüğü kareler en keskin (anahtar) karelere denk gelir; küçük yazı okunur.
 /// Çözünürlük kameranınkiyle aynı kalır (1920x1080); boyutu bit hızı sınırlar (1080p'de en çok ≈ 1,5 Mbit/sn: 30 sn ≤ ≈ 5,6 MB;
-/// durağan belge sahnesinde çok daha küçük çıkar). H.264 (High) + MP4, Gemini'nin ve Drive önizlemesinin en güvenli biçimidir.
+/// durağan belge sahnesinde çok daha küçük çıkar). H.264 (High) + MP4, Gemini'nin ve Dosyalar uygulamasının en güvenli biçimidir.
 /// Ses yoktur (kameranın akışında ses yok; telefon mikrofonu sesli komutlara ayrılmıştır).
 final class VideoRecorder {
     /// Bir kayıt en çok bu kadar sürer (kareler bu süreden sonra yazılmaz)
@@ -215,8 +214,8 @@ final class VideoRecorder {
     }
 }
 
-/// Biten videoları Drive'a yükler. Yükleme olmazsa dosya diskte bekler; ağ gelince, uygulama açılınca
-/// ve yeni video kaydedilince yeniden denenir.
+/// Biten videoları belge klasörüne ("G526 Belgeler") kaydeder. Klasör seçilmemişse ya da yazılamazsa dosya diskte bekler;
+/// uygulama açılınca ve yeni video kaydedilince yeniden denenir.
 @MainActor
 final class VideoOutbox {
     static let shared = VideoOutbox()
@@ -225,26 +224,17 @@ final class VideoOutbox {
     private let pendingDir: URL
     /// Çekilmekte olan kayıtlar burada durur; bitince gönderime alınırken bekleyenler klasörüne taşınır (yarım dosya yüklenmesin)
     private let recordingDir: URL
-    private let localDir: URL
-    private lazy var drive = DriveClient(auth: GoogleAuth.shared)
+    private let folder = FolderClient()
     private var busy = false
     private var waiters: [String: (Bool, String) -> Void] = [:]
-    private let monitor = NWPathMonitor()
 
     init() {
         let support = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let docs = fm.urls(for: .documentDirectory, in: .userDomainMask)[0]
         pendingDir = support.appendingPathComponent("G526/BekleyenVideolar", isDirectory: true)
         recordingDir = support.appendingPathComponent("G526/KayitVideolar", isDirectory: true)
-        localDir = docs.appendingPathComponent("Videolar", isDirectory: true)
         try? fm.createDirectory(at: pendingDir, withIntermediateDirectories: true)
         try? fm.removeItem(at: recordingDir)        // önceki oturumdan kalan yarım kayıtlar
         try? fm.createDirectory(at: recordingDir, withIntermediateDirectories: true)
-        monitor.pathUpdateHandler = { [weak self] path in
-            guard path.status == .satisfied else { return }
-            Task { @MainActor in self?.flush() }
-        }
-        monitor.start(queue: DispatchQueue(label: "g526.videonet"))
     }
 
     /// Yeni kaydın yazılacağı (benzersiz adlı) dosya
@@ -277,12 +267,6 @@ final class VideoOutbox {
             let target = pendingDir.appendingPathComponent(url.lastPathComponent)
             try? fm.removeItem(at: target)
             if (try? fm.moveItem(at: url, to: target)) != nil { file = target }
-        }
-        if AppSettings.shared.keepLocalCopies {
-            try? fm.createDirectory(at: localDir, withIntermediateDirectories: true)
-            let copy = localDir.appendingPathComponent(file.lastPathComponent)
-            try? fm.removeItem(at: copy)
-            try? fm.copyItem(at: file, to: copy)
         }
         // Dosya bekleyenler arasına giremediyse (taşınamadı / silinmiş) bekleyen sonuçsuz kalmasın
         guard fm.fileExists(atPath: file.path),
@@ -326,15 +310,15 @@ final class VideoOutbox {
         var message = ""
         for attempt in 0..<3 {
             do {
-                _ = try await drive.uploadFile(.video(file), name: name)
+                let saved = try await folder.save(.video(file))
                 try? fm.removeItem(at: file)
-                tlog("[video] Drive'a gönderildi: \(name)")
+                tlog("[video] klasöre kaydedildi: \(saved.id)")
                 finish(name, ok: true, message: "")
                 return
             } catch {
                 message = error.localizedDescription
-                tlog("[video] yükleme hatası (\(attempt + 1)/3): \(message)")
-                if let drv = error as? DriveError, case .notSignedIn = drv { break }
+                tlog("[video] kaydetme hatası (\(attempt + 1)/3): \(message)")
+                if !folder.isReady { break }
                 if attempt < 2 {
                     try? await Task.sleep(nanoseconds: UInt64((attempt == 0 ? 3 : 10) * 1_000_000_000))
                 }

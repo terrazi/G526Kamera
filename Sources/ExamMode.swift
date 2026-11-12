@@ -3,7 +3,7 @@ import Foundation
 /// Deneme sınavı modu (Windows sürümündeki g526/exam.py'nin Swift karşılığı).
 ///
 /// Akış: "deneme sınavı modu" → soru sayfaları program yönlendirmesiyle taranır (fotoğraflar gönderilmeden bekletilir) →
-/// "tarama tamamlandı" → PDF'ler Drive'a gider → yalnız bu oturumun PDF'leri Gemini'ye verilir → belge/sayfa/soru sayısı sesli
+/// "tarama tamamlandı" → PDF'ler klasöre gider → yalnız bu oturumun PDF'leri Gemini'ye verilir → belge/sayfa/soru sayısı sesli
 /// teyit edilir → sorular 10'arlı gruplar halinde cevaplanır (her grup bir kez tekrar okunur, sonraki grup arka planda hazırlanır)
 /// → soru numarasıyla kayıttan tekrar → "sınav tamamlandı".
 ///
@@ -23,7 +23,7 @@ struct ExamSettings: Equatable {
     var gap = 3
 }
 
-/// Drive'a giden bir dosya (PDF)
+/// klasöre giden bir dosya (PDF)
 struct ExamSentFile: Codable, Equatable {
     var id: String
     var name: String
@@ -57,7 +57,7 @@ struct ExamAnswer: Codable, Equatable {
     var altTried: Bool?
 }
 
-/// Cevap anahtarı satırı (ekranda gösterilir, Drive'a yazılı dosya olur)
+/// Cevap anahtarı satırı (ekranda gösterilir, klasöre yazılı dosya olur)
 struct ExamKeyRow: Equatable, Identifiable {
     var id: String
     var bolum: String
@@ -176,7 +176,7 @@ protocol ExamPorts: AnyObject {
     /// Açılış sınaması: internet ve Gemini'ye ulaşılıyor mu. Boş = sorun yok, doluysa okunacak sorun metni
     func checkSystem() async -> String
     func sendError() -> String
-    /// since'ten sonra Drive'a giden PDF'ler (eskiden yeniye)
+    /// since'ten sonra klasöre giden PDF'ler (eskiden yeniye)
     func sent(since: Double) -> [ExamSentFile]
     /// Gönderilen PDF'lerin Gemini belgeleri (tarama sırasıyla)
     func docs(for files: [ExamSentFile]) async throws -> (docs: [GeminiDoc], notes: [String])
@@ -186,7 +186,7 @@ protocol ExamPorts: AnyObject {
     /// [(harf, kod sözcüğü)]
     func codes() -> [(letter: String, word: String)]
     func release() async
-    /// Cevap anahtarı metnini Drive'a düz metin dosyası olarak yükler; bağlantı (yoksa boş) döndürür. Başarısızlık sınavı etkilemez.
+    /// Cevap anahtarı metnini klasöre düz metin dosyası olarak yükler; bağlantı (yoksa boş) döndürür. Başarısızlık sınavı etkilemez.
     func saveKey(_ name: String, _ text: String) async -> String
     /// "Dinle": mikrofonu açıp "tamam" denene (ya da ayardaki sessizlik süresi dolana) kadar kaydeder; 16 kHz WAV. nil: duyulmadı / kesildi.
     func listen() async -> Data?
@@ -201,7 +201,7 @@ protocol ExamPorts: AnyObject {
     func videoStop()
     /// Hazır ya da çekilmekte olan videoyu göndermeden siler
     func videoDiscard()
-    /// Hazır videoyu Drive'a gönderir, bitene kadar bekler; hata metni ("" = gönderildi)
+    /// Hazır videoyu klasöre gönderir, bitene kadar bekler; hata metni ("" = gönderildi)
     func videoSend() async -> String
 }
 
@@ -232,7 +232,7 @@ final class ExamMode: ObservableObject {
     @Published private(set) var info = ExamInfo()
     /// Cevap anahtarı (kayıtlı cevaplardan; sınav sırasıyla)
     @Published private(set) var key: [ExamKeyRow] = []
-    /// Cevap anahtarı Drive'a yüklendiyse bağlantısı
+    /// Cevap anahtarı klasöre yüklendiyse bağlantısı
     private(set) var keyLink = ""
     private(set) var keyTask: Task<Void, Never>?
 
@@ -365,7 +365,7 @@ final class ExamMode: ObservableObject {
         return out
     }
 
-    /// Cevap anahtarının yazılı hali (Drive'a yüklenen dosya); cevap yoksa boş
+    /// Cevap anahtarının yazılı hali (klasöre yüklenen dosya); cevap yoksa boş
     func answerKeyText() -> String {
         let rows = answerKey()
         if rows.isEmpty { return "" }
@@ -398,7 +398,7 @@ final class ExamMode: ObservableObject {
         return (header + lines).joined(separator: "\n") + "\n"
     }
 
-    /// Sınav bitince cevap anahtarını Drive'a yükler (en iyi gayret)
+    /// Sınav bitince cevap anahtarını klasöre yükler (en iyi gayret)
     private func uploadKey() async {
         let text = answerKeyText()
         if text.isEmpty { return }
@@ -902,7 +902,7 @@ final class ExamMode: ObservableObject {
             ports.videosClear()
             await sayNow("Deneme sınavı tamamlandı.")
         } else if held > 0 {
-            await sayNow("Deneme sınavı kapatıldı. Taranan \(held) sayfa, ayarlarınızdaki yöntemle Drive'a gönderilecek.")
+            await sayNow("Deneme sınavı kapatıldı. Taranan \(held) sayfa, ayarlarınızdaki yöntemle klasöre kaydedilecek.")
         } else {
             await sayNow("Deneme sınavı kapatıldı. Kayıtlarınız saklandı; deneme sınavı modu deyince kaldığınız yerden devam edebilirsiniz.")
         }
@@ -926,7 +926,7 @@ final class ExamMode: ObservableObject {
 
     // MARK: 0) Video
 
-    /// Sınavın ilk aşaması: evrak kadraja girince kayıt başlar (en çok 30 sn). "durdur" ya da süre dolması videoyu Drive'a gönderir,
+    /// Sınavın ilk aşaması: evrak kadraja girince kayıt başlar (en çok 30 sn). "durdur" ya da süre dolması videoyu klasöre gönderir,
     /// "sil" göndermeden siler, "atla" video aşamasını geçer. Her videodan sonra "devam edeyim mi?": evet → yeni video, hayır → fotoğraf taraması.
     /// Açılış sınaması: ses çıkışı ve mikrofon (kullanıcı "tamam" der), internet ve Gemini (arka planda).
     /// Boş döner: her şey hazır. Doluysa okunan sorun metni.
@@ -1016,12 +1016,12 @@ final class ExamMode: ObservableObject {
             } else if !failure.isEmpty {
                 try await say("Video kaydedilemedi: \(failure)")
             } else {
-                setStatus("Video Drive'a gönderiliyor...")
-                try await say("Video Drive'a gönderiliyor.")
+                setStatus("Video klasöre kaydediliyor...")
+                try await say("Video klasöre kaydediliyor.")
                 let err = await ports.videoSend()
                 try check()
                 if err.isEmpty {
-                    try await say("Video Drive'a gönderildi.")
+                    try await say("Video klasöre kaydedildi.")
                 } else {
                     try await say("Video gönderilemedi. Telefonda saklandı, internet gelince kendiliğinden gönderilecek.")
                 }
@@ -1100,11 +1100,11 @@ final class ExamMode: ObservableObject {
         let nowText: String
         if n > 0 {
             what = "\(n) sayfa taranmış"
-            go = "Drive'a gönderilecek"
-            nowText = "\(n) sayfa Drive'a gönderiliyor."
+            go = "klasöre kaydedilecek"
+            nowText = "\(n) sayfa klasöre kaydediliyor."
             if st.adopted && done > 0 { what += ", son yarım saatte gönderilen \(done) PDF de sınava dahil" }
         } else {
-            what = "\(done) PDF zaten Drive'da"
+            what = "\(done) PDF zaten klasörde"
             go = "sınava alınacak"
             nowText = "\(done) PDF sınava alınıyor."
         }
@@ -1122,7 +1122,7 @@ final class ExamMode: ObservableObject {
         ports.hold(false)
         var told = false
         while true {
-            setStatus("Drive'a gönderiliyor...")
+            setStatus("Klasöre kaydediliyor...")
             let left = await ports.flush(aborted: { self.aborted })
             try check()
             collectSent()
@@ -1139,7 +1139,7 @@ final class ExamMode: ObservableObject {
             }
             _ = try await wait(["scan_done", "continue"], timeout: 20)
         }
-        try await say("Tüm sayfalar Drive'a gönderildi.")
+        try await say("Tüm sayfalar klasöre kaydedildi.")
         return "prepare"
     }
 

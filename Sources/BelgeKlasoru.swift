@@ -222,6 +222,11 @@ struct DocumentFolderSection: View {
             do {
                 try DocumentFolder.shared.choose(url)
                 message = ""
+                // Klasör yokken bekleyen fotoğraf ve videolar şimdi kaydedilir
+                Task { @MainActor in
+                    UploadQueue.shared.kick()
+                    VideoOutbox.shared.flush()
+                }
             } catch {
                 message = "Klasör hatırlanamadı: \(error.localizedDescription)"
             }
