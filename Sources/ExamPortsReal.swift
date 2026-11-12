@@ -13,7 +13,7 @@ final class ExamAsker {
     var videoProvider: () -> [Data] = { [] }
 
     /// Videoların hangileri istek boyutuna sığar: PDF baytları (dosya adresiyle gitmeyenler) düşüldükten sonra kalan yere sırayla
-    static func pickVideos(_ videos: [Data], docs: [GeminiDoc], budget: Int = GeminiConfig.inlineBudget) -> [Data] {
+    nonisolated static func pickVideos(_ videos: [Data], docs: [GeminiDoc], budget: Int = GeminiConfig.inlineBudget) -> [Data] {
         var room = budget - docs.filter { !$0.isRemote }.reduce(0) { $0 + $1.size }
         var chosen: [Data] = []
         for video in videos where video.count <= room {
