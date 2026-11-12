@@ -23,6 +23,7 @@ struct SettingsView: View {
                     }
                 }
                 soundSection
+                DocumentFolderSection()
                 Section {
                     NavigationLink(destination: advancedPage) {
                         Text("Gelişmiş ayarlar")
