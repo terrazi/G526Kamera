@@ -26,6 +26,14 @@ enum HealthMath {
     static let stallThresholdMs = 1000        // bundan uzun donukluk "takılma" sayılır
     static let sampleCap = 360                // 10 sn × 360 = son 1 saat
     static let eventCap = 60
+    static let hangThresholdMs = 3000         // bundan uzun donukluk raporda ayrı olay olarak yazılır (son işlemle birlikte)
+
+    /// Ekran uzun süre donuk kaldığında rapora yazılan olay metni; son işlem biliniyorsa eklenir
+    static func hangText(ms: Int, activity: String) -> String {
+        let seconds = String(format: "%.1f", Double(ms) / 1000).replacingOccurrences(of: ".", with: ",")
+        let tail = activity.isEmpty ? "" : " (son işlem: \(activity))"
+        return "ekran \(seconds) sn donuk kaldı\(tail)"
+    }
 
     static func thermalLevel(_ state: ProcessInfo.ThermalState) -> Int {
         switch state {
@@ -126,10 +134,44 @@ enum LoadGuard {
     static let holdSeconds = 300.0            // yük azaltma en az bu kadar sürer
     static let memoryTrimMB = 1100            // bellek bu değeri aşarsa kare belleği boşaltılır
     static let trimCooldown = 30.0
+    static let memoryCriticalMB = 1500        // bellek bu değeri aşarsa yük hemen azaltılır, video kaydı kapatılır (iOS programı kapatmasın)
 
     static func shedForStalls(count: Int) -> Bool { return count >= stallsToShed }
+    static func memoryCritical(_ memoryMB: Int) -> Bool { return memoryMB >= memoryCriticalMB }
     static func shouldTrimMemory(memoryMB: Int, sinceLastTrim: Double) -> Bool {
         return memoryMB >= memoryTrimMB && sinceLastTrim >= trimCooldown
+    }
+}
+
+/// Telefonun boş yer koruması: yer azalınca uyarır, çok azalınca video kaydını durdurur (dolu disk telefonu da yavaşlatır)
+enum DiskGuard {
+    static let lowMB = 1500
+    static let criticalMB = 400
+
+    enum Level: Equatable { case ok, low, critical }
+
+    /// freeMB < 0: ölçülemedi (sorun sayılmaz)
+    static func level(freeMB: Int) -> Level {
+        if freeMB < 0 { return .ok }
+        if freeMB < criticalMB { return .critical }
+        if freeMB < lowMB { return .low }
+        return .ok
+    }
+
+    static func notice(freeMB: Int) -> String {
+        switch level(freeMB: freeMB) {
+        case .ok: return ""
+        case .low: return "Telefonda boş yer az (\(freeMB) MB). Yer açmazsanız kayıtlar yarıda kalabilir."
+        case .critical: return "Telefonda boş yer çok az (\(freeMB) MB): video kaydı kapatıldı. Lütfen yer açın."
+        }
+    }
+
+    /// Uygulamanın bulunduğu bölümdeki boş yer (MB); -1 = ölçülemedi
+    static func freeMB() -> Int {
+        let url = URL(fileURLWithPath: NSHomeDirectory())
+        guard let values = try? url.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]),
+              let bytes = values.volumeAvailableCapacityForImportantUsage else { return -1 }
+        return Int(bytes / 1_048_576)
     }
 }
 
@@ -157,6 +199,11 @@ final class HealthMonitor {
     private var previousUnclean = false
     private var stalls = StallTracker()
     private let url: URL
+    /// Programın o an yaptığı işin kısa adı (her iş parçacığından yazılabilir); ekran donarsa rapora "son işlem" olarak girer
+    private let activityLock = NSLock()
+    private var _activity = ""
+    /// Donma anında (eşik aşılınca) görülen işlem; ekran düzelince olay olarak yazılır
+    private var hangActivity: String?
 
     init(directory: URL? = nil) {
         let dir = directory ?? FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
@@ -203,13 +250,28 @@ final class HealthMonitor {
 
     /// Önemli bir olayı rapora yazar (ısı değişimi, bellek uyarısı…)
     func event(_ text: String) {
-        q.async { [self] in
-            store.events.append(HealthEvent(time: Date().timeIntervalSince1970, text: text))
-            if store.events.count > HealthMath.eventCap {
-                store.events.removeFirst(store.events.count - HealthMath.eventCap)
-            }
-            persist()
+        q.async { [self] in addEvent(text) }
+    }
+
+    /// Şu an yapılan işi not eder ("" = boşta). Çok hafiftir; ağır işlerin başında çağrılır.
+    func mark(_ text: String) {
+        activityLock.lock()
+        _activity = text
+        activityLock.unlock()
+    }
+
+    private func currentActivity() -> String {
+        activityLock.lock()
+        defer { activityLock.unlock() }
+        return _activity
+    }
+
+    private func addEvent(_ text: String) {
+        store.events.append(HealthEvent(time: Date().timeIntervalSince1970, text: text))
+        if store.events.count > HealthMath.eventCap {
+            store.events.removeFirst(store.events.count - HealthMath.eventCap)
         }
+        persist()
     }
 
     /// Ekrandaki ve panoya kopyalanan rapor
@@ -224,9 +286,13 @@ final class HealthMonitor {
     private func secondTick() {
         let now = ProcessInfo.processInfo.systemUptime
         if pending {
-            worstStallMs = max(worstStallMs, Int((now - pingSentAt) * 1000))
+            let ms = Int((now - pingSentAt) * 1000)
+            worstStallMs = max(worstStallMs, ms)
+            // Ekran şu an donuk: o andaki işlem not edilir (düzelince olay olarak yazılır)
+            if ms >= HealthMath.hangThresholdMs && hangActivity == nil { hangActivity = currentActivity() }
         } else {
             pending = true
+            hangActivity = nil
             pingSentAt = now
             DispatchQueue.main.async { [weak self] in
                 let level = UIDevice.current.batteryLevel
@@ -243,6 +309,10 @@ final class HealthMonitor {
             let ms = Int((now - pingSentAt) * 1000)
             worstStallMs = max(worstStallMs, ms)
             if ms >= HealthMath.stallThresholdMs { stalls.record(at: now) }
+            if ms >= HealthMath.hangThresholdMs {
+                addEvent(HealthMath.hangText(ms: ms, activity: hangActivity ?? currentActivity()))
+            }
+            hangActivity = nil
             pending = false
         }
         battery = batteryLevel < 0 ? -1 : Int((batteryLevel * 100).rounded())

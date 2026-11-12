@@ -255,6 +255,8 @@ final class GeminiChat: ObservableObject {
             return fail(gen, "Gemini API anahtarı girilmemiş. Ayarlardan yapıştırın.")
         }
 
+        HealthMonitor.shared.mark("Gemini sorusu")
+        defer { HealthMonitor.shared.mark("") }
         let session = opts.session && text == nil
         softErrors = 0
         await runLoop(gen: gen, text: text, session: session, opts: opts)

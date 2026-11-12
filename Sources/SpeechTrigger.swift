@@ -239,7 +239,9 @@ final class SpeechTrigger {
     private var failures = 0
     private var token = 0
     /// Son yeniden başlatmaların zamanı (sık sık yeniden başlıyorsa bekleme uzatılır)
-    private var restartTimes: [TimeInterval] = []
+    private var restartStreak = RestartStreak()
+    /// Art arda bu kadar yeniden başlatmadan sonra kullanıcıya haber verilir (ve ses kestirmesi denenir)
+    static let stormRestarts = 8
 
     // Ses sağlığı: tamponlar geliyor mu, mikrofon tamamen sessiz mi (ses iş parçacığından yazılır, kilitle okunur)
     /// Sağlık sorunu bildirimi ("" = sorun geçti)
@@ -248,6 +250,8 @@ final class SpeechTrigger {
     var onSilent: (() -> Void)?
     /// Sessizlik uyarısı verilmişken mikrofon yeniden ses vermeye başlayınca çağrılır (durdurulup başlatmada çağrılmaz)
     var onRecovered: (() -> Void)?
+    /// Ses motoru art arda `stormRestarts` kez yeniden başladığında bir kez çağrılır
+    var onStorm: (() -> Void)?
     private let healthLock = NSLock()
     private var engineStartedAt: TimeInterval = 0
     private var lastBufferAt: TimeInterval?
@@ -390,7 +394,7 @@ final class SpeechTrigger {
     /// ses yönlendirmesi durmadan değişen cihazlarda (USB mikrofon alıcısı) döngü ana iş parçacığını yormasın.
     static func restartDelay(base: TimeInterval, recentRestarts: Int) -> TimeInterval {
         guard recentRestarts > 3 else { return base }
-        return max(base, min(Double(recentRestarts - 3) * 1.5, 8))
+        return max(base, min(Double(recentRestarts - 3) * 1.5, 30))
     }
 
     // MARK: - Ses sağlığı
@@ -455,9 +459,14 @@ final class SpeechTrigger {
     private func restartAll(after requested: TimeInterval, reason: String) {
         guard running else { return }
         let now = ProcessInfo.processInfo.systemUptime
-        restartTimes = restartTimes.filter { now - $0 < 10 } + [now]
-        let delay = SpeechTrigger.restartDelay(base: requested, recentRestarts: restartTimes.count)
-        if delay > requested { tlog("[ses] sık yeniden başlatma: bekleme \(delay) sn'ye uzatıldı") }
+        let streak = restartStreak.note(now: now)
+        let delay = SpeechTrigger.restartDelay(base: requested, recentRestarts: streak)
+        if delay > requested { tlog("[ses] sık yeniden başlatma (art arda \(streak).): bekleme \(delay) sn'ye uzatıldı") }
+        if streak == SpeechTrigger.stormRestarts && !healthReported {
+            healthReported = true
+            onHealth?("Ses sistemi art arda yeniden başlıyor. Kulaklık/alıcı bağlantısını ve mikrofonu kontrol edin.")
+            onStorm?()
+        }
         tlog("[ses] yeniden başlatılıyor: \(reason)")
         startWork?.cancel()
         token += 1

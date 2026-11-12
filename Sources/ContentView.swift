@@ -9,7 +9,7 @@ struct ContentView: View {
         NavigationView {
             ScrollView {
                 VStack(spacing: 14) {
-                    NoticeRow(messages: [model.crashNotice, model.thermalNotice, model.networkNotice, model.micNotice, model.routeNotice])
+                    NoticeRow(messages: [model.crashNotice, model.diskNotice, model.thermalNotice, model.networkNotice, model.micNotice, model.routeNotice])
                     preview
                     powerToggles
                     captureButton

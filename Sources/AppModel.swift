@@ -68,6 +68,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var routeNotice = ""
     @Published private(set) var thermalNotice = ""
     @Published private(set) var crashNotice = ""
+    @Published private(set) var diskNotice = ""
 
     // Sesli konumlandırma ve rapor
     @Published private(set) var guidanceStatus = ""
@@ -176,6 +177,11 @@ final class AppModel: ObservableObject {
     /// Ekran sık takıldıysa yük bu ana kadar (sistem çalışma süresi, sn) azaltılmış kalır
     private var stallShedUntil = 0.0
     private var lastMemoryTrim = -1000.0
+    /// Bellek "kritik" eşiğin üstünde mi (kritikten çıkınca uyarı kalkar)
+    private var memoryCriticalNow = false
+    /// Boş yer çok az mı (video kaydı açılmaz / açık kayıt kapatılır)
+    private var diskCritical = false
+    private var diskNoticeCritical = false
     private var loadShed: Bool { return thermalHot || ProcessInfo.processInfo.systemUptime < stallShedUntil }
     // Sınavın video aşaması (normal video kaydından ayrı: kayıt düğmesi / "kapat" komutu bunu etkilemez)
     private var examVideoState: ExamVideoPhase = .idle
@@ -626,6 +632,7 @@ final class AppModel: ObservableObject {
             enhance: EnhanceOptions(level: s.enhancement, deskew: s.deskew, upscale: s.upscale,
                                     timestamp: s.timestampMode, quality: s.jpegQuality),
             documentOnly: s.documentOnly)
+        HealthMonitor.shared.mark("fotoğraf çekimi")
         let accepted = pipeline.engine.capture(reason: reason, options: options) { [weak self] result in
             Task { @MainActor in self?.captureFinished(result, reason: reason) }
         }
@@ -639,6 +646,7 @@ final class AppModel: ObservableObject {
 
     private func captureFinished(_ result: Result<CapturedPhoto, CaptureError>, reason: String) {
         capturing = false
+        HealthMonitor.shared.mark("")
         switch result {
         case .success(let photo):
             AudioServicesPlaySystemSound(1108)      // deklanşör sesi: yalnız fotoğraf gerçekten çekilince
@@ -1201,6 +1209,11 @@ final class AppModel: ObservableObject {
             flash("Şu an video kaydı açılamaz (Gemini / sınav sürüyor)", seconds: 4)
             return
         }
+        guard !diskCritical else {
+            flash("Telefonda boş yer çok az: video kaydı açılamadı", seconds: 5)
+            say("Telefonda boş yer çok az, video kaydı açılamadı.", interrupt: true, force: true)
+            return
+        }
         guard isLive else {
             flash("Kamera görüntüsü yok: video kaydı açılamadı", seconds: 5)
             say("Kamera görüntüsü yok, video kaydı açılamadı.", interrupt: true, force: true)
@@ -1208,6 +1221,7 @@ final class AppModel: ObservableObject {
         }
         videoRecorder.start(to: VideoOutbox.shared.newFileURL(date: Date()))
         videoRecording = true
+        HealthMonitor.shared.mark("video kaydı")
         flash("● Video kaydı açık (en çok 30 sn)", seconds: 5)
         say("Video kaydı açık.", interrupt: true, force: true)
         let work = DispatchWorkItem { [weak self] in
@@ -1229,6 +1243,7 @@ final class AppModel: ObservableObject {
     }
 
     private func videoFinished(_ result: Result<VideoRecorder.Output, VideoRecorder.Failure>, reason: String) {
+        HealthMonitor.shared.mark("")
         switch result {
         case .failure(let failure):
             let text: String
@@ -1320,7 +1335,7 @@ final class AppModel: ObservableObject {
 
     // MARK: - Kendi kendini denetleme (internet, ses çıkışı)
 
-    private enum NoticeKind { case network, mic, route, thermal, crash }
+    private enum NoticeKind { case network, mic, route, thermal, crash, disk }
 
     /// Ana ekran uyarısını yazar (yalnız ekranda görünür; titreşim ya da ek ses yok)
     private func setNotice(_ kind: NoticeKind, _ text: String) {
@@ -1331,6 +1346,7 @@ final class AppModel: ObservableObject {
         case .route: old = routeNotice; routeNotice = text
         case .thermal: old = thermalNotice; thermalNotice = text
         case .crash: old = crashNotice; crashNotice = text
+        case .disk: old = diskNotice; diskNotice = text
         }
         if old.isEmpty && !text.isEmpty { tlog("[uyarı] \(text)") }
     }
@@ -1393,7 +1409,39 @@ final class AppModel: ObservableObject {
             HealthMonitor.shared.event("bellek \(sample.memoryMB) MB: kare belleği boşaltıldı")
             pipeline.store.clear()
         }
+        // Bellek kritik düzeye çıktı: iOS programı kapatmadan önce yük hemen azaltılır, açık video kaydı bırakılır
+        if LoadGuard.memoryCritical(sample.memoryMB) {
+            if !memoryCriticalNow {
+                memoryCriticalNow = true
+                tlog("[sağlık] bellek kritik: \(sample.memoryMB) MB, yük azaltıldı")
+                HealthMonitor.shared.event("bellek kritik (\(sample.memoryMB) MB): yük azaltıldı, video kapatıldı")
+                if videoRecording { stopVideo(reason: "bellek") }
+            }
+            stallShedUntil = max(stallShedUntil, now + LoadGuard.holdSeconds)
+        } else if memoryCriticalNow && sample.memoryMB < LoadGuard.memoryCriticalMB - 150 {
+            memoryCriticalNow = false
+        }
+        checkDisk()
         refreshLoadNotice()
+    }
+
+    /// Boş yer az/çok az ise uyarır; çok azsa açık video kaydını kapatır, yenisini açtırmaz
+    private func checkDisk() {
+        let free = DiskGuard.freeMB()
+        let level = DiskGuard.level(freeMB: free)
+        let critical = level == .critical
+        if critical && !diskCritical {
+            tlog("[sağlık] boş yer çok az: \(free) MB")
+            HealthMonitor.shared.event("boş yer çok az (\(free) MB): video kaydı kapatıldı")
+            if videoRecording { stopVideo(reason: "yer") }
+        }
+        diskCritical = critical
+        let text = DiskGuard.notice(freeMB: free)
+        // Rakam her örnekte oynamasın diye yalnız durum (yok/az/çok az) değişince yeniden yazılır
+        if text.isEmpty != diskNotice.isEmpty || (!text.isEmpty && critical != diskNoticeCritical) {
+            diskNoticeCritical = critical
+            setNotice(.disk, text)
+        }
     }
 
     private func previousUncleanFound(_ report: String) {
@@ -1423,6 +1471,8 @@ final class AppModel: ObservableObject {
         let text: String
         if thermalHot {
             text = "Telefon çok ısındı: yükü azaltmak için canlı önizleme kapatıldı; soğuyunca kendiliğinden açılır."
+        } else if memoryCriticalNow {
+            text = "Bellek çok doldu: yükü azaltmak için canlı önizleme kapatıldı; bellek boşalınca kendiliğinden açılır."
         } else if loadShed {
             text = "Program takılıyor: yükü azaltmak için canlı önizleme kapatıldı; takılmalar durunca kendiliğinden açılır."
         } else {
@@ -1441,6 +1491,9 @@ final class AppModel: ObservableObject {
         setNotice(.mic, "")
         setNotice(.route, "")
         setNotice(.thermal, "")
+        setNotice(.disk, "")
+        diskNoticeCritical = false
+        memoryCriticalNow = false
         thermalHot = false
         stallShedUntil = 0
         HealthMonitor.shared.pause()
@@ -1508,6 +1561,7 @@ final class AppModel: ObservableObject {
     private func runShortcut(named name: String) {
         guard let url = ShortcutLink.url(name: name) else { return }
         tlog("[onarım] kestirme çalıştırılıyor: \(name)")
+        HealthMonitor.shared.mark("kestirme çalıştırılıyor")
         UIApplication.shared.open(url) { opened in
             if !opened { tlog("[onarım] Kestirmeler açılamadı") }
         }

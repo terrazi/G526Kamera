@@ -118,6 +118,23 @@ enum ShortcutLink {
     }
 }
 
+/// Ses motoru yeniden başlatmalarının art arda kaçıncı olduğunu sayar. Son yeniden başlatmadan beri `healthyGap` sn'den
+/// uzun süre geçtiyse ses sağlıklı sayılır ve sayaç sıfırlanır. Böylece bekleme süresi, sorun sürdükçe uzar ve sürekli
+/// yeniden başlatma (ses servisini yoran döngü) oluşmaz.
+struct RestartStreak {
+    static let healthyGap: TimeInterval = 60
+    private(set) var count = 0
+    private var last: TimeInterval?
+
+    /// Yeni bir yeniden başlatmayı sayar; art arda kaçıncı olduğunu döndürür
+    mutating func note(now: TimeInterval) -> Int {
+        if let last = last, now - last > RestartStreak.healthyGap { count = 0 }
+        count += 1
+        last = now
+        return count
+    }
+}
+
 /// Aynı onarımın arka arkaya çalıştırılmasını sınırlar: iki deneme arası en az `cooldown` sn, bir arıza süresince en çok
 /// `maxTries` deneme; sorun giderilince (`reset`) sayaç sıfırlanır. Saf mantıktır (zaman dışarıdan verilir).
 struct RepairThrottle {

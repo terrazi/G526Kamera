@@ -279,6 +279,8 @@ final class UploadQueue: ObservableObject {
             }
             inFlight = Set(job.files.map { $0.lastPathComponent })
             defer { inFlight = [] }
+            HealthMonitor.shared.mark("klasöre kaydediliyor (\(job.files.count) sayfa)")
+            defer { HealthMonitor.shared.mark("") }
             do {
                 let result = try await folder.save(job.payload)
                 for file in job.files { remove(file) }
