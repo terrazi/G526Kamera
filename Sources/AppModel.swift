@@ -732,7 +732,6 @@ final class AppModel: ObservableObject {
         let on = started && guidanceWanted
         pipeline.guidanceOn = on
         guidance.orientation = settings.imageOrientation
-        guidance.config.frame = PageFrame.region(portrait: settings.guidanceFrame == 1, orientation: settings.imageOrientation)
         // dik çevrilmiş görüntüde sesli seçim "sol/sağ" yerine "üst/alt" dinler
         if settings.imageOrientation.isQuarterTurn != speechQuarterTurn {
             speechQuarterTurn = settings.imageOrientation.isQuarterTurn

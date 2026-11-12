@@ -63,7 +63,7 @@ struct ContentView: View {
     /// Önizleme kutusu "Kadraj yönü" ayarını izler: Dikey seçiliyse dikey (9:16), Yatay seçiliyse yatay (16:9).
     /// Kamera karesi kırpılmaz: ekranda kameranın gördüğünün tamamı vardır; oran uymazsa kenarlar boş kalır.
     private var previewSize: CGSize {
-        return PageFrame.previewBox(screen: UIScreen.main.bounds.size, portrait: settings.guidanceFrame == 1)
+        return PreviewLayout.box(screen: UIScreen.main.bounds.size, portrait: settings.guidanceFrame == 1)
     }
 
     private var previewVideo: some View {

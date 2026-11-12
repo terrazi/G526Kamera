@@ -824,8 +824,6 @@ struct GuidanceConfig {
     var closerBigScale = 1.35
     /// Yakınlaşınca yazının kenarda kalması istenen en az boşluk, `edgeMargin`e eklenir
     var predictMargin = 0.01
-    /// Hedef kadraj: varsayılan bütün kare; ayarlarda "dikey tam sayfa" seçilirse karenin ortasındaki dikey sayfa
-    var frame = PageFrame.full
 }
 
 struct GuidanceDecision: Equatable {
@@ -845,7 +843,6 @@ enum GuidanceAdvisor {
 
     static func decide(_ m: PageMetrics, choice: ColumnChoice?, config c: GuidanceConfig = GuidanceConfig(),
                        sharpFloor: Double) -> GuidanceDecision {
-        let m = m.inFrame(c.frame)
         if !m.hasText { return GuidanceDecision(advice: m.hasPage ? .blurry : .noText) }
         // Yazıya benzemeyen desen (çizgili kumaş, tablo çizgisi…) belge sayılmaz
         if DocumentGate.verdict(m) != .document { return GuidanceDecision(advice: .noText) }
