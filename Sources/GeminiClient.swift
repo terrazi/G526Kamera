@@ -427,7 +427,7 @@ enum GeminiSupport {
         return out
     }
 
-    private static func example(_ codes: [(letter: String, word: String)]) -> (sentence: String, letter: String) {
+    static func example(_ codes: [(letter: String, word: String)]) -> (sentence: String, letter: String) {
         if codes.isEmpty { return ("Birinci sorunun cevabı D, altmış sekiz.", "D") }
         if let d = codes.first(where: { $0.letter == "D" }) {
             return ("Birinci sorunun cevabı \(d.word), altmış sekiz.", "D")

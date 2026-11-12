@@ -1359,7 +1359,7 @@ final class AppModel: ObservableObject {
         }
         let profiles = s.geminiProfileInfos()
         let custom = s.videoQuestion.trimmed
-        let question = custom.isEmpty ? GeminiVideo.defaultQuestion : custom
+        let question = custom.isEmpty ? GeminiVideo.defaultInstruction(optionCodes: s.geminiOptionCodes) : custom
         let high = s.videoHighRes
         let chain = s.geminiChainFallback
         let limit = TimeInterval(s.geminiWaitLimit)
@@ -1424,7 +1424,7 @@ final class AppModel: ObservableObject {
         guard !active.key.isEmpty, let data = try? Data(contentsOf: url) else { return }
         let profiles = s.geminiProfileInfos()
         let custom = s.videoQuestion.trimmed
-        let question = custom.isEmpty ? GeminiVideo.defaultQuestion : custom
+        let question = custom.isEmpty ? GeminiVideo.defaultInstruction(optionCodes: s.geminiOptionCodes) : custom
         let high = s.videoHighRes
         let chain = s.geminiChainFallback
         let limit = TimeInterval(s.geminiWaitLimit)

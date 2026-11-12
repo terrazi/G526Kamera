@@ -98,15 +98,35 @@ final class GeminiVideoQueueTests: XCTestCase {
         UserDefaults.standard.removeObject(forKey: "videoSendMode")
     }
 
-    func testDefaultInstructionIsTheSimpleOneAndAddsNoExtraRules() {
-        let q = GeminiVideo.defaultQuestion
-        XCTAssertEqual(q, "Videodaki yazıları oku ve analiz et. Soruları çöz ve cevaplarını ver.")
+    func testDefaultInstructionKeepsReadingFreeAndAddsAnswerOrder() {
+        let q = GeminiVideo.defaultInstruction(optionCodes: GeminiConfig.defaultOptionCodes)
+        XCTAssertTrue(q.hasPrefix("Videodaki yazıları oku ve analiz et. Soruları çöz ve cevaplarını ver."),
+                      "okuma işi kullanıcının sade cümlesidir")
         XCTAssertFalse(q.contains("uydurma"), "Gemini'nin okuma işine ek kural konmaz")
         XCTAssertFalse(q.contains("okunamadı"))
+        // Cevap düzeni: soru numarası, şehir adıyla kodlanmış şık, cevap metni; sıralı
+        XCTAssertTrue(q.contains("soru numarası, sonra şık, ardından cevap metni"))
+        XCTAssertTrue(q.contains("A = ADANA, B = BURSA, C = CEYHAN, D = DENİZLİ, E = ERZURUM"))
+        XCTAssertTrue(q.contains("Birinci sorunun cevabı DENİZLİ, altmış sekiz."))
+        XCTAssertTrue(q.contains("soru numarasına göre sıralı"))
         XCTAssertTrue(GeminiVideo.system.contains("sesli"), "yalnız çıktı biçimi: sesle okunacak")
         XCTAssertFalse(GeminiVideo.system.contains("uydurma"))
         let object = GeminiVideo.requestObject(video: Data([1]), question: q, highResolution: true)
         let config = object["generationConfig"] as? [String: Any]
         XCTAssertGreaterThanOrEqual(config?["maxOutputTokens"] as? Int ?? 0, 8192, "çok soru: uzun cevap")
+    }
+
+    func testAnswerFormatFollowsEditedOptionCodes() {
+        let q = GeminiVideo.defaultInstruction(optionCodes: "A=ANKARA, B=BOLU")
+        XCTAssertTrue(q.contains("A = ANKARA, B = BOLU"))
+        XCTAssertFalse(q.contains("ADANA"), "kodlar ayarlardan gelir, sabit değildir")
+        XCTAssertTrue(q.contains("Birinci sorunun cevabı ANKARA, altmış sekiz."), "D yoksa ilk kod örnekte kullanılır")
+    }
+
+    func testAnswerFormatWithoutCodesUsesLetters() {
+        let q = GeminiVideo.defaultInstruction(optionCodes: "")
+        XCTAssertTrue(q.contains("Şık harfini söyle"))
+        XCTAssertTrue(q.contains("Birinci sorunun cevabı D, altmış sekiz."))
+        XCTAssertTrue(q.contains("sıralı"))
     }
 }

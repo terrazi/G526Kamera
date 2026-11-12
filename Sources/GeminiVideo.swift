@@ -14,8 +14,35 @@ struct VideoAnalysis {
 /// Her profilin anahtarı ayrı proje olabileceğinden yüklenen dosya yalnız o profille kullanılır; profil değişirse yeniden yüklenir.
 /// Gemini varsayılan olarak saniyede 1 kare okur; `videoMetadata.fps` ile kayıttaki kare hızı verilir (token harcaması kare sayısıyla orantılı).
 enum GeminiVideo {
-    /// Kullanıcının istediği sade talimat: Gemini'nin okuma ve çözme işine karışılmaz (biçim, "uydurma" gibi ek kural yok)
-    static let defaultQuestion = "Videodaki yazıları oku ve analiz et. Soruları çöz ve cevaplarını ver."
+    /// Okuma işi: Gemini'ye bu konuda ek kural konmaz (kullanıcı kararı: "gemini'nin işine karışmayalım")
+    static let readingInstruction = "Videodaki yazıları oku ve analiz et. Soruları çöz ve cevaplarını ver."
+
+    /// Cevap düzeni (kullanıcının daha önce yazdığı cevaplama isteğinden uyarlandı, 8. ve 12. kural): her soru için soru numarası,
+    /// şehir adlarıyla kodlanmış şık ve cevap metni; cevaplar soru numarası sırasıyla. Şık kodları ayarlardaki "Şık kodları"ndan gelir.
+    static func answerFormat(optionCodes: String) -> String {
+        let codes = GeminiSupport.parseOptionCodes(optionCodes)
+        let ex = GeminiSupport.example(codes)
+        let sik: String
+        if codes.isEmpty {
+            sik = "Şık harfini söyle ve ardından şıkkın metnini ya da değerini videoda yazdığı gibi söyle (şıkta metin yoksa yalnız harf yeter)."
+        } else {
+            let table = codes.map { "\($0.letter) = \($0.word)" }.joined(separator: ", ")
+            sik = "Şık harfini (A, B, C…) söyleme; harfin yerine şık kodunu söyle: \(table) (kod sözcüğünü aynen, büyük harfle yaz). "
+                + "Kod sözcüğünden sonra virgül koy ve doğru şıkkın metnini ya da değerini videoda yazdığı gibi söyle. "
+                + "Şıkta metin yoksa yalnız kod sözcüğünü söyle."
+        }
+        return "Cevap düzeni: her soru için önce soru numarası, sonra şık, ardından cevap metni. Kalıp: '\(ex.sentence)' "
+            + "(örnekteki sözcükleri ve sayıyı kendi cevabına kopyalama; cevabı yalnızca videodan al). "
+            + "Sıra sayısını yazıyla yaz (birinci, ikinci, … on birinci), sayıları okunuşuyla yaz. \(sik) "
+            + "Cevapları soru numarasına göre sıralı ver: 1, 2, 3… sırasıyla; sorular videoda karışık sırada görünse de numarasına göre diz. "
+            + "Her soru ayrı cümle olsun; aralara başka söz ya da gerekçe ekleme."
+    }
+
+    /// Varsayılan talimat: okuma işi + cevap düzeni (ayarlardaki talimat boş değilse o kullanılır)
+    static func defaultInstruction(optionCodes: String) -> String {
+        return readingInstruction + " " + answerFormat(optionCodes: optionCodes)
+    }
+
     /// Yalnızca çıktı biçimi: cevap sesle okunacağı için işaret ve başlık olmasın
     static let system = "Türkçe cevap ver. Cevap sesli okunacak: madde işareti, başlık ve biçimlendirme kullanma."
     /// Bu boyuta kadar video doğrudan istekte gider (base64 sonrası istek 20 MB'ın altında kalsın)
