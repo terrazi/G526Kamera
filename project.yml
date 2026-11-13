@@ -26,13 +26,16 @@ targets:
     info:
       path: Config/Info.plist
       properties:
-        CFBundleDisplayName: "G526 Kamera"
+        CFBundleDisplayName: "G526 Ses"
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        NSLocalNetworkUsageDescription: "G526 kameraya kameranın kendi Wi-Fi ağı üzerinden bağlanmak için yerel ağ erişimi gerekir."
+        NSMicrophoneUsageDescription: "Sorunuzu yaka mikrofonundan dinlemek için mikrofon erişimi gerekir."
+        NSSpeechRecognitionUsageDescription: "Okuduğunuz soruyu telefonun içinde (çevrimdışı) yazıya çevirmek için konuşma tanıma gerekir."
+        UIBackgroundModes:
+          - audio
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
         ITSAppUsesNonExemptEncryption: false

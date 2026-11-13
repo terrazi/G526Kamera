@@ -63,9 +63,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # Yeni (budanmış, otomatik) sürüm kendi etiketine yayınlanır: eski programın "son-surum" sürümü ezilmez
+          # Her sürüm kendi etiketine yayınlanır: eski sürümlerin ("son-surum", "yeni-surum") IPA'sı ezilmez
           TAG=son-surum
           if [ "$GITHUB_REF_NAME" = "yeni-surum" ]; then TAG=yeni-surum; fi
+          if [ "$GITHUB_REF_NAME" = "surum-3" ]; then TAG=surum-3; fi
           gh release delete "$TAG" --cleanup-tag --yes --repo "$GITHUB_REPOSITORY" || true
           gh release create "$TAG" build/ipa/G526CameraDrive-unsigned.ipa \
             --repo "$GITHUB_REPOSITORY" \

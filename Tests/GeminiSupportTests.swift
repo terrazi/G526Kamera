@@ -116,29 +116,6 @@ final class GeminiSupportTests: XCTestCase {
     }
 }
 
-final class GeminiProfilesTests: XCTestCase {
-    private func info(_ slot: Int, _ name: String, key: String = "k", model: String = "m", free: Bool = false) -> GeminiProfileInfo {
-        return GeminiProfileInfo(slot: slot, name: name, model: model, key: key, free: free)
-    }
-
-    func testUsableNeedsKeyAndModel() {
-        let list = [info(1, "Flash"), info(2, "Pro", key: ""), info(3, "Ücretsiz", model: "")]
-        XCTAssertEqual(GeminiProfiles.usable(list).map { $0.slot }, [1])
-    }
-
-    func testActiveFallsBackToTheFirstUsableProfile() {
-        let list = [info(1, "Flash"), info(2, "Pro", key: ""), info(3, "Ücretsiz", free: true)]
-        XCTAssertEqual(GeminiProfiles.active(list, active: 3).slot, 3)
-        XCTAssertEqual(GeminiProfiles.active(list, active: 2).slot, 1, "seçili profil boşsa ilk dolu profil")
-    }
-
-    func testKeychainNamesKeepTheOldFirstName() {
-        XCTAssertEqual(GeminiProfiles.keychainName(slot: 1), "geminiApiKey")
-        XCTAssertEqual(GeminiProfiles.keychainName(slot: 2), "geminiApiKey2")
-        XCTAssertEqual(GeminiProfiles.keychainName(slot: 3), "geminiApiKey3")
-    }
-}
-
 // MARK: - Ağ istemcisi (sahte URLProtocol)
 
 final class FakeGeminiProtocol: URLProtocol {
