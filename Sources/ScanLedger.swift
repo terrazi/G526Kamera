@@ -221,6 +221,9 @@ enum ScanPlanner {
                 if ledger.hasTail(o.number) {
                     // sonu daha önce çekilmişse baş ile birleşip soru tamamlanır
                     actions.append(.accept(number: o.number, picks: o.open.picks, continuing: true))
+                } else if ledger.isOpen(o.number) {
+                    // üst kısmı zaten alınmış, aynı sayfa yeniden görüldü: tekrar parça alınmaz
+                    actions.append(.duplicate(number: o.number))
                 } else if ledger.partialAllowed(o.number) {
                     actions.append(.startOpen(number: o.number, picks: o.open.picks))
                 } else {

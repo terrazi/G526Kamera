@@ -137,6 +137,14 @@ final class ScanPlannerTests: XCTestCase {
         XCTAssertEqual(picks.count, 1)
     }
 
+    func testSameCutPageSeenAgainIsADuplicateNotANewPart() {
+        let open = ShotSelection(picks: [candidate(9, options: "ABCD", y0: 0.70)], problems: [])
+        var ledger = ScanLedger(total: 20)
+        ledger.startOpen(number: 9, pages: [URL(fileURLWithPath: "/tmp/h.jpg")])
+        XCTAssertEqual(ScanPlanner.plan(analysis([QuestionOutcome(number: 9, full: empty, open: open)]), ledger: ledger),
+                       [.duplicate(number: 9)])
+    }
+
     func testPartialIsTakenAtOnceWhenTheAttemptLimitIsTiny() {
         let open = ShotSelection(picks: [candidate(9, options: "ABCD", y0: 0.70)], problems: [])
         let outcome = QuestionOutcome(number: 9, full: empty, open: open)
