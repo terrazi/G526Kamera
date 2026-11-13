@@ -1,13 +1,10 @@
 import Foundation
 import CoreVideo
 
-/// Çözülen karelerin gittiği yer: ekrana gönderir, netlik/imza hesaplar, ring tampona koyar,
-/// görüntü değişimini izler. Arka plan iş parçacıklarında çalışır (ana iş parçacığına bağlı değildir).
+/// Çözülen karelerin gittiği yer: ekrana gönderir, netlik/imza hesaplar, sayfa ölçümünü yapar.
+/// Arka plan iş parçacıklarında çalışır (ana iş parçacığına bağlı değildir).
 final class FramePipeline {
     let renderer = VideoRenderer()
-    let store = FrameStore(capacity: 20)
-    let engine: CaptureEngine
-    private let motion = MotionDetector()
     private let queue = DispatchQueue(label: "g526.analysis", qos: .utility)
     private let lock = NSLock()
     private var backlog = 0
@@ -20,10 +17,7 @@ final class FramePipeline {
         set { lock.lock(); _saving = newValue; lock.unlock() }
     }
 
-    /// Görüntü değişti ve sahne durulduysa çağrılır (analiz kuyruğundan).
-    var onMotionTrigger: (() -> Void)?
-
-    /// Her analiz edilen kare için (kare, zaman, netlik puanı) çağrılır (analiz kuyruğundan). Video kaydı en net kareyi seçmek için kullanır.
+    /// Her analiz edilen kare için (kare, zaman, netlik puanı) çağrılır (analiz kuyruğundan). Çekim penceresi en net kareleri toplamak için kullanır.
     var onAnalyzed: ((CVPixelBuffer, TimeInterval, Double) -> Void)?
 
     /// Sesli konumlandırma: sayfa/yazı ölçüsü + kameranın ne kadar süredir durgun olduğu (analiz kuyruğundan).
@@ -78,10 +72,6 @@ final class FramePipeline {
         queue.async { self.captureSignature = self.latestSignature }
     }
 
-    init() {
-        engine = CaptureEngine(store: store)
-    }
-
     func handle(_ pixelBuffer: CVPixelBuffer, time: TimeInterval) {
         let power = saving
         if !power { renderer.enqueue(pixelBuffer) }
@@ -100,12 +90,7 @@ final class FramePipeline {
         queue.async {
             let height = CVPixelBufferGetHeight(pixelBuffer)
             if let result = FrameAnalysis.analyze(pixelBuffer, skipTop: Int(Double(height) * 0.05)) {
-                self.store.add(buffer: pixelBuffer, time: time,
-                               sharpness: result.sharpness, signature: result.signature)
                 self.onAnalyzed?(pixelBuffer, time, result.sharpness)
-                if self.motion.process(signature: result.signature, time: time, busy: self.engine.isBusy) {
-                    self.onMotionTrigger?()
-                }
                 if self.guidanceOn { self.guidanceStep(pixelBuffer, signature: result.signature, time: time) }
             }
             self.lock.lock()
@@ -151,21 +136,9 @@ final class FramePipeline {
         return edgeTracker.current
     }
 
-    func configureMotion(enabled: Bool, sensitivity: Int) {
-        queue.async {
-            if self.motion.enabled != enabled || self.motion.sensitivity != sensitivity {
-                self.motion.enabled = enabled
-                self.motion.sensitivity = sensitivity
-                self.motion.reset()
-            }
-        }
-    }
-
-    /// Bağlantı yenilenince eski kareleri ve değişim referansını temizler.
+    /// Bağlantı yenilenince değişim referansını temizler.
     func reset() {
-        store.clear()
         queue.async {
-            self.motion.reset()
             self.prevSignature = nil
             self.latestSignature = nil
             self.captureSignature = nil

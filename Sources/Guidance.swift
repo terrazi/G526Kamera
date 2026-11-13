@@ -1156,157 +1156,26 @@ final class GuidanceEngine {
     struct Output {
         var advice: GuidanceAdvice?
         var speak: String?
-        var capture = false
         var status = ""
-        var awaitingChoice = false
-        var options: [ColumnChoice] = []
     }
 
     var config = GuidanceConfig()
-    var sharpFloor = 0.45
-    var autoCapture = true
-    var triggerWord = "okey"
 
-    private(set) var armed = true
-    /// Verilirse bölüm sorusu sorulmaz, hep bu seçim kullanılır (sayfa sayfa videoda `.all`: sayfanın hepsi hedeflenir)
-    var forcedChoice: ColumnChoice?
-    /// Kullanıcının sesle seçtiği bölüm (kullanıcının gözünden sol/sağ)
-    private(set) var choice: ColumnChoice?
-    /// Soru ekranda bekliyor mu (sesle ya da dokunarak yanıt verilebilir)
-    private(set) var awaitingChoice = false
-    /// Son çekilen bölüm: bir sonraki soruda "Sol bölüm çekildi" diye hatırlatılır
-    private(set) var lastCaptured: ColumnChoice?
-    /// Son çekimden önceki `lastCaptured`: çekim başarısız olursa ya da fotoğraf silinirse (`rearm`) geri yüklenir
-    private var capturedBefore: ColumnChoice?
-    private var last: GuidanceAdvice?
-    private var consecutive = 0
-    private var lastSpoken: GuidanceAdvice?
-    private var lastSpokenTime: TimeInterval = -1000
-    private var repeats = 0
-    private var muted: GuidanceAdvice?
     private var blurSpeaks = 0
-    private var glareSpoken = 0
-    private var questionsAsked = 0
-    private var lastQuestionTime: TimeInterval = -1000
-    private var lastOptions: [ColumnChoice] = []
-    /// Son kararın yazı doluluğu ve gereken büyütme: bulanıklık ve "yaklaşın" cümlelerini seçmek için
+    /// Son kararın yazı doluluğu ve gereken büyütme: "yaklaşın" cümlelerini seçmek için
     private var lastFill = 0.0
     private var lastScale = 1.0
     /// Son kararın kaydırma miktarı ve (köşedeyse) ikinci yönü: cümledeki "azıcık / biraz / epey" ve "sola ve yukarı" için
     private var lastShift = 0.0
     private var lastAlso: GuidanceAdvice?
     private var lastAlsoShift = 0.0
-    /// Düzeltmenin gidişi (doğru yöne mi gidiliyor): fotoğraf ve video tarifi ayrı izlenir
-    private var trendTracker = GuidanceTrendTracker()
+    /// Düzeltmenin gidişi (doğru yöne mi gidiliyor)
     private var vTrend = GuidanceTrendTracker()
-    /// Kadrajı sesli tarif et (kaç sayfa görünüyor, hangisi sığıyor…): ayardan gelir; kapalıyken cümleler yalnız yönlendirir
+    /// Kadrajı sesli tarif et (kaç sayfa görünüyor, hangisi sığıyor…): kapalıyken cümleler yalnız yönlendirir
     var describeScene = false
     /// Son ölçümün tarifi ve bu sayfa için söylenen son tarif (aynı tarif tekrar söylenmez, değişince yeniden söylenir)
     private var lastScene: String?
-    private var toldScene: String?
     private var vToldScene: String?
-    /// Soru sorulmadan kendiliğinden seçilen bölüm (son kararda) ve bu sayfa için söylenen seçim (bir kez söylenir)
-    private var lastPick: ColumnChoice?
-    private var toldPick: ColumnChoice?
-    /// Son değerlendirilen kadrajdaki bölüm sayısı (elle çekimde "çekilen bölüm" kaydı için)
-    private var lastColumns = 0
-    /// Kendiliğinden seçilmiş bölüm şu an çekilmeyi bekliyor (kullanıcı "sağ" / "ikisi birden" diyerek değiştirebilir)
-    var pendingPick: ColumnChoice? { return armed ? lastPick : nil }
-    /// Son sorulan / sorulabilecek seçenekler (bölüm sayısına göre sol-sağ ya da sol-orta-sağ)
-    var currentOptions: [ColumnChoice] { return lastOptions.isEmpty ? [.left, .right, .all] : lastOptions }
-
-    func reset() {
-        armed = true
-        choice = nil
-        awaitingChoice = false
-        lastCaptured = nil
-        capturedBefore = nil
-        lastColumns = 0
-        clearSpeech()
-    }
-
-    private func clearSpeech() {
-        last = nil
-        consecutive = 0
-        lastSpoken = nil
-        lastSpokenTime = -1000
-        repeats = 0
-        muted = nil
-        blurSpeaks = 0
-        glareSpoken = 0
-        questionsAsked = 0
-        lastQuestionTime = -1000
-        trendTracker.reset()
-        toldScene = nil
-        toldPick = nil
-        lastPick = nil
-    }
-
-    /// Çekim başarısız oldu / yapılamadı / fotoğraf silindi: yeniden denenebilsin. Çekilmeyen bölüm "çekildi" sayılmaz
-    /// (yoksa kendiliğinden seçim aynı bölümü yeniden seçmez ve soru yanlış "Sol bölüm çekildi" der).
-    func rearm() {
-        armed = true
-        consecutive = 0
-        last = nil
-        lastCaptured = capturedBefore
-    }
-
-    /// Kullanıcı motoru beklemeden çekti ("okey" sesli komutu ya da "Fotoğraf Çek" düğmesi): kendiliğinden çekimdeki gibi bu sayfa
-    /// bitmiş sayılır. Motor sayfa değişene kadar susar (aynı sayfa ikinci kez çekilmez; sayfa çevrilince söylenenler sıfırlanır),
-    /// çekilen bölüm kaydedilir ve bekleyen soru kapanır. Çekim başarısız olursa `rearm()` geri alır.
-    /// Motor kendisi çekmişse (`armed` zaten kapalı) yapılacak bir şey yoktur.
-    func manualCaptured() {
-        guard armed else { return }
-        armed = false
-        consecutive = 0
-        last = nil
-        capturedBefore = lastCaptured
-        lastCaptured = (lastColumns >= 2) ? (choice ?? lastPick) : nil
-        choice = nil
-        awaitingChoice = false
-    }
-
-    /// Sesle ya da düğmeyle yapılan bölüm seçimi. Döndürülen cümle hemen söylenir.
-    @discardableResult
-    func setChoice(_ c: ColumnChoice) -> String {
-        choice = c
-        awaitingChoice = false
-        let q = questionsAsked
-        clearSpeech()
-        questionsAsked = q
-        switch c {
-        case .all: return "Tamam, hepsini kadraja alalım."
-        default: return "Tamam, \(c.title.lowercased(with: Locale(identifier: "tr_TR"))) bölüm."
-        }
-    }
-
-    /// "Yeniden seç": seçim silinir, kadrajda birden çok bölüm varsa yeniden sorulur.
-    @discardableResult
-    func clearChoice() -> String {
-        choice = nil
-        lastCaptured = nil
-        capturedBefore = nil
-        awaitingChoice = false
-        clearSpeech()
-        return "Tamam, yeniden seçelim."
-    }
-
-    func questionText(options: [ColumnChoice], first: Bool) -> String {
-        var s = ""
-        let scene = describeScene ? lastScene : nil
-        if let l = lastCaptured {
-            s += "\(l.title) bölüm çekildi. "
-            if let sc = scene { s += sc + " " }
-        } else if first {
-            s += (scene ?? "Kadrajda ayrı bölümler var ve biri yarım kalıyor.") + " "
-        }
-        if options.contains(.middle) {
-            s += "Hangisini çekeyim? Sol mu, orta mı, sağ mı, yoksa tamamı mı?"
-        } else {
-            s += "Hangisini çekeyim? Sol mu, sağ mı, yoksa ikisi birden mi?"
-        }
-        return s
-    }
 
     /// "azıcık" → "Azıcık" (Türkçe büyük harfle)
     private func capitalised(_ s: String) -> String {
@@ -1351,7 +1220,7 @@ final class GuidanceEngine {
             if again { return "Biraz daha yaklaşın." }
             return lastScale >= config.closerBigScale ? "Yaklaşın, yazı küçük kalıyor." : "Biraz yaklaşın."
         case .noText: return "Yazı görünmüyor. Kamerayı belgeye çevirin."
-        case .chooseColumn: return questionText(options: lastOptions, first: questionsAsked == 0)
+        case .chooseColumn: return ""
         case .blurry:
             // Yazı kadrajı dolduruyorsa büyük olasılıkla fazla yakındır: önce uzaklaşmak; küçükse önce sabit tutup beklemek
             let options: [String]
@@ -1371,31 +1240,6 @@ final class GuidanceEngine {
             return options[blurSpeaks % options.count]
         case .glare: return "Sayfada parlama var. Kamerayı biraz eğin ya da ışığı değiştirin."
         case .ok: return "Çekiyorum."
-        }
-    }
-
-    /// Kendiliğinden seçilen bölümün duyurusu: "Soldaki bölüm tam sığıyor, onu çekiyorum." Kadraj tarifi açıksa tarif başa gelir.
-    func pickAnnouncement(_ pick: ColumnChoice) -> String {
-        let names: (adjective: String, accusative: String)
-        switch pick {
-        case .left: names = ("Soldaki", "Soldakini")
-        case .right: names = ("Sağdaki", "Sağdakini")
-        case .middle: names = ("Ortadaki", "Ortadakini")
-        case .all: names = ("Hepsi", "Hepsini")
-        }
-        let act = autoCapture ? "çekiyorum" : "çekmek için \(triggerWord) deyin"
-        if describeScene, let sc = lastScene { return "\(sc) \(names.accusative) \(act)." }
-        return "\(names.adjective) bölüm tam sığıyor, onu \(act)."
-    }
-
-    func statusText(for advice: GuidanceAdvice) -> String {
-        let prefix = choice.map { "\($0.title): " } ?? ""
-        switch advice {
-        case .ok: return prefix + (autoCapture ? "Konum uygun — sabit tutun" : "Konum uygun — “\(triggerWord)” deyin")
-        case .blurry: return prefix + "Görüntü net değil"
-        case .glare: return prefix + "Parlama var — açıyı ya da ışığı değiştirin"
-        case .chooseColumn: return "Hangisini çekeyim? “Sol” ya da “sağ” deyin"
-        default: return prefix + String(phrase(for: advice).dropLast())
         }
     }
 
@@ -1502,128 +1346,5 @@ final class GuidanceEngine {
         if a.isMove { return d.shift }
         if a == .closer { return d.scale - 1 }
         return nil
-    }
-
-    func step(_ metrics: PageMetrics, time: TimeInterval, stillFor: TimeInterval, diffToCapture: Double) -> Output {
-        if !armed {
-            if diffToCapture > config.changeToRearm && stillFor >= config.stillNeeded {
-                armed = true
-                let keep = lastCaptured
-                clearSpeech()
-                lastCaptured = keep
-                lastColumns = 0
-            } else {
-                return Output(status: "Sayfayı çevirin ya da diğer bölüme geçin")
-            }
-        }
-        if stillFor < config.stillNeeded {
-            consecutive = 0
-            last = nil
-            return Output(status: choice == nil ? "Kamera hareket ediyor…" : "\(choice?.title ?? "") — kamera hareket ediyor…",
-                          awaitingChoice: awaitingChoice, options: lastOptions)
-        }
-
-        let d = GuidanceAdvisor.decide(metrics, choice: forcedChoice ?? choice, config: config, sharpFloor: sharpFloor,
-                                       skipping: lastCaptured)
-        lastPick = d.picked
-        lastColumns = metrics.columns.count
-        lastFill = d.fill
-        lastScale = d.scale
-        lastShift = d.shift
-        lastAlso = d.also
-        lastAlsoShift = d.alsoShift
-        lastScene = describeScene && d.advice != .noText
-            ? GuidanceScene.describe(GuidanceScene.parts(metrics, config: config), edges: GuidanceScene.usableEdges(metrics)) : nil
-        var a = d.advice
-        // Parlama her zaman giderilemez: birkaç kez uyardıktan sonra yine de çekilir
-        if a == .glare && glareSpoken >= config.glareWarnings { a = .ok }
-        trendTracker.observe(a, need: trendNeed(d, a), time: time, config: config)
-        if a == last {
-            consecutive += 1
-        } else {
-            last = a
-            consecutive = 1
-            if a != muted { muted = nil }
-        }
-        awaitingChoice = (a == .chooseColumn)
-        if awaitingChoice { lastOptions = d.options }
-        var out = Output(advice: a, status: statusText(for: a), awaitingChoice: awaitingChoice, options: d.options)
-
-        if a == .chooseColumn {
-            guard consecutive >= 2 else { return out }
-            if questionsAsked < config.maxQuestions && time - lastQuestionTime >= (questionsAsked == 0 ? 0 : config.questionGap) {
-                out.speak = questionText(options: d.options, first: questionsAsked == 0)
-                toldScene = lastScene
-                questionsAsked += 1
-                lastQuestionTime = time
-            } else if questionsAsked == config.maxQuestions && time - lastQuestionTime >= config.questionGap {
-                out.speak = "Sesli yanıt alamadım. “Sol” ya da “sağ” deyin, ya da ekrandaki düğmeye dokunun."
-                questionsAsked += 1
-                lastQuestionTime = time
-            }
-            return out
-        }
-
-        if a == .ok {
-            // Bir düzeltme söylenmişti ve konum şimdi gerçekten uygun: kullanıcı hemen öğrenir ve kımıldamaz.
-            // Tarif açıksa ve bu sayfa için henüz söylenmediyse, düzeltme gerekmese de kadrajda ne olduğu bir kez söylenir.
-            if d.advice == .ok && consecutive == 1 {
-                let hold = autoCapture ? "" : " " + capitalised("\(triggerWord) deyin.")
-                if let pick = d.picked, pick != toldPick {
-                    // Soru sorulmadı: tam sığan bölüm seçildi, hangisinin çekildiği söylenir
-                    out.speak = (lastSpoken != nil ? "Tamam. " : "") + pickAnnouncement(pick)
-                    toldPick = pick
-                } else if lastSpoken != nil {
-                    if let sc = lastScene, describeScene {
-                        out.speak = "Tamam. " + sc + hold
-                    } else {
-                        out.speak = autoCapture ? "Tamam, sabit tutun." : "Tamam, \(triggerWord) deyin."
-                    }
-                } else if describeScene, let sc = lastScene, sc != toldScene {
-                    out.speak = sc + hold
-                }
-                if out.speak != nil {
-                    toldScene = lastScene
-                    lastSpoken = nil
-                    repeats = 0
-                    muted = nil
-                    lastSpokenTime = time
-                }
-            }
-            if consecutive >= config.stableEvaluations && autoCapture {
-                out.capture = true
-                armed = false
-                consecutive = 0
-                last = nil
-                capturedBefore = lastCaptured
-                lastCaptured = (metrics.columns.count >= 2) ? (choice ?? d.picked) : nil
-                choice = nil
-            }
-            return out
-        }
-
-        guard consecutive >= 2, time - lastSpokenTime >= config.speakGap, a != muted else { return out }
-        // Kamera hareket edip durduysa (gidiş belli) aynı öneri tekrar aralığını beklemeden söylenir
-        let moved = a.isCorrection && trendTracker.peek(at: time, config: config) != .steady
-        if a != lastSpoken || time - lastSpokenTime >= config.repeatGap || moved {
-            let trend = a.isCorrection ? trendTracker.take(at: time, config: config) : .steady
-            if trend != .steady || a != lastSpoken { repeats = 0 } else { repeats += 1 }
-            if repeats >= config.maxRepeats {
-                out.speak = "Hâlâ uygun değil. \(triggerWord) diyerek yine de çekebilirsiniz."
-                muted = a
-            } else {
-                var text = phrase(for: a, again: repeats > 0, trend: trend, stuck: repeats >= 2)
-                if let sc = lastScene, sc != toldScene {
-                    text = sc + " " + text
-                    toldScene = sc
-                }
-                out.speak = text
-                if a == .blurry { blurSpeaks += 1 }
-                if a == .glare { glareSpoken += 1 }
-            }
-            lastSpoken = a
-            lastSpokenTime = time
-        }
-        return out
     }
 }

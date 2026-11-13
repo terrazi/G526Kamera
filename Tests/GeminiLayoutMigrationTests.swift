@@ -6,13 +6,11 @@ final class GeminiLayoutMigrationTests: XCTestCase {
     private let d = UserDefaults.standard
     private var savedProfiles: Data?
     private var savedActive: Any?
-    private var savedCapPrev: Any?
 
     override func setUp() {
         super.setUp()
         savedProfiles = d.data(forKey: "geminiProfiles")
         savedActive = d.object(forKey: "geminiActive")
-        savedCapPrev = d.object(forKey: "geminiCapPrev")
         // İmzasız benzetici derlemede gerçek Keychain çalışmaz: bellekteki sahte depo kullanılır
         Keychain.testStore = [:]
     }
@@ -21,7 +19,6 @@ final class GeminiLayoutMigrationTests: XCTestCase {
         Keychain.testStore = nil
         d.set(savedProfiles, forKey: "geminiProfiles")
         d.set(savedActive, forKey: "geminiActive")
-        d.set(savedCapPrev, forKey: "geminiCapPrev")
         super.tearDown()
     }
 
@@ -34,7 +31,6 @@ final class GeminiLayoutMigrationTests: XCTestCase {
         Keychain.remove(GeminiProfiles.layoutMarker)
         d.set(try? JSONEncoder().encode(legacySix()), forKey: "geminiProfiles")
         d.set(5, forKey: "geminiActive")
-        d.set(6, forKey: "geminiCapPrev")
 
         let s = AppSettings()
 
@@ -42,7 +38,6 @@ final class GeminiLayoutMigrationTests: XCTestCase {
         for slot in 1...6 { XCTAssertNil(Keychain.get(GeminiProfiles.keychainName(slot: slot)), "\(slot). yuva") }
         XCTAssertEqual(s.geminiProfiles.map { $0.name }, ["N2", "N4", "N5", "N6"])
         XCTAssertEqual(s.geminiActive, 3, "eski 5. profil yeni 3. olur")
-        XCTAssertEqual(s.geminiCapPrev, 4)
         XCTAssertEqual(Keychain.get(GeminiProfiles.layoutMarker), GeminiProfiles.layoutVersion)
         XCTAssertEqual(d.integer(forKey: "geminiActive"), 3, "yeni sayı kalıcı yazılır")
         let stored = (d.data(forKey: "geminiProfiles")).flatMap { try? JSONDecoder().decode([GeminiProfile].self, from: $0) }

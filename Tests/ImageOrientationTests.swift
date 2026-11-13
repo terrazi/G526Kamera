@@ -131,9 +131,6 @@ final class ImageOrientationTests: XCTestCase {
                 XCTAssertLessThan(m.columns[0].x1, 0.5)
                 XCTAssertGreaterThan(m.columns[1].x0, 0.5)
             }
-            // Soru "sol mu, sağ mı" olur ("üst/alt" değil)
-            let e = GuidanceEngine()
-            XCTAssertTrue(e.questionText(options: GuidanceAdvisor.options(forColumnCount: 2), first: false).contains("Sol mu, sağ mı"))
         }
     }
 
@@ -263,37 +260,54 @@ final class ImageOrientationTests: XCTestCase {
         return (w, h, px[i] > 200 && px[i + 1] < 70 && px[i + 2] < 70)
     }
 
-    private func render(_ o: ImageOrientation) throws -> Data {
-        let opts = EnhanceOptions(level: 0, deskew: false, upscale: 1.0, timestamp: .keep, quality: 1.0, orientation: o)
-        let out = try XCTUnwrap(Enhancer.render(buffers: [try markerBuffer()], options: opts))
-        if o.isQuarterTurn {
-            XCTAssertEqual(out.width, 360, "\(o.title): en/boy yer değiştirir")
-            XCTAssertEqual(out.height, 640)
-        } else {
-            XCTAssertEqual(out.width, 640)
-            XCTAssertEqual(out.height, 360)
-        }
-        return out.data
+    private func render(_ o: ImageOrientation, crop: CGRect = CGRect(x: 0, y: 0, width: 1, height: 1)) throws -> (data: Data, width: Int, height: Int) {
+        return try XCTUnwrap(Enhancer.renderCrop(buffer: try markerBuffer(), crop: crop, orientation: o, timestamp: .keep,
+                                                 quality: 1.0, sharpen: false))
     }
 
-    func testPhotoIsRotatedLikeThePreview() throws {
+    func testQuestionImageIsRotatedLikeThePreview() throws {
         // normal: kutu sol üstte
-        var r = try isRed(try render(.normal), at: CGPoint(x: 40, y: 40))
-        XCTAssertTrue(r.red, "normal: sol üst")
-        // sağa 90° (saat yönü): sol üst köşe sağ üste gider
+        let normal = try render(.normal)
+        XCTAssertEqual(normal.width, 640)
+        XCTAssertEqual(normal.height, 360)
+        XCTAssertTrue(try isRed(normal.data, at: CGPoint(x: 40, y: 40)).red, "normal: sol üst")
+        // sağa 90° (saat yönü): sol üst köşe sağ üste gider; en/boy yer değiştirir
         let right = try render(.right90)
-        r = try isRed(right, at: CGPoint(x: 360 - 40, y: 40))
-        XCTAssertTrue(r.red, "90° sağa: sağ üst")
-        XCTAssertFalse(try isRed(right, at: CGPoint(x: 40, y: 40)).red)
+        XCTAssertEqual(right.width, 360)
+        XCTAssertEqual(right.height, 640)
+        XCTAssertTrue(try isRed(right.data, at: CGPoint(x: 360 - 40, y: 40)).red, "90° sağa: sağ üst")
+        XCTAssertFalse(try isRed(right.data, at: CGPoint(x: 40, y: 40)).red)
         // sola 90°: sol üst köşe sol alta gider
         let left = try render(.left90)
-        r = try isRed(left, at: CGPoint(x: 40, y: 640 - 40))
-        XCTAssertTrue(r.red, "90° sola: sol alt")
-        XCTAssertFalse(try isRed(left, at: CGPoint(x: 40, y: 40)).red)
+        XCTAssertTrue(try isRed(left.data, at: CGPoint(x: 40, y: 640 - 40)).red, "90° sola: sol alt")
+        XCTAssertFalse(try isRed(left.data, at: CGPoint(x: 40, y: 40)).red)
         // 180°: sağ alta gider
         let half = try render(.rotate180)
-        r = try isRed(half, at: CGPoint(x: 640 - 40, y: 360 - 40))
-        XCTAssertTrue(r.red, "180°: sağ alt")
-        XCTAssertFalse(try isRed(half, at: CGPoint(x: 40, y: 40)).red)
+        XCTAssertTrue(try isRed(half.data, at: CGPoint(x: 640 - 40, y: 360 - 40)).red, "180°: sağ alt")
+        XCTAssertFalse(try isRed(half.data, at: CGPoint(x: 40, y: 40)).red)
+    }
+
+    func testCropRegionUsesTopLeftOrigin() throws {
+        // sol üstteki 80×80 kırmızı kutuyu kapsayan bölge: tamamen kırmızı olmalı
+        let box = try render(.normal, crop: CGRect(x: 0, y: 0, width: 80.0 / 640, height: 80.0 / 360))
+        XCTAssertEqual(box.width, 80)
+        XCTAssertEqual(box.height, 80)
+        XCTAssertTrue(try isRed(box.data, at: CGPoint(x: 40, y: 40)).red)
+        // alt yarı: kırmızı kutu yok
+        let bottom = try render(.normal, crop: CGRect(x: 0, y: 0.5, width: 0.5, height: 0.5))
+        XCTAssertEqual(bottom.width, 320)
+        XCTAssertEqual(bottom.height, 180)
+        XCTAssertFalse(try isRed(bottom.data, at: CGPoint(x: 10, y: 10)).red)
+        // yön 90° iken bölge çevrilmiş görüntüye göre alınır: üst yarı 640 yüksekliğin yarısıdır
+        let turned = try render(.right90, crop: CGRect(x: 0, y: 0, width: 1, height: 0.5))
+        XCTAssertEqual(turned.width, 360)
+        XCTAssertEqual(turned.height, 320)
+    }
+
+    func testDegenerateCropGivesNothing() throws {
+        XCTAssertNil(Enhancer.renderCrop(buffer: try markerBuffer(), crop: CGRect(x: 0.5, y: 0.5, width: 0.001, height: 0.001),
+                                         orientation: .normal, timestamp: .keep, quality: 0.9, sharpen: false))
+        XCTAssertNil(Enhancer.renderCrop(buffer: try markerBuffer(), crop: CGRect(x: 2, y: 2, width: 0.5, height: 0.5),
+                                         orientation: .normal, timestamp: .keep, quality: 0.9, sharpen: false))
     }
 }

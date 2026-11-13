@@ -1,5 +1,4 @@
 import Foundation
-import Network
 
 /// Kullanıcının Kestirmeler uygulamasında yaptığı kestirmeleri çalıştıran bağlantı (Kestirmeler uygulamasının URL şeması).
 /// İki kestirme vardır; adları Ayarlar'dan yazılır, ad boşsa o kestirme kapalıdır:
@@ -118,79 +117,6 @@ enum InternetProbe {
             return target.okCodes.contains(code) ? (true, "") : (false, "kod \(code)")
         } catch {
             return (false, "hata \((error as NSError).code)")
-        }
-    }
-}
-
-/// Ağ yolu bilgisi (yalnız teşhis için): hangi arayüzler var, internet "Wi-Fi" üzerinden mi gidiyor, hücreseller doğrudan ulaşıyor mu.
-/// Kameranın internetsiz Wi-Fi ağında iOS istekleri hücresele yönlendirmezse internet yoklaması başarısız olur; bu bilgi onu ayırt eder.
-enum NetworkPathInfo {
-    private final class Once { var fired = false }
-
-    static func interfaceName(_ type: NWInterface.InterfaceType) -> String {
-        switch type {
-        case .wifi: return "Wi-Fi"
-        case .cellular: return "hücresel"
-        case .wiredEthernet: return "kablolu"
-        case .loopback: return "yerel"
-        default: return "diğer"
-        }
-    }
-
-    static func statusName(_ status: NWPath.Status) -> String {
-        switch status {
-        case .satisfied: return "var"
-        case .unsatisfied: return "yok"
-        case .requiresConnection: return "bağlantı gerekiyor"
-        @unknown default: return "bilinmiyor"
-        }
-    }
-
-    /// Örn. "ağ yolu: internet var; arayüzler: Wi-Fi, hücresel; ilk tercih: Wi-Fi"
-    static func describe() async -> String {
-        return await withCheckedContinuation { cont in
-            let monitor = NWPathMonitor()
-            let queue = DispatchQueue(label: "g526.pathinfo")
-            let once = Once()
-            func finish(_ text: String) {
-                if once.fired { return }
-                once.fired = true
-                monitor.cancel()
-                cont.resume(returning: text)
-            }
-            monitor.pathUpdateHandler = { path in
-                let names = path.availableInterfaces.map { interfaceName($0.type) }
-                let first = path.availableInterfaces.first.map { interfaceName($0.type) } ?? "yok"
-                finish("ağ yolu: internet \(statusName(path.status)); arayüzler: \(names.isEmpty ? "yok" : names.joined(separator: ", ")); ilk tercih: \(first)")
-            }
-            monitor.start(queue: queue)
-            queue.asyncAfter(deadline: .now() + 2) { finish("ağ yolu bilgisi alınamadı") }
-        }
-    }
-
-    /// Yalnız hücresel arayüzden bir TCP bağlantısı açılabiliyor mu (internet hücreselde var mı)
-    static func cellularReachable(timeout: TimeInterval = 8) async -> Bool {
-        return await withCheckedContinuation { cont in
-            let params = NWParameters.tcp
-            params.requiredInterfaceType = .cellular
-            let conn = NWConnection(host: "www.gstatic.com", port: 443, using: params)
-            let queue = DispatchQueue(label: "g526.cellprobe")
-            let once = Once()
-            func finish(_ ok: Bool) {
-                if once.fired { return }
-                once.fired = true
-                conn.cancel()
-                cont.resume(returning: ok)
-            }
-            conn.stateUpdateHandler = { state in
-                switch state {
-                case .ready: finish(true)
-                case .failed: finish(false)
-                default: break
-                }
-            }
-            conn.start(queue: queue)
-            queue.asyncAfter(deadline: .now() + timeout) { finish(false) }
         }
     }
 }

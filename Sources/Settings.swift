@@ -166,7 +166,7 @@ final class AppSettings: ObservableObject {
 
         jpegQuality = d.object(forKey: "jpegQuality") as? Double ?? 0.92
         sharpenImages = d.object(forKey: "sharpenImages") as? Bool ?? true
-        if let raw = d.string(forKey: "timestampMode"), let mode = TimestampMode(rawValue: raw), mode != .crop {
+        if let raw = d.string(forKey: "timestampMode"), let mode = TimestampMode(rawValue: raw) {
             timestampMode = mode
         } else {
             timestampMode = .blur

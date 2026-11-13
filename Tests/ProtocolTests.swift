@@ -164,30 +164,4 @@ final class SpeechAndMotionTests: XCTestCase {
 
 
 
-    func testMotionTriggersOnceAndIgnoresRemoval() {
-        let desk = [UInt8](repeating: 40, count: FrameAnalysis.signatureColumns * FrameAnalysis.signatureRows)
-        let paper = [UInt8](repeating: 200, count: desk.count)
-        let detector = MotionDetector()
-        detector.enabled = true
-        detector.sensitivity = 1
-
-        var t = 0.0
-        var triggers = 0
-        func feed(_ sig: [UInt8], seconds: Double) {
-            let end = t + seconds
-            while t < end {
-                if detector.process(signature: sig, time: t, busy: false) { triggers += 1 }
-                t += 0.1
-            }
-        }
-
-        feed(desk, seconds: 2)
-        XCTAssertEqual(triggers, 0)
-        feed(paper, seconds: 3)
-        XCTAssertEqual(triggers, 1)
-        feed(desk, seconds: 3)
-        XCTAssertEqual(triggers, 1, "Masa boşalınca çekmemeli")
-        feed(paper, seconds: 3)
-        XCTAssertEqual(triggers, 2)
-    }
 }

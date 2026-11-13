@@ -266,7 +266,6 @@ final class AppModel: ObservableObject {
         pipeline.guidanceOn = true
         pipeline.pageEdgesOn = false
         guidance.config.topBand = settings.imageOrientation == .normal ? GuidanceAnalyzer.skipTop : 0
-        guidance.sharpFloor = QualityConfig.floor(forSharpness: settings.guidanceSharpness)
         guidance.describeScene = false
         guidance.config.autoPick = false
         guidance.resetVideo()

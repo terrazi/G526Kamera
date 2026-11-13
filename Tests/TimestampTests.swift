@@ -5,7 +5,7 @@ import UIKit
 import Vision
 @testable import G526CameraDrive
 
-/// Tarih/saat gizleme (bulanıklaştır / kes / olduğu gibi). Kamera karesine benzeyen, tarih yazısı sağ üstte olan bir test karesi üretilir.
+/// Tarih/saat gizleme (bulanıklaştır / olduğu gibi). Kamera karesine benzeyen, tarih yazısı sağ üstte olan bir test karesi üretilir.
 final class TimestampTests: XCTestCase {
     private let width = 1920
     private let height = 1080
@@ -65,9 +65,9 @@ final class TimestampTests: XCTestCase {
         return Double(sum) / Double(max(n, 1))
     }
 
-    private func render(_ buffer: CVPixelBuffer, _ mode: TimestampMode) throws -> (data: Data, width: Int, height: Int, used: Int) {
-        let opts = EnhanceOptions(level: 0, deskew: false, upscale: 1.0, timestamp: mode, quality: 1.0)
-        return try XCTUnwrap(Enhancer.render(buffers: [buffer], options: opts))
+    private func render(_ buffer: CVPixelBuffer, _ mode: TimestampMode) throws -> (data: Data, width: Int, height: Int) {
+        return try XCTUnwrap(Enhancer.renderCrop(buffer: buffer, crop: CGRect(x: 0, y: 0, width: 1, height: 1), orientation: .normal,
+                                                 timestamp: mode, quality: 1.0, sharpen: false))
     }
 
     private func digits(in data: Data, rows: Range<Int>) -> Int? {
@@ -86,13 +86,6 @@ final class TimestampTests: XCTestCase {
         let out = try render(try makeBuffer(), .keep)
         XCTAssertEqual(out.width, width)
         XCTAssertEqual(out.height, height)
-    }
-
-    func testCropRemovesTopBand() throws {
-        let out = try render(try makeBuffer(), .crop)
-        let band = Int((Double(height) * Enhancer.timestampBand).rounded())
-        XCTAssertEqual(out.width, width)
-        XCTAssertEqual(out.height, height - band)
     }
 
     func testBlurKeepsSizeAndBodyButDestroysTextDetail() throws {
@@ -153,21 +146,18 @@ final class TimestampTests: XCTestCase {
         var pb: CVPixelBuffer?
         CVPixelBufferCreate(kCFAllocatorDefault, 100, 66, kCVPixelFormatType_32BGRA, nil, &pb)
         let image = CIImage(cvPixelBuffer: try XCTUnwrap(pb))
-        XCTAssertEqual(Enhancer.hideTimestamp(image, mode: .crop).extent.height, 66)
+        XCTAssertEqual(Enhancer.hideTimestamp(image, mode: .keep).extent.height, 66)
         XCTAssertEqual(Enhancer.hideTimestamp(image, mode: .blur).extent.height, 66)
     }
 
-    func testSettingsMigrationFromOldCropToggle() {
+    func testSavedCropModeFromAnOlderVersionFallsBackToBlur() {
         let d = UserDefaults.standard
-        d.removeObject(forKey: "timestampMode")
-        d.set(true, forKey: "cropTimestamp")
-        XCTAssertEqual(AppSettings().timestampMode, .crop)
-        d.set(false, forKey: "cropTimestamp")
+        defer { d.removeObject(forKey: "timestampMode") }
+        d.set("crop", forKey: "timestampMode")
         XCTAssertEqual(AppSettings().timestampMode, .blur)
         d.set("keep", forKey: "timestampMode")
-        d.set(true, forKey: "cropTimestamp")
         XCTAssertEqual(AppSettings().timestampMode, .keep)
         d.removeObject(forKey: "timestampMode")
-        d.removeObject(forKey: "cropTimestamp")
+        XCTAssertEqual(AppSettings().timestampMode, .blur)
     }
 }

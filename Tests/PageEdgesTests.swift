@@ -214,35 +214,6 @@ final class PageEdgesTests: XCTestCase {
 
     // MARK: - Durum makinesi
 
-    func testEngineSpeaksThePageEdgesOnceBeforeCapturing() {
-        let e = GuidanceEngine()
-        e.describeScene = true
-        var m = text()
-        m.edges = rect(0.1, 0.15, 0.9, 1.0)
-        var spoken: [String] = []
-        var captured = false
-        for t in [0, 0.3, 0.6] {
-            let o = e.step(m, time: t, stillFor: 1.0, diffToCapture: 100)
-            if let s = o.speak { spoken.append(s) }
-            if o.capture { captured = true }
-        }
-        XCTAssertEqual(spoken, ["Tek sayfa görünüyor, yazı tam sığıyor. Sayfanın alt kenarı kadrajın dışında kalıyor."])
-        XCTAssertTrue(captured, "kâğıdın kenarı taşıyor diye çekim engellenmez")
-    }
-
-    func testEngineAdviceIsNotChangedByThePageEdges() {
-        let plain = GuidanceEngine()
-        let withEdges = GuidanceEngine()
-        var m = text(x0: 0.4, x1: 0.995)
-        let a = plain.step(m, time: 0, stillFor: 1.0, diffToCapture: 100)
-        m.edges = rect(0.3, 0.15, 1.0, 0.95)
-        let b = withEdges.step(m, time: 0, stillFor: 1.0, diffToCapture: 100)
-        XCTAssertEqual(a.advice, b.advice)
-        XCTAssertEqual(a.capture, b.capture)
-        XCTAssertEqual(GuidanceAdvisor.decide(m, choice: nil, sharpFloor: 0.45),
-                       GuidanceAdvisor.decide(text(x0: 0.4, x1: 0.995), choice: nil, sharpFloor: 0.45))
-    }
-
     func testVideoConfirmationCarriesThePageEdgeDescription() {
         let e = GuidanceEngine()
         e.describeScene = true

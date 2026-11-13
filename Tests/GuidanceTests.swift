@@ -92,49 +92,10 @@ final class GuidanceTests: XCTestCase {
         XCTAssertEqual(decide(m, .right).advice, .moveRight)
     }
 
-    // MARK: - Durum makinesi
+    // MARK: - Sesli yönlendirme (video kaydı sırasında)
 
-    private func step(_ e: GuidanceEngine, _ m: PageMetrics, t: Double, still: Double = 1.0,
-                      diff: Double = 100) -> GuidanceEngine.Output {
-        return e.step(m, time: t, stillFor: still, diffToCapture: diff)
-    }
-
-    func testCapturesAfterStableOkThenWaitsForSceneChange() {
-        let e = GuidanceEngine()
-        let m = metrics(x0: 0.2, x1: 0.8)
-        var captured = false
-        for i in 0..<4 where !captured {
-            captured = step(e, m, t: Double(i) * 0.3).capture
-        }
-        XCTAssertTrue(captured)
-        XCTAssertFalse(e.armed)
-        for i in 0..<10 {
-            XCTAssertFalse(step(e, m, t: 5 + Double(i) * 0.3, diff: 0.5).capture, "aynı sahne ikinci kez çekilmemeli")
-        }
-        var again = false
-        for i in 0..<5 where !again {
-            again = step(e, m, t: 20 + Double(i) * 0.3, diff: 10).capture
-        }
-        XCTAssertTrue(again, "sayfa çevrilince yeniden çekmeli")
-    }
-
-    func testDoesNotCaptureWhileMoving() {
-        let e = GuidanceEngine()
-        let m = metrics(x0: 0.2, x1: 0.8)
-        for i in 0..<6 {
-            let o = step(e, m, t: Double(i) * 0.3, still: 0.1)
-            XCTAssertFalse(o.capture)
-            XCTAssertTrue(o.status.contains("hareket"))
-        }
-    }
-
-    func testManualModeDoesNotAutoCapture() {
-        let e = GuidanceEngine()
-        e.autoCapture = false
-        let m = metrics(x0: 0.2, x1: 0.8)
-        for i in 0..<6 {
-            XCTAssertFalse(step(e, m, t: Double(i) * 0.3).capture)
-        }
+    private func step(_ e: GuidanceEngine, _ m: PageMetrics, t: Double, still: Double = 1.0) -> GuidanceEngine.Output {
+        return e.videoStep(m, time: t, stillFor: still)
     }
 
     func testSpeaksDirectionOnceThenRateLimits() {
@@ -153,25 +114,22 @@ final class GuidanceTests: XCTestCase {
         return e.videoStep(m, time: t, stillFor: still)
     }
 
-    func testVideoStepSpeaksDirectionButNeverCapturesOrAsks() {
+    func testVideoStepSpeaksDirectionOnce() {
         let e = GuidanceEngine()
         let m = metrics(x0: 0.4, x1: 0.995)
         var spoken: [String] = []
         for i in 0..<8 {
             let out = vstep(e, m, t: Double(i) * 0.3)
-            XCTAssertFalse(out.capture)
-            XCTAssertFalse(out.awaitingChoice)
             if let t = out.speak { spoken.append(t) }
         }
         XCTAssertEqual(spoken, ["Kamerayı epey sağa kaydırın."])
     }
 
-    func testVideoStepGoodFrameIsSilentAndNeverCaptures() {
+    func testVideoStepGoodFrameIsSilent() {
         let e = GuidanceEngine()
         for i in 0..<20 {
             let out = vstep(e, metrics(x0: 0.2, x1: 0.8), t: Double(i) * 0.3)
             XCTAssertNil(out.speak)
-            XCTAssertFalse(out.capture)
         }
         XCTAssertEqual(vstep(e, metrics(x0: 0.2, x1: 0.8), t: 10).status, "Video: kadraj uygun")
     }
@@ -184,29 +142,6 @@ final class GuidanceTests: XCTestCase {
         XCTAssertNotNil(advice)
         XCTAssertNotEqual(advice, .chooseColumn)
         XCTAssertEqual(advice, .moveLeft)
-    }
-
-    /// Sayfa sayfa videoda sayfanın hepsi kaydedilir: bölüm sorusu sorulmaz, kamera tarifi verilir
-    func testForcedChoiceAllNeverAsksWhichColumnInPhotoStyleGuidance() {
-        let m = twoColumns(left: col(0.04, 0.57), right: col(0.60, 1.0))
-        let asking = GuidanceEngine()
-        var asked = false
-        for i in 0..<6 {
-            let o = step(asking, m, t: Double(i) * 0.3)
-            if o.awaitingChoice || (o.speak ?? "").contains("Hangisini çekeyim") { asked = true }
-        }
-        XCTAssertTrue(asked, "varsayılan davranış: kesik bölümde sorar")
-
-        let forced = GuidanceEngine()
-        forced.forcedChoice = .all
-        var spoken: [String] = []
-        for i in 0..<12 {
-            let o = step(forced, m, t: Double(i) * 0.3)
-            XCTAssertFalse(o.awaitingChoice, "zorunlu seçimde soru sorulmaz")
-            if let t = o.speak { spoken.append(t) }
-        }
-        XCTAssertFalse(spoken.contains(where: { $0.contains("Hangisini çekeyim") }), "\(spoken)")
-        XCTAssertFalse(spoken.isEmpty, "yine de konum tarifi verir: \(spoken)")
     }
 
     func testVideoStepIsSilentWhileCameraMoves() {
@@ -252,62 +187,6 @@ final class GuidanceTests: XCTestCase {
         var again = false
         for i in 102..<110 where vstep(e, cut, t: Double(i)).speak != nil { again = true }
         XCTAssertTrue(again)
-    }
-
-    func testVideoStepDoesNotTouchPhotoState() {
-        let e = GuidanceEngine()
-        _ = e.setChoice(.left)
-        for i in 0..<5 { _ = vstep(e, metrics(x0: 0.4, x1: 0.995), t: Double(i)) }
-        XCTAssertEqual(e.choice, .left)
-        e.resetVideo()
-        XCTAssertEqual(e.choice, .left)
-    }
-
-    func testQuestionIsAskedRepeatedlyThenGivesUp() {
-        let e = GuidanceEngine()
-        let m = twoColumns(left: col(0.04, 0.57), right: col(0.60, 1.0))
-        var spoken: [String] = []
-        for t in [0.0, 0.3, 0.6, 10.0, 20.0, 30.0, 45.0] {
-            let o = step(e, m, t: t)
-            XCTAssertTrue(o.awaitingChoice)
-            if let s = o.speak { spoken.append(s) }
-        }
-        XCTAssertEqual(spoken.count, 4)
-        XCTAssertTrue(spoken[0].contains("Sol mu, sağ mı"))
-        XCTAssertTrue(spoken[3].contains("Sesli yanıt alamadım"))
-        XCTAssertTrue(e.awaitingChoice)
-    }
-
-    func testChoiceThenCaptureThenAsksAgainRememberingLast() {
-        let e = GuidanceEngine()
-        let m = twoColumns(left: col(0.04, 0.57), right: col(0.60, 1.0))
-        _ = step(e, m, t: 0)
-        _ = step(e, m, t: 0.3)
-        XCTAssertEqual(e.setChoice(.left), "Tamam, sol bölüm.")
-        XCTAssertFalse(e.awaitingChoice)
-        var captured = false
-        for i in 0..<5 where !captured {
-            captured = step(e, m, t: 1 + Double(i) * 0.3).capture
-        }
-        XCTAssertTrue(captured)
-        XCTAssertEqual(e.lastCaptured, .left)
-        XCTAssertNil(e.choice)
-
-        // kullanıcı kamerayı kaydırdı: sahne değişti, yine yarım bölüm var → yeniden sorulur
-        var question: String?
-        for i in 0..<4 where question == nil {
-            question = step(e, m, t: 20 + Double(i) * 0.3, diff: 12).speak
-        }
-        XCTAssertNotNil(question)
-        XCTAssertTrue(question?.contains("Sol bölüm çekildi") ?? false)
-    }
-
-    func testRechooseClearsChoice() {
-        let e = GuidanceEngine()
-        e.setChoice(.right)
-        XCTAssertEqual(e.choice, .right)
-        _ = e.clearChoice()
-        XCTAssertNil(e.choice)
     }
 
     // MARK: - Sentetik görüntüde sayfa / sütun ölçümü
@@ -472,23 +351,6 @@ final class GuidanceTests: XCTestCase {
         var g = metrics(x0: 0.2, x1: 0.8)
         g.glare = 0.5
         XCTAssertEqual(GuidanceAdvisor.decide(g, choice: nil, config: off, sharpFloor: 0.45).advice, .ok)
-    }
-
-    func testGlareWarnsTwiceThenCaptures() {
-        let e = GuidanceEngine()
-        var m = metrics(x0: 0.2, x1: 0.8)
-        m.glare = 0.1
-        var warnings = 0
-        var captured = false
-        var t = 0.0
-        while t < 40 && !captured {
-            let o = step(e, m, t: t)
-            if let s = o.speak, s.contains("parlama") { warnings += 1 }
-            captured = o.capture
-            t += 0.3
-        }
-        XCTAssertTrue(captured, "parlama sonsuza dek çekimi engellememeli")
-        XCTAssertEqual(warnings, 2)
     }
 
     func testAnalyzerDetectsGlareBlobButNotSmallSpotsOrStrips() {
@@ -759,37 +621,6 @@ final class GuidanceTests: XCTestCase {
         XCTAssertEqual(tr.peek(at: 72, config: c), .steady)
     }
 
-    func testTellsOkOnceAfterACorrectionThenCaptures() {
-        let e = GuidanceEngine()
-        var spoken = feed(e, metrics(x0: 0.4, x1: 0.995), at: [0, 0.3])
-        var captured = false
-        for t in [3.0, 3.3, 3.6] {
-            let o = step(e, metrics(x0: 0.2, x1: 0.8), t: t)
-            if let s = o.speak { spoken.append(s) }
-            if o.capture { captured = true }
-        }
-        XCTAssertEqual(spoken, ["Kamerayı epey sağa kaydırın.", "Tamam, sabit tutun."])
-        XCTAssertTrue(captured)
-
-        // elle çekimde tetik sözcüğü söylenir
-        let manual = GuidanceEngine()
-        manual.autoCapture = false
-        var said = feed(manual, metrics(x0: 0.4, x1: 0.995), at: [0, 0.3])
-        said += feed(manual, metrics(x0: 0.2, x1: 0.8), at: [3.0, 3.3, 3.6])
-        XCTAssertEqual(said.last, "Tamam, okey deyin.")
-    }
-
-    func testNoOkAnnouncementWhenNothingWasCorrected() {
-        let e = GuidanceEngine()
-        var captured = false
-        for t in [0, 0.3, 0.6, 0.9] {
-            let o = step(e, metrics(x0: 0.2, x1: 0.8), t: t)
-            XCTAssertNil(o.speak)
-            if o.capture { captured = true }
-        }
-        XCTAssertTrue(captured)
-    }
-
     func testVideoTellsOkOnceAfterACorrection() {
         let e = GuidanceEngine()
         var spoken: [String] = []
@@ -885,34 +716,6 @@ final class GuidanceTests: XCTestCase {
         _ = feed(f, far, at: [1.0, 1.3], still: 0.1)
         XCTAssertEqual(feed(f, metrics(x0: 0.005, x1: 0.6), at: [3.0, 3.3, 3.6]),
                        ["Tek sayfa görünüyor, sol tarafı kesik. Fazla sağa kaydırdınız. Epey sola kaydırın."])
-    }
-
-    func testQuestionStartsWithWhatIsInTheFrame() {
-        let e = GuidanceEngine()
-        e.describeScene = true
-        let m = twoColumns(left: col(0.04, 0.57), right: col(0.60, 1.0))
-        XCTAssertEqual(firstSpeech(e, m),
-                       "İki sayfa görünüyor. Soldaki tam sığıyor, sağdakinin bir bölümü görünüyor. "
-                       + "Hangisini çekeyim? Sol mu, sağ mı, yoksa ikisi birden mi?")
-    }
-
-    func testGoodFrameIsDescribedOnceBeforeCapture() {
-        let e = GuidanceEngine()
-        e.describeScene = true
-        var spoken: [String] = []
-        var captured = false
-        for t in [0, 0.3, 0.6] {
-            let o = step(e, metrics(x0: 0.13, x1: 0.88, columns: [col(0.13, 0.49), col(0.51, 0.88)]), t: t)
-            if let s = o.speak { spoken.append(s) }
-            if o.capture { captured = true }
-        }
-        XCTAssertEqual(spoken, ["İki sayfa görünüyor, ikisi de tam sığıyor."])
-        XCTAssertTrue(captured)
-
-        let manual = GuidanceEngine()
-        manual.describeScene = true
-        manual.autoCapture = false
-        XCTAssertEqual(step(manual, metrics(x0: 0.2, x1: 0.8), t: 0).speak, "Tek sayfa görünüyor, tam sığıyor. Okey deyin.")
     }
 
     func testOkAfterACorrectionRepeatsTheFinalScene() {

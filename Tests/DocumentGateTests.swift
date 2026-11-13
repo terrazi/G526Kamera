@@ -126,15 +126,6 @@ final class DocumentGateTests: XCTestCase {
         }
     }
 
-    func testGuidanceDoesNotAdviseOnNonDocuments() {
-        let m = GuidanceAnalyzer.analyze(luma: stripes(), width: 960, height: 540)
-        let e = GuidanceEngine()
-        for i in 0..<12 {
-            let o = e.step(m, time: Double(i) * 0.3, stillFor: 1.0, diffToCapture: 100)
-            XCTAssertFalse(o.capture, "çizgili desen çekilmemeli")
-        }
-    }
-
     // MARK: - Çekim motoru
 
     /// 960x540 gri düzlemi 2 kat büyüterek 1920x1080 BGRA kareye çevirir (çözülmüş kamera karesi gibi)
@@ -159,60 +150,5 @@ final class DocumentGateTests: XCTestCase {
             }
         }
         return buffer
-    }
-
-    private func capture(_ frame: CVPixelBuffer, documentOnly: Bool) -> Result<CapturedPhoto, CaptureError>? {
-        let store = FrameStore(capacity: 20)
-        let engine = CaptureEngine(store: store)
-        store.add(buffer: frame, time: ProcessInfo.processInfo.systemUptime, sharpness: 100,
-                  signature: [UInt8](repeating: 0, count: FrameAnalysis.signatureColumns * FrameAnalysis.signatureRows))
-        let options = CaptureOptions(
-            before: 2.0, after: 0.05, multiFrame: false,
-            enhance: EnhanceOptions(level: 0, deskew: false, upscale: 1.0, timestamp: .keep, quality: 0.8),
-            documentOnly: documentOnly)
-        let done = expectation(description: "çekim")
-        var outcome: Result<CapturedPhoto, CaptureError>?
-        let accepted = engine.capture(reason: "test", options: options) { result in
-            outcome = result
-            done.fulfill()
-        }
-        XCTAssertTrue(accepted)
-        wait(for: [done], timeout: 30)
-        return outcome
-    }
-
-    func testEngineTakesDocumentsAndRefusesOtherScenes() throws {
-        let doc = try buffer(fromLuma: try XCTUnwrap(RealFrames.luma(RealFrames.bothFull)).px, w: 960, h: 540)
-        let striped = try buffer(fromLuma: stripes(), w: 960, h: 540)
-        let dark = try buffer(fromLuma: [Float](repeating: 30, count: 960 * 540), w: 960, h: 540)
-
-        let taken = try XCTUnwrap(capture(doc, documentOnly: true))
-        switch taken {
-        case .success(let photo): XCTAssertGreaterThan(photo.width, 0)
-        case .failure(let error): XCTFail("belge çekilmeliydi: \(error)")
-        }
-        for (name, frame) in [("çizgili desen", striped), ("karanlık sahne", dark)] {
-            let refused = try XCTUnwrap(capture(frame, documentOnly: true), name)
-            switch refused {
-            case .success: XCTFail("\(name) çekilmemeliydi")
-            case .failure(let error):
-                guard case .notDocument = error else { XCTFail("\(name): beklenmeyen hata \(error)"); continue }
-                XCTAssertTrue(error.message.contains("Belge görünmüyor"))
-            }
-        }
-        // kontrol kapalıyken her sahne çekilir
-        let free = try XCTUnwrap(capture(dark, documentOnly: false))
-        switch free {
-        case .success: break
-        case .failure(let error): XCTFail("kontrol kapalıyken çekilmeliydi: \(error)")
-        }
-    }
-
-    func testDocumentOnlyIsOnByDefault() {
-        UserDefaults.standard.removeObject(forKey: "documentOnly")
-        XCTAssertTrue(AppSettings().documentOnly)
-        XCTAssertFalse(CaptureOptions(before: 0, after: 0, multiFrame: false,
-                                      enhance: EnhanceOptions(level: 0, deskew: false, upscale: 1.0, timestamp: .keep, quality: 0.8)).documentOnly,
-                       "motor düzeyinde varsayılan kapalı: uygulama ayarla açar")
     }
 }
