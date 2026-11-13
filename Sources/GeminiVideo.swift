@@ -106,7 +106,8 @@ enum GeminiVideo {
     @MainActor
     static func analyze(videoData: Data, question: String, highResolution: Bool,
                         profiles: [GeminiProfileInfo], active: Int, chain: Bool, waitLimit: TimeInterval,
-                        notify: @escaping (String) -> Void) async throws -> VideoAnalysis {
+                        notify: @escaping (String) -> Void,
+                        progress: @escaping (String) -> Void = { _ in }) async throws -> VideoAnalysis {
         guard videoData.count <= maxBytes else {
             throw GeminiError("Video Gemini'ye gönderilemeyecek kadar büyük.", .tooBig)
         }
@@ -115,6 +116,7 @@ enum GeminiVideo {
             throw GeminiError("Gemini API anahtarı girilmemiş. Ayarlardan yapıştırın.", .key)
         }
         var lastError = GeminiError("Gemini cevap vermedi.", .error)
+        let megabytes = String(format: "%.1f", Double(videoData.count) / 1_048_576).replacingOccurrences(of: ".", with: ",")
         for (i, profile) in order.enumerated() {
             let isLast = i == order.count - 1
             let limit: TimeInterval? = (isLast || waitLimit <= 0) ? nil : max(waitLimit, 10)
@@ -123,14 +125,19 @@ enum GeminiVideo {
             do {
                 // küçük video istekte gider; büyük video bu profilde önce yüklenir (bir kez)
                 let uri: String?
+                let prefix = i == 0 ? "" : "\(profile.name): "
                 if usesFilesAPI(bytes: videoData.count) {
                     if i == 0 { notify("Video büyük, önce yükleniyor. Birkaç dakika sürebilir.") }
+                    progress(prefix + "Video yükleniyor (\(megabytes) MB)")
                     let file = try await client.uploadFile(name: "video", data: videoData, mimeType: "video/mp4",
                                                            timeout: uploadTimeout(bytes: videoData.count))
                     uploaded = file
+                    progress(prefix + "Gemini videoyu işliyor")
                     uri = try await client.waitActive(file).uri
+                    progress(prefix + "Gemini cevap hazırlıyor")
                 } else {
                     uri = nil
+                    progress(prefix + "Video gönderiliyor (\(megabytes) MB) ve cevap bekleniyor")
                 }
                 func ask(fps: Double?) async throws -> VideoAnalysis {
                     let object: [String: Any]

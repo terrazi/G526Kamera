@@ -276,13 +276,20 @@ struct ContentView: View {
     /// Sıradaki videoları tek tek Gemini'ye gönderir ("videoları gönder" demekle aynı)
     private var sendVideosButton: some View {
         Button {
-            model.sendQueuedVideos()
+            // Gönderim sürerken düğme "durdur" olur: takılırsa kullanıcı kesebilir
+            if model.sendingVideos { model.cancelVideoSend() } else { model.sendQueuedVideos() }
         } label: {
-            HStack {
-                Image(systemName: "paperplane.fill")
-                Text(model.sendingVideos ? "Gemini'ye gönderiliyor… (\(model.queuedVideos) kaldı)"
-                                         : "Videoları gönder (\(model.queuedVideos))")
-                    .fontWeight(.semibold)
+            VStack(spacing: 3) {
+                HStack {
+                    Image(systemName: model.sendingVideos ? "xmark.circle.fill" : "paperplane.fill")
+                    Text(model.sendingVideos ? "Gemini'ye gönderiliyor… (\(model.queuedVideos) kaldı)"
+                                             : "Videoları gönder (\(model.queuedVideos))")
+                        .fontWeight(.semibold)
+                }
+                if model.sendingVideos {
+                    Text(model.videoSendProgress.isEmpty ? "Durdurmak için dokunun" : model.videoSendProgress + " · durdurmak için dokunun")
+                        .font(.caption)
+                }
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 12)
@@ -291,7 +298,6 @@ struct ContentView: View {
             .cornerRadius(12)
         }
         // Kayıt açıkken de basılabilir: neden gönderilemediği ekranda ve sesle söylenir (sessizce hiçbir şey olmasın)
-        .disabled(model.sendingVideos)
         .accessibilityIdentifier("videolariGonder")
     }
 

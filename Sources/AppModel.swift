@@ -75,6 +75,11 @@ final class AppModel: ObservableObject {
     @Published private(set) var queuedVideos = GeminiVideoQueue.shared.count
     /// Sıradaki videolar şu an Gemini'ye gönderiliyor
     @Published private(set) var sendingVideos = false
+    /// Gönderim sürerken düğmede görünen aşama ("Video yükleniyor (18,2 MB) · 47 sn"); saniyede bir güncellenir
+    @Published private(set) var videoSendProgress = ""
+    private var videoSendStage = ""
+    private var videoSendStartedAt: Date?
+    private var videoSendTask: Task<Void, Never>?
     /// Ana ekranda kırmızı uyarı olarak gösterilen kendi kendini denetleme haberleri ("" = sorun yok)
     @Published private(set) var networkNotice = ""
     @Published private(set) var micNotice = ""
@@ -690,6 +695,7 @@ final class AppModel: ObservableObject {
         let ok = cameraState.isLive && decodeClock.age() < 3.0
         if ok != decoding { decoding = ok }
         refreshSaveNotice()
+        refreshVideoSendProgress()
         // Sınav kartında "kamera görüntüsü yok / kulaklık bağlı değil" yazıyorsa sorun giderilince yazı kalkar
         if examStore?.refreshBlockedStatus() == true {
             // Açılış sınaması hazır değildi (ör. belge klasörü seçilmemişti), sorun giderildi: sınama yeniden denenir
@@ -1686,6 +1692,25 @@ final class AppModel: ObservableObject {
         return ""
     }
 
+    /// "Gemini'ye gönderiliyor" sürerken düğmede aşama ve geçen süre görünür: takıldı mı sürüyor mu belli olsun
+    private func refreshVideoSendProgress() {
+        let text: String
+        if sendingVideos, let began = videoSendStartedAt {
+            let seconds = Int(Date().timeIntervalSince(began))
+            text = "\(videoSendStage.isEmpty ? "Hazırlanıyor" : videoSendStage) · \(seconds) sn"
+        } else {
+            text = ""
+        }
+        if text != videoSendProgress { videoSendProgress = text }
+    }
+
+    /// Sürmekte olan video gönderimini durdurur (video sırada kalır, yeniden "Videoları gönder" denebilir)
+    func cancelVideoSend() {
+        guard sendingVideos else { return }
+        tlog("[video] gönderim durdurma istendi (\(videoSendProgress))")
+        videoSendTask?.cancel()
+    }
+
     private func refreshSaveNotice() {
         let text = AppModel.saveProblemText(photos: queue.pending,
                                             videos: VideoOutbox.shared.waitingCount,
@@ -1756,9 +1781,11 @@ final class AppModel: ObservableObject {
         sendingVideos = true
         videoAnswer = ""
         videoSendNote = ""
+        videoSendStage = "Hazırlanıyor"
+        videoSendStartedAt = Date()
         flash("\(total) video sırayla Gemini'ye gönderiliyor…", seconds: 8)
         say("\(total) video sırayla Gemini'ye gönderiliyor.", interrupt: false, force: true)
-        Task { [weak self] in
+        videoSendTask = Task { [weak self] in
             var number = 0
             for url in files {
                 guard let self = self else { return }
@@ -1768,30 +1795,50 @@ final class AppModel: ObservableObject {
                 }
                 number += 1
                 self.flash("\(number). video / \(total): Gemini'ye gönderiliyor…", seconds: 8)
+                self.videoSendStage = "Hazırlanıyor"
+                self.videoSendStartedAt = Date()
+                let began = Date()
                 do {
                     let result = try await GeminiVideo.analyze(
                         videoData: data, question: question, highResolution: high, profiles: profiles, active: active.slot,
                         chain: chain, waitLimit: limit,
-                        notify: { text in Task { @MainActor in self.say(text, interrupt: false, force: true) } })
+                        notify: { text in Task { @MainActor in self.say(text, interrupt: false, force: true) } },
+                        progress: { text in
+                            Task { @MainActor in
+                                self.videoSendStage = text
+                                tlog("[video] aşama: \(text) (\(Int(Date().timeIntervalSince(began))). sn)")
+                            }
+                        })
                     queue.remove(url)
                     self.queuedVideos = queue.count
-                    tlog("[video] \(number). video cevabı: \(result.model), \(result.promptTokens) giriş token'ı, \(result.text.count) karakter")
+                    tlog("[video] \(number). video cevabı: \(result.model), \(result.promptTokens) giriş token'ı, \(result.text.count) karakter, \(Int(Date().timeIntervalSince(began))) sn")
                     self.videoAnswer += (self.videoAnswer.isEmpty ? "" : "\n\n") + "\(number). video: " + result.text
                     // önceki cevap hâlâ okunuyorsa bitmesi beklenir (okuma birbirini kesmesin); sonraki videonun yüklemesi bu arada sürmez
                     await self.waitForSpeechEnd()
                     _ = self.speakGemini("\(number). video. " + result.text)
+                } catch is CancellationError {
+                    tlog("[video] \(number). video gönderimi durduruldu (\(Int(Date().timeIntervalSince(began))). sn)")
+                    self.videoSendNote = "Video gönderimi durduruldu. Video sırada bekliyor; “Videoları gönder” ile yeniden gönderebilirsiniz."
+                    self.flash("Gönderim durduruldu", seconds: 5)
+                    self.say("Gönderim durduruldu.", interrupt: true, force: true)
+                    self.sendingVideos = false
+                    self.videoSendTask = nil
+                    self.queuedVideos = queue.count
+                    return
                 } catch {
                     let message = (error as? GeminiError)?.message ?? error.localizedDescription
-                    tlog("[video] \(number). video Gemini hatası: \(message)")
+                    tlog("[video] \(number). video Gemini hatası (\(Int(Date().timeIntervalSince(began))). sn): \(message)")
                     self.videoSendNote = "Gemini \(number). videoyu okuyamadı: \(message) Kalan videolar sırada bekliyor; “Videoları gönder” ile yeniden deneyin."
                     self.flash("Gemini \(number). videoyu okuyamadı: \(message)", seconds: 10)
                     self.say("Gemini \(number). videoyu okuyamadı. \(message) Kalan videolar sırada bekliyor.", interrupt: false, force: true)
                     self.sendingVideos = false
+                    self.videoSendTask = nil
                     self.queuedVideos = queue.count
                     return
                 }
             }
             self?.sendingVideos = false
+            self?.videoSendTask = nil
             self?.queuedVideos = queue.count
         }
     }
