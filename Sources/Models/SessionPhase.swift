@@ -4,6 +4,8 @@ import Foundation
 enum PauseReason: Equatable {
     case hardware(String)
     case noConnection
+    /// Kullanıcı "Duraklat"a bastı: mikrofon kapalı, hiçbir şey dinlenmez ya da gönderilmez
+    case manual
 }
 
 /// Oturumun durumu (durum makinesi). Ekran bu değere bakarak çizilir.
@@ -27,6 +29,7 @@ enum SessionPhase: Equatable {
         case .speaking: return "Kulaklıktan okunuyor"
         case .paused(.hardware): return "Duraklatıldı: kulaklık, mikrofon ya da ses kesintisi"
         case .paused(.noConnection): return "Duraklatıldı: bağlantı yok"
+        case .paused(.manual): return "Duraklatıldı: devam etmek için “Devam et”e basın"
         case .recovering: return "Bağlantı onarılıyor (Kestirmeler)"
         case .finished: return "Test bitti"
         case .replaying: return "Cevaplar çevrimdışı tekrarlanıyor"

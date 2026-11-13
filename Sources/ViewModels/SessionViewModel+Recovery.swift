@@ -33,6 +33,7 @@ extension SessionViewModel {
     func routeChanged(_ snapshot: RouteSnapshot) {
         let verdict = AudioRouting.verdict(snapshot)
         routeVerdict = verdict
+        tlog("[ses yolu] \(AudioRouting.describe(snapshot)) \(verdict.isSafe ? "Güvenli." : "Güvenli değil: " + verdict.summary)")
         refreshInputs()
         switch phase {
         case .listening, .answering, .speaking:
@@ -54,6 +55,7 @@ extension SessionViewModel {
     /// Arama, alarm ya da Siri sesi böldü: her şey susar ve durur (sıfırlama kestirmesi denenmez; aramayı keserdi).
     /// Kesinti bitince kendiliğinden devam edilir.
     func interrupted(_ began: Bool) {
+        tlog("[kesinti] \(began ? "başladı (arama, alarm ya da Siri)" : "bitti")")
         guard began else {
             interruptionEnded()
             return

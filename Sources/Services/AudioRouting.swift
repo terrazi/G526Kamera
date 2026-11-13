@@ -51,6 +51,29 @@ enum AudioRouting {
         return RouteVerdict(headphonesOK: headphonesOK, micOK: micOK, hint: hint(outputs: outputs, headphonesOK: headphonesOK))
     }
 
+    /// Port adının Türkçe kısa karşılığı ("Sesi dene" ve günlük için)
+    static func portName(_ port: AVAudioSession.Port) -> String {
+        switch port {
+        case .bluetoothA2DP, .bluetoothHFP, .bluetoothLE: return "Bluetooth kulaklık"
+        case .usbAudio: return "Lightning/USB mikrofon"
+        case .headsetMic: return "kulaklık mikrofonu"
+        case .lineIn: return "hat girişi"
+        case .lineOut: return "hat çıkışı"
+        case .builtInMic: return "telefonun kendi mikrofonu"
+        case .builtInSpeaker: return "telefon hoparlörü"
+        case .builtInReceiver: return "telefon ahizesi"
+        default: return port.rawValue
+        }
+    }
+
+    /// "Çıkış: Bluetooth kulaklık. Giriş: Lightning/USB mikrofon."
+    static func describe(_ snapshot: RouteSnapshot) -> String {
+        func list(_ ports: [AVAudioSession.Port]) -> String {
+            return ports.isEmpty ? "yok" : ports.map(portName).joined(separator: ", ")
+        }
+        return "Çıkış: \(list(snapshot.outputs)). Giriş: \(list(snapshot.inputs))."
+    }
+
     private static func hint(outputs: [AVAudioSession.Port], headphonesOK: Bool) -> String {
         if headphonesOK { return "" }
         if outputs.contains(where: { $0 == .usbAudio || $0 == .lineOut }) {

@@ -13,9 +13,11 @@ struct SettingsView: View {
                 geminiSection
                 geminiProfilesSection
                 folderSection
+                voiceScreenSection
                 shortcutsSection
                 replaySection
                 Section {
+                    NavigationLink(destination: DiagnosticsView()) { Text("Tanı ve günlük") }
                     Text(BuildInfo.version).font(.footnote).foregroundColor(.secondary)
                 }
             }
@@ -97,6 +99,22 @@ struct SettingsView: View {
                         }
                     }
                     .buttonStyle(.borderless)
+                    if !settings.geminiKeys[i].trimmed.isEmpty {
+                        HStack(spacing: 24) {
+                            Button(model.listingModelsSlot == i + 1 ? "Listeleniyor…" : "Modelleri listele") {
+                                Task { await model.listModels(slot: i + 1) }
+                            }
+                            .disabled(model.listingModelsSlot != 0)
+                            if let list = model.modelLists[i + 1], !list.isEmpty {
+                                Menu("Model seç (\(list.count))") {
+                                    ForEach(list, id: \.self) { name in
+                                        Button(name) { model.chooseModel(name, slot: i + 1) }
+                                    }
+                                }
+                            }
+                        }
+                        .buttonStyle(.borderless)
+                    }
                     if let result = model.keyResults[i + 1] {
                         Text(result.text).font(.caption).foregroundColor(result.ok ? .green : .red)
                     }
@@ -105,6 +123,24 @@ struct SettingsView: View {
                 .padding(.vertical, 4)
             }
             HelpRow("Soru önce 1. profilin anahtarı ve modeliyle sorulur. Kotası dolarsa, sunucu hata verirse, 40 sn cevap vermezse ya da anahtar/model sorunluysa aynı soru kendiliğinden 2., sonra 3., sonra 4. profile gider. Yalnız anahtarı ve modeli dolu profiller kullanılır; boş bırakılan atlanır. Anahtarı aistudio.google.com'dan alın; ücretli ya da ücretsiz olmak modelin değil anahtarın özelliğidir (faturalandırma bağlı projenin anahtarı ücretlidir), kutuyu buna göre işaretleyin. Anahtarlar yalnız bu telefonun Keychain'inde saklanır. Dikkat: ücretsiz katmanda Google gönderdiğiniz içeriği ürünlerini geliştirmek için kullanabilir.")
+        }
+    }
+
+    // MARK: Ses ve ekran
+
+    private var voiceScreenSection: some View {
+        Section(header: Text("Telefon sesi ve ekran")) {
+            Picker("Telefon sesi", selection: $settings.phoneVoiceID) {
+                Text("Otomatik").tag("")
+                ForEach(SpeechVoiceChooser.sortedTurkish(SpeechVoiceChooser.installed()), id: \.id) { voice in
+                    Text(voice.title).tag(voice.id)
+                }
+            }
+            Text("Şu an: " + SpeechVoiceChooser.currentDescription(preferredID: settings.phoneVoiceID))
+                .font(.footnote)
+                .foregroundColor(.secondary)
+            Toggle("Test sürerken ekranı kıs", isOn: $settings.dimScreen)
+            HelpRow("“Otomatik”, telefonda kurulu en kaliteli Türkçe sesi seçer. Daha doğal bir ses için iPhone Ayarlar > Erişilebilirlik > Konuşulan İçerik > Sesler > Türkçe bölümünden “Gelişmiş” ya da “Premium” bir ses indirin, sonra bu ekrana dönün. Bu ses kısa anonslarda (“Ben hazırım…”), Gemini sesi kapalıyken ve Gemini sesi çalışmazken cevaplarda kullanılır; seçtiğiniz sesi ana ekrandaki “Sesi dene” ile kulaklıktan dinleyebilirsiniz (ses telefon hoparlöründen çıkmaz). Ekranı kıs: test sürerken ekran parlaklığı en aza iner ve pil daha yavaş biter; ekran açık kalır (Kestirmeler için gerekir). Kırmızı bir uyarı çıkınca, ekrana bakıp görebilmeniz için parlaklık kullanıcı ayarına geri verilir; uygulamadan çıkınca ya da test bitince de geri verilir.")
         }
     }
 

@@ -15,6 +15,7 @@ final class SessionHarness {
     let permissions = FakePermissions()
     let player = FakePlayer()
     let screen = FakeScreen()
+    let battery = FakeBattery()
     let scheduler = ManualScheduler()
     let root: URL
     let settings: AppSettings
@@ -46,7 +47,8 @@ final class SessionHarness {
                                        now: { Date(timeIntervalSince1970: 1_800_000_000) },
                                        sleep: { _ in },
                                        recoveryConfig: RecoveryCoordinator.Config(settle: 0, verifyWindow: 0, verifyInterval: 1,
-                                                                                  cycleGap: 0, maxCycles: 1))
+                                                                                  cycleGap: 0, maxCycles: 1),
+                                       battery: battery)
         vm = SessionViewModel(settings: settings, deps: deps)
     }
 

@@ -15,6 +15,8 @@ final class AppSettings: ObservableObject {
         static let sendAudio = "v3.sendAudio"
         static let geminiVoice = "v3.geminiVoice"
         static let geminiProfiles = "v3.geminiProfiles"
+        static let dimScreen = "v3.dimScreen"
+        static let phoneVoice = "v3.phoneVoice"
     }
 
     /// Tekrar modunda iki cevap arasındaki boşluk (sn): Ayarlar'daki kaydırıcının aralığı
@@ -73,6 +75,16 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(geminiVoice, forKey: Key.geminiVoice) }
     }
 
+    /// Test sürerken (kırmızı uyarı yokken) ekran pil için kısılsın mı
+    @Published var dimScreen: Bool {
+        didSet { defaults.set(dimScreen, forKey: Key.dimScreen) }
+    }
+
+    /// Telefonun kısa anons / yedek sesi: boşsa "Otomatik" (kurulu en kaliteli Türkçe ses), değilse seçilen sesin kimliği
+    @Published var phoneVoiceID: String {
+        didSet { defaults.set(phoneVoiceID, forKey: Key.phoneVoice) }
+    }
+
     /// Gemini model profilleri (ad, model, ücretsiz mi); anahtarları `geminiKeys` içinde, Keychain'de
     @Published var geminiProfiles: [GeminiProfile] {
         didSet { defaults.set(try? JSONEncoder().encode(geminiProfiles), forKey: Key.geminiProfiles) }
@@ -98,6 +110,8 @@ final class AppSettings: ObservableObject {
         replayGap = AppSettings.clampGap(defaults.object(forKey: Key.replayGap) as? Double ?? AppSettings.defaultReplayGap)
         sendAudio = defaults.object(forKey: Key.sendAudio) as? Bool ?? true
         geminiVoice = defaults.object(forKey: Key.geminiVoice) as? Bool ?? true
+        dimScreen = defaults.object(forKey: Key.dimScreen) as? Bool ?? false
+        phoneVoiceID = defaults.string(forKey: Key.phoneVoice) ?? ""
         let saved = defaults.data(forKey: Key.geminiProfiles).flatMap { try? JSONDecoder().decode([GeminiProfile].self, from: $0) }
         geminiProfiles = GeminiProfiles.migrated(saved ?? [])
         geminiKeys = (1...GeminiProfiles.slotCount).map { Keychain.get(GeminiProfiles.keychainName(slot: $0)) ?? "" }

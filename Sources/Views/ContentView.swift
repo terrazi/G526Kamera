@@ -6,6 +6,7 @@ struct ContentView: View {
     @EnvironmentObject private var settings: AppSettings
     @EnvironmentObject private var settingsModel: SettingsViewModel
     @State private var showSettings = false
+    @State private var confirmEnd = false
 
     var body: some View {
         NavigationView {
@@ -30,6 +31,16 @@ struct ContentView: View {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Ayarlar") { showSettings = true }
                 }
+            }
+            .confirmationDialog("Test bitirilsin mi?", isPresented: $confirmEnd, titleVisibility: .visible) {
+                Button("Testi Bitir", role: .destructive) { session.endTest() }
+                Button("Vazgeç", role: .cancel) {}
+            } message: {
+                Text("Dinleme durur. Kaydedilen cevaplar kalır, “Cevapları Tekrarla” ile dinlenir.")
+            }
+            .onChange(of: session.phase.isAtRest) { rest in
+                // Test bitince ya da hiç başlamadıysa ekran kilidi kalmasın
+                if rest { ScreenLock.shared.unlock() }
             }
             .sheet(isPresented: $showSettings) {
                 SettingsView()
@@ -185,11 +196,34 @@ struct ContentView: View {
                 Button("Cevapları Tekrarla") { session.startReplay() }
                     .buttonStyle(.bordered)
                     .disabled(!session.canReplay)
+                Button(session.testingSound ? "Ses deneniyor…" : "Sesi dene") { session.testSound() }
+                    .buttonStyle(.bordered)
+                    .disabled(session.testingSound)
+                if !session.soundTest.isEmpty {
+                    Text(session.soundTest)
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             } else if session.phase == .replaying {
                 Button("Tekrarı durdur") { session.stopReplay() }
                     .buttonStyle(.bordered)
             } else {
-                Button("Testi Bitir") { session.endTest() }
+                if session.phase == .paused(.manual) {
+                    Button("Devam et") { session.resumeByUser() }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.green)
+                } else if session.canPauseByUser {
+                    Button("Duraklat") { session.pauseByUser() }
+                        .buttonStyle(.bordered)
+                }
+                Button {
+                    ScreenLock.shared.lock()
+                } label: {
+                    Label("Ekranı kilitle", systemImage: "lock.fill")
+                }
+                .buttonStyle(.bordered)
+                Button("Testi Bitir") { confirmEnd = true }
                     .buttonStyle(.borderedProminent)
                     .tint(.red)
             }

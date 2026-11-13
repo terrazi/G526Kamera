@@ -238,6 +238,20 @@ final class FakeAnswering: Answering {
 }
 
 @MainActor
+final class FakeBattery: BatteryProviding {
+    var percent: Int? = 80
+    var charging = false
+    var onChange: (() -> Void)?
+
+    /// Şarj değişti ve iOS bildirimi geldi
+    func set(_ percent: Int?, charging: Bool = false) {
+        self.percent = percent
+        self.charging = charging
+        onChange?()
+    }
+}
+
+@MainActor
 final class FakePermissions: PermissionProviding {
     var result = PermissionResult(microphone: true, speech: true, onDeviceSpeech: true)
     func request() async -> PermissionResult { return result }

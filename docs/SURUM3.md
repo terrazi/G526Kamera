@@ -61,6 +61,16 @@ gerçek kurulum `App/AppEnvironment`, testler sahtelerle (`Tests/Fakes`) kurar.
   tekrar okunur. Açılış anonsu yarıda kesilirse açılış kontrolü baştan yapılır.
 - **Gemini sesi çalışmazsa** (kota, model) 5 dk boyunca denenmez; cevaplar hemen telefonun sesiyle okunur. Her model için bekleme 8 sn.
 - **Okunamayan duyuru** oturumu durdurmaz; sebep ekranda yazılır, dinleme sürer.
+- **İlk sürümden alınan araçlar** (kamera, PDF, video ve sesli komut sistemi alınmadı): dokunmatik ekran kilidi (`ScreenLock`, ayrı
+  UIWindow, 3 sn basılı tutunca açılır, test bitince kendiliğinden kalkar), "Testi Bitir" onayı, elle Duraklat / Devam et
+  (`PauseReason.manual`; mikrofon kapanır, uçuştaki soru "gitmedi" olur, okunurken kesilen cevap `unheard` kalır ve devam edince
+  yeniden okunur; devam ederken ses yolu yeniden denetlenir, güvensizse donanım beklemesine girilir), "Sesi dene" (yalnız Bluetooth
+  çıkışta çalar, KURAL 1), düşük şarj uyarısı (`LowBatteryWatcher`: %20/10/5, şarjda ya da %25 üstünde sıfırlanır; yalnız kırmızı kutu,
+  sesli değil), Tanı ve günlük ekranı (`AppLog`, `DeviceInfo`), modelleri listeleme / model seçme (`GeminiClient.listModels`), Gemma
+  için `thinkingLevel: high` (`GeminiAnswerService.body(_:forModel:)`), telefon sesi seçimi (`SpeechVoiceChooser`), ekranı kısma
+  (`ScreenDimmer`; ayar varsayılan kapalı, kırmızı uyarıda/uygulama pasifken parlaklık geri verilir, çökme olursa açılışta geri verilir).
+- **Bilerek alınmayanlar:** ayarlardaki sesli "dene" düğmeleri (telefon hoparlöründen ses çıkardı, KURAL 1'e aykırı), sesli komut
+  sözlüğü, harcama sınırı ile profil değiştirme, durum raporu/sağlık izleyicisi (bu sürümde karşılığı yok).
 - **Telefon yeniden başlatma / uygulamayı yeniden açma** yoktur (istenmedi).
 - **Zamanlı başlatma:** iOS tam saatinde uyanmaya izin vermez; Kestirmeler otomasyonu `seslikontrol://basla` açar. Yedek: uygulama
   açıkken zamanlayıcı, sessiz bildirim.
@@ -68,5 +78,6 @@ gerçek kurulum `App/AppEnvironment`, testler sahtelerle (`Tests/Fakes`) kurar.
 ## Sınırlar (denenmedi)
 
 Cihazda denenmedi: Lightning mikrofon + Bluetooth çıkışın aynı anda çalışması, çevrimdışı Türkçe dikte, Gemini ses modelinin
-ücretsiz kotası ve gecikmesi, Kestirmelerin uygulamaya dönmesi, kilitli ekranda davranış. Arama ve mesaj engelleme uygulamadan
+ücretsiz kotası ve gecikmesi, Kestirmelerin uygulamaya dönmesi, kilitli ekranda davranış, kayıt klasörü seçicisi, ekran kilidi
+penceresi ve ekran kısma, Duraklat/Devam et ve Sesi dene'nin gerçek kulaklıkla davranışı, `AQ.` ile başlayan anahtarların kabulü. Arama ve mesaj engelleme uygulamadan
 yapılamaz (Odak + Kestirme önerilir).

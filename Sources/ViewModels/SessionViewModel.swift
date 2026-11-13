@@ -31,12 +31,17 @@ final class SessionViewModel: ObservableObject {
 
     // MARK: Ekranın gördüğü durum
 
-    @Published var phase: SessionPhase = .idle
+    @Published var phase: SessionPhase = .idle {
+        didSet { if phase != oldValue { tlog("[oturum] \(phase.title)") } }
+    }
     /// Dikte edilen (ve kırpılmış) soru metni
     @Published var liveText = ""
     @Published var answers: [AnswerRecord] = []
     /// Yüklenen sorular ve her birinin Gemini'ye gidiş durumu (ana ekrandaki tek liste; yükleme sırasıyla)
     @Published var questions: [QuestionEntry] = []
+    /// "Sesi dene" sonucu ve çalışıyor mu
+    @Published var soundTest = ""
+    @Published var testingSound = false
     @Published var warnings: [SessionWarning] = []
     @Published var checkup: [CheckItem] = []
     @Published var statusNote = ""
@@ -64,6 +69,8 @@ final class SessionViewModel: ObservableObject {
     /// Şu an Gemini'ye giden sorunun satırı (yoksa nil) ve satır sayacı
     var currentEntry: Int?
     var entrySeq = 0
+    /// Düşük şarj uyarısının hangi eşikleri söylediğini tutar
+    var batteryWatcher = LowBatteryWatcher()
     /// Arada tek kelime tanınmadan art arda yapılan donanım onarımı sayısı
     var hardwareRecoveries = 0
     var work: Task<Void, Never>?
@@ -90,6 +97,7 @@ final class SessionViewModel: ObservableObject {
         deps.route.onChange = { [weak self] snapshot in self?.routeChanged(snapshot) }
         deps.route.onInterruption = { [weak self] began in self?.interrupted(began) }
         deps.network.onChange = { [weak self] online in self?.networkChanged(online) }
+        deps.battery.onChange = { [weak self] in self?.batteryChanged() }
         deps.listener.onEvent = { [weak self] event in self?.handleSpeech(event) }
         watchdog.onExpire = { [weak self] in self?.silenceExpired() }
         replay.onState = { [weak self] state in self?.replayChanged(state) }
@@ -156,6 +164,7 @@ final class SessionViewModel: ObservableObject {
         questions = []
         currentEntry = nil
         entrySeq = 0
+        batteryWatcher = LowBatteryWatcher()
         warnings = []
         checkup = []
         statusNote = ""
@@ -195,8 +204,10 @@ final class SessionViewModel: ObservableObject {
 
     func warn(_ id: String, _ text: String) {
         if let index = warnings.firstIndex(where: { $0.id == id }) {
+            if warnings[index].text != text { tlog("[uyarı] \(id): \(text)") }
             warnings[index].text = text
         } else {
+            tlog("[uyarı] \(id): \(text)")
             warnings.append(SessionWarning(id: id, text: text))
         }
     }
@@ -245,6 +256,7 @@ final class SessionViewModel: ObservableObject {
         statusNote = ""
         watchdog.kick()
         if !deps.network.isOnline { scheduleOfflineCheck() }
+        batteryChanged()
     }
 
     func handleSpeech(_ event: SpeechEvent) {
@@ -300,6 +312,7 @@ final class SessionViewModel: ObservableObject {
         statusNote = ""
         let question = match.question
         beginEntry(text: question, withAudio: audio != nil)
+        tlog("[soru \(nextNumber)] Gemini'ye gönderildi (\(audio != nil ? "ses kaydıyla" : "yalnız metin"), \(question.count) karakter)")
         work = Task { [weak self] in await self?.answer(question: question, audio: audio) }
     }
 
@@ -324,6 +337,8 @@ final class SessionViewModel: ObservableObject {
                 base = deps.library.fileBase(question: number, in: folder)
             }
             try await deps.speaker.speak(record.spoken, saveAs: base)
+            // Okuma durdurulduysa (duraklatma, kulaklık kopması) cevap duyulmamış sayılır; devam edince yeniden okunur
+            guard !Task.isCancelled else { return }
             unheard = nil
             clearWarning("cevap")
             clearWarning("ses")
@@ -357,6 +372,11 @@ final class SessionViewModel: ObservableObject {
     func finishEntry(_ state: QuestionEntry.State, number: Int? = nil, model: String = "") {
         guard let id = currentEntry, let index = questions.firstIndex(where: { $0.id == id }) else { return }
         questions[index].state = state
+        switch state {
+        case .answered: tlog("[soru \(number ?? questions[index].number)] cevap geldi (\(model))")
+        case .failed(let reason): tlog("[soru \(questions[index].number)] gitmedi: \(reason)")
+        case .sending: break
+        }
         if let number = number { questions[index].number = number }
         if !model.isEmpty { questions[index].model = model }
         currentEntry = nil

@@ -47,6 +47,14 @@ Ayrıntılı işleyiş: `docs/SURUM3.md`.
 - **Soruyu ses olarak da gönder:** açıkken soru, dikte metnine ek olarak ses kaydı olarak da Gemini'ye gider (İngilizce kelimeleri
   sesten daha iyi çözer). Ses Google'a gider.
 - **Cevabı Gemini sesiyle oku:** açıkken cevap Gemini'nin ses modeliyle üretilip kaydedilir; olmazsa telefonun sesi kullanılır.
+- **Modelleri listele / Model seç:** her profilde anahtar girilince anahtarın görebildiği modelleri listeler, listeden seçilen model o
+  profile yazılır (model adını elle yazmak gerekmez). Gemma modellerinde "düşünme" otomatik açılır (soru çözümünde doğruluk için).
+- **Telefon sesi:** "Otomatik" en kaliteli kurulu Türkçe sesi seçer; isterseniz listeden başka ses seçin. Ana ekrandaki **Sesi dene**
+  seçtiğiniz sesi kulaklıktan dinletir.
+- **Test sürerken ekranı kıs:** (kapalı gelir) test sürerken parlaklığı en aza indirir, pil daha yavaş biter. Ekran açık kalır
+  (Kestirmeler için gerekir). Kırmızı uyarı çıkınca ya da uygulamadan çıkınca/test bitince parlaklık geri verilir.
+- **Tanı ve günlük:** ayarların en altında; cihaz özeti (şarj, ısı, boş yer) ve olay günlüğü. Bir sorun olursa **Günlüğü kopyala** ile
+  yapıştırıp bana gönderin; nedeni Mac olmadan okunur.
 - **Kestirmeler:** dört kestirmenin adı (aşağıda). Boş bırakılan adım atlanır.
 - **Cevaplar arası boşluk:** 0-10 saniye (varsayılan 3), test sonundaki tekrar için.
 
@@ -81,7 +89,21 @@ açık ve kilitsiz olmalı. Yedek: uygulama açıksa saat gelince kendisi başla
    demenizi bekliyor; **mektup** = Gemini'ye gitti, cevap bekleniyor; **gülen yüz** = cevaplandı (cevap ve model altında yazar);
    **kırmızı çarpı** = gitmedi (nedeni kırmızıyla yazar, soruyu yeniden okuyun).
 3. Cevaplar, seçtiğiniz **kayıt klasöründe gün klasörü** altında `soru_1`, `soru_2`… olarak kalır (`cevaplar.txt` de yazılır).
-4. Bitince **Testi Bitir**, sonra **Cevapları Tekrarla**: sistem internetsiz çalışır, kayıtlar sırayla çalınır, aralarında ayardaki süre kadar bekler.
+4. Bitince **Testi Bitir** (yanlışlıkla basılmasın diye bir onay sorar), sonra **Cevapları Tekrarla**: sistem internetsiz çalışır,
+   kayıtlar sırayla çalınır, aralarında ayardaki süre kadar bekler.
+
+**Sınavda işe yarayan düğmeler (ana ekran)**
+
+- **Sesi dene** (test başlamadan): ses yolunu denetler, kulaklıktan kısa bir cümle çalar, mikrofonun görünüp görünmediğini yazar.
+  Kulaklık bağlı değilse hiçbir şey çalmaz (ses telefon hoparlöründen çıkmaz).
+- **Duraklat / Devam et:** görevliyle konuşmanız gerekirse mikrofon kapanır, konuşulanlar yazıya çevrilmez, hiçbir şey gönderilmez.
+  Gemini'ye gitmekte olan soru gitmedi sayılır (soruyu yeniden okursunuz); okunurken kesilen cevap kayıtlıdır ve devam edince yeniden okunur.
+- **Ekranı kilitle:** ekrana yanlışlıkla dokunmak (ör. **Testi Bitir**) bir şey yaptırmasın diye dokunmatik ekranı kilitler. Program
+  çalışmaya devam eder. Kilidi açmak için ekrandaki düğmeye **3 saniye basılı tutun**; test bitince kilit kendiliğinden kalkar.
+  Sınır: yan tuş, ses tuşları ve ekran kenarından kaydırma iOS'un işidir, uygulama engelleyemez; tam kilit için iPhone'un
+  **Kılavuzlu Erişim** özelliğini açın.
+- **Şarj uyarısı:** telefon şarjı %20, %10 ve %5'e düşünce (şarjda değilse) kırmızı kutuda bir kez yazar; sesli söylemez, soru
+  okunurken araya girmesin diye. Şarja takınca kalkar.
 
 ## Sorun giderme
 

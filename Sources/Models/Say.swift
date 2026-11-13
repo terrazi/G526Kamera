@@ -7,10 +7,15 @@ enum Say {
     /// Modül 4: kestirme çalışıp bağlantı düzelince
     static let recovered = "Bağlantı sorunu giderildi ve sistem yeniden hazır. Lütfen en son kaldığın soruyu tekrar oku."
 
+    static let soundTest = "Ses denemesi. Beni kulaklığınızdan duyuyorsanız ses yolu çalışıyor."
+    static func lowBattery(_ percent: Int) -> String {
+        return "Telefonun şarjı yüzde \(percent). Telefonu şarja takın."
+    }
+
     static let noKeyShort = "Gemini API anahtarı girilmemiş. Ayarlardan yapıştırın."
     static let noOnDevice = "Bu telefonda çevrimdışı Türkçe dikte yüklü değil. Ayarlar, Genel, Klavye, Dikte bölümünden Türkçe'yi ekleyip internetteyken bir kez indirin."
     static let permissionDenied = "Mikrofon ve konuşma tanıma izni gerekli. Ayarlar, Sesli Kontrol bölümünden izin verin."
-    static let notConfigured = "Kestirme adları boş; kendi kendini onarma kapalı. Ayarlardan üç kestirmenin adını yazın."
+    static let notConfigured = "Kestirme adları boş; kendi kendini onarma kapalı. Ayarlardan kestirmelerin adını yazın."
     static let nothingToReplay = "Tekrarlanacak cevap yok."
     static let noHeadphonesForReplay = "Bluetooth kulaklık bağlı değil; tekrar için kulaklığı bağlayın."
 

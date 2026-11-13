@@ -16,6 +16,10 @@ final class SettingsViewModel: ObservableObject {
     @Published var testingKeySlot = 0
     @Published var shortcutResults: [RecoveryStep: String] = [:]
     @Published var runningShortcut: RecoveryStep?
+    /// Profil numarası → anahtarın gördüğü, metin üretebilen modeller ("Modelleri listele")
+    @Published var modelLists: [Int: [String]] = [:]
+    /// Şu an modelleri listelenen profil (0 = yok)
+    @Published var listingModelsSlot = 0
     @Published var folderStatus = ""
     @Published var folderMessage = ""
 
@@ -66,6 +70,35 @@ final class SettingsViewModel: ObservableObject {
         if GeminiKey.isKeyRejection(header) { query = await client.probeKey(model: profile.model, key: profile.key, viaQuery: true) }
         let result = GeminiKey.keyProbeText(model: profile.model, key: profile.key, header: header, query: query)
         keyResults[slot] = KeyTestResult(ok: result.ok, text: result.text)
+    }
+
+    /// Anahtarın görebildiği modelleri Google'dan getirir; yanlış yazılmış model adı böylece seçilerek düzeltilir
+    func listModels(slot: Int) async {
+        guard let profile = settings.geminiProfileInfos().first(where: { $0.slot == slot }), !profile.key.isEmpty else {
+            keyResults[slot] = KeyTestResult(ok: false, text: Say.noKeyShort)
+            return
+        }
+        listingModelsSlot = slot
+        defer { listingModelsSlot = 0 }
+        keyResults[slot] = KeyTestResult(ok: true, text: "Modeller Google'a soruluyor…")
+        let client = GeminiClient(key: { profile.key }, model: { profile.model })
+        do {
+            let names = try await client.listModels()
+            modelLists[slot] = names
+            keyResults[slot] = names.isEmpty
+                ? KeyTestResult(ok: false, text: "Bu anahtarın görebildiği, metin üretebilen model bulunamadı.")
+                : KeyTestResult(ok: true, text: "\(names.count) model bulundu. “Model seç”ten birini seçin.")
+        } catch let error as GeminiError {
+            keyResults[slot] = KeyTestResult(ok: false, text: error.message)
+        } catch {
+            keyResults[slot] = KeyTestResult(ok: false, text: error.localizedDescription)
+        }
+    }
+
+    func chooseModel(_ name: String, slot: Int) {
+        guard (1...GeminiProfiles.slotCount).contains(slot) else { return }
+        settings.geminiProfiles[slot - 1].model = name
+        keyResults[slot] = KeyTestResult(ok: true, text: "Model: \(name). “Anahtarı dene” ile sınayın.")
     }
 
     // MARK: Kayıt klasörü

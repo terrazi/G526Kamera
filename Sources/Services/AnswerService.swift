@@ -125,6 +125,15 @@ final class GeminiAnswerService: Answering {
         }
     }
 
+    /// Profilin modeline göre istek gövdesi: Gemma modelleri düşünmeyi yalnız "thinkingLevel" ile açar (soru çözümünde doğruluk için gerekir),
+    /// Gemini modellerine dokunulmaz.
+    static func body(_ body: Data, forModel model: String) -> Data {
+        guard let level = GeminiSupport.thinkingLevel(model: model, setting: "auto"),
+              let object = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any],
+              let data = try? JSONSerialization.data(withJSONObject: GeminiSupport.applyThinking(object, level: level)) else { return body }
+        return data
+    }
+
     // MARK: Answering
 
     /// Sıra: dinlenmiş profiller yuva sırasıyla, ardından sona bırakılanlar (hepsi sondaysa yine hepsi denenir)
@@ -157,7 +166,8 @@ final class GeminiAnswerService: Answering {
             do {
                 let client = makeClient(profile)
                 // Son profil dışındakilerde sunucu hatasında yeniden deneme ve uzun bekleme yok: hemen sıradakine geçilir
-                let object = try await client.generate(model: profile.model, key: profile.key, body: body,
+                let object = try await client.generate(model: profile.model, key: profile.key,
+                                                       body: GeminiAnswerService.body(body, forModel: profile.model),
                                                        serverRetries: isLast ? GeminiClient.askServerRetries : 0,
                                                        timeout: isLast ? nil : limit)
                 let parsed = AnswerParser.parse(try GeminiAnswerService.replyText(from: object))

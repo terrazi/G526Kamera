@@ -20,13 +20,14 @@ final class AppEnvironment: ObservableObject {
         let recorder = PCMRecorder()
         let route = AudioSessionGuard()
         let listener = OnDeviceSpeechListener(recorder: recorder)
-        let phoneVoice = SpeechRenderer()
+        let phoneVoice = SpeechRenderer(voice: { SpeechVoiceChooser.voice(preferredID: settings.phoneVoiceID) })
         let geminiVoice = GeminiVoice(keys: { settings.usableGeminiProfiles.map { $0.key } })
         let speaker = HeadphoneSpeaker(
             // Çıkış yalnız Bluetooth kulaklıksa çalınır (KURAL 1)
             isRouteSafe: { AudioRouting.verdict(route.snapshot()).headphonesOK },
             // Kaydedilen cevaplar Gemini sesiyle (ayar açıksa), kısa anonslar hızlı olsun diye telefonun sesiyle
-            engines: { saving in saving && settings.geminiVoice ? [geminiVoice, phoneVoice] : [phoneVoice] })
+            engines: { saving in saving && settings.geminiVoice ? [geminiVoice, phoneVoice] : [phoneVoice] },
+            voice: { SpeechVoiceChooser.voice(preferredID: settings.phoneVoiceID) })
         let shortcuts = ShortcutRunner()
         let deps = SessionDependencies(route: route,
                                        listener: listener,
@@ -40,14 +41,38 @@ final class AppEnvironment: ObservableObject {
                                        replayPlayer: speaker.filePlayer,
                                        screen: SystemScreen(),
                                        scheduler: DispatchScheduler(),
-                                       library: AnswerLibrary(resolver: { folderStore.resolution() }, refresh: { folderStore.refresh() }))
+                                       library: AnswerLibrary(resolver: { folderStore.resolution() }, refresh: { folderStore.refresh() }),
+                                       battery: SystemBattery())
         let session = SessionViewModel(settings: settings, deps: deps)
         self.settings = settings
         self.session = session
         self.folderStore = folderStore
         self.settingsModel = SettingsViewModel(settings: settings, shortcuts: shortcuts, folder: folderStore,
                                                sessionActive: { [weak session] in session?.phase.isRunning ?? false })
+        ScreenDimmer.shared.restoreIfLeftDimmed()
         wireStartTriggers()
+        wireDimming()
+    }
+
+    /// Ekran yalnız şu durumda kısılır: ayar açık, test sürüyor, uygulama önde ve kırmızı uyarı yok (uyarı görünsün)
+    private var isActive = true
+
+    private func wireDimming() {
+        Publishers.CombineLatest3(session.$phase, session.$warnings, settings.$dimScreen)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _, _, _ in self?.syncDimming() }
+            .store(in: &cancellables)
+    }
+
+    func syncDimming() {
+        let dim = settings.dimScreen && session.phase.isRunning && session.warnings.isEmpty && isActive
+        ScreenDimmer.shared.update(dim: dim)
+    }
+
+    /// Uygulama arka plana ya da pasife geçerken kullanıcının parlaklığı geri verilir
+    func appBecameInactive() {
+        isActive = false
+        syncDimming()
     }
 
     /// Zamanlı başlatma: uygulama açıkken saat dolunca, ya da bildirime dokunulunca oturum başlar
@@ -65,6 +90,8 @@ final class AppEnvironment: ObservableObject {
 
     /// Uygulama öne gelince zamanlayıcı yeniden kurulur (arka planda zamanlayıcılar duraklar); duraklatılmışsa ses yoluna yeniden bakılır
     func appBecameActive() {
+        isActive = true
+        syncDimming()
         starter.apply(enabled: settings.startEnabled, minutes: settings.startMinutes)
         session.recheckHardware()
         session.refreshInputs()

@@ -21,6 +21,7 @@ struct SessionDependencies {
         try? await Task.sleep(nanoseconds: UInt64(max(0, seconds) * 1_000_000_000))
     }
     var recoveryConfig = RecoveryCoordinator.Config()
+    var battery: BatteryProviding = NoBattery()
 }
 
 /// Donanım kontrolü maddesi (ekranda ✓ / ✗)
