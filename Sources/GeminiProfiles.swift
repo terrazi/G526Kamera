@@ -150,49 +150,6 @@ enum GeminiProfiles {
         return (false, text)
     }
 
-    /// Profildeki "ücretsiz" anahtarının yazısı: anahtar türü neyse yazı da odur (anahtar kapalıyken "Ücretli")
-    static func keyKindLabel(free: Bool) -> String {
-        return free ? "Ücretsiz anahtar" : "Ücretli anahtar"
-    }
-
-    /// Panodan yapıştırılan metinden anahtarı ayıklar: metinde bir "AIza…" anahtarı varsa o alınır (başında "API key:" gibi
-    /// sözcükler ya da tırnak olsa da); yoksa baştaki/sondaki boşluk ve tırnaklar atılır. Boşsa nil.
-    static func cleanedKey(fromClipboard text: String?) -> String? {
-        guard let text = text else { return nil }
-        if let range = text.range(of: "AIza[0-9A-Za-z_\\-]{35}", options: .regularExpression) {
-            return String(text[range])
-        }
-        if let range = text.range(of: "AQ\\.[0-9A-Za-z_.\\-]{20,}", options: .regularExpression) {
-            return String(text[range]).trimmingCharacters(in: CharacterSet(charactersIn: "."))
-        }
-        let quotes = CharacterSet(charactersIn: "\"'“”‘’`")
-        let cleaned = text.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: quotes)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return cleaned.isEmpty ? nil : cleaned
-    }
-
-    /// Yeni biçimli ("AQ.") anahtar Google'ın REST uç noktasında bazı hesaplarda reddedilebiliyor; anahtar hatasında bu bilgi eklenir
-    static func keyFormatNote(key: String) -> String? {
-        guard key.trimmed.hasPrefix("AQ.") else { return nil }
-        return "Bu anahtar yeni “AQ.” biçiminde; Google bunu bazı hesaplarda reddediyor. Google Cloud Console’da Generative Language API’ye kısıtlı yeni bir anahtar (AIza…) oluşturmayı deneyin."
-    }
-
-    /// "Anahtarı dene" sonucu: anahtarın model listesini alabilmesi Google'ın anahtarı kabul ettiğini gösterir (belirteç harcamaz);
-    /// ardından profildeki modelin bu anahtarda görünüp görünmediği söylenir.
-    static func keyTestText(model: String, key: String = "", result: Result<[String], GeminiError>) -> (ok: Bool, text: String) {
-        switch result {
-        case .failure(let e):
-            var text = "✗ " + e.message
-            if e.kind == .key, let note = keyFormatNote(key: key) { text += " " + note }
-            return (false, text)
-        case .success(let names):
-            let wanted = model.trimmed.hasPrefix("models/") ? String(model.trimmed.dropFirst("models/".count)) : model.trimmed
-            if wanted.isEmpty { return (true, "✓ Anahtar kabul edildi. (Bu profilde model adı boş.)") }
-            if names.contains(wanted) { return (true, "✓ Anahtar kabul edildi; “\(wanted)” bu anahtarla kullanılabilir.") }
-            return (false, "✓ Anahtar kabul edildi ama “\(wanted)” modeli bu anahtarda görünmüyor. “Modelleri listele” ile doğru adı bulun.")
-        }
-    }
-
     static func usable(_ list: [GeminiProfileInfo]) -> [GeminiProfileInfo] {
         return list.filter { $0.usable }
     }
