@@ -634,7 +634,7 @@ final class ExamMode: ObservableObject {
     private func outside(_ name: String, _ text: String) -> Bool {
         if !enabled {
             if name == "start" {
-                bg { await self.sayNow(ExamMode.disabledNotice) }
+                bg { await self.sayDisabledNotice() }
                 return true            // karşılık verildi (ses tanıma yeniden başlar, aynı söz bir daha işlenmez)
             }
             return false
@@ -836,6 +836,7 @@ final class ExamMode: ObservableObject {
         if !why.isEmpty {
             // Ses çıkmıyorsa da neden görülsün: ekrana da yazılır
             setStatus(why)
+            blockedStatus = (why, true)
             bg { await self.sayNow(why) }
             return false
         }
@@ -843,12 +844,15 @@ final class ExamMode: ObservableObject {
         if !route.isEmpty {
             // Ses mikrofon alıcısına gidiyor: doğru çıkış seçilene dek sınav başlamaz (ekranda da yazar)
             setStatus(route)
+            blockedStatus = (route, true)
             bg { await self.sayNow(route) }
             return false
         }
         if ports.linksLost().contains(.audio) {
             // Kulaklık yok: telefon hoparlöründen ses verilmez, bu yüzden sınav başlamaz (ekranda yazar)
-            setStatus("Kulaklık bağlı değil: ses telefon hoparlöründen verilmez. Kulaklığı bağlayıp tekrar deneyin.")
+            let text = "Kulaklık bağlı değil: ses telefon hoparlöründen verilmez. Kulaklığı bağlayıp tekrar deneyin."
+            setStatus(text)
+            blockedStatus = (text, true)
             return false
         }
         if let saved = savedSummary() {
@@ -966,6 +970,33 @@ final class ExamMode: ObservableObject {
         await waitFloor()
         guard !enabled else { return }
         await sayNow(ExamMode.leftNotice)
+    }
+
+    /// Sınav başlatılamadığı için kartta yazan neden ("Kamera görüntüsü yok…", "Kulaklık bağlı değil…") ve denetimin kamerayı da sayıp saymadığı.
+    /// Sorun giderilince (kamera geldi, kulaklık takıldı, klasör seçildi…) yazı kendiliğinden kalkar; saniyede bir çağrılır.
+    private var blockedStatus: (text: String, needCamera: Bool)?
+
+    func refreshBlockedStatus() {
+        guard let blocked = blockedStatus else { return }
+        // Başka bir yazı onun yerini aldıysa ya da sınav / sınama başladıysa ya da mod kapandıysa izlenecek bir şey kalmaz
+        guard enabled, !running, status == blocked.text else {
+            blockedStatus = nil
+            return
+        }
+        let stillBlocked = !ports.preflight(needCamera: blocked.needCamera).isEmpty
+            || !ports.routeProblem().isEmpty
+            || ports.linksLost().contains(.audio)
+        if !stillBlocked {
+            blockedStatus = nil
+            setStatus("")
+        }
+    }
+
+    /// "Deneme sınavı etkin değil" cümlesi: söylenmeye sıra gelene kadar anahtar açıldıysa söylenmez
+    private func sayDisabledNotice() async {
+        await waitFloor()
+        guard !enabled else { return }
+        await sayNow(ExamMode.disabledNotice)
     }
 
     /// "Mod açık" cümlesi: sırası gelene kadar anahtar yine kapandıysa söylenmez

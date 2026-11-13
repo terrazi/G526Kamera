@@ -1895,6 +1895,34 @@ final class ExamModeTests: XCTestCase {
         XCTAssertTrue(exam.said.isEmpty, "\(exam.said)")
     }
 
+    func testStartBlockedReasonDisappearsOnceFixed() async {
+        let p = FakePorts()
+        p.preflightText = "Kamera görüntüsü yok. Kameraya bağlanınca tekrar söyleyin."
+        let exam = make(p)
+        XCTAssertFalse(exam.start())
+        XCTAssertEqual(exam.status, p.preflightText)
+        // Sorun sürerken yazı kalır
+        exam.refreshBlockedStatus()
+        XCTAssertEqual(exam.status, p.preflightText)
+        // Kamera geldi: yazı kalkar (eski sorun kartta kalmaz)
+        p.preflightText = ""
+        exam.refreshBlockedStatus()
+        XCTAssertEqual(exam.status, "")
+    }
+
+    func testBlockedReasonThatWasReplacedIsNotTouched() async {
+        let p = FakePorts()
+        p.preflightText = "Kamera görüntüsü yok. Kameraya bağlanınca tekrar söyleyin."
+        let exam = make(p)
+        XCTAssertFalse(exam.start())
+        exam.setEnabled(false, announce: false)
+        exam.setEnabled(true, announce: false)
+        p.preflightText = ""
+        exam.refreshBlockedStatus()
+        XCTAssertEqual(exam.status, "")
+        XCTAssertFalse(exam.info.active)
+    }
+
     func testSwitchOnThenQuicklyOffNeverSaysModeIsOn() async {
         let p = FakePorts()
         let exam = make(p)

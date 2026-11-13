@@ -681,6 +681,8 @@ final class AppModel: ObservableObject {
     private func refreshDecoding() {
         let ok = cameraState.isLive && decodeClock.age() < 3.0
         if ok != decoding { decoding = ok }
+        // Sınav kartında "kamera görüntüsü yok / kulaklık bağlı değil" yazıyorsa sorun giderilince yazı kalkar
+        examStore?.refreshBlockedStatus()
         watchConnection(live: ok)
     }
 
