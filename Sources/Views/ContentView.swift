@@ -263,12 +263,20 @@ struct ContentView: View {
     }
 
     private var outputPicker: some View {
-        HStack {
-            Text("Ses çıkışı: Bluetooth kulaklığı seçin")
-                .font(.footnote)
-                .foregroundColor(.secondary)
-            Spacer()
-            RoutePickerView().frame(width: 44, height: 44)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text("Ses çıkışı: Bluetooth kulaklığı seçin")
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+                Spacer()
+                RoutePickerView().frame(width: 44, height: 44)
+            }
+            if !session.routeText.isEmpty {
+                Text("Şu an: " + session.routeText)
+                    .font(.footnote)
+                    .foregroundColor(session.routeVerdict?.isSafe == false ? .orange : .secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 }

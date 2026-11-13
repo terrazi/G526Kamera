@@ -49,6 +49,8 @@ final class SessionViewModel: ObservableObject {
     /// Seçilebilir harici mikrofonlar (ana ekrandaki mikrofon listesi)
     @Published var inputs: [InputChoice] = []
     @Published var routeVerdict: RouteVerdict?
+    /// Şu anki ses yolu, ana ekranda küçük yazıyla ("Çıkış: Bluetooth kulaklık. Giriş: Lightning/USB mikrofon.")
+    @Published var routeText = ""
 
     // MARK: Bağımlılıklar
 
@@ -108,6 +110,7 @@ final class SessionViewModel: ObservableObject {
     /// Ana ekrandaki mikrofon listesi: yalnız harici (Lightning/USB/kablolu) mikrofonlar seçilebilir
     func refreshInputs() {
         inputs = deps.route.availableInputs().filter { $0.isExternal }
+        routeText = AudioRouting.describe(deps.route.snapshot())
     }
 
     /// Kullanıcı listeden bir mikrofon seçti

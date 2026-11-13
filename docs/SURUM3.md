@@ -9,7 +9,7 @@ gerçek kurulum `App/AppEnvironment`, testler sahtelerle (`Tests/Fakes`) kurar.
 | Modül | Ne yapar | Dosyalar |
 |---|---|---|
 | 1 Ayarlar ve açılış | başlama saati, 4 Gemini profili ve anahtarı, kayıt klasörü, 4 kestirme adı; açılışta donanım denetimi (kayıt klasörü, anahtarlar dahil) ve "hazırım" anonsu | `AppSettings`, `GeminiProfiles`, `FolderStore`, `StartScheduler`, `SessionViewModel+Checkup`, `HealthCheck`, `Permissions` |
-| 2 Ses kalkanı | `.playAndRecord`, seçenekler yalnız `[.allowBluetooth, .allowBluetoothA2DP]`; yol değişince kontrol, kopunca anında sus ve duraklat | `AudioRouting`, `SessionViewModel+Recovery` (fail-safe) |
+| 2 Ses kalkanı | `.playAndRecord`, seçenek yalnız `[.allowBluetoothA2DP]` (HFP yok: kulaklık seçilince sesi iPhone'a düşürüyordu); yol değişince kontrol, kopunca anında sus ve duraklat | `AudioRouting`, `SessionViewModel+Recovery` (fail-safe) |
 | 3 Dikte | çevrimdışı `SFSpeechRecognizer` (tr-TR, `requiresOnDeviceRecognition`), sürekli; "Cevapla"/"Gönder" son sözcükse mikrofon durur, tetikleyici kırpılır | `SpeechListener`, `Transcript`, `QuestionAudio` |
 | 4 Kendini onarma | 30 sn sessizlik ya da düşen istek; `NWPathMonitor` + Kestirmeler: internet için Wi-Fi → hücresel → sıfırlama, donanım için Bluetooth yenileme → sıfırlama; düzelince Google/Gemini'ye ping ya da ses yolu denetimi, anons, mikrofon | `SilenceWatchdog`, `NetworkWatcher`, `ShortcutRunner`, `RecoveryCoordinator`, `SessionViewModel+Recovery` |
 | 5 Cevap | Gemini'ye soru (dikte metni + isteğe bağlı ses), tek satır cevap, kulaklıktan okuma ve `soru_N` olarak kaydetme, sonra yeni soruyu dinleme | `AnswerService`, `AnswerRecord`, `SpeechOutput`, `GeminiVoice`, `AnswerLibrary` |

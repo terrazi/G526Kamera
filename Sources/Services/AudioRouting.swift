@@ -80,7 +80,7 @@ enum AudioRouting {
             return "Ses yaka mikrofonu alıcısına (Lightning) gidiyor. Ekrandaki ses çıkışı düğmesinden Bluetooth kulaklığı seçin."
         }
         if outputs.contains(where: { $0 == .builtInSpeaker || $0 == .builtInReceiver }) {
-            return "Bluetooth kulaklık bağlı değil; telefondan ses verilmez."
+            return "Ses şu an telefona gidiyor; telefondan ses verilmez. Kulaklık bağlıysa ses çıkışı düğmesinden onu seçin."
         }
         return "Bluetooth kulaklık bulunamadı."
     }
@@ -103,12 +103,15 @@ protocol AudioRouteProviding: AnyObject {
     @discardableResult func selectInput(uid: String) -> Bool
 }
 
-/// Modül 2 (Kalkan): AVAudioSession .playAndRecord, seçenekler yalnız [.allowBluetooth, .allowBluetoothA2DP].
+/// Modül 2 (Kalkan): AVAudioSession .playAndRecord, seçenek yalnız [.allowBluetoothA2DP].
+/// `.allowBluetooth` (HFP, telefon görüşmesi profili) BİLEREK yok: HFP kulaklığın kendi mikrofonunu da girişe alır ve Lightning
+/// mikrofonla birlikte kullanılamaz; kullanıcı listeden kulaklığı seçince iOS HFP'ye geçip sesi iPhone'a düşürüyordu. A2DP yalnız
+/// çıkıştır ve harici mikrofon girişiyle birlikte çalışır (giriş zaten hiçbir zaman Bluetooth olmamalı).
 /// `.defaultToSpeaker` HİÇBİR yerde yoktur; çıkış `overrideOutputAudioPort` ile de hoparlöre çevrilmez.
 @MainActor
 final class AudioSessionGuard: AudioRouteProviding {
     static let category: AVAudioSession.Category = .playAndRecord
-    static let options: AVAudioSession.CategoryOptions = [.allowBluetooth, .allowBluetoothA2DP]
+    static let options: AVAudioSession.CategoryOptions = [.allowBluetoothA2DP]
 
     var onChange: (@MainActor (RouteSnapshot) -> Void)?
     var onInterruption: (@MainActor (Bool) -> Void)?

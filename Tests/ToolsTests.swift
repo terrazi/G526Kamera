@@ -67,6 +67,14 @@ final class DeviceInfoAndRouteTextTests: XCTestCase {
         XCTAssertEqual(AudioRouting.describe(RouteSnapshot(outputs: [], inputs: [])), "Çıkış: yok. Giriş: yok.")
     }
 
+    func testRouteTextOnMainScreenFollowsTheRoute() {
+        let h = SessionHarness()
+        h.vm.refreshInputs()
+        XCTAssertEqual(h.vm.routeText, "Çıkış: Bluetooth kulaklık. Giriş: Lightning/USB mikrofon.")
+        h.route.change(to: FakeRoute.noHeadphones)
+        XCTAssertEqual(h.vm.routeText, "Çıkış: telefon hoparlörü. Giriş: Lightning/USB mikrofon.")
+    }
+
     func testSayTexts() {
         XCTAssertEqual(Say.lowBattery(10), "Telefonun şarjı yüzde 10. Telefonu şarja takın.")
         XCTAssertFalse(Say.notConfigured.contains("üç"), "Kestirme sayısı artık dört; metin sayı vermez")

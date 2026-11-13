@@ -71,7 +71,9 @@ final class AudioRoutingTests: XCTestCase {
 
     func testSessionCategoryAndOptionsNeverIncludeSpeaker() {
         XCTAssertEqual(AudioSessionGuard.category, .playAndRecord)
-        XCTAssertEqual(AudioSessionGuard.options, [.allowBluetooth, .allowBluetoothA2DP])
+        XCTAssertEqual(AudioSessionGuard.options, [.allowBluetoothA2DP])
+        XCTAssertFalse(AudioSessionGuard.options.contains(.allowBluetooth),
+                       "HFP kulaklığın mikrofonunu girişe alır ve Lightning mikrofonla çakışır; sesi iPhone'a düşürür")
         XCTAssertFalse(AudioSessionGuard.options.contains(.defaultToSpeaker))
     }
 }

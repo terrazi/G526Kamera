@@ -108,6 +108,7 @@ açık ve kilitsiz olmalı. Yedek: uygulama açıksa saat gelince kendisi başla
 ## Sorun giderme
 
 - **"Duraklatıldı: kulaklık, mikrofon ya da ses kesintisi":** kulaklık ve alıcı bağlı mı, çıkış düğmesinde kulaklık, mikrofon listesinde alıcı seçili mi? Geri gelince kendiliğinden devam eder; 20 sn dönmezse `Bluetooth_Yenile`, o da işe yaramazsa `Sistemi_Sifirla` çalışır.
+- **"Ses şu an telefona gidiyor" / Sesi dene çalmıyor:** ana ekranın altındaki "Şu an: Çıkış: …" satırı sesin nereye gittiğini yazar. Çıkış telefon ise "Ses çıkışı" düğmesinden Bluetooth kulaklığı seçin. Kulaklık yalnız müzik (A2DP) olarak bağlanır; telefon (mikrofonlu) profili kapalıdır, çünkü mikrofon her zaman Lightning alıcıdan gelir.
 - **Mikrofon listesi boş:** alıcıyı çıkarıp takın, **Yenile**'ye basın.
 - **Kırmızı kutuda "çevrimdışı dikte yüklü değil":** 3. bölümdeki 1. adım.
 - **Kestirme açılıyor ama uygulamaya dönmüyor:** Ayarlar'daki **Dene** düğmesiyle her kestirmeyi tek tek sınayın; adın birebir aynı olması gerekir.
