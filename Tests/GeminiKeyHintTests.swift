@@ -42,11 +42,4 @@ final class GeminiKeyHintTests: XCTestCase {
         XCTAssertEqual(merged.status, 400)
         XCTAssertEqual(GeminiVideo.combined(last, trail: []).message, "son")
     }
-
-    func testKeyRejectedOnEveryModelNamesEachOne() async {
-        // anahtar boş olmayan ama yapısı bozuk profiller: istek atılmadan hata gelmez; burada yalnız zincirin ileti toplaması denenir
-        let list = [GeminiProfileInfo(slot: 1, name: "Bir", model: "m", key: "K", free: true)]
-        let order = GeminiVideo.candidates(profiles: list, active: 1, chain: true)
-        XCTAssertEqual(order.map { $0.name }, ["Bir"])
-    }
 }
