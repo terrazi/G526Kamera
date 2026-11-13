@@ -1283,7 +1283,7 @@ extension GeminiClient {
         guard let url = URL(string: address) else { return KeyProbe(status: 0, message: "adres geçersiz") }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.timeoutInterval = 30
+        request.timeoutInterval = 60
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if !viaQuery { request.setValue(secret, forHTTPHeaderField: "x-goog-api-key") }
         let object: [String: Any] = [
@@ -1299,7 +1299,10 @@ extension GeminiClient {
             tlog("[gemini] anahtar sınaması (\(viaQuery ? "adres" : "başlık")): HTTP \(status) \(message.prefix(120))")
             return KeyProbe(status: status, message: message)
         } catch {
-            return KeyProbe(status: 0, message: error.localizedDescription)
+            // Ağ hatasının kodu da yazılır (örn. -1001 zaman aşımı, -1009 internet yok, -1200 TLS): neden ulaşılamadığı görülsün
+            let code = (error as NSError).code
+            tlog("[gemini] anahtar sınaması ağ hatası: \((error as NSError).domain) \(code) \(error.localizedDescription)")
+            return KeyProbe(status: 0, message: "\(error.localizedDescription) (hata kodu \(code))")
         }
     }
 }

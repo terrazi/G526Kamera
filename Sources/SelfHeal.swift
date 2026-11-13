@@ -14,18 +14,25 @@ struct OfflineTracker {
 
     /// Üst üste bu kadar yoklama başarısızsa "internet yok" denir
     var failuresToWarn = 2
-    /// İki onarım denemesi arası en az bu kadar saniye
-    var repairCooldown: TimeInterval = 600
+    /// Kestirme, internet bu kadar "sayılan" yoklamada art arda yoksa çalışır (Ayarlar; varsayılan 3)
+    var repairChecks = 3
+    /// İki sayılan yoklama arası en az bu kadar saniye (Ayarlar; varsayılan 60). Yoklama daha sık yapılsa da sayılan yoklamalar
+    /// bu aralıkla sayılır: "1'er dakika arayla 3 yoklamada internet yoksa kestirme çalışsın"
+    var checkInterval: TimeInterval = 60
+    /// İki onarım denemesi arası en az bu kadar saniye (Ayarlar; varsayılan 60)
+    var repairCooldown: TimeInterval = 60
     /// Bir kesinti süresince en çok bu kadar onarım denemesi
     var maxRepairsPerOutage = 3
 
     private(set) var failures = 0
+    private(set) var counted = 0
     private(set) var warned = false
     private(set) var repairs = 0
     private var lastRepair: TimeInterval?
+    private var lastCounted: TimeInterval?
 
-    /// Uygulama arka plana geçince (kestirme çalışırken de geçer) yoklama sayacı ve uyarı sıfırlanır; deneme sayısı ve
-    /// bekleme süresi KORUNUR: yoksa her kestirme dönüşünde sayaç sıfırlanır ve kestirme sonsuza dek yeniden çalışırdı.
+    /// Uygulama arka plana geçince (kestirme çalışırken de geçer) yoklama sayacı ve uyarı sıfırlanır; deneme sayısı, sayılan
+    /// yoklamalar ve bekleme süresi KORUNUR: yoksa her kestirme dönüşünde sayaç sıfırlanır ve kestirme sonsuza dek yeniden çalışırdı.
     mutating func suspend() {
         failures = 0
         warned = false
@@ -35,15 +42,21 @@ struct OfflineTracker {
         if online {
             let wasDown = warned
             failures = 0
+            counted = 0
+            lastCounted = nil
             warned = false
             repairs = 0
             lastRepair = nil
             return wasDown ? .recovered : .none
         }
         failures += 1
+        if lastCounted.map({ now - $0 >= checkInterval }) ?? true {
+            counted += 1
+            lastCounted = now
+        }
         guard failures >= failuresToWarn else { return .none }
         let due = lastRepair.map { now - $0 >= repairCooldown } ?? true
-        if canRepair && repairs < maxRepairsPerOutage && due {
+        if canRepair && counted >= repairChecks && repairs < maxRepairsPerOutage && due {
             repairs += 1
             lastRepair = now
             warned = true
@@ -103,8 +116,37 @@ enum AudioHealth {
 /// Kullanıcının Kestirmeler uygulamasında yaptığı kestirmeleri çalıştıran bağlantı (Kestirmeler uygulamasının URL şeması).
 /// İki kestirme vardır; adları Ayarlar'dan yazılır, ad boşsa o kestirme kapalıdır:
 /// bağlantı kestirmesi (hücresel veriyi kapat-aç) ve ses kestirmesi (Bluetooth'u kapat-aç).
+enum ShortcutKind: String {
+    case connection = "baglanti"
+    case audio = "ses"
+
+    var title: String { return self == .connection ? "Bağlantı" : "Ses" }
+}
+
 enum ShortcutLink {
     static let callbackScheme = "g526kamera"
+    /// Kullanıcının bir kez Kestirmeler uygulamasında yapacağı yardımcı kestirmenin adı: kestirmelerin listesini gösterir, seçilen adı
+    /// g526kamera://sec?tur=baglanti&ad=… bağlantısıyla uygulamaya geri gönderir (iOS uygulamalara kestirme listesini vermez)
+    static let pickerName = "G526 Kestirme Seç"
+
+    /// Yardımcı kestirmeyi çalıştırır; girdi olarak hangi kestirmenin seçileceğini ("baglanti" / "ses") verir
+    static func pickerURL(kind: ShortcutKind) -> URL? {
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&=+#?/:")
+        guard let name = pickerName.addingPercentEncoding(withAllowedCharacters: allowed) else { return nil }
+        return URL(string: "shortcuts://run-shortcut?name=\(name)&input=text&text=\(kind.rawValue)")
+    }
+
+    /// Yardımcı kestirmeden dönen bağlantı: g526kamera://sec?tur=baglanti&ad=H%C3%BCcresel%20Yenile → (bağlantı, "Hücresel Yenile")
+    static func selection(from url: URL) -> (kind: ShortcutKind, name: String)? {
+        guard url.scheme == callbackScheme, url.host == "sec",
+              let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems,
+              let kindText = items.first(where: { $0.name == "tur" })?.value,
+              let kind = ShortcutKind(rawValue: kindText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()),
+              let rawName = items.first(where: { $0.name == "ad" })?.value else { return nil }
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? nil : (kind, name)
+    }
 
     /// shortcuts://x-callback-url/run-shortcut?name=…: kestirme bitince uygulamaya geri dönülür
     static func url(name: String) -> URL? {

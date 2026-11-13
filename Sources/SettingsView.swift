@@ -147,18 +147,51 @@ struct SettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 
-    /// Kestirmeler uygulamasındaki iki kestirmenin adı (ad boşsa o kestirme çalıştırılmaz)
+    /// Kestirmeler uygulamasındaki iki kestirme: bağlantı kestirmesi (internet) ve ses kestirmesi. iOS uygulamalara kestirmelerin listesini
+    /// vermediği için ad ya yazılır / yapıştırılır ya da yardımcı kestirmeyle listeden seçilir.
     private var selfHealSection: some View {
         Section(header: Text("Kendi kendini onarma (kestirmeler)")) {
-            TextField("Bağlantı kestirmesinin adı", text: $settings.connectionShortcutName)
+            shortcutRow(kind: .connection, title: "Bağlantı kestirmesi", name: $settings.connectionShortcutName,
+                        identifier: "baglanti-kestirmesi")
+            Stepper(value: $settings.repairChecks, in: AppSettings.repairChecksRange) {
+                Text("Kestirmeden önce yoklama: \(settings.repairChecks) kez")
+            }
+            Stepper(value: $settings.repairCheckSeconds, in: AppSettings.repairCheckSecondsRange, step: 10) {
+                Text("Yoklamalar arası: \(settings.repairCheckSeconds) sn")
+            }
+            Stepper(value: $settings.repairWaitSeconds, in: AppSettings.repairWaitSecondsRange, step: 10) {
+                Text("Kestirme denemeleri arası bekleme: \(settings.repairWaitSeconds) sn")
+            }
+            HelpRow("İnternet kesilince program her \(settings.repairCheckSeconds) saniyede bir yoklar; art arda \(settings.repairChecks) yoklamada internet yoksa bağlantı kestirmesini çalıştırır, işe yaramazsa \(settings.repairWaitSeconds) saniye sonra yeniden dener (bir kesintide en çok 3 deneme). Kestirmenin adı boşsa hiçbir şey çalışmaz. Önerilen kestirme: Hücresel Veriyi Ayarla Kapalı → Bekle 3 sn → Hücresel Veriyi Ayarla Açık.")
+            shortcutRow(kind: .audio, title: "Ses kestirmesi", name: $settings.audioShortcutName, identifier: "ses-kestirmesi")
+            HelpRow("Ses kestirmesi: mikrofon 90 saniyedir hiç ses vermiyorsa ya da ses kulaklığa değil mikrofon alıcısına gidiyorsa çalışır (ses bağlantısını yeniden kuran kestirme). Kestirme çalışırken program birkaç saniye arka plana gider; ekran açık ve program önde olmalıdır.")
+            HelpRow("iOS, uygulamaların Kestirmeler listesini görmesine izin vermez; bu yüzden ad yazılır ya da yapıştırılır. “Listeden seç” için bir kez Kestirmeler uygulamasında “\(ShortcutLink.pickerName)” adlı bir kestirme yapın: 1) “Kestirmelerimi Al” (Get My Shortcuts), 2) “Listeden Seç”, 3) “URL Kodla” (girdi: Seçilen Öğe), 4) “URL’leri Aç”: g526kamera://sec?tur=Kestirme Girdisi&ad=URL Kodlanmış Metin (Kestirme Girdisi ve URL Kodlanmış Metin değişken olarak eklenir). “Listeden seç”e basınca bu kestirme listeyi gösterir, seçtiğiniz ad kutuya kendiliğinden yazılır. Eylem adları iOS sürümünüze göre biraz değişebilir.")
+        }
+    }
+
+    /// Bir kestirmenin satırı: ad kutusu + Listeden seç / Yapıştır / Dene
+    private func shortcutRow(kind: ShortcutKind, title: String, name: Binding<String>, identifier: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            TextField("\(title)nin adı", text: name)
                 .textInputAutocapitalization(.never)
                 .disableAutocorrection(true)
-                .accessibilityIdentifier("baglanti-kestirmesi")
-            TextField("Ses kestirmesinin adı", text: $settings.audioShortcutName)
-                .textInputAutocapitalization(.never)
-                .disableAutocorrection(true)
-                .accessibilityIdentifier("ses-kestirmesi")
-            HelpRow("Kestirmeler uygulamasında yaptığınız kestirmelerin adını aynen yazın; boş bırakılan kapalıdır. Bağlantı kestirmesi: internet 1-2 dakikadır yoksa çalışır (Hücresel Veriyi Ayarla Kapalı → Bekle 3 sn → Hücresel Veriyi Ayarla Açık). Ses kestirmesi: mikrofon 90 saniyedir hiç ses vermiyorsa ya da ses kulaklığa değil mikrofon alıcısına gidiyorsa çalışır (Bluetooth Kapalı → Bekle → Açık). Her kestirme en çok 3 kez, aralarında bekleyerek denenir. Deneme sınavı sürerken kestirmeyi sınav çalıştırır: önce sesli haber verir (internet kesilmişse internet gereken aşamaya gelince), sonra kestirmeye geçer ve bağlantıyı bekler. Çalışırken Kestirmeler birkaç saniye öne gelir, kamera bağlantısı bu sırada kopabilir; iPhone ilk çalıştırmada izin isteyebilir.")
+                .accessibilityIdentifier(identifier)
+            HStack(spacing: 20) {
+                Button("Listeden seç") {
+                    if let url = ShortcutLink.pickerURL(kind: kind) { UIApplication.shared.open(url) }
+                }
+                .accessibilityIdentifier("\(identifier)-sec")
+                Button("Yapıştır") {
+                    if let text = UIPasteboard.general.string?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty {
+                        name.wrappedValue = text
+                    }
+                }
+                .accessibilityIdentifier("\(identifier)-yapistir")
+                Button("Dene") { model.testShortcut(named: name.wrappedValue) }
+                    .disabled(name.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .accessibilityIdentifier("\(identifier)-dene")
+            }
+            .buttonStyle(BorderlessButtonStyle())
         }
     }
 

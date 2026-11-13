@@ -29,6 +29,7 @@ final class SelfHealTests: XCTestCase {
 
     func testRepairRespectsCooldownAndLimit() {
         var t = OfflineTracker()
+        t.repairChecks = 1; t.checkInterval = 0; t.repairCooldown = 600   // eski davranış: ikinci başarısız yoklamada, 10 dk arayla
         _ = t.record(online: false, now: 0, canRepair: true)
         XCTAssertEqual(t.record(online: false, now: 45, canRepair: true), .repair)
         XCTAssertEqual(t.record(online: false, now: 90, canRepair: true), .none, "10 dk dolmadan yeniden denenmez")
@@ -51,9 +52,88 @@ final class SelfHealTests: XCTestCase {
 
     func testWarnThenRepairWhenShortcutGetsEnabled() {
         var t = OfflineTracker()
+        t.repairChecks = 1; t.checkInterval = 0; t.repairCooldown = 600   // eski davranış: ikinci başarısız yoklamada, 10 dk arayla
         _ = t.record(online: false, now: 0, canRepair: false)
         XCTAssertEqual(t.record(online: false, now: 45, canRepair: false), .warn)
         XCTAssertEqual(t.record(online: false, now: 90, canRepair: true), .repair)
+    }
+
+    func testDefaultsAreThreeChecksAMinuteApartAndAMinuteBetweenTries() {
+        let t = OfflineTracker()
+        XCTAssertEqual(t.repairChecks, 3)
+        XCTAssertEqual(t.checkInterval, 60)
+        XCTAssertEqual(t.repairCooldown, 60)
+        XCTAssertEqual(t.maxRepairsPerOutage, 3)
+    }
+
+    func testRepairWaitsForThreeChecksOneMinuteApartThenRetriesEveryMinute() {
+        var t = OfflineTracker()
+        // yoklama 45 sn'de bir gelir; sayılan yoklamalar en az 60 sn arayla: 0, 90, 180
+        XCTAssertEqual(t.record(online: false, now: 0, canRepair: true), .none)
+        XCTAssertEqual(t.record(online: false, now: 45, canRepair: true), .warn, "kullanıcıya haber hemen verilir")
+        XCTAssertEqual(t.record(online: false, now: 90, canRepair: true), .none, "2. sayılan yoklama")
+        XCTAssertEqual(t.record(online: false, now: 135, canRepair: true), .none, "son sayılandan 60 sn geçmedi: sayılmaz")
+        XCTAssertEqual(t.counted, 2)
+        XCTAssertEqual(t.record(online: false, now: 180, canRepair: true), .repair, "3. sayılan yoklamada kestirme çalışır")
+        XCTAssertEqual(t.record(online: false, now: 225, canRepair: true), .none, "denemeler arası 1 dk dolmadı")
+        XCTAssertEqual(t.record(online: false, now: 270, canRepair: true), .repair, "1 dk sonra ikinci deneme")
+        XCTAssertEqual(t.record(online: false, now: 315, canRepair: true), .none)
+        XCTAssertEqual(t.record(online: false, now: 360, canRepair: true), .repair)
+        XCTAssertEqual(t.record(online: false, now: 600, canRepair: true), .none, "bir kesintide en çok 3 deneme")
+        XCTAssertEqual(t.repairs, 3)
+    }
+
+    func testDuringExamFifteenSecondProbesStillCountOnlyOncePerMinute() {
+        var t = OfflineTracker()
+        var actions: [(TimeInterval, OfflineTracker.Action)] = []
+        for k in 0...8 { let now = TimeInterval(k * 15); actions.append((now, t.record(online: false, now: now, canRepair: true))) }
+        XCTAssertEqual(actions.first(where: { $0.1 == .repair })?.0, 120, "0., 60., 120. sn sayılır; 3. yoklamada çalışır")
+        XCTAssertEqual(actions.first(where: { $0.1 == .warn })?.0, 15)
+    }
+
+    func testUserCanChangeChecksIntervalAndWait() {
+        var t = OfflineTracker()
+        t.repairChecks = 2; t.checkInterval = 30; t.repairCooldown = 60
+        XCTAssertEqual(t.record(online: false, now: 0, canRepair: true), .none)
+        XCTAssertEqual(t.record(online: false, now: 30, canRepair: true), .repair, "2 yoklama, 30 sn arayla")
+        XCTAssertEqual(t.record(online: false, now: 60, canRepair: true), .none)
+        XCTAssertEqual(t.record(online: false, now: 90, canRepair: true), .repair, "bekleme 60 sn")
+    }
+
+    func testRecoveryResetsTheCountedChecks() {
+        var t = OfflineTracker()
+        _ = t.record(online: false, now: 0, canRepair: true)
+        _ = t.record(online: false, now: 60, canRepair: true)
+        XCTAssertEqual(t.counted, 2)
+        _ = t.record(online: true, now: 70, canRepair: true)
+        XCTAssertEqual(t.counted, 0)
+        XCTAssertEqual(t.record(online: false, now: 100, canRepair: true), .none)
+        XCTAssertEqual(t.record(online: false, now: 160, canRepair: true), .warn)
+        XCTAssertEqual(t.counted, 2, "yeni kesintide baştan sayılır")
+    }
+
+    func testSuspendKeepsCountedChecksSoTheShortcutDoesNotWaitAllOverAgain() {
+        var t = OfflineTracker()
+        for now in stride(from: 0.0, through: 120.0, by: 60.0) { _ = t.record(online: false, now: now, canRepair: true) }
+        XCTAssertEqual(t.counted, 3)
+        t.suspend()
+        XCTAssertEqual(t.counted, 3)
+        XCTAssertEqual(t.repairs, 1)
+    }
+
+    func testRepairSettingsDefaultsAndLimits() {
+        let d = UserDefaults.standard
+        let keys = ["repairChecks", "repairCheckSeconds", "repairWaitSeconds"]
+        let saved = keys.map { d.object(forKey: $0) }
+        defer { for (k, v) in zip(keys, saved) { d.set(v, forKey: k) } }
+        for k in keys { d.removeObject(forKey: k) }
+        var s = AppSettings()
+        XCTAssertEqual([s.repairChecks, s.repairCheckSeconds, s.repairWaitSeconds], [3, 60, 60])
+        d.set(99, forKey: "repairChecks"); d.set(1, forKey: "repairCheckSeconds"); d.set(99999, forKey: "repairWaitSeconds")
+        s = AppSettings()
+        XCTAssertEqual([s.repairChecks, s.repairCheckSeconds, s.repairWaitSeconds], [10, 10, 3600], "üst/alt sınırlar uygulanır")
+        s.repairChecks = 4
+        XCTAssertEqual(d.integer(forKey: "repairChecks"), 4, "değişiklik kalıcıdır")
     }
 
     // MARK: Ses sağlığı
@@ -108,10 +188,36 @@ final class SelfHealTests: XCTestCase {
         XCTAssertNil(ShortcutLink.url(name: "   "))
     }
 
+    func testPickerURLRunsTheHelperShortcutWithTheKindAsText() throws {
+        let c = try XCTUnwrap(ShortcutLink.pickerURL(kind: .connection)).absoluteString
+        XCTAssertTrue(c.hasPrefix("shortcuts://run-shortcut?name=G526%20Kestirme%20Se%C3%A7&"), c)
+        XCTAssertTrue(c.hasSuffix("input=text&text=baglanti"), c)
+        let a = try XCTUnwrap(ShortcutLink.pickerURL(kind: .audio)).absoluteString
+        XCTAssertTrue(a.hasSuffix("input=text&text=ses"), a)
+    }
+
+    func testSelectionFromHelperShortcutLink() throws {
+        let url = try XCTUnwrap(URL(string: "g526kamera://sec?tur=baglanti&ad=H%C3%BCcresel%20Yenile"))
+        let pick = try XCTUnwrap(ShortcutLink.selection(from: url))
+        XCTAssertEqual(pick.kind, .connection)
+        XCTAssertEqual(pick.name, "Hücresel Yenile")
+        let audio = try XCTUnwrap(ShortcutLink.selection(from: try XCTUnwrap(URL(string: "g526kamera://sec?tur=Ses&ad=%20Ses%20Onar%20"))))
+        XCTAssertEqual(audio.kind, .audio, "tür büyük/küçük harf ve boşluktan etkilenmez")
+        XCTAssertEqual(audio.name, "Ses Onar", "ad kırpılır")
+    }
+
+    func testSelectionIgnoresOtherLinksAndEmptyNames() throws {
+        XCTAssertNil(ShortcutLink.selection(from: try XCTUnwrap(URL(string: "g526kamera://kestirme"))), "kestirme dönüş bağlantısı seçim değildir")
+        XCTAssertNil(ShortcutLink.selection(from: try XCTUnwrap(URL(string: "g526kamera://sec?tur=baglanti&ad="))))
+        XCTAssertNil(ShortcutLink.selection(from: try XCTUnwrap(URL(string: "g526kamera://sec?tur=baska&ad=X"))))
+        XCTAssertNil(ShortcutLink.selection(from: try XCTUnwrap(URL(string: "https://sec?tur=baglanti&ad=X"))))
+    }
+
     // MARK: Kestirme adları ve sınırlayıcı
 
     func testSuspendKeepsRepairCountAndCooldownSoShortcutCannotLoopForever() {
         var t = OfflineTracker()
+        t.repairChecks = 1; t.checkInterval = 0; t.repairCooldown = 600   // eski davranış: ikinci başarısız yoklamada, 10 dk arayla
         var now: TimeInterval = 0
         func tick(_ n: Int) -> [OfflineTracker.Action] {
             var out: [OfflineTracker.Action] = []

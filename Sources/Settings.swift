@@ -173,6 +173,14 @@ final class AppSettings: ObservableObject {
     @Published var examEnabled: Bool { didSet { d.set(examEnabled, forKey: "examEnabled") } }
     /// Bağlantı kestirmesinin adı (Kestirmeler uygulamasındaki kestirme: hücresel veriyi kapat-aç). İnternet gidince çalışır; boşsa kapalı
     @Published var connectionShortcutName: String { didSet { d.set(connectionShortcutName, forKey: "connectionShortcutName") } }
+    /// İnternet kestirmesi: bu kadar yoklamada (varsayılan 3) art arda internet yoksa çalışır; yoklamalar arası (varsayılan 60 sn);
+    /// kestirme denemeleri arası bekleme (varsayılan 60 sn). Kullanıcı kararı 2026-11-13: hepsi 1 dakika.
+    @Published var repairChecks: Int { didSet { d.set(repairChecks, forKey: "repairChecks") } }
+    @Published var repairCheckSeconds: Int { didSet { d.set(repairCheckSeconds, forKey: "repairCheckSeconds") } }
+    @Published var repairWaitSeconds: Int { didSet { d.set(repairWaitSeconds, forKey: "repairWaitSeconds") } }
+    static let repairChecksRange = 1...10
+    static let repairCheckSecondsRange = 10...600
+    static let repairWaitSecondsRange = 30...3600
     /// Ses kestirmesinin adı (Bluetooth'u kapat-aç). Mikrofon uzun süre sessiz kalınca ya da ses mikrofon alıcısına gidince çalışır; boşsa kapalı
     @Published var audioShortcutName: String { didSet { d.set(audioShortcutName, forKey: "audioShortcutName") } }
 
@@ -275,8 +283,9 @@ final class AppSettings: ObservableObject {
             geminiProfiles = list
         }
         let storedActive = d.object(forKey: "geminiActive") as? Int ?? 1
-        geminiActive = min(max(legacyLayout ? GeminiProfiles.newSlot(fromLegacy: storedActive) : storedActive, 1), GeminiProfiles.slotCount)
-        if legacyLayout { d.set(geminiActive, forKey: "geminiActive") }
+        let activeSlot = min(max(legacyLayout ? GeminiProfiles.newSlot(fromLegacy: storedActive) : storedActive, 1), GeminiProfiles.slotCount)
+        geminiActive = activeSlot
+        if legacyLayout { d.set(activeSlot, forKey: "geminiActive") }
         geminiChainFallback = d.object(forKey: "geminiChainFallback") as? Bool ?? true
         geminiWaitLimit = min(max(d.object(forKey: "geminiWaitLimit") as? Int ?? 30, 0), 600)
         geminiAutoFallback = d.object(forKey: "geminiAutoFallback") as? Bool ?? true
@@ -287,8 +296,9 @@ final class AppSettings: ObservableObject {
         geminiOverloadFallback = d.object(forKey: "geminiOverloadFallback") as? Bool ?? true
         geminiCapMonth = d.string(forKey: "geminiCapMonth") ?? ""
         let storedCapPrev = d.object(forKey: "geminiCapPrev") as? Int ?? 1
-        geminiCapPrev = min(max(legacyLayout ? GeminiProfiles.newSlot(fromLegacy: storedCapPrev) : storedCapPrev, 1), GeminiProfiles.slotCount)
-        if legacyLayout { d.set(geminiCapPrev, forKey: "geminiCapPrev") }
+        let capPrevSlot = min(max(legacyLayout ? GeminiProfiles.newSlot(fromLegacy: storedCapPrev) : storedCapPrev, 1), GeminiProfiles.slotCount)
+        geminiCapPrev = capPrevSlot
+        if legacyLayout { d.set(capPrevSlot, forKey: "geminiCapPrev") }
         geminiSessionTimeout = min(max(d.object(forKey: "geminiSessionTimeout") as? Int ?? 0, 0), 86400)
         geminiSession = d.object(forKey: "geminiSession") as? Bool ?? true
         // Eski varsayılan ("gemini") "dinle, gemini"ye yükselir; kullanıcının kendi yazdığı sözcükler korunur
@@ -315,6 +325,9 @@ final class AppSettings: ObservableObject {
         examSelfCheck = d.object(forKey: "examSelfCheck") as? Bool ?? true
         examEnabled = d.object(forKey: "examEnabled") as? Bool ?? true
         connectionShortcutName = AppSettings.migratedConnectionShortcutName(d)
+        repairChecks = AppSettings.clampSeconds(d.object(forKey: "repairChecks") as? Int, range: AppSettings.repairChecksRange, fallback: 3)
+        repairCheckSeconds = AppSettings.clampSeconds(d.object(forKey: "repairCheckSeconds") as? Int, range: AppSettings.repairCheckSecondsRange, fallback: 60)
+        repairWaitSeconds = AppSettings.clampSeconds(d.object(forKey: "repairWaitSeconds") as? Int, range: AppSettings.repairWaitSecondsRange, fallback: 60)
         audioShortcutName = d.string(forKey: "audioShortcutName") ?? ""
         previewOff = d.object(forKey: "previewOff") as? Bool ?? false
         dimScreen = d.object(forKey: "dimScreen") as? Bool ?? false

@@ -2142,6 +2142,9 @@ final class AppModel: ObservableObject {
         guard started else { return }
         let canRepair = ShortcutLink.url(name: settings.connectionShortcutName) != nil
             && UIApplication.shared.applicationState == .active
+        offlineTracker.repairChecks = settings.repairChecks
+        offlineTracker.checkInterval = TimeInterval(settings.repairCheckSeconds)
+        offlineTracker.repairCooldown = TimeInterval(settings.repairWaitSeconds)
         let action = offlineTracker.record(online: online, now: ProcessInfo.processInfo.systemUptime, canRepair: canRepair)
         if online { internetDown = false }
         switch action {
@@ -2170,6 +2173,22 @@ final class AppModel: ObservableObject {
             VideoOutbox.shared.flush()
             queue.kick()
         }
+    }
+
+    /// Yardımcı kestirmeden (ShortcutLink.pickerName) dönen seçimi ayara yazar: g526kamera://sec?tur=baglanti&ad=…
+    func handleIncomingURL(_ url: URL) {
+        guard let pick = ShortcutLink.selection(from: url) else { return }
+        switch pick.kind {
+        case .connection: settings.connectionShortcutName = pick.name
+        case .audio: settings.audioShortcutName = pick.name
+        }
+        tlog("[onarım] \(pick.kind.title) kestirmesi listeden seçildi: \(pick.name)")
+        flash("\(pick.kind.title) kestirmesi seçildi: \(pick.name)", seconds: 6)
+    }
+
+    /// Ayarlardaki "Dene": kestirmeyi şimdi çalıştırır (adın doğru olup olmadığı Kestirmeler uygulamasında görülür)
+    func testShortcut(named name: String) {
+        runShortcut(named: name)
     }
 
     /// Kestirmeler uygulamasında verilen adlı kestirmeyi çalıştırır; bitince uygulamaya döner

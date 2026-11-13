@@ -11,6 +11,7 @@ struct G526CameraDriveApp: App {
                 .environmentObject(model)
                 .environmentObject(model.settings)
                 .onAppear { model.start() }
+                .onOpenURL { model.handleIncomingURL($0) }
                 .onChange(of: scenePhase) { phase in
                     switch phase {
                     case .active:
