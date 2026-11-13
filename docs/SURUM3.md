@@ -65,6 +65,11 @@ gerçek kurulum `App/AppEnvironment`, testler sahtelerle (`Tests/Fakes`) kurar.
   yalnız `englishAccumulator`'a yazılır). Soru gönderilirken Gemini'ye ses kaydı + Türkçe metin + İngilizce metin gider; komut ikisini
   nasıl yorumlayacağını söyler. İngilizce görev hata verirse sessizce vazgeçilir (Türkçe dinleme etkilenmez). Ayar: "İngilizce dikteyi
   de çalıştır" (açık). Maliyet: iki tanıyıcı → daha çok ısı ve pil.
+- **Giriş yolda listelenmiyorsa** (iOS çıkışı Bluetooth'a alınca girişi hemen göstermez) `AudioSessionGuard.snapshot()` tercih edilen harici
+  mikrofonu giriş sayar; motor başlayınca gerçek yol okunur, başka giriş (telefonun mikrofonu) görünürse güvenli sayılmaz. Açılış kontrolü,
+  Sesi dene, devam et ve onarım yol oturana kadar en çok ~1,6 sn bekler (`settledRoute`). Kulaklık sağlam + alıcı takılı + giriş boşsa
+  süre dolunca Kestirme **çalışmaz** (`hardwareGraceExpired`): mikrofon yeniden seçilir, kırmızı kutuda nedeni yazar.
+- **İlk açılışta yol oturmuyorsa** ("Testi bitir + yeniden başlat" düzeltiyordu) `settledRoute` üçüncü bakışta ses oturumunu yeniden etkinleştirir (`configure()`); elle yeniden başlatmak gerekmez.
 - **Okunamayan duyuru** oturumu durdurmaz; sebep ekranda yazılır, dinleme sürer.
 - **İlk sürümden alınan araçlar** (kamera, PDF, video ve sesli komut sistemi alınmadı): dokunmatik ekran kilidi (`ScreenLock`, ayrı
   UIWindow, 3 sn basılı tutunca açılır, test bitince kendiliğinden kalkar), "Testi Bitir" onayı, elle Duraklat / Devam et

@@ -123,6 +123,8 @@ final class AudioSessionGuard: AudioRouteProviding {
     private var chosenInputUID: String?
     /// Harici mikrofon yola girmediği için tercihin art arda kaç kez yeniden verildiği (sınırsız yol bildirimi döngüsü olmasın)
     private var reassertCount = 0
+    /// Son okumada giriş yoldan değil tercihten varsayıldı mı (günlüğe yalnız değişince yazılır)
+    private var assumedInput = false
     private var observer: NSObjectProtocol?
     private var interruptionObserver: NSObjectProtocol?
 
@@ -154,9 +156,23 @@ final class AudioSessionGuard: AudioRouteProviding {
         try session.setActive(true)
     }
 
+    /// iOS, çıkışı Bluetooth'a alınca girişi çoğu kez hemen listelemez (giriş, ses motoru çalışınca yola girer). Yol girişi boş
+    /// bildiriyorsa ve tercih edilen harici mikrofon takılıysa o giriş sayılır; böylece "giriş yok" yanlış alarmı çıkmaz. Motor
+    /// başlayınca gerçek yol okunur: başka bir giriş (ör. telefonun mikrofonu) görünürse yine güvenli sayılmaz.
     func snapshot() -> RouteSnapshot {
         let route = session.currentRoute
-        return RouteSnapshot(outputs: route.outputs.map { $0.portType }, inputs: route.inputs.map { $0.portType })
+        var inputs = route.inputs.map { $0.portType }
+        var assumed = false
+        if inputs.isEmpty, let preferred = session.preferredInput, AudioRouting.externalMicPorts.contains(preferred.portType),
+           (session.availableInputs ?? []).contains(where: { $0.uid == preferred.uid }) {
+            inputs = [preferred.portType]
+            assumed = true
+        }
+        if assumed != assumedInput {
+            assumedInput = assumed
+            tlog(assumed ? "[ses yolu] giriş yolda listelenmiyor; tercih edilen harici mikrofon varsayıldı" : "[ses yolu] giriş yolda görünüyor")
+        }
+        return RouteSnapshot(outputs: route.outputs.map { $0.portType }, inputs: inputs)
     }
 
     func preferExternalInput() {

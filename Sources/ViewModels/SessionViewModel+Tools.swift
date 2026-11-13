@@ -73,7 +73,9 @@ extension SessionViewModel {
     // MARK: Ses yolunun oturması
 
     /// Ses yolunu okur. Güvenli görünmüyorsa yol henüz oturmamış olabilir (kulaklık seçimi ve mikrofon tercihi anında değil, yarım saniye
-    /// kadar sonra yansır): kısa aralıklarla mikrofon tercihi yeniden verilip birkaç kez daha bakılır. Gerçek bir eksikte en çok ~1,6 sn gecikir.
+    /// kadar sonra yansır): kısa aralıklarla mikrofon tercihi yeniden verilip birkaç kez daha bakılır. İlk iki bakış yetmezse ses oturumu
+    /// yeniden etkinleştirilir: "Testi bitir + yeniden başlat" ilk açılışta oturmayan yolu böyle düzeltiyordu, artık elle yapmak gerekmez.
+    /// Gerçek bir eksikte en çok ~1,6 sn gecikir.
     func settledRoute() async -> (snapshot: RouteSnapshot, verdict: RouteVerdict) {
         var snapshot = deps.route.snapshot()
         var verdict = AudioRouting.verdict(snapshot)
@@ -81,6 +83,7 @@ extension SessionViewModel {
         while !verdict.isSafe, tries < 4, !Task.isCancelled {
             tries += 1
             await deps.sleep(0.4)
+            if tries >= 3 { try? deps.route.configure() }
             deps.route.preferExternalInput()
             snapshot = deps.route.snapshot()
             verdict = AudioRouting.verdict(snapshot)

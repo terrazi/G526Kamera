@@ -136,6 +136,19 @@ extension SessionViewModel {
     func hardwareGraceExpired() {
         hardwareGrace = nil
         guard !interruptionActive, case .paused(.hardware) = phase else { return }
+        // Kulaklık sağlam, mikrofon alıcısı takılı, yalnız giriş yola girmemiş: bu bir kopma değil yönlendirme sorunudur. Bluetooth'u ya da
+        // uçak modunu kapatıp açan Kestirme kulaklığı da koparıp sorunu büyütür ("ikide bir Kestirme çalışıyor"). Onun yerine mikrofon
+        // tercihi yeniden verilir, nedeni yazılır ve beklenir; yol oturunca kendiliğinden devam edilir.
+        let snapshot = deps.route.snapshot()
+        if AudioRouting.verdict(snapshot).headphonesOK, snapshot.inputs.isEmpty,
+           deps.route.availableInputs().contains(where: { $0.isExternal }) {
+            tlog("[onarım] alıcı takılı ama girişte yok; Kestirme çalıştırılmadı, mikrofon yeniden seçiliyor")
+            deps.route.preferExternalInput()
+            warn("donanim", "Duraklatıldı: \(Say.receiverNotRouted)")
+            hardwareGrace = deps.scheduler.after(Timing.hardwareGrace) { [weak self] in self?.hardwareGraceExpired() }
+            routeChanged(deps.route.snapshot())
+            return
+        }
         work = Task { [weak self] in await self?.runRecovery(.hardware) }
     }
 

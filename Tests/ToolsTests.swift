@@ -517,6 +517,22 @@ final class RouteSettlingTests: XCTestCase {
         XCTAssertTrue(h.speaker.spoken.isEmpty, "Güvensiz yolda hiçbir şey çalınmaz")
     }
 
+    func testUnsettledRouteReactivatesTheSessionLikeARestartWould() async {
+        let h = SessionHarness()
+        h.route.current = unsettled()
+        h.route.settlesAfterPrefers = 4
+        let before = h.route.configureCalls
+        let ok = await h.startListening()
+        XCTAssertTrue(ok, "Yol ancak oturum yeniden etkinleştirilince oturur; elle yeniden başlatmak gerekmez")
+        XCTAssertGreaterThan(h.route.configureCalls, before + 1, "Oturum açılışın dışında bir kez daha etkinleştirildi")
+    }
+
+    func testSettledRouteDoesNotReactivateTheSession() async {
+        let h = SessionHarness()
+        _ = await h.startListening()
+        XCTAssertEqual(h.route.configureCalls, 1, "Yol ilk bakışta sağlamsa oturuma dokunulmaz")
+    }
+
     func testSoundTestWaitsForTheRouteToo() async {
         let h = SessionHarness()
         h.route.current = unsettled()
@@ -542,5 +558,73 @@ final class RouteSettlingTests: XCTestCase {
         h.route.current = unsettled()
         h.vm.refreshInputs()
         XCTAssertEqual(h.vm.routeText, "Çıkış: Bluetooth kulaklık. Giriş: yok.")
+    }
+}
+
+// MARK: - Alıcı takılı ama girişte yokken Kestirme çalıştırılmaz
+
+@MainActor
+final class ReceiverNotRoutedTests: XCTestCase {
+    private func unsettled() -> RouteSnapshot {
+        var snapshot = FakeRoute.good
+        snapshot.inputs = []
+        return snapshot
+    }
+
+    func testPluggedReceiverMissingFromTheRouteDoesNotRunShortcuts() async {
+        let h = SessionHarness()
+        h.route.current = unsettled()          // kulaklık yolda, giriş boş; alıcı listede (FakeRoute.inputs)
+        h.vm.start()
+        let paused = await waitUntil { h.isHardwarePause }
+        XCTAssertTrue(paused)
+        h.scheduler.advance(by: SessionViewModel.Timing.hardwareGrace + 0.1)
+        await settle()
+        XCTAssertTrue(h.shortcuts.runs.isEmpty, "Donanım sağlam: Bluetooth/uçak modu Kestirmesi kulaklığı koparırdı")
+        XCTAssertTrue(h.isHardwarePause)
+        XCTAssertEqual(h.vm.warnings.first(where: { $0.id == "donanim" })?.text, "Duraklatıldı: " + Say.receiverNotRouted)
+        // Süre dolsa da tekrar tekrar aynı kontrol yapılır, Kestirme yine çalışmaz
+        h.scheduler.advance(by: SessionViewModel.Timing.hardwareGrace + 0.1)
+        await settle()
+        XCTAssertTrue(h.shortcuts.runs.isEmpty)
+    }
+
+    func testRoutingSettlesLaterAndTheTestStartsOnItsOwn() async {
+        let h = SessionHarness()
+        h.route.current = unsettled()
+        h.vm.start()
+        let paused = await waitUntil { h.isHardwarePause }
+        XCTAssertTrue(paused)
+        h.scheduler.advance(by: SessionViewModel.Timing.hardwareGrace + 0.1)
+        await settle()
+        h.route.change(to: FakeRoute.good)
+        h.scheduler.advance(by: SessionViewModel.Timing.routeStable + 0.1)
+        let listening = await waitUntil { h.vm.phase == .listening }
+        XCTAssertTrue(listening)
+        XCTAssertTrue(h.shortcuts.runs.isEmpty)
+    }
+
+    func testReceiverReallyGoneStillRunsTheShortcuts() async {
+        let h = SessionHarness()
+        h.route.inputs = []                    // alıcı hiç görünmüyor: gerçek kopma
+        h.route.current = unsettled()
+        h.vm.start()
+        let paused = await waitUntil { h.isHardwarePause }
+        XCTAssertTrue(paused)
+        h.shortcuts.onRun = { _ in h.route.current = FakeRoute.good }
+        h.scheduler.advance(by: SessionViewModel.Timing.hardwareGrace + 0.1)
+        let ran = await waitUntil { !h.shortcuts.runs.isEmpty }
+        XCTAssertTrue(ran, "Alıcı yoksa Kestirme çalışır")
+    }
+
+    func testHeadphonesMissingStillRunsTheShortcuts() async {
+        let h = SessionHarness()
+        h.route.current = FakeRoute.noHeadphones
+        h.vm.start()
+        let paused = await waitUntil { h.isHardwarePause }
+        XCTAssertTrue(paused)
+        h.shortcuts.onRun = { _ in h.route.current = FakeRoute.good }
+        h.scheduler.advance(by: SessionViewModel.Timing.hardwareGrace + 0.1)
+        let ran = await waitUntil { !h.shortcuts.runs.isEmpty }
+        XCTAssertTrue(ran, "Kulaklık yolda değilse (kopmuş olabilir) Kestirme çalışır")
     }
 }

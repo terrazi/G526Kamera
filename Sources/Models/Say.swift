@@ -13,6 +13,7 @@ enum Say {
     }
 
     static let noEnglishDictation = "Telefonda çevrimdışı İngilizce dikte yüklü değil; İngilizce sorular yalnız ses kaydından çözülür. Ayarlar, Genel, Klavye, Dikte bölümünden İngilizce'yi de ekleyip internetteyken bir kez indirin."
+    static let receiverNotRouted = "Mikrofon alıcısı takılı ama ses yoluna girmiyor. Alttaki mikrofon listesinden alıcıya bir kez dokunun. Kulaklık sağlam göründüğü için Kestirme çalıştırılmıyor (bağlantıyı koparırdı)."
     static let noKeyShort = "Gemini API anahtarı girilmemiş. Ayarlardan yapıştırın."
     static let noOnDevice = "Bu telefonda çevrimdışı Türkçe dikte yüklü değil. Ayarlar, Genel, Klavye, Dikte bölümünden Türkçe'yi ekleyip internetteyken bir kez indirin."
     static let permissionDenied = "Mikrofon ve konuşma tanıma izni gerekli. Ayarlar, Sesli Kontrol bölümünden izin verin."
