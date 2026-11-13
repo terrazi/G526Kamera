@@ -10,6 +10,9 @@ struct SettingsView: View {
     @State private var voiceTestResult = ""
     @State private var modelListText = ""
     @State private var listingModels = false
+    /// "Anahtarı dene" sonucu (profil numarası → sonuç) ve denenmekte olan profil
+    @State private var keyTestResults: [Int: (ok: Bool, text: String)] = [:]
+    @State private var testingKeySlot = 0
     @State private var voices: [VoiceInfo] = SpeechVoiceChooser.sortedTurkish(SpeechVoiceChooser.installed())
 
     var body: some View {
@@ -268,6 +271,28 @@ struct SettingsView: View {
         return Binding(get: { settings.geminiKeys[i] }, set: { settings.geminiKeys[i] = $0 })
     }
 
+    /// Profilin anahtarını Google'a denetir: model listesi istenir (ücretsizdir, belirteç harcamaz)
+    private func testGeminiKey(slot: Int) {
+        guard let profile = settings.geminiProfileInfos().first(where: { $0.slot == slot }) else { return }
+        testingKeySlot = slot
+        keyTestResults[slot] = (true, "Google'a soruluyor…")
+        let client = GeminiClient(key: { profile.key }, model: { profile.model })
+        Task { @MainActor in
+            let outcome: Result<[String], GeminiError>
+            do {
+                outcome = .success(try await client.listModels())
+            } catch let e as GeminiError {
+                outcome = .failure(e)
+            } catch {
+                outcome = .failure(GeminiError(error.localizedDescription, .error))
+            }
+            let text = GeminiProfiles.keyTestText(model: profile.model, result: outcome)
+            tlog("[gemini] anahtar denemesi (\(profile.name), \(GeminiProfiles.keyHint(profile.key))): \(text.text)")
+            keyTestResults[slot] = text
+            testingKeySlot = 0
+        }
+    }
+
     /// Seçili profilin anahtarının görebildiği modelleri yazar (doğru model adını bulmak için)
     private func listGeminiModels() {
         let profile = settings.activeGeminiProfile
@@ -394,6 +419,14 @@ struct SettingsView: View {
                         Text(problem).font(.caption).foregroundColor(.red)
                     } else if !settings.geminiKeys[i].trimmed.isEmpty {
                         Text("\(settings.geminiKeys[i].trimmed.count) karakter").font(.caption).foregroundColor(.secondary)
+                    }
+                    if !settings.geminiKeys[i].trimmed.isEmpty {
+                        Button(testingKeySlot == i + 1 ? "Deneniyor…" : "Anahtarı dene") { testGeminiKey(slot: i + 1) }
+                            .disabled(testingKeySlot != 0)
+                            .accessibilityIdentifier("gemini-anahtar-dene-\(i + 1)")
+                        if let result = keyTestResults[i + 1] {
+                            Text(result.text).font(.caption).foregroundColor(result.ok ? .green : .red).textSelection(.enabled)
+                        }
                     }
                     Toggle("Ücretsiz anahtar", isOn: profileFree(i))
                 }

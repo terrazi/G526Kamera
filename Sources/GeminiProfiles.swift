@@ -84,6 +84,20 @@ enum GeminiProfiles {
         return nil
     }
 
+    /// "Anahtarı dene" sonucu: anahtarın model listesini alabilmesi Google'ın anahtarı kabul ettiğini gösterir (belirteç harcamaz);
+    /// ardından profildeki modelin bu anahtarda görünüp görünmediği söylenir.
+    static func keyTestText(model: String, result: Result<[String], GeminiError>) -> (ok: Bool, text: String) {
+        switch result {
+        case .failure(let e):
+            return (false, "✗ " + e.message)
+        case .success(let names):
+            let wanted = model.trimmed.hasPrefix("models/") ? String(model.trimmed.dropFirst("models/".count)) : model.trimmed
+            if wanted.isEmpty { return (true, "✓ Anahtar kabul edildi. (Bu profilde model adı boş.)") }
+            if names.contains(wanted) { return (true, "✓ Anahtar kabul edildi; “\(wanted)” bu anahtarla kullanılabilir.") }
+            return (false, "✓ Anahtar kabul edildi ama “\(wanted)” modeli bu anahtarda görünmüyor. “Modelleri listele” ile doğru adı bulun.")
+        }
+    }
+
     static func usable(_ list: [GeminiProfileInfo]) -> [GeminiProfileInfo] {
         return list.filter { $0.usable }
     }
