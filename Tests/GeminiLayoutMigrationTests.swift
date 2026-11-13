@@ -49,6 +49,7 @@ final class GeminiLayoutMigrationTests: XCTestCase {
     }
 
     func testSecondLaunchDoesNotTouchTheNewKeysOrShiftAnything() {
+        for slot in 1...GeminiProfiles.legacySlotCount { Keychain.remove(GeminiProfiles.keychainName(slot: slot)) }
         Keychain.set(GeminiProfiles.layoutVersion, for: GeminiProfiles.layoutMarker)
         Keychain.set("AQ.yeni-1", for: GeminiProfiles.keychainName(slot: 1))
         Keychain.set("AQ.yeni-4", for: GeminiProfiles.keychainName(slot: 4))
