@@ -1,4 +1,5 @@
 import Foundation
+import Network
 
 /// İnternet var mı kararı: ardışık yoklamalardan. Saf mantıktır (zaman dışarıdan verilir), kolayca sınanır.
 struct OfflineTracker {
@@ -222,26 +223,144 @@ struct RepairThrottle {
     }
 }
 
-/// İnternet yoklaması: küçük bir "204" adresine istek; kameranın internetsiz Wi-Fi ağında da doğru sonuç verir
+/// İnternet yoklaması: küçük "204" adreslerine istek; kameranın internetsiz Wi-Fi ağında da doğru sonuç verir.
+/// Tek adrese ve 6 sn'ye bağlı kalınmaz: soğuk hücresel bağlantı (DNS + TLS) birkaç saniye sürebilir, tek adres engelli olabilir.
 enum InternetProbe {
-    static let address = "https://www.gstatic.com/generate_204"
+    struct Target: Equatable {
+        let url: String
+        let okCodes: [Int]
+        var host: String { return URL(string: url)?.host ?? url }
+    }
+
+    static let targets = [
+        Target(url: "https://www.gstatic.com/generate_204", okCodes: [204, 200]),
+        Target(url: "https://captive.apple.com/hotspot-detect.html", okCodes: [200]),
+        Target(url: "https://www.google.com/generate_204", okCodes: [204, 200])
+    ]
+    static let address = targets[0].url
+    static let timeout: TimeInterval = 10
 
     static func isOnline() async -> Bool {
-        guard let url = URL(string: address) else { return false }
+        return await check().online
+    }
+
+    /// İlk adres olmazsa diğer ikisi aynı anda denenir; biri olursa internet var. Olmazsa kısa neden döner ("gstatic.com hata -1001, …").
+    static func check() async -> (online: Bool, detail: String) {
+        let first = await attempt(targets[0])
+        if first.ok { return (true, "") }
+        var reasons = ["\(targets[0].host) \(first.reason)"]
+        let others = Array(targets.dropFirst())
+        let result: (Bool, [String]) = await withTaskGroup(of: (Bool, String).self) { group in
+            for t in others {
+                group.addTask {
+                    let r = await attempt(t)
+                    return (r.ok, "\(t.host) \(r.reason)")
+                }
+            }
+            var list: [String] = []
+            for await r in group {
+                if r.0 {
+                    group.cancelAll()
+                    return (true, [])
+                }
+                list.append(r.1)
+            }
+            return (false, list)
+        }
+        if result.0 { return (true, "") }
+        reasons.append(contentsOf: result.1)
+        return (false, reasons.joined(separator: ", "))
+    }
+
+    private static func attempt(_ target: Target) async -> (ok: Bool, reason: String) {
+        guard let url = URL(string: target.url) else { return (false, "adres hatalı") }
         var request = URLRequest(url: url)
-        request.timeoutInterval = 6
+        request.timeoutInterval = timeout
         request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
         let config = URLSessionConfiguration.ephemeral
         config.waitsForConnectivity = false
-        config.timeoutIntervalForRequest = 6
+        config.timeoutIntervalForRequest = timeout
         let session = URLSession(configuration: config)
         defer { session.finishTasksAndInvalidate() }
         do {
             let (_, response) = try await session.data(for: request)
             let code = (response as? HTTPURLResponse)?.statusCode ?? 0
-            return code == 204 || code == 200
+            return target.okCodes.contains(code) ? (true, "") : (false, "kod \(code)")
         } catch {
-            return false
+            return (false, "hata \((error as NSError).code)")
+        }
+    }
+}
+
+/// Ağ yolu bilgisi (yalnız teşhis için): hangi arayüzler var, internet "Wi-Fi" üzerinden mi gidiyor, hücreseller doğrudan ulaşıyor mu.
+/// Kameranın internetsiz Wi-Fi ağında iOS istekleri hücresele yönlendirmezse internet yoklaması başarısız olur; bu bilgi onu ayırt eder.
+enum NetworkPathInfo {
+    private final class Once { var fired = false }
+
+    static func interfaceName(_ type: NWInterface.InterfaceType) -> String {
+        switch type {
+        case .wifi: return "Wi-Fi"
+        case .cellular: return "hücresel"
+        case .wiredEthernet: return "kablolu"
+        case .loopback: return "yerel"
+        default: return "diğer"
+        }
+    }
+
+    static func statusName(_ status: NWPath.Status) -> String {
+        switch status {
+        case .satisfied: return "var"
+        case .unsatisfied: return "yok"
+        case .requiresConnection: return "bağlantı gerekiyor"
+        @unknown default: return "bilinmiyor"
+        }
+    }
+
+    /// Örn. "ağ yolu: internet var; arayüzler: Wi-Fi, hücresel; ilk tercih: Wi-Fi"
+    static func describe() async -> String {
+        return await withCheckedContinuation { cont in
+            let monitor = NWPathMonitor()
+            let queue = DispatchQueue(label: "g526.pathinfo")
+            let once = Once()
+            func finish(_ text: String) {
+                if once.fired { return }
+                once.fired = true
+                monitor.cancel()
+                cont.resume(returning: text)
+            }
+            monitor.pathUpdateHandler = { path in
+                let names = path.availableInterfaces.map { interfaceName($0.type) }
+                let first = path.availableInterfaces.first.map { interfaceName($0.type) } ?? "yok"
+                finish("ağ yolu: internet \(statusName(path.status)); arayüzler: \(names.isEmpty ? "yok" : names.joined(separator: ", ")); ilk tercih: \(first)")
+            }
+            monitor.start(queue: queue)
+            queue.asyncAfter(deadline: .now() + 2) { finish("ağ yolu bilgisi alınamadı") }
+        }
+    }
+
+    /// Yalnız hücresel arayüzden bir TCP bağlantısı açılabiliyor mu (internet hücreselde var mı)
+    static func cellularReachable(timeout: TimeInterval = 8) async -> Bool {
+        return await withCheckedContinuation { cont in
+            let params = NWParameters.tcp
+            params.requiredInterfaceType = .cellular
+            let conn = NWConnection(host: "www.gstatic.com", port: 443, using: params)
+            let queue = DispatchQueue(label: "g526.cellprobe")
+            let once = Once()
+            func finish(_ ok: Bool) {
+                if once.fired { return }
+                once.fired = true
+                conn.cancel()
+                cont.resume(returning: ok)
+            }
+            conn.stateUpdateHandler = { state in
+                switch state {
+                case .ready: finish(true)
+                case .failed: finish(false)
+                default: break
+                }
+            }
+            conn.start(queue: queue)
+            queue.asyncAfter(deadline: .now() + timeout) { finish(false) }
         }
     }
 }

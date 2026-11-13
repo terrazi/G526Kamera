@@ -1,4 +1,5 @@
 import XCTest
+import Network
 @testable import G526CameraDrive
 
 final class SelfHealTests: XCTestCase {
@@ -219,6 +220,21 @@ final class SelfHealTests: XCTestCase {
     func testShortcutURLNeedsAName() {
         XCTAssertNil(ShortcutLink.url(name: ""))
         XCTAssertNil(ShortcutLink.url(name: "   "))
+    }
+
+    func testInternetProbeTriesSeveralHttpsAddresses() {
+        XCTAssertGreaterThanOrEqual(InternetProbe.targets.count, 3)
+        XCTAssertEqual(Set(InternetProbe.targets.map { $0.host }).count, InternetProbe.targets.count, "adresler farklı sunuculara ait")
+        XCTAssertTrue(InternetProbe.targets.allSatisfy { $0.url.hasPrefix("https://") && !$0.okCodes.isEmpty })
+        XCTAssertEqual(InternetProbe.targets[0].host, "www.gstatic.com")
+        XCTAssertGreaterThanOrEqual(InternetProbe.timeout, 10, "soğuk hücresel bağlantı için 6 sn az")
+    }
+
+    func testNetworkPathNames() {
+        XCTAssertEqual(NetworkPathInfo.interfaceName(.wifi), "Wi-Fi")
+        XCTAssertEqual(NetworkPathInfo.interfaceName(.cellular), "hücresel")
+        XCTAssertEqual(NetworkPathInfo.statusName(.satisfied), "var")
+        XCTAssertEqual(NetworkPathInfo.statusName(.unsatisfied), "yok")
     }
 
     func testPickerURLRunsTheHelperShortcutWithTheKindAsText() throws {

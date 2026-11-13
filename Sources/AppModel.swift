@@ -1910,9 +1910,19 @@ final class AppModel: ObservableObject {
 
     /// İnternet ve Gemini'ye ulaşılıyor mu (anahtar ve bağlantı birlikte sınanır; ücretsiz "modelleri listele" çağrısı)
     private func examSystemCheck() async -> String {
-        var online = await InternetProbe.isOnline()
-        if !online { online = await InternetProbe.isOnline() }
-        if !online {
+        var probe = await InternetProbe.check()
+        if !probe.online {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            probe = await InternetProbe.check()
+        }
+        if !probe.online {
+            // Neden yok? Ağ yolu ve hücreselden doğrudan bağlantı da yazılır: internet gerçekten yok mu, yoksa program istekleri
+            // kameranın internetsiz Wi-Fi ağına mı gönderiyor (hücresel doğrudan ulaşıyorsa ikincisi)
+            let path = await NetworkPathInfo.describe()
+            let cellular = await NetworkPathInfo.cellularReachable()
+            let detail = "\(probe.detail); \(path); hücresele doğrudan bağlantı: \(cellular ? "ulaşıldı" : "ulaşılamadı")"
+            tlog("[sınav] internet sınaması başarısız: \(detail)")
+            setNotice(.network, "İnternet sınaması başarısız: \(detail)")
             return "İnternet yok. Hücresel veriyi kontrol edin; internet gelince sınavı başlat deyin."
         }
         let key = settings.activeGeminiProfile.key
