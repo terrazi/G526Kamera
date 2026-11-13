@@ -46,7 +46,7 @@ final class QuestionTextTests: XCTestCase {
         XCTAssertTrue(QuestionText.looksMathy("10²"))
         XCTAssertFalse(QuestionText.looksMathy("Aşağıdakilerden hangisi Türkiye'nin başkentidir?"))
         XCTAssertFalse(QuestionText.looksMathy("Ali 12 elma, Veli 15 elma aldı. Toplam kaç elma vardır?"))
-        let q = text(extra: [OCRFixtures.line("√9 kaçtır", y: 0.1)])
+        let q = text(extra: [OCRFixtures.line("√9 kaçtır", y: 0.42)])
         XCTAssertFalse(q.isReliable(optionCount: 5))
     }
 
