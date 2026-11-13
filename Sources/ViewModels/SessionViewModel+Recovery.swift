@@ -111,6 +111,11 @@ extension SessionViewModel {
     /// Duraklatılmışsa ses yoluna yeniden bakar (kesinti bitti, uygulama öne geldi); güvenliyse sabit kalınca devam edilir
     func recheckHardware() {
         guard case .paused(.hardware) = phase else { return }
+        if interruptionActive {
+            // Kesinti sürüyor görünüyor: ses oturumu yeniden açılabiliyorsa bitiş bildirimi kaçırılmış demektir
+            if (try? deps.route.configure()) != nil { interruptionEnded() }
+            return
+        }
         routeChanged(deps.route.snapshot())
     }
 
