@@ -56,6 +56,8 @@ enum AudioRouting {
 protocol AudioRouteProviding: AnyObject {
     /// Yol her değiştiğinde çağrılır
     var onChange: (@MainActor (RouteSnapshot) -> Void)? { get set }
+    /// Ses kesintisi (arama, alarm, Siri) başlayınca true, bitince false ile çağrılır
+    var onInterruption: (@MainActor (Bool) -> Void)? { get set }
     func configure() throws
     func snapshot() -> RouteSnapshot
     /// Harici mikrofon varsa girişi ona sabitler (Bluetooth kulaklığın kendi mikrofonuna düşmesin)
@@ -70,9 +72,11 @@ final class AudioSessionGuard: AudioRouteProviding {
     static let options: AVAudioSession.CategoryOptions = [.allowBluetooth, .allowBluetoothA2DP]
 
     var onChange: (@MainActor (RouteSnapshot) -> Void)?
+    var onInterruption: (@MainActor (Bool) -> Void)?
 
     private let session: AVAudioSession
     private var observer: NSObjectProtocol?
+    private var interruptionObserver: NSObjectProtocol?
 
     init(session: AVAudioSession = .sharedInstance()) {
         self.session = session
@@ -80,10 +84,18 @@ final class AudioSessionGuard: AudioRouteProviding {
                                                           object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.routeDidChange() }
         }
+        interruptionObserver = NotificationCenter.default.addObserver(forName: AVAudioSession.interruptionNotification,
+                                                                      object: nil, queue: .main) { [weak self] note in
+            guard let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+                  let type = AVAudioSession.InterruptionType(rawValue: raw) else { return }
+            let began = type == .began
+            Task { @MainActor in self?.onInterruption?(began) }
+        }
     }
 
     deinit {
         if let observer = observer { NotificationCenter.default.removeObserver(observer) }
+        if let observer = interruptionObserver { NotificationCenter.default.removeObserver(observer) }
     }
 
     func configure() throws {

@@ -24,7 +24,7 @@ struct ContentView: View {
                 }
                 .padding()
             }
-            .navigationTitle("G526 Ses")
+            .navigationTitle("Sesli Kontrol")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {

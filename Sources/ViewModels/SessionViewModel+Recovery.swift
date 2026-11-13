@@ -6,8 +6,14 @@ extension SessionViewModel {
     // MARK: Fail-safe (Modül 2)
 
     /// Bluetooth kulaklık ya da yaka mikrofonu koptu: ses anında susar, mikrofon kapanır, her iş durur. Donanım dönene
-    /// (ya da `hardwareGrace` sonra sıfırlama kestirmesi çalışana) kadar hiçbir şey çalınmaz.
-    func enterHardwarePause(_ verdict: RouteVerdict) {
+    /// (ya da `grace` sonra sıfırlama kestirmesi çalışana) kadar hiçbir şey çalınmaz. `grace` nil ise sıfırlama denenmez.
+    func enterHardwarePause(_ verdict: RouteVerdict, grace: TimeInterval? = Timing.hardwareGrace) {
+        var detail = verdict.hint.isEmpty ? verdict.summary : "\(verdict.summary). \(verdict.hint)"
+        if detail.isEmpty { detail = "ses yolu kararsız" }
+        pauseForHardware(summary: verdict.summary, detail: detail, grace: grace)
+    }
+
+    private func pauseForHardware(summary: String, detail: String, grace: TimeInterval?) {
         work?.cancel()
         work = nil
         deps.speaker.stop()
@@ -16,11 +22,12 @@ extension SessionViewModel {
         cancelTimers()
         retryTask?.cancel()
         retryTask = nil
-        let detail = verdict.hint.isEmpty ? verdict.summary : "\(verdict.summary). \(verdict.hint)"
         warn("donanim", "Duraklatıldı: \(detail)")
         statusNote = ""
-        phase = .paused(.hardware(verdict.summary))
-        hardwareGrace = deps.scheduler.after(Timing.hardwareGrace) { [weak self] in self?.hardwareGraceExpired() }
+        phase = .paused(.hardware(summary))
+        if let grace = grace {
+            hardwareGrace = deps.scheduler.after(grace) { [weak self] in self?.hardwareGraceExpired() }
+        }
     }
 
     func routeChanged(_ snapshot: RouteSnapshot) {
@@ -43,18 +50,84 @@ extension SessionViewModel {
         }
     }
 
+    /// Arama, alarm ya da Siri sesi böldü: her şey susar ve durur (sıfırlama kestirmesi denenmez; aramayı keserdi).
+    /// Kesinti bitince kendiliğinden devam edilir.
+    func interrupted(_ began: Bool) {
+        guard began else {
+            interruptionEnded()
+            return
+        }
+        switch phase {
+        case .listening, .answering, .speaking:
+            interruptionActive = true
+            pauseForHardware(summary: "ses kesintisi",
+                             detail: "ses kesintisi (arama, alarm ya da Siri). Bitince kendiliğinden devam edilir.",
+                             grace: nil)
+            scheduleInterruptionPoll()
+        case .paused(.hardware):
+            // Zaten kulaklık/mikrofon beklemesinde: kesinti bitene kadar sıfırlama kestirmesi çalıştırılmaz
+            interruptionActive = true
+            hardwareGrace?.cancel()
+            hardwareGrace = nil
+            scheduleInterruptionPoll()
+        case .replaying:
+            replay.stop(reason: "Ses kesintisi yüzünden tekrar durdu.")
+        default:
+            break
+        }
+    }
+
+    /// Kesinti bitti. Sistem ses oturumunu kapatmış olabilir: yeniden etkinleştirilip yol bakılır. Yol güvenli değilse
+    /// normal donanım beklemesi (süre sonunda sıfırlama kestirmesi) başlar.
+    private func interruptionEnded() {
+        interruptionActive = false
+        interruptionPoll?.cancel()
+        interruptionPoll = nil
+        guard case .paused(.hardware) = phase else { return }
+        try? deps.route.configure()
+        deps.route.preferExternalInput()
+        if hardwareGrace == nil {
+            hardwareGrace = deps.scheduler.after(Timing.hardwareGrace) { [weak self] in self?.hardwareGraceExpired() }
+        }
+        recheckHardware()
+    }
+
+    /// Bitiş bildirimi hiç gelmezse yedek: ses oturumu yeniden açılabiliyorsa kesinti bitmiştir (aramada açılamaz)
+    private func scheduleInterruptionPoll() {
+        interruptionPoll?.cancel()
+        interruptionPoll = deps.scheduler.after(Timing.interruptionPoll) { [weak self] in self?.pollInterruption() }
+    }
+
+    private func pollInterruption() {
+        interruptionPoll = nil
+        guard interruptionActive, case .paused(.hardware) = phase else { return }
+        if (try? deps.route.configure()) != nil {
+            interruptionEnded()
+        } else {
+            scheduleInterruptionPoll()
+        }
+    }
+
+    /// Duraklatılmışsa ses yoluna yeniden bakar (kesinti bitti, uygulama öne geldi); güvenliyse sabit kalınca devam edilir
+    func recheckHardware() {
+        guard case .paused(.hardware) = phase else { return }
+        routeChanged(deps.route.snapshot())
+    }
+
     func hardwareReturned() {
         stableTask = nil
-        guard case .paused(.hardware) = phase, AudioRouting.verdict(deps.route.snapshot()).isSafe else { return }
+        guard !interruptionActive, case .paused(.hardware) = phase,
+              AudioRouting.verdict(deps.route.snapshot()).isSafe else { return }
         hardwareGrace?.cancel()
         hardwareGrace = nil
+        hardwareRecoveries = 0   // kullanıcı donanımı düzeltti: sayaç sıfırlanır
         clearWarning("donanim")
         work = Task { [weak self] in await self?.resumeAfterRecovery() }
     }
 
     func hardwareGraceExpired() {
         hardwareGrace = nil
-        guard case .paused(.hardware) = phase else { return }
+        guard !interruptionActive, case .paused(.hardware) = phase else { return }
         work = Task { [weak self] in await self?.runRecovery(.hardware) }
     }
 
@@ -66,25 +139,32 @@ extension SessionViewModel {
     }
 
     /// 30 sn tek kelime yok. Kullanıcı soruyu düşünüyor da olabilir; bu yüzden hemen Kestirme çalıştırılmaz:
-    /// önce dinleme sessizce yenilenir (eldeki metin korunur) ve mikrofonun gerçekten ses verip vermediğine bakılır.
-    /// Mikrofon canlıysa sorun yoktur, bekçi yeniden kurulur; değilse donanım kilitlenmiş sayılır ve onarım başlar.
+    /// önce dinleme sessizce yenilenir (eldeki metin korunur), mikrofonun gerçekten ses verdiğine ve bağlantının sağlam olduğuna
+    /// bakılır. İkisi de sağlamsa sorun yoktur, bekçi yeniden kurulur; mikrofon donmuşsa ya da bağlantı takılmışsa onarım başlar.
     func handleSilence() async {
         accumulator.commitCurrent()
         deps.listener.pause()
         do {
             try deps.listener.start()
         } catch {
-            await runRecovery(.hardware, force: true)
+            listenerFailed(error)
             return
         }
         await deps.sleep(Timing.silenceProbe)
         guard !Task.isCancelled, phase == .listening else { return }
-        let alive = deps.listener.isRunning && (deps.listener.secondsSinceAudio ?? .infinity) < 3
-        if alive && AudioRouting.verdict(deps.route.snapshot()).isSafe {
-            watchdog.kick()
+        let micAlive = deps.listener.isRunning && (deps.listener.secondsSinceAudio ?? .infinity) < 3
+        guard micAlive, AudioRouting.verdict(deps.route.snapshot()).isSafe else {
+            await runRecovery(.hardware, force: true)
             return
         }
-        await runRecovery(.hardware, force: true)
+        // İnternet "var" görünüp takılmış olabilir: soru gelmeden önce bağlantıyı da yokla
+        let healthy = await deps.health.connectionHealthy(key: settings.apiKey)
+        guard !Task.isCancelled, phase == .listening else { return }
+        guard healthy else {
+            await runRecovery(.network)
+            return
+        }
+        watchdog.kick()
     }
 
     // MARK: Ağ (Modül 4)
@@ -164,10 +244,18 @@ extension SessionViewModel {
     /// `force`: sorun ses yoluna bakarak görülemiyorsa (mikrofon donmuş) Kestirmeler yine de çalıştırılır
     func runRecovery(_ reason: RecoveryReason, force: Bool = false) async {
         guard canRecover else { return }
+        if reason == .hardware, hardwareRecoveries >= Timing.maxHardwareRecoveries {
+            // Art arda onarıldı ama mikrofon yine çalışmıyor: sonsuz sıfırlama döngüsüne girme, uyar, bir süre sonra bir kez daha dene
+            hardwareRecoveries = Timing.maxHardwareRecoveries - 1
+            warn("onarim", "Mikrofon art arda onarıldı ama çalışmıyor. Kulaklığı ve mikrofon alıcısını kontrol edin.")
+            enterHardwarePause(AudioRouting.verdict(deps.route.snapshot()), grace: Timing.hardwareCapRetry)
+            return
+        }
         let result = await performRecovery(reason, force: force)
         guard !Task.isCancelled, case .recovering = phase else { return }
         switch result {
         case .recovered:
+            if reason == .hardware { hardwareRecoveries += 1 }
             await resumeAfterRecovery()
         case .notConfigured:
             warn("onarim", Say.notConfigured)
@@ -185,7 +273,8 @@ extension SessionViewModel {
             statusNote = ""
             retryTask = deps.scheduler.after(Timing.connectionRetry) { [weak self] in self?.retryConnection() }
         case .hardware:
-            enterHardwarePause(AudioRouting.verdict(deps.route.snapshot()))
+            // Başarısız onarımdan sonra sıfırlamayı hemen değil, daha seyrek dene (her 20 sn'de uçak modu açıp kapatılmasın)
+            enterHardwarePause(AudioRouting.verdict(deps.route.snapshot()), grace: Timing.connectionRetry)
         }
     }
 
@@ -195,9 +284,12 @@ extension SessionViewModel {
         work = Task { [weak self] in await self?.runRecovery(.network) }
     }
 
-    /// Sorun giderildi: ses yolu güvenliyse "yeniden hazır" anonsu ve dinleme; değilse sessizce donanım beklenir.
-    /// Açılış kontrolü sırasında koptuysa kontrol baştan yapılır.
+    /// Sorun giderildi. Kestirme ya da kesinti sistemin ses oturumunu kapatmış olabilir, o yüzden önce yeniden etkinleştirilir.
+    /// Ses yolu güvenliyse: açılış sırasında koptuysa kontrol baştan yapılır; cevap duyulamadan koptuysa o cevap yeniden okunur;
+    /// aksi hâlde "yeniden hazır" anonsu ve dinleme. Güvenli değilse sessizce donanım beklenir.
     func resumeAfterRecovery() async {
+        try? deps.route.configure()
+        deps.route.preferExternalInput()
         let verdict = AudioRouting.verdict(deps.route.snapshot())
         guard verdict.isSafe else {
             enterHardwarePause(verdict)
@@ -210,6 +302,13 @@ extension SessionViewModel {
             pendingStart = false
             phase = .checking
             await runStartup()
+            return
+        }
+        if let record = unheard {
+            // Cevap alınmış ve kaydedilmişti, yalnız kulaklıktan duyulamamıştı: soruyu yeniden okutmadan cevabı tekrar söyle
+            guard await speakNotice(record.spoken) else { return }
+            unheard = nil
+            beginListening()
             return
         }
         guard await speakNotice(Say.recovered) else { return }

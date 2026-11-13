@@ -1,4 +1,4 @@
-# G526 Ses (Sürüm 3) — Kurulum (iPhone 12 mini, Mac gerekmez)
+# Sesli Kontrol (Sürüm 3) — Kurulum (iPhone 12 mini, Mac gerekmez)
 
 Kamera yok. Sistem yalnız ses ile çalışır: **giriş** Lightning'e takılı kablosuz yaka mikrofonu, **çıkış** yalnız Bluetooth kulaklık.
 Soruyu yüksek sesle okursunuz, bitince "Cevapla" ya da "Gönder" dersiniz; uygulama soruyu Gemini'ye sorar, cevabı kulaklıktan okur
@@ -64,7 +64,7 @@ açık ve kilitsiz olmalı. Yedek: uygulama açıksa saat gelince kendisi başla
    "Ben hazırım, sistem kontrol edildi ve problem yok, şimdi ilk soruyu okumanı bekliyorum." der.
 2. Soruyu, şıklarıyla birlikte okuyun, sonunda **"Cevapla"** (ya da "Gönder") deyin. Her soru ayrı gönderilir; cevap
    "Soru 1, Denizli, Örgütsel Davranış" biçiminde kulaklıktan okunur (Adana=A, Bursa=B, Ceyhan=C, Denizli=D, Erzurum=E).
-3. Cevaplar Dosyalar uygulamasında **Bu iPhone > G526 Ses > gün klasörü** altında `soru_1`, `soru_2`… olarak kalır (`cevaplar.txt` de yazılır).
+3. Cevaplar Dosyalar uygulamasında **Bu iPhone > Sesli Kontrol > gün klasörü** altında `soru_1`, `soru_2`… olarak kalır (`cevaplar.txt` de yazılır).
 4. Bitince **Testi Bitir**, sonra **Cevapları Tekrarla**: sistem internetsiz çalışır, kayıtlar sırayla çalınır, aralarında ayardaki süre kadar bekler.
 
 ## Sorun giderme

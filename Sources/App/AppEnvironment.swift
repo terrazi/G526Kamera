@@ -58,8 +58,9 @@ final class AppEnvironment: ObservableObject {
             .store(in: &cancellables)
     }
 
-    /// Uygulama öne gelince zamanlayıcı yeniden kurulur (arka planda zamanlayıcılar duraklar)
+    /// Uygulama öne gelince zamanlayıcı yeniden kurulur (arka planda zamanlayıcılar duraklar); duraklatılmışsa ses yoluna yeniden bakılır
     func appBecameActive() {
         starter.apply(enabled: settings.startEnabled, minutes: settings.startMinutes)
+        session.recheckHardware()
     }
 }

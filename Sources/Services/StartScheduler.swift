@@ -48,7 +48,7 @@ final class StartScheduler {
         center.requestAuthorization(options: [.alert]) { granted, _ in
             guard granted else { return }
             let content = UNMutableNotificationContent()
-            content.title = "G526 Ses"
+            content.title = "Sesli Kontrol"
             content.body = "Başlama saati geldi. Oturumu başlatmak için dokunun."
             content.sound = nil
             let clamped = AppSettings.clampMinutes(minutes)

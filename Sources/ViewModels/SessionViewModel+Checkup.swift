@@ -72,9 +72,11 @@ extension SessionViewModel {
             return
         }
 
-        // 5) Hepsi tamam: anons ve dinleme
+        // 5) Hepsi tamam: anons ve dinleme. Anons yarıda kesilirse (kulaklık koptu) açılış kontrolü yol dönünce baştan yapılır
         clearWarning("start")
+        pendingStart = true
         guard await speakNotice(Say.ready) else { return }
+        pendingStart = false
         beginListening()
     }
 
@@ -86,6 +88,7 @@ extension SessionViewModel {
         }
         guard !Task.isCancelled else { return }
         cancelTimers()
+        clearWarning("donanim")
         deps.listener.pause()
         deps.network.stop()
         deps.screen.keepAwake(false)

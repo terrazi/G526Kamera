@@ -2,8 +2,13 @@ import SwiftUI
 
 @main
 struct G526CameraDriveApp: App {
-    @StateObject private var environment = AppEnvironment()
+    @StateObject private var environment: AppEnvironment
     @Environment(\.scenePhase) private var scenePhase
+
+    /// Ortam açılışta hemen kurulur: bildirime dokunarak açılışta bildirim delegesi geç kalmasın
+    @MainActor init() {
+        _environment = StateObject(wrappedValue: AppEnvironment())
+    }
 
     var body: some Scene {
         WindowGroup {

@@ -1,4 +1,4 @@
-# Sürüm 3 — Yalnız ses tasarımı
+# Sesli Kontrol (Sürüm 3) — Yalnız ses tasarımı
 
 Kamera yok; giriş yaka mikrofonu, çıkış Bluetooth kulaklık. MVVM: `Models` (veri ve saf mantık), `Services` (dış dünya
 arkasındaki protokoller ve gerçekleri), `ViewModels` (durum makinesi), `Views` (SwiftUI). Dış dünya `SessionDependencies` ile verilir;
@@ -30,6 +30,15 @@ gerçek kurulum `App/AppEnvironment`, testler sahtelerle (`Tests/Fakes`) kurar.
 - **Fail-safe:** çıkış Bluetooth kulaklık değilse ya da giriş harici mikrofon değilse (`AudioRouting.verdict`) ses anında durur, mikrofon
   kapanır; yol 1,5 sn sabit güvenli kalırsa devam edilir, 20 sn dönmezse sıfırlama kestirmesi çalışır. Hoparlör `overrideOutputAudioPort`
   ile de kullanılmaz.
+- **Ses kesintisi (arama, alarm, Siri):** `AVAudioSession.interruptionNotification` ile her şey susar ve durur; bu durumda
+  sıfırlama kestirmesi çalışmaz (aramayı keserdi). Kesinti bitince ses oturumu yeniden açılır, yol 1,5 sn sabit güvenliyse "yeniden hazır"
+  anonsuyla devam edilir. Bitiş bildirimi gelmezse 15 sn'de bir ses oturumunun yeniden açılıp açılamadığına bakılır.
+- **Sonsuz sıfırlama döngüsü yok:** donanım onarımı arada tek kelime tanınmadan 3 kez yapılıp mikrofon yine çalışmıyorsa durulur,
+  uyarı çıkar, 5 dk sonra bir kez daha denenir. Başarısız donanım onarımından sonra yeniden deneme 60 sn aralıklıdır.
+- **Duyulmayan cevap kaybolmaz:** cevap kaydedilir; okunurken kulaklık koparsa, kulaklık dönünce o cevap (soru yeniden okutulmadan)
+  tekrar okunur. Açılış anonsu yarıda kesilirse açılış kontrolü baştan yapılır.
+- **Gemini sesi çalışmazsa** (kota, model) 5 dk boyunca denenmez; cevaplar hemen telefonun sesiyle okunur. Her model için bekleme 8 sn.
+- **Okunamayan duyuru** oturumu durdurmaz; sebep ekranda yazılır, dinleme sürer.
 - **Telefon yeniden başlatma / uygulamayı yeniden açma** yoktur (istenmedi).
 - **Zamanlı başlatma:** iOS tam saatinde uyanmaya izin vermez; Kestirmeler otomasyonu `g526kamera://basla` açar. Yedek: uygulama
   açıkken zamanlayıcı, sessiz bildirim.

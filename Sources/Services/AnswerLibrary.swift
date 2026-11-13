@@ -1,7 +1,7 @@
 import Foundation
 
 /// Modül 5 ve 6: cevap sesleri cihazın içinde, o güne ait bir klasöre kaydedilir (soru_1, soru_2, …).
-/// Klasör uygulamanın Belgeler dizinindedir; Dosyalar uygulamasında "Bu iPhone > G526 Ses" altında görünür.
+/// Klasör uygulamanın Belgeler dizinindedir; Dosyalar uygulamasında "Bu iPhone > Sesli Kontrol" altında görünür.
 struct AnswerLibrary {
     static let transcriptName = "cevaplar.txt"
     static let audioExtensions: Set<String> = ["m4a", "caf", "mp3", "wav", "aac"]

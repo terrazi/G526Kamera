@@ -77,12 +77,22 @@ final class ShortcutRunner: ShortcutRunning {
 
     private var pending: CheckedContinuation<ShortcutOutcome, Never>?
     private var token = 0
+    /// Kestirme, `open` dönmeden önce biten çok hızlı bir kestirme olabilir: geri dönüş o sırada gelirse burada saklanır
+    private var opening = false
+    private var earlyOutcome: ShortcutOutcome?
 
     func run(name: String) async -> ShortcutOutcome {
         guard let url = ShortcutLink.runURL(name: name) else { return .notConfigured }
         if pending != nil { finish(.cancelled) }
+        opening = true
+        earlyOutcome = nil
         let opened = await UIApplication.shared.open(url)
+        opening = false
         guard opened else { return .failed("Kestirmeler uygulaması açılamadı") }
+        if let early = earlyOutcome {
+            earlyOutcome = nil
+            return early
+        }
         token += 1
         let mine = token
         return await withCheckedContinuation { (continuation: CheckedContinuation<ShortcutOutcome, Never>) in
@@ -107,7 +117,10 @@ final class ShortcutRunner: ShortcutRunning {
     }
 
     private func finish(_ outcome: ShortcutOutcome) {
-        guard let continuation = pending else { return }
+        guard let continuation = pending else {
+            if opening { earlyOutcome = outcome }
+            return
+        }
         pending = nil
         token += 1
         continuation.resume(returning: outcome)

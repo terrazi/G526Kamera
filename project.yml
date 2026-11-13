@@ -26,7 +26,8 @@ targets:
     info:
       path: Config/Info.plist
       properties:
-        CFBundleDisplayName: "G526 Ses"
+        CFBundleDisplayName: "Sesli Kontrol"
+        CFBundleName: "Sesli Kontrol"
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait

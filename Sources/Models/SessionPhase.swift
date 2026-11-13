@@ -25,7 +25,7 @@ enum SessionPhase: Equatable {
         case .listening: return "Dinliyorum. Soruyu okuyun, bitince “Cevapla” deyin"
         case .answering: return "Gemini cevabı hazırlıyor"
         case .speaking: return "Kulaklıktan okunuyor"
-        case .paused(.hardware): return "Duraklatıldı: kulaklık ya da mikrofon bağlantısı yok"
+        case .paused(.hardware): return "Duraklatıldı: kulaklık, mikrofon ya da ses kesintisi"
         case .paused(.noConnection): return "Duraklatıldı: bağlantı yok"
         case .recovering: return "Bağlantı onarılıyor (Kestirmeler)"
         case .finished: return "Test bitti"

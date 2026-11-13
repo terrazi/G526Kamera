@@ -16,8 +16,7 @@ extension SessionViewModel {
             warn("tekrar", [Say.noHeadphonesForReplay, verdict.hint].filter { !$0.isEmpty }.joined(separator: " "))
             return
         }
-        let folder = sessionFolder ?? deps.library.latestFolder()
-        let files = folder.map { deps.library.answerFiles(in: $0) } ?? []
+        let files = replayFolder().map { deps.library.answerFiles(in: $0) } ?? []
         guard !files.isEmpty else {
             warn("tekrar", Say.nothingToReplay)
             return

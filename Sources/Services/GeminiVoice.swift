@@ -9,22 +9,31 @@ final class GeminiVoice: SpeechSynthesizing {
     static let models = ["gemini-3.8-flash-tts", "gemini-3.8-flash-lite-tts"]
     static let voiceName = "Kore"
     /// Sınavda beklemeyi uzatmamak için her model için en çok bekleme (sn)
-    static let perModelLimit: TimeInterval = 12
+    static let perModelLimit: TimeInterval = 8
+    /// Tüm modeller başarısız olunca Gemini sesi bu kadar süre denenmez: her cevapta boşuna bekleme olmasın, telefonun sesi hemen devreye girer
+    static let cooldown: TimeInterval = 300
     static let sampleRate = 24_000
 
     private let keyProvider: () -> String
     private let modelNames: [String]
     private let limit: TimeInterval
     private let makeClient: (String) -> GeminiClient
+    private let cooldown: TimeInterval
+    private let now: () -> Date
     private var cancelled = false
+    private var disabledUntil: Date?
 
     init(key: @escaping () -> String,
          models: [String] = GeminiVoice.models,
          limit: TimeInterval = GeminiVoice.perModelLimit,
+         cooldown: TimeInterval = GeminiVoice.cooldown,
+         now: @escaping () -> Date = { Date() },
          makeClient: ((String) -> GeminiClient)? = nil) {
         self.keyProvider = key
         self.modelNames = models
         self.limit = limit
+        self.cooldown = cooldown
+        self.now = now
         self.makeClient = makeClient ?? { model in GeminiClient(key: key, model: { model }) }
     }
 
@@ -68,6 +77,9 @@ final class GeminiVoice: SpeechSynthesizing {
     func synthesize(_ text: String, to base: URL) async throws -> URL {
         let key = keyProvider().trimmed
         guard !key.isEmpty, !modelNames.isEmpty else { throw GeminiError(Say.noKeyShort, .key) }
+        if let until = disabledUntil, now() < until {
+            throw GeminiError("Gemini sesi az önce çalışmadı; bir süre telefonun sesi kullanılıyor.", .error)
+        }
         cancelled = false
         let body = try GeminiVoice.requestBody(text: text)
         var lastError = GeminiError("Gemini sesi üretilemedi.", .error)
@@ -79,12 +91,15 @@ final class GeminiVoice: SpeechSynthesizing {
                 let wav = GeminiVoice.wavFile(from: try GeminiVoice.audioBytes(from: object))
                 let url = base.appendingPathExtension("wav")
                 try wav.write(to: url, options: .atomic)
+                disabledUntil = nil
                 return url
             } catch let error as GeminiError {
                 lastError = error
                 if cancelled { throw CancellationError() }
             }
         }
+        // İnternet sorunuysa (onarım zaten ilgilenir) süre tutulmaz; modelin/kotanın çalışmaması ise bir süre atlanır
+        if cooldown > 0, lastError.kind != .network { disabledUntil = now().addingTimeInterval(cooldown) }
         throw lastError
     }
 

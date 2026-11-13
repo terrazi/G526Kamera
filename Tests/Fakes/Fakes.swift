@@ -47,6 +47,7 @@ final class FakeRoute: AudioRouteProviding {
     static let noMic = RouteSnapshot(outputs: [.bluetoothA2DP], inputs: [.builtInMic])
 
     var onChange: (@MainActor (RouteSnapshot) -> Void)?
+    var onInterruption: (@MainActor (Bool) -> Void)?
     var current = FakeRoute.good
     var configureError: Error?
     private(set) var configureCalls = 0
@@ -59,6 +60,9 @@ final class FakeRoute: AudioRouteProviding {
 
     func snapshot() -> RouteSnapshot { return current }
     func preferExternalInput() { preferCalls += 1 }
+
+    /// Arama/alarm/Siri sesi böldü (began) ya da bitti
+    func interrupt(began: Bool) { onInterruption?(began) }
 
     /// Yol değişti (kulaklık takıldı/çıktı) ve iOS bildirimi geldi
     func change(to snapshot: RouteSnapshot) {

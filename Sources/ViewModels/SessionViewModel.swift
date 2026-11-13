@@ -21,6 +21,12 @@ final class SessionViewModel: ObservableObject {
         static let silenceProbe: TimeInterval = 4
         /// Bağlantı onarılamazsa yeniden deneme aralığı
         static let connectionRetry: TimeInterval = 60
+        /// Üst üste bu kadar donanım onarımı arada tek kelime tanınmadan yapıldıysa sıfırlama döngüsü kesilir
+        static let maxHardwareRecoveries = 3
+        /// Döngü kesilince bir sonraki deneme için bekleme
+        static let hardwareCapRetry: TimeInterval = 300
+        /// Kesinti sürerken (arama vb.) ses oturumunun yeniden açılıp açılamadığına bakma aralığı; bitiş bildirimi gelmezse yedek
+        static let interruptionPoll: TimeInterval = 15
     }
 
     // MARK: Ekranın gördüğü durum
@@ -49,12 +55,19 @@ final class SessionViewModel: ObservableObject {
     var sessionFolder: URL?
     var nextNumber = 1
     var pendingStart = false
+    /// Alındığı ve kaydedildiği hâlde kulaklıktan duyulamamış cevap (okunurken ses yolu koptu); yol dönünce yeniden okunur
+    var unheard: AnswerRecord?
+    /// Arada tek kelime tanınmadan art arda yapılan donanım onarımı sayısı
+    var hardwareRecoveries = 0
     var work: Task<Void, Never>?
     var confirmTask: ScheduledTask?
     var offlineCheck: ScheduledTask?
     var hardwareGrace: ScheduledTask?
     var stableTask: ScheduledTask?
     var retryTask: ScheduledTask?
+    /// Arama/alarm/Siri kesintisi sürüyor
+    var interruptionActive = false
+    var interruptionPoll: ScheduledTask?
 
     init(settings: AppSettings, deps: SessionDependencies) {
         self.settings = settings
@@ -68,6 +81,7 @@ final class SessionViewModel: ObservableObject {
         replay = ReplayController(player: deps.replayPlayer, scheduler: deps.scheduler,
                                   canPlay: { AudioRouting.verdict(route.snapshot()).headphonesOK })
         deps.route.onChange = { [weak self] snapshot in self?.routeChanged(snapshot) }
+        deps.route.onInterruption = { [weak self] began in self?.interrupted(began) }
         deps.network.onChange = { [weak self] online in self?.networkChanged(online) }
         deps.listener.onEvent = { [weak self] event in self?.handleSpeech(event) }
         watchdog.onExpire = { [weak self] in self?.silenceExpired() }
@@ -120,6 +134,9 @@ final class SessionViewModel: ObservableObject {
         statusNote = ""
         nextNumber = 1
         pendingStart = false
+        unheard = nil
+        hardwareRecoveries = 0
+        interruptionActive = false
         sessionFolder = nil
     }
 
@@ -142,6 +159,8 @@ final class SessionViewModel: ObservableObject {
         hardwareGrace = nil
         stableTask?.cancel()
         stableTask = nil
+        interruptionPoll?.cancel()
+        interruptionPoll = nil
     }
 
     // MARK: Uyarılar ve kontrol maddeleri
@@ -167,9 +186,14 @@ final class SessionViewModel: ObservableObject {
         }
     }
 
+    /// Tekrarlanacak klasör: bu oturumun cevapları varsa o, yoksa (yeni oturum açılıp boş kaldıysa) cevap içeren en yeni gün klasörü
+    func replayFolder() -> URL? {
+        if let folder = sessionFolder, !deps.library.answerFiles(in: folder).isEmpty { return folder }
+        return deps.library.latestFolder()
+    }
+
     func refreshReplayAvailability() {
-        let folder = sessionFolder ?? deps.library.latestFolder()
-        canReplay = folder.map { !deps.library.answerFiles(in: $0).isEmpty } ?? false
+        canReplay = replayFolder() != nil
     }
 
     // MARK: Dinleme (Modül 3)
@@ -177,21 +201,14 @@ final class SessionViewModel: ObservableObject {
     /// Mikrofonu açar ve yeni soruyu bekler. Eldeki yarım metin ve ses silinir.
     func beginListening() {
         cancelTimers()
+        unheard = nil
         accumulator.clear()
         liveText = ""
         deps.recorder.reset()
         do {
             try deps.listener.start()
-        } catch let error as ListenerError {
-            if error.isHardware {
-                warn("mikrofon", error.localizedDescription)
-                work = Task { [weak self] in await self?.runRecovery(.hardware, force: true) }
-            } else {
-                stopForGood(error.localizedDescription)
-            }
-            return
         } catch {
-            stopForGood(error.localizedDescription)
+            listenerFailed(error)
             return
         }
         clearWarning("mikrofon")
@@ -206,6 +223,7 @@ final class SessionViewModel: ObservableObject {
         switch event {
         case .partial(let text):
             guard accumulator.update(partial: text) else { return }
+            hardwareRecoveries = 0   // mikrofon gerçekten çalışıyor
             liveText = accumulator.text
             watchdog.kick()
             reevaluateTrigger()
@@ -215,6 +233,16 @@ final class SessionViewModel: ObservableObject {
             warn("mikrofon", message)
             work = Task { [weak self] in await self?.runRecovery(.hardware, force: true) }
         }
+    }
+
+    /// Dinleme açılamadı ya da durdu. Kalıcı eksikse (izin, dikte modeli) oturum kapanır; donanımsa Kestirmelerle onarılır.
+    func listenerFailed(_ error: Error) {
+        if let known = error as? ListenerError, !known.isHardware {
+            stopForGood(known.localizedDescription)
+            return
+        }
+        warn("mikrofon", error.localizedDescription)
+        work = Task { [weak self] in await self?.runRecovery(.hardware, force: true) }
     }
 
     /// Metnin sonu "Cevapla"/"Gönder" ise kısa bir süre sabit kalmasını bekler; kalırsa tetikler
@@ -256,12 +284,16 @@ final class SessionViewModel: ObservableObject {
             let record = AnswerRecord(number: number, option: reply.option, text: reply.text, spoken: reply.spoken)
             store(record)
             phase = .speaking
+            unheard = record
             var base: URL?
             if let folder = sessionFolder {
                 deps.library.removeExisting(question: number, in: folder)
                 base = deps.library.fileBase(question: number, in: folder)
             }
             try await deps.speaker.speak(record.spoken, saveAs: base)
+            unheard = nil
+            clearWarning("cevap")
+            clearWarning("ses")
             refreshReplayAvailability()
             guard !Task.isCancelled, phase == .speaking else { return }
             beginListening()
@@ -320,6 +352,9 @@ final class SessionViewModel: ObservableObject {
         } catch SpeakError.routeUnsafe {
             enterHardwarePause(AudioRouting.verdict(deps.route.snapshot()))
             return false
+        } catch SpeakError.failed(let message) {
+            // Okunamayan duyuru işi durdurmaz (yoksa oturum sessizce takılırdı): sebep yazılır, sistem dinlemeye geçer
+            warn("ses", message)
         } catch {
             return false
         }
