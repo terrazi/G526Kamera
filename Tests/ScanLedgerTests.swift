@@ -367,3 +367,61 @@ final class MixedOrderTests: XCTestCase {
         XCTAssertEqual(ledger.missing, [10, 11, 12])
     }
 }
+
+/// Aynı yerdeki numara satırının kareler arası oylaması: tek karedeki yanlış okuma sahte soru doğurmaz
+final class NumberVotingTests: XCTestCase {
+    private func obs(_ numbers: [Int], y: Double = 0.2, column: Int = 0, firstFrame: Int = 0) -> [NumberVoting.Observation] {
+        return numbers.enumerated().map { NumberVoting.Observation(frame: firstFrame + $0.offset, block: 0, column: column, y: y, number: $0.element) }
+    }
+
+    func testOccasionalMisreadIsOutvoted() {
+        let result = NumberVoting.corrected(obs([13, 13, 18, 13, 13, 13]), limit: 40)
+        XCTAssertEqual(result, [13, 13, 13, 13, 13, 13])
+    }
+
+    func testTiedOrCloseVotesAreLeftAlone() {
+        XCTAssertEqual(NumberVoting.corrected(obs([13, 13, 18, 18]), limit: 40), [13, 13, 18, 18], "eşit oy: sayfa çevrilmiş olabilir")
+        XCTAssertEqual(NumberVoting.corrected(obs([13, 13, 13, 18, 18]), limit: 40), [13, 13, 13, 18, 18], "3'e 2: yakın oy")
+        XCTAssertEqual(NumberVoting.corrected(obs([13, 18]), limit: 40), [13, 18], "iki gözlem yetmez")
+        XCTAssertEqual(NumberVoting.corrected(obs([18]), limit: 40), [18])
+    }
+
+    func testDifferentPlacesAreVotedSeparately() {
+        let upper = obs([12, 12, 17, 12], y: 0.2)
+        let lower = obs([13, 13, 13, 18], y: 0.5, firstFrame: 0)
+        let result = NumberVoting.corrected(upper + lower, limit: 40)
+        XCTAssertEqual(Array(result[0..<4]), [12, 12, 12, 12])
+        XCTAssertEqual(Array(result[4..<8]), [13, 13, 13, 13])
+    }
+
+    func testSamePlaceInAnotherColumnIsNotMixed() {
+        let left = obs([5, 5, 5, 5], y: 0.2, column: 0)
+        let right = obs([11, 11, 11, 16], y: 0.2, column: 1)
+        let result = NumberVoting.corrected(left + right, limit: 40)
+        XCTAssertEqual(Array(result[0..<4]), [5, 5, 5, 5])
+        XCTAssertEqual(Array(result[4..<8]), [11, 11, 11, 11])
+    }
+
+    func testSlightMovementBetweenFramesStillCountsAsTheSamePlace() {
+        let moving = [0.200, 0.208, 0.215, 0.205, 0.212].enumerated().map {
+            NumberVoting.Observation(frame: $0.offset, block: 0, column: 0, y: $0.element, number: $0.offset == 2 ? 17 : 12)
+        }
+        XCTAssertEqual(NumberVoting.corrected(moving, limit: 40), [12, 12, 12, 12, 12])
+    }
+
+    func testWinnerAboveTheQuestionLimitIsNotUsed() {
+        XCTAssertEqual(NumberVoting.corrected(obs([50, 50, 50, 12]), limit: 40), [50, 50, 50, 12])
+    }
+
+    func testAnalyzerDoesNotCreateAFakeQuestionFromOneMisreadFrame() {
+        func frame(_ i: Int, lowerNumber: Int) -> AnalyzedFrame {
+            let lines = OCRFixtures.question(12, y0: 0.2) + OCRFixtures.question(lowerNumber, y0: 0.5)
+            return AnalyzedFrame(index: i * 2, lines: lines, sharp: 1.0, glare: 0)
+        }
+        let frames = [frame(0, lowerNumber: 13), frame(1, lowerNumber: 13), frame(2, lowerNumber: 17), frame(3, lowerNumber: 13),
+                      frame(4, lowerNumber: 13)]
+        let result = CaptureAnalyzer.analyze(frames, total: 40, optionCount: 5, config: QualityConfig())
+        XCTAssertEqual(result.outcomes.map { $0.number }, [12, 13], "17. soru diye bir şey olmamalı")
+        XCTAssertFalse(result.outcomes[1].full.picks.isEmpty, "düzeltilen kare 13. soru için de aday olur")
+    }
+}
