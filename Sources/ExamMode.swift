@@ -836,7 +836,7 @@ final class ExamMode: ObservableObject {
         if !why.isEmpty {
             // Ses çıkmıyorsa da neden görülsün: ekrana da yazılır
             setStatus(why)
-            blockedStatus = (why, true)
+            blockedStatus = (why, true, false)
             bg { await self.sayNow(why) }
             return false
         }
@@ -844,7 +844,7 @@ final class ExamMode: ObservableObject {
         if !route.isEmpty {
             // Ses mikrofon alıcısına gidiyor: doğru çıkış seçilene dek sınav başlamaz (ekranda da yazar)
             setStatus(route)
-            blockedStatus = (route, true)
+            blockedStatus = (route, true, false)
             bg { await self.sayNow(route) }
             return false
         }
@@ -852,7 +852,7 @@ final class ExamMode: ObservableObject {
             // Kulaklık yok: telefon hoparlöründen ses verilmez, bu yüzden sınav başlamaz (ekranda yazar)
             let text = "Kulaklık bağlı değil: ses telefon hoparlöründen verilmez. Kulaklığı bağlayıp tekrar deneyin."
             setStatus(text)
-            blockedStatus = (text, true)
+            blockedStatus = (text, true, false)
             return false
         }
         if let saved = savedSummary() {
@@ -875,8 +875,10 @@ final class ExamMode: ObservableObject {
         guard enabled, !running, !startupDone, ports.selfCheckOn() else { return false }
         let why = ports.preflight(needCamera: false)
         if !why.isEmpty {
-            // Henüz hazır değil (ör. ses tanıma açılıyor): çağıran birkaç kez yeniden dener; sınama başlamadığı için "yapıldı" sayılmaz
+            // Henüz hazır değil (ör. ses tanıma açılıyor): çağıran birkaç kez yeniden dener; sınama başlamadığı için "yapıldı" sayılmaz.
+            // Neden sonradan giderilirse (ör. klasör seçildi) yazı kalkar ve sınama yeniden denenir (`refreshBlockedStatus`)
             setStatus(why)
+            blockedStatus = (why, false, true)
             return false
         }
         let route = ports.routeProblem()
@@ -974,22 +976,24 @@ final class ExamMode: ObservableObject {
 
     /// Sınav başlatılamadığı için kartta yazan neden ("Kamera görüntüsü yok…", "Kulaklık bağlı değil…") ve denetimin kamerayı da sayıp saymadığı.
     /// Sorun giderilince (kamera geldi, kulaklık takıldı, klasör seçildi…) yazı kendiliğinden kalkar; saniyede bir çağrılır.
-    private var blockedStatus: (text: String, needCamera: Bool)?
+    private var blockedStatus: (text: String, needCamera: Bool, startup: Bool)?
 
-    func refreshBlockedStatus() {
-        guard let blocked = blockedStatus else { return }
+    /// Dönüş: açılış sınamasını engelleyen neden giderildi (çağıran sınamayı yeniden denemelidir)
+    @discardableResult
+    func refreshBlockedStatus() -> Bool {
+        guard let blocked = blockedStatus else { return false }
         // Başka bir yazı onun yerini aldıysa ya da sınav / sınama başladıysa ya da mod kapandıysa izlenecek bir şey kalmaz
         guard enabled, !running, status == blocked.text else {
             blockedStatus = nil
-            return
+            return false
         }
         let stillBlocked = !ports.preflight(needCamera: blocked.needCamera).isEmpty
             || !ports.routeProblem().isEmpty
             || ports.linksLost().contains(.audio)
-        if !stillBlocked {
-            blockedStatus = nil
-            setStatus("")
-        }
+        guard !stillBlocked else { return false }
+        blockedStatus = nil
+        setStatus("")
+        return blocked.startup && !startupDone
     }
 
     /// "Deneme sınavı etkin değil" cümlesi: söylenmeye sıra gelene kadar anahtar açıldıysa söylenmez

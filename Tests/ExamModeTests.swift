@@ -1910,6 +1910,22 @@ final class ExamModeTests: XCTestCase {
         XCTAssertEqual(exam.status, "")
     }
 
+    func testStartupCheckBlockedByMissingFolderRetriesWhenFixed() async {
+        let p = FakePorts()
+        p.checkOn = true
+        p.preflightText = "Belge klasörü seçilmemiş. Ayarlardan klasörü seçin."
+        let exam = make(p)
+        XCTAssertFalse(exam.startupCheck())
+        XCTAssertEqual(exam.status, p.preflightText)
+        XCTAssertFalse(exam.refreshBlockedStatus(), "sorun sürerken sınama yeniden denenmez")
+        XCTAssertEqual(exam.status, p.preflightText)
+        // Klasör seçildi: eski uyarı kalkar ve sınamanın yeniden denenmesi istenir
+        p.preflightText = ""
+        XCTAssertTrue(exam.refreshBlockedStatus())
+        XCTAssertEqual(exam.status, "")
+        XCTAssertFalse(exam.startupFinished, "sınama yapılmış sayılmamalı")
+    }
+
     func testBlockedReasonThatWasReplacedIsNotTouched() async {
         let p = FakePorts()
         p.preflightText = "Kamera görüntüsü yok. Kameraya bağlanınca tekrar söyleyin."

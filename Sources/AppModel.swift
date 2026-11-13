@@ -65,6 +65,9 @@ final class AppModel: ObservableObject {
     @Published private(set) var pageVideoPages = 0
     /// Gemini'nin son videoya verdiği cevap (ana ekranda gösterilir)
     @Published private(set) var videoAnswer = ""
+    /// "Videoları gönder"in son sorunu (ör. "Gemini kapalı", "Gemini videoyu okuyamadı: …"): düğmenin altında kalır; flaş yazı birkaç saniyede
+    /// silinir ve konuşma kaçırılabilir, neden ekranda dursun
+    @Published private(set) var videoSendNote = ""
     /// Gemini'ye gönderilmeyi bekleyen video sayısı ("videoları gönder" kipinde)
     @Published private(set) var queuedVideos = GeminiVideoQueue.shared.count
     /// Sıradaki videolar şu an Gemini'ye gönderiliyor
@@ -554,6 +557,8 @@ final class AppModel: ObservableObject {
 
     func applySettings(force: Bool = false) {
         guard started else { return }
+        // Ayar değişti (ör. Gemini açıldı, anahtar girildi): "videolar gönderilemedi" uyarısı eskidi, yeniden denenince yenisi yazılır
+        if !videoSendNote.isEmpty && !sendingVideos { videoSendNote = "" }
         let cKey = "\(settings.uid)|\(settings.cameraIP)|\(settings.cameraPassword)|\(settings.streamQuality)"
         if force || cKey != cameraKey {
             cameraKey = cKey
@@ -682,7 +687,11 @@ final class AppModel: ObservableObject {
         let ok = cameraState.isLive && decodeClock.age() < 3.0
         if ok != decoding { decoding = ok }
         // Sınav kartında "kamera görüntüsü yok / kulaklık bağlı değil" yazıyorsa sorun giderilince yazı kalkar
-        examStore?.refreshBlockedStatus()
+        if examStore?.refreshBlockedStatus() == true {
+            // Açılış sınaması hazır değildi (ör. belge klasörü seçilmemişti), sorun giderildi: sınama yeniden denenir
+            startupCheckTries = 0
+            scheduleStartupCheck()
+        }
         watchConnection(live: ok)
     }
 
@@ -1674,34 +1683,35 @@ final class AppModel: ObservableObject {
     /// Sıradaki videoları eskiden yeniye, tek tek Gemini'ye gönderir; her cevap sırayla sesle okunur ve ekranda birikir.
     /// Bir video başarısız olursa durur; kalanlar sırada bekler (yeniden "videoları gönder" denir).
     func sendQueuedVideos() {
-        guard !paused else { flash("Duraklatıldı: önce devam et deyin", seconds: 3); return }
+        guard !paused else { videoSendProblem("Duraklatıldı: önce devam et deyin.", spoken: nil); return }
         guard !sendingVideos else {
             say("Videolar zaten gönderiliyor.", interrupt: false, force: true)
             return
         }
         guard !videoRecording else {
-            say("Önce video kaydını kapatın.", interrupt: false, force: true)
+            videoSendProblem("Video kaydı açık: önce kaydı kapatın.", spoken: "Önce video kaydını kapatın.")
             return
         }
         let queue = GeminiVideoQueue.shared
         let files = queue.files
         queuedVideos = files.count
         guard !files.isEmpty else {
+            videoSendNote = ""
             flash("Gönderilecek video yok", seconds: 4)
             say("Gönderilecek video yok.", interrupt: true, force: true)
             return
         }
         let s = settings
         guard s.geminiEnabled, s.geminiPrivacyOK else {
-            flash("Gemini kapalı ya da gizlilik onayı verilmemiş", seconds: 6)
-            say("Gemini kapalı ya da gizlilik onayı verilmemiş. Ayarlardan açın.", interrupt: true, force: true)
+            videoSendProblem("Videolar gönderilemedi: Gemini kapalı ya da gizlilik onayı verilmemiş. Ayarlar → Gemini bölümünden “Gemini’ye sesle soru sor” anahtarını ve gizlilik onayını açın.",
+                             spoken: "Gemini kapalı ya da gizlilik onayı verilmemiş. Ayarlardan açın.")
             return
         }
         s.refreshGeminiCapFallback()
         let active = s.activeGeminiProfile
         guard !active.key.isEmpty else {
-            flash("Gemini API anahtarı girilmemiş", seconds: 6)
-            say("Gemini API anahtarı girilmemiş. Ayarlardan yapıştırın.", interrupt: true, force: true)
+            videoSendProblem("Videolar gönderilemedi: Gemini API anahtarı girilmemiş. Ayarlar → Gemini bölümüne yapıştırın.",
+                             spoken: "Gemini API anahtarı girilmemiş. Ayarlardan yapıştırın.")
             return
         }
         let profiles = s.geminiProfileInfos()
@@ -1713,6 +1723,7 @@ final class AppModel: ObservableObject {
         let total = files.count
         sendingVideos = true
         videoAnswer = ""
+        videoSendNote = ""
         flash("\(total) video sırayla Gemini'ye gönderiliyor…", seconds: 8)
         say("\(total) video sırayla Gemini'ye gönderiliyor.", interrupt: false, force: true)
         Task { [weak self] in
@@ -1740,6 +1751,7 @@ final class AppModel: ObservableObject {
                 } catch {
                     let message = (error as? GeminiError)?.message ?? error.localizedDescription
                     tlog("[video] \(number). video Gemini hatası: \(message)")
+                    self.videoSendNote = "Gemini \(number). videoyu okuyamadı: \(message) Kalan videolar sırada bekliyor; “Videoları gönder” ile yeniden deneyin."
                     self.flash("Gemini \(number). videoyu okuyamadı: \(message)", seconds: 10)
                     self.say("Gemini \(number). videoyu okuyamadı. \(message) Kalan videolar sırada bekliyor.", interrupt: false, force: true)
                     self.sendingVideos = false
@@ -1750,6 +1762,14 @@ final class AppModel: ObservableObject {
             self?.sendingVideos = false
             self?.queuedVideos = queue.count
         }
+    }
+
+    /// "Videoları gönder" başlayamadı: neden ekranda kalır (ve günlüğe yazılır), istenirse sesle de söylenir
+    private func videoSendProblem(_ text: String, spoken: String?) {
+        videoSendNote = text
+        tlog("[video] gönderim: \(text)")
+        flash(text, seconds: 6)
+        if let spoken = spoken { say(spoken, interrupt: true, force: true) }
     }
 
     /// Konuşma bitene dek bekler (en çok `maxSeconds`)

@@ -18,6 +18,13 @@ struct ContentView: View {
                     videoButton
                     if !model.videoRecording { pageVideoButton }
                     if model.queuedVideos > 0 || model.sendingVideos { sendVideosButton }
+                    if !model.videoSendNote.isEmpty && model.queuedVideos > 0 {
+                        Text(model.videoSendNote)
+                            .font(.caption)
+                            .foregroundColor(.orange)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .accessibilityIdentifier("video-gonder-uyari")
+                    }
                     if !model.videoAnswer.isEmpty {
                         Text(model.videoAnswer)
                             .font(.footnote)
@@ -289,7 +296,8 @@ struct ContentView: View {
             .foregroundColor(.white)
             .cornerRadius(12)
         }
-        .disabled(model.sendingVideos || model.videoRecording)
+        // Kayıt açıkken de basılabilir: neden gönderilemediği ekranda ve sesle söylenir (sessizce hiçbir şey olmasın)
+        .disabled(model.sendingVideos)
         .accessibilityIdentifier("videolariGonder")
     }
 
