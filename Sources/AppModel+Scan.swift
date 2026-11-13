@@ -73,7 +73,7 @@ extension AppModel {
         videoCount = 0
         notes = []
         acceptedNumbers = []
-        openQuestion = nil
+        waitingQuestions = []
         answers = []
         lastSaid = ""
         UIApplication.shared.isIdleTimerDisabled = true
@@ -349,6 +349,7 @@ extension AppModel {
         let actions = ScanPlanner.plan(analysis, ledger: ledger)
         var accepted: [Int] = []
         var opened: Int?
+        var stashed: [Int] = []
         var rejects: [(number: Int, problem: ShotProblem)] = []
         var limited: [Int] = []
         var duplicates = 0
@@ -372,10 +373,15 @@ extension AppModel {
                     rejects.append((n, .unreadable))
                     if ledger.noteReject(number: n) { limited.append(n) }
                 }
-            case .extendOpen(let picks):
-                if let n = ledger.openNumber, let urls = await renderPages(picks: picks, frames: frames, question: n) {
-                    ledger.extendOpen(pages: urls)
+            case .extendOpen(let n, let picks):
+                if let urls = await renderPages(picks: picks, frames: frames, question: n) {
+                    ledger.extendOpen(number: n, pages: urls)
                     opened = n
+                }
+            case .stashTail(let n, let picks):
+                if let urls = await renderPages(picks: picks, frames: frames, question: n) {
+                    ledger.stashTail(number: n, pages: urls)
+                    stashed.append(n)
                 }
             case .reject(let n, let problems):
                 if let top = problems.min(by: { $0.priority < $1.priority }) {
@@ -392,27 +398,28 @@ extension AppModel {
             }
         }
         refreshLedgerState()
-        result.progressed = !accepted.isEmpty || opened != nil || !limited.isEmpty
-        speakCapture(accepted: accepted.sorted(), opened: opened, limited: limited, rejects: rejects,
+        result.progressed = !accepted.isEmpty || opened != nil || !stashed.isEmpty || !limited.isEmpty
+        speakCapture(accepted: accepted.sorted(), opened: opened, stashed: stashed.sorted(), limited: limited, rejects: rejects,
                      duplicates: duplicates, general: general)
         return result
     }
 
     /// Çekim sonucunu tek konuşmada bildirir: alınanlar, devam isteği, en önemli tek uyarı
-    private func speakCapture(accepted: [Int], opened: Int?, limited: [Int], rejects: [(number: Int, problem: ShotProblem)],
+    private func speakCapture(accepted: [Int], opened: Int?, stashed: [Int], limited: [Int], rejects: [(number: Int, problem: ShotProblem)],
                               duplicates: Int, general: [ShotProblem]?) {
         var parts: [String] = []
         if !accepted.isEmpty { parts.append(ScanRules.acceptedText(accepted)) }
         if let n = opened { parts.append(ScanRules.continueText(n)) }
+        for n in stashed { parts.append(ScanRules.headText(n)) }
         for n in limited {
-            parts.append("\(TurkishNumbers.capitalised(TurkishNumbers.ordinal(n))) soru okunamadı, sonraki soruya geçiliyor.")
+            parts.append("\(TurkishNumbers.capitalised(TurkishNumbers.ordinal(n))) soru okunamadı, bu soru atlanıyor.")
         }
         let t = now()
         let pending = rejects.filter { r in !limited.contains(r.number) }
         if let top = pending.min(by: { $0.problem.priority < $1.problem.priority }) {
             let text = QualityGate.spoken([top.problem], number: top.number)
             if repeatGate.allow(text, now: t) { parts.append(text) }
-        } else if accepted.isEmpty && opened == nil && limited.isEmpty {
+        } else if accepted.isEmpty && opened == nil && stashed.isEmpty && limited.isEmpty {
             if let general = general {
                 let text = general == [.unreadable]
                     ? "Soru bulunamadı. Evrakı kadraja alıp sabit tutun."
@@ -474,7 +481,7 @@ extension AppModel {
     /// Ekrandaki alınan / okunamayan soru bilgisini kayıt defterinden yeniler
     func refreshLedgerState() {
         acceptedNumbers = ledger.acceptedNumbers
-        openQuestion = ledger.openNumber
+        waitingQuestions = ledger.waitingNumbers
         let bad = ledger.unreadableNumbers
         if bad.isEmpty {
             removeNote("alinamayan")

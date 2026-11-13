@@ -106,8 +106,8 @@ struct ContentView: View {
                 Text(progressText)
                     .font(.subheadline)
             }
-            if let open = model.openQuestion {
-                Text("\(open). sorunun devamı bekleniyor")
+            if !model.waitingQuestions.isEmpty {
+                Text("Yarım kalan sorular: " + model.waitingQuestions.map { String($0) }.joined(separator: ", "))
                     .font(.footnote)
                     .foregroundColor(.orange)
             }

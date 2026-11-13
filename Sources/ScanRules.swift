@@ -100,6 +100,11 @@ enum ScanRules {
     static func continueText(_ number: Int) -> String {
         return "\(TurkishNumbers.capitalised(TurkishNumbers.ordinal(number))) sorunun devamını kameraya tutun."
     }
+
+    /// Sorunun alt kısmı başından önce çekildi (karışık sıra): başı istenir
+    static func headText(_ number: Int) -> String {
+        return "\(TurkishNumbers.capitalised(TurkishNumbers.ordinal(number))) sorunun alt kısmı alındı. Üst kısmını da kameraya tutun."
+    }
 }
 
 /// Aynı cümlenin kısa sürede yeniden söylenmesini engeller ("aynı uyarı en az 10 sn arayla")

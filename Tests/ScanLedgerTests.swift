@@ -56,11 +56,11 @@ final class ScanLedgerTests: XCTestCase {
         ledger.startOpen(number: 4, pages: [url("p1"), url("p2")])
         XCTAssertEqual(ledger.openNumber, 4)
         XCTAssertFalse(ledger.isAccepted(4))
-        ledger.extendOpen(pages: [url("p3")])
+        ledger.extendOpen(number: 4, pages: [url("p3")])
         ledger.accept(number: 4, pages: [url("p4")], continuing: true)
         XCTAssertEqual(ledger.pages[4]?.map { $0.lastPathComponent }, ["p1.jpg", "p2.jpg", "p3.jpg", "p4.jpg"])
         XCTAssertNil(ledger.openNumber)
-        XCTAssertEqual(ledger.openPages, [])
+        XCTAssertFalse(ledger.isOpen(4))
     }
 
     func testGiveUpMarksTheRestUnreadableAndClosesOpen() {
@@ -148,15 +148,26 @@ final class ScanPlannerTests: XCTestCase {
         ledger.startOpen(number: 9, pages: [URL(fileURLWithPath: "/tmp/p1.jpg")])
         let part = ShotSelection(picks: [candidate(1)], problems: [])
         let actions = ScanPlanner.plan(analysis([], contFull: empty, contOpen: part), ledger: ledger)
-        guard case .extendOpen(let picks)? = actions.first else { return XCTFail("parça eklenmeliydi") }
+        guard case .extendOpen(let n, let picks)? = actions.first else { return XCTFail("parça eklenmeliydi") }
+        XCTAssertEqual(n, 9)
         XCTAssertEqual(picks.count, 1)
     }
 
-    func testLeadingPartIsIgnoredWhenNothingIsOpen() {
+    func testLeadingPartIsStashedWhenItsHeadIsNotCapturedYet() {
         let cont = ShotSelection(picks: [candidate(1)], problems: [])
         let actions = ScanPlanner.plan(analysis([QuestionOutcome(number: 3, full: selection(3), open: empty)], contFull: cont),
                                        ledger: ScanLedger(total: 20))
-        XCTAssertEqual(actions.count, 1)
+        XCTAssertEqual(actions.count, 2)
+        guard case .stashTail(let n, let picks) = actions[0] else { return XCTFail("alt kısım saklanmalıydı") }
+        XCTAssertEqual(n, 2, "3. sorudan önceki sorunun devamı")
+        XCTAssertEqual(picks.count, 1)
+    }
+
+    func testLeadingPartOnThePageOfQuestionOneIsIgnored() {
+        let cont = ShotSelection(picks: [candidate(1)], problems: [])
+        let actions = ScanPlanner.plan(analysis([QuestionOutcome(number: 1, full: selection(1), open: empty)], contFull: cont),
+                                       ledger: ScanLedger(total: 20))
+        XCTAssertEqual(actions.count, 1, "1. sorudan önce soru yoktur: baştaki satırlar başlık sayılır")
     }
 
     func testNothingFoundIsUnidentified() {
@@ -209,5 +220,124 @@ final class CaptureAnalyzerTests: XCTestCase {
         XCTAssertEqual(CaptureAnalyzer.generalProblems([frame(0, lines: text, glare: 0.1)], config: config), [.glare])
         XCTAssertEqual(CaptureAnalyzer.generalProblems([frame(0, lines: text, sharp: 0.1)], config: config), [.blurry])
         XCTAssertEqual(CaptureAnalyzer.generalProblems([frame(0, lines: [], sharp: 1.0)], config: config), [.unreadable])
+    }
+}
+
+/// Sorular sırayla çekilmese de (karışık sıra) kayıtlar soru numarasına göre tutulur
+final class MixedOrderTests: XCTestCase {
+    private func url(_ name: String) -> URL { return URL(fileURLWithPath: "/tmp/\(name).jpg") }
+
+    private func candidate(_ n: Int, options: String = "ABCDE", y0: Double = 0.2) -> ShotCandidate {
+        return ShotCandidate(frame: 0, block: OCRFixtures.block(n, y0: y0, options: options), sharp: 1.0, glare: 0)
+    }
+
+    private func frame(_ index: Int, lines: [OCRLine]) -> AnalyzedFrame {
+        return AnalyzedFrame(index: index, lines: lines, sharp: 1.0, glare: 0)
+    }
+
+    private func analyze(_ lines: [OCRLine], frames: Int = 3) -> CaptureAnalysis {
+        return CaptureAnalyzer.analyze((0..<frames).map { frame($0 * 3, lines: lines) }, total: 40, optionCount: 5, config: QualityConfig())
+    }
+
+    func testQuestionsInAnyOrderCompleteTheScan() {
+        var ledger = ScanLedger(total: 6)
+        for n in [5, 2, 6, 1, 4, 3] {
+            XCTAssertFalse(ledger.isComplete)
+            ledger.accept(number: n, pages: [url("q\(n)")], continuing: false)
+        }
+        XCTAssertTrue(ledger.isComplete)
+        XCTAssertEqual(ledger.acceptedNumbers, [1, 2, 3, 4, 5, 6])
+        XCTAssertEqual(QuestionGroups.split(ledger.acceptedNumbers, size: 3), [[1, 2, 3], [4, 5, 6]])
+    }
+
+    func testMissingListIsSortedWhateverTheScanOrder() {
+        var ledger = ScanLedger(total: 8)
+        for n in [7, 2, 5] { ledger.accept(number: n, pages: [url("q\(n)")], continuing: false) }
+        XCTAssertEqual(ledger.missing, [1, 3, 4, 6, 8])
+    }
+
+    func testTwoOpenQuestionsAreKeptApart() {
+        var ledger = ScanLedger(total: 20)
+        ledger.startOpen(number: 4, pages: [url("a4")])
+        ledger.startOpen(number: 9, pages: [url("a9")])
+        XCTAssertEqual(ledger.openNumbers, [4, 9])
+        XCTAssertEqual(ledger.waitingNumbers, [4, 9])
+        ledger.accept(number: 9, pages: [url("b9")], continuing: true)
+        XCTAssertEqual(ledger.pages[9]?.map { $0.lastPathComponent }, ["a9.jpg", "b9.jpg"])
+        XCTAssertTrue(ledger.isOpen(4), "4. sorunun üst kısmı kaybolmadı")
+        XCTAssertEqual(ledger.openNumbers, [4])
+        ledger.accept(number: 4, pages: [url("b4")], continuing: true)
+        XCTAssertEqual(ledger.pages[4]?.map { $0.lastPathComponent }, ["a4.jpg", "b4.jpg"])
+        XCTAssertEqual(ledger.waitingNumbers, [])
+    }
+
+    func testTailCapturedFirstIsJoinedWithItsHead() {
+        var ledger = ScanLedger(total: 20)
+        ledger.stashTail(number: 9, pages: [url("tail9")])
+        XCTAssertTrue(ledger.hasTail(9))
+        XCTAssertEqual(ledger.waitingNumbers, [9])
+        XCTAssertFalse(ledger.isAccepted(9))
+        let head = ShotSelection(picks: [candidate(9, options: "ABC", y0: 0.7)], problems: [])
+        let empty = ShotSelection(picks: [], problems: [])
+        let a = CaptureAnalysis(outcomes: [QuestionOutcome(number: 9, full: empty, open: head)], continuationFull: nil,
+                                continuationOpen: nil, frameCount: 10, generalProblems: [.unreadable])
+        let actions = ScanPlanner.plan(a, ledger: ledger)
+        guard case .accept(let n, _, let continuing)? = actions.first else { return XCTFail("baş ile son birleşmeliydi") }
+        XCTAssertEqual(n, 9)
+        XCTAssertTrue(continuing)
+        ledger.accept(number: 9, pages: [url("head9")], continuing: true)
+        XCTAssertEqual(ledger.pages[9]?.map { $0.lastPathComponent }, ["head9.jpg", "tail9.jpg"], "önce üst, sonra alt kısım")
+        XCTAssertFalse(ledger.hasTail(9))
+    }
+
+    func testTailOfAnotherQuestionIsNotAttachedToTheOpenOne() {
+        var ledger = ScanLedger(total: 20)
+        ledger.startOpen(number: 4, pages: [url("a4")])
+        // Sayfa 10. sorudan başlıyor: baştaki parça 9. sorunun sonudur, açık olan 4. sorunun değil
+        let lines = [OCRFixtures.line("D) devam", y: 0.05), OCRFixtures.line("E) son", y: 0.08)] + OCRFixtures.question(10, y0: 0.2)
+        let a = analyze(lines)
+        XCTAssertEqual(a.firstNumber, 10)
+        let actions = ScanPlanner.plan(a, ledger: ledger)
+        XCTAssertTrue(actions.contains(where: { if case .stashTail(let n, _) = $0 { return n == 9 } else { return false } }))
+        XCTAssertFalse(actions.contains(where: { if case .accept(let n, _, _) = $0 { return n == 4 } else { return false } }),
+                       "4. soru yanlış devamla tamamlanmamalı")
+        XCTAssertTrue(actions.contains(where: { if case .accept(let n, _, _) = $0 { return n == 10 } else { return false } }))
+    }
+
+    func testTailBelongsToTheQuestionBeforeTheFirstNumberedOne() {
+        var ledger = ScanLedger(total: 20)
+        ledger.startOpen(number: 9, pages: [url("a9")])
+        let lines = [OCRFixtures.line("D) devam", y: 0.05), OCRFixtures.line("E) son", y: 0.08)] + OCRFixtures.question(10, y0: 0.2)
+        let actions = ScanPlanner.plan(analyze(lines), ledger: ledger)
+        guard case .accept(let n, _, let continuing)? = actions.first else { return XCTFail("9. soru tamamlanmalıydı") }
+        XCTAssertEqual(n, 9)
+        XCTAssertTrue(continuing)
+    }
+
+    func testFirstNumberIsTheTopmostQuestionOfTheMajorityOfFrames() {
+        let both = OCRFixtures.question(12, y0: 0.2) + OCRFixtures.question(13, y0: 0.5)
+        let misread = OCRFixtures.question(13, y0: 0.5)
+        let frames = [frame(0, lines: both), frame(3, lines: misread), frame(6, lines: both)]
+        let a = CaptureAnalyzer.analyze(frames, total: 40, optionCount: 5, config: QualityConfig())
+        XCTAssertEqual(a.firstNumber, 12, "tek karedeki eksik okuma sonucu bozmaz")
+        XCTAssertNil(analyze(OCRFixtures.question(12, y0: 0.2), frames: 0).firstNumber, "kare yoksa ilk numara yok")
+    }
+
+    func testPagesShownInReverseOrderAreAllRecorded() {
+        var ledger = ScanLedger(total: 12)
+        // Önce 7-8-9. sorular, sonra 1-2-3. sorular, sonra 4-5-6: hepsi numarasına göre kaydedilir
+        let pagesInOrder = [[7, 8, 9], [1, 2, 3], [4, 5, 6]]
+        for page in pagesInOrder {
+            var lines: [OCRLine] = []
+            for (i, n) in page.enumerated() { lines += OCRFixtures.question(n, y0: 0.05 + 0.3 * Double(i)) }
+            let actions = ScanPlanner.plan(analyze(lines), ledger: ledger)
+            for action in actions {
+                if case .accept(let n, _, let continuing) = action {
+                    ledger.accept(number: n, pages: [url("q\(n)")], continuing: continuing)
+                }
+            }
+        }
+        XCTAssertEqual(ledger.acceptedNumbers, [1, 2, 3, 4, 5, 6, 7, 8, 9])
+        XCTAssertEqual(ledger.missing, [10, 11, 12])
     }
 }

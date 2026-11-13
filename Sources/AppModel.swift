@@ -85,7 +85,8 @@ final class AppModel: ObservableObject {
     /// Kırmızı kutudaki uyarılar
     @Published var notes: [ProblemNote] = []
     @Published var acceptedNumbers: [Int] = []
-    @Published var openQuestion: Int?
+    /// Yarım kalan (üst ya da alt kısmı alınmış, tamamlanmayı bekleyen) sorular
+    @Published var waitingQuestions: [Int] = []
     @Published var answers: [AnswerRecord] = []
     @Published var lastSaid = ""
 
@@ -257,6 +258,8 @@ final class AppModel: ObservableObject {
         if DocumentGate.isDocument(sample.metrics) { lastDocAt = now }
         guard guidanceActive, phase == .scanning || phase == .waitingForPage else { return }
         let out = guidance.videoStep(sample.metrics, time: sample.time, stillFor: sample.stillFor)
+        // Kadraj boşken ("Yazı görünmüyor") konuşulmaz: evrak bekleme ve eksik soru uyarıları zaten bunu söyler; sayfa çevrilirken susulur
+        if out.advice == .noText { return }
         if let text = out.speak, voice.sayIfIdle(text) { lastSaid = text }
     }
 

@@ -15,8 +15,13 @@ enum CaptureAnalyzer {
     static func analyze(_ frames: [AnalyzedFrame], total: Int, optionCount: Int, config: QualityConfig) -> CaptureAnalysis {
         var byNumber: [Int: [ShotCandidate]] = [:]
         var leading: [ShotCandidate] = []
+        var firstSeen: [Int: Int] = [:]
         for f in frames {
             let layout = QuestionLayout.analyze(lines: f.lines, total: total, optionCount: optionCount)
+            // Karedeki ilk (en üstteki, ilk sütundaki) numaralı soru: baştaki numarasız parçanın sahibini belirler
+            if let top = layout.blocks.filter({ $0.column == 0 }).first ?? layout.blocks.first {
+                firstSeen[top.number, default: 0] += 1
+            }
             for b in layout.blocks {
                 byNumber[b.number, default: []].append(ShotCandidate(frame: f.index, block: b, sharp: f.sharp, glare: f.glare))
             }
@@ -43,7 +48,13 @@ enum CaptureAnalyzer {
             contOpen = QualityGate.select(leading, config: config, allowOpen: true)
         }
         return CaptureAnalysis(outcomes: outcomes, continuationFull: contFull, continuationOpen: contOpen,
-                               frameCount: frames.count, generalProblems: generalProblems(frames, config: config))
+                               frameCount: frames.count, generalProblems: generalProblems(frames, config: config),
+                               firstNumber: mostSeen(firstSeen))
+    }
+
+    /// En çok karede görülen numara (eşitlikte küçük olan): tek karedeki yanlış okuma sonucu bozmaz
+    static func mostSeen(_ counts: [Int: Int]) -> Int? {
+        return counts.sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }.first?.key
     }
 
     /// Hiçbir soru bulunamadığında nedeni: yazı hiç okunmuyor, bulanık ya da parlama

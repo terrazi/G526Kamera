@@ -74,7 +74,11 @@ extension AppModel {
         phase = .asking
         setStatus("Cevaplar hazırlanıyor")
         let docs = buildAnswerDocs()
-        guard !docs.isEmpty else { return }
+        guard !docs.isEmpty else {
+            say("Sorular PDF'e çevrilemedi. Gemini'ye gönderilecek bir şey yok.")
+            await voice.waitUntilIdle()
+            return
+        }
         let requested = docs.flatMap { $0.numbers }.sorted()
         let profiles = settings.geminiProfileInfos()
         let wait = TimeInterval(settings.geminiWaitLimit)
@@ -112,7 +116,7 @@ extension AppModel {
         let list = records.values.sorted { $0.number < $1.number }
         answers = list
         let unanswered = ReadingPlan.unanswered(requested: requested, records: list)
-        if let error = lastError {
+        if let error = lastError, !unanswered.isEmpty {
             addNote("gemini", "Gemini: \(error)")
         }
         if !unanswered.isEmpty {

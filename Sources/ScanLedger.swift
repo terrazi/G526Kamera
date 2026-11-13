@@ -18,6 +18,9 @@ struct CaptureAnalysis: Equatable {
     var frameCount: Int
     /// Hiçbir soru numarası bulunamadıysa en baskın sorun (bulanık, parlama, yazı okunmuyor)
     var generalProblems: [ShotProblem]
+    /// Sayfadaki ilk (en üstteki) numaralı sorunun numarası: baştaki numarasız parça bundan bir öncekinin devamıdır.
+    /// nil ise çekimdeki en küçük numara kullanılır.
+    var firstNumber: Int? = nil
 }
 
 /// Çekim sonucunda yapılacak iş
@@ -27,7 +30,9 @@ enum LedgerAction: Equatable {
     /// Soru sayfanın altında sürüyor: görünen kısım parça olarak saklanır, "devamını tutun" denir
     case startOpen(number: Int, picks: [ShotCandidate])
     /// Açık sorunun devam parçası alındı ama soru hâlâ bitmedi (üç sayfaya yayılan soru)
-    case extendOpen(picks: [ShotCandidate])
+    case extendOpen(number: Int, picks: [ShotCandidate])
+    /// Sorunun alt kısmı (devamı) başından önce çekildi: soru numarasıyla saklanır, başı gelince birleştirilir
+    case stashTail(number: Int, picks: [ShotCandidate])
     case reject(number: Int, problems: [ShotProblem])
     case duplicate(number: Int)
     /// Hiçbir soru bulunamadı
@@ -47,8 +52,11 @@ struct ScanLedger: Equatable {
     private(set) var pages: [Int: [URL]] = [:]
     private(set) var attempts: [Int: Int] = [:]
     private(set) var unreadable: Set<Int> = []
-    private(set) var openNumber: Int?
-    private(set) var openPages: [URL] = []
+    /// Başı alınmış, devamı bekleyen sorular (soru numarası → sayfa görüntüleri) ve açılış sırası (en son açılan sonda)
+    private(set) var openParts: [Int: [URL]] = [:]
+    private(set) var openOrder: [Int] = []
+    /// Devamı (alt kısmı) alınmış, başı bekleyen sorular: sorular karışık sırada çekilince oluşur
+    private(set) var tails: [Int: [URL]] = [:]
     private(set) var duplicates = 0
 
     init(total: Int, optionCount: Int = 5, maxAttempts: Int = 5) {
@@ -56,6 +64,15 @@ struct ScanLedger: Equatable {
         self.optionCount = optionCount
         self.maxAttempts = max(maxAttempts, 0)
     }
+
+    /// En son açılan (devamı beklenen) soru
+    var openNumber: Int? { return openOrder.last }
+    /// Devamı beklenen bütün sorular, küçükten büyüğe
+    var openNumbers: [Int] { return openOrder.sorted() }
+    /// Yarım kalan sorular: başı ya da sonu alınmış, henüz tamamlanmamış
+    var waitingNumbers: [Int] { return Array(Set(openParts.keys).union(tails.keys)).filter { pages[$0] == nil }.sorted() }
+    func isOpen(_ n: Int) -> Bool { return openParts[n] != nil }
+    func hasTail(_ n: Int) -> Bool { return tails[n] != nil }
 
     var acceptedNumbers: [Int] { return pages.keys.sorted() }
     func isAccepted(_ n: Int) -> Bool { return pages[n] != nil }
@@ -76,24 +93,37 @@ struct ScanLedger: Equatable {
 
     // MARK: Değişiklikler
 
+    /// `continuing`: bu çekim, daha önce alınmış bir parçayla birleşir. Başı bekleyen soruya devam parçası eklenir; devamı bekleyen soruya baş eklenir.
     mutating func accept(number: Int, pages newPages: [URL], continuing: Bool) {
-        let all = (continuing && openNumber == number) ? openPages + newPages : newPages
+        var all = newPages
+        if continuing {
+            if let head = openParts[number] {
+                all = head + newPages
+            } else if let tail = tails[number] {
+                all = newPages + tail
+            }
+        }
         pages[number] = all
         unreadable.remove(number)
-        if openNumber == number {
-            openNumber = nil
-            openPages = []
-        }
+        openParts[number] = nil
+        openOrder.removeAll { $0 == number }
+        tails[number] = nil
     }
 
     mutating func startOpen(number: Int, pages newPages: [URL]) {
-        openNumber = number
-        openPages = newPages
+        openParts[number] = newPages
+        openOrder.removeAll { $0 == number }
+        openOrder.append(number)
     }
 
-    mutating func extendOpen(pages newPages: [URL]) {
-        guard openNumber != nil else { return }
-        openPages += newPages
+    mutating func extendOpen(number: Int, pages newPages: [URL]) {
+        guard let head = openParts[number] else { return }
+        openParts[number] = head + newPages
+    }
+
+    mutating func stashTail(number: Int, pages newPages: [URL]) {
+        guard pages[number] == nil else { return }
+        tails[number] = newPages
     }
 
     /// Soru bu çekimde gönderime uygun çıkmadı. Deneme sınırı dolduysa soru "okunamadı" işaretlenir ve true döner.
@@ -113,23 +143,41 @@ struct ScanLedger: Equatable {
     /// Süre ya da bekleme doldu: kalan eksikler "okunamadı" sayılır
     mutating func giveUpOnMissing() {
         for n in missing { unreadable.insert(n) }
-        openNumber = nil
-        openPages = []
+        openParts = [:]
+        openOrder = []
+        tails = [:]
     }
 }
 
 /// Bir çekimin çözümlemesinden, kayıt defterine göre yapılacak işleri çıkarır (saf)
 enum ScanPlanner {
+    /// Sayfanın başındaki numarasız parçanın sahibi: sayfadaki ilk numaralı sorudan bir önceki soru. Soru numarasına bakıldığı için
+    /// sorular hangi sırayla çekilirse çekilsin parça doğru soruya eklenir. Numaralı soru yoksa tek açık soru varsa o sayılır.
+    static func tailOwner(_ a: CaptureAnalysis, ledger: ScanLedger) -> Int? {
+        if let first = a.firstNumber ?? a.outcomes.map({ $0.number }).min() {
+            return first >= 2 ? first - 1 : nil
+        }
+        let open = ledger.openNumbers
+        return open.count == 1 ? open[0] : nil
+    }
+
     static func plan(_ a: CaptureAnalysis, ledger: ScanLedger) -> [LedgerAction] {
         var actions: [LedgerAction] = []
         var continued: Int?
-        // 1) Sayfanın başındaki parça: açık soru varsa onun devamıdır
-        if let open = ledger.openNumber {
-            if let full = a.continuationFull, !full.picks.isEmpty {
-                actions.append(.accept(number: open, picks: full.picks, continuing: true))
-                continued = open
-            } else if let part = a.continuationOpen, !part.picks.isEmpty {
-                actions.append(.extendOpen(picks: part.picks))
+        // 1) Sayfanın başındaki parça: bir önceki sorunun devamıdır
+        if let owner = tailOwner(a, ledger: ledger), !ledger.isAccepted(owner) {
+            let full = a.continuationFull?.picks ?? []
+            let part = a.continuationOpen?.picks ?? []
+            if ledger.isOpen(owner) {
+                if !full.isEmpty {
+                    actions.append(.accept(number: owner, picks: full, continuing: true))
+                    continued = owner
+                } else if !part.isEmpty {
+                    actions.append(.extendOpen(number: owner, picks: part))
+                }
+            } else if !full.isEmpty {
+                // Sorunun başı henüz çekilmemiş (karışık sıra): sonu soru numarasıyla saklanır
+                actions.append(.stashTail(number: owner, picks: full))
             }
         }
         // 2) Numaralı sorular
@@ -140,7 +188,12 @@ enum ScanPlanner {
             } else if !o.full.picks.isEmpty {
                 actions.append(.accept(number: o.number, picks: o.full.picks, continuing: false))
             } else if !o.open.picks.isEmpty {
-                actions.append(.startOpen(number: o.number, picks: o.open.picks))
+                // sonu daha önce çekilmişse baş ile birleşip soru tamamlanır
+                if ledger.hasTail(o.number) {
+                    actions.append(.accept(number: o.number, picks: o.open.picks, continuing: true))
+                } else {
+                    actions.append(.startOpen(number: o.number, picks: o.open.picks))
+                }
             } else {
                 actions.append(.reject(number: o.number, problems: o.full.problems))
             }
