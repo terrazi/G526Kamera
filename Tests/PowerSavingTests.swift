@@ -18,15 +18,25 @@ final class PowerSavingTests: XCTestCase {
         return buffer
     }
 
+    /// Analiz kuyruğundan geçen kare sayısı (onAnalyzed çağrıları)
+    private final class Counter {
+        private let lock = NSLock()
+        private var value = 0
+        func increment() { lock.lock(); value += 1; lock.unlock() }
+        var count: Int { lock.lock(); defer { lock.unlock() }; return value }
+    }
+
     private func analyzedCount(saving: Bool) -> Int {
         let pipeline = FramePipeline()
+        let counter = Counter()
+        pipeline.onAnalyzed = { _, _, _ in counter.increment() }
         pipeline.saving = saving
         for i in 0..<10 {
             pipeline.handle(planarBuffer(), time: Double(i))
             usleep(80_000)      // analiz kuyruğu boşalsın (birikme sınırına takılmasın)
         }
         usleep(300_000)
-        return pipeline.store.frames(from: -1, to: 100).count
+        return counter.count
     }
 
     func testDefaultsKeepPreviewOn() {

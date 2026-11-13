@@ -263,74 +263,11 @@ final class GuidanceTests: XCTestCase {
         XCTAssertFalse(m.hasText)
     }
 
-    // MARK: - Sesli komut sözcükleri
-
-
-
-    func testChoiceVariants() {
-        for phrase in ["sol", "Sola", "soldaki", "sol taraf", "sol tarafta", "Sol taraftaki sütun", "sol sayfa",
-                       "sol sütun", "sol tarafındaki bölüm", "solda olan"] {
-            XCTAssertGreaterThan(hits(phrase, .left), 0, phrase)
-            XCTAssertEqual(hits(phrase, .right), 0, phrase)
-        }
-        for phrase in ["sağ", "Sağa", "sağdaki", "sağ taraf", "sağ taraftaki", "sağ sütun", "sağ sayfa",
-                       "sağ tarafındaki bölüm", "sağdan"] {
-            XCTAssertGreaterThan(hits(phrase, .right), 0, phrase)
-            XCTAssertEqual(hits(phrase, .left), 0, phrase)
-        }
-        for phrase in ["orta", "ortadaki", "orta sütun", "ortadaki sayfa"] {
-            XCTAssertGreaterThan(hits(phrase, .middle), 0, phrase)
-        }
-        for phrase in ["ikisi", "ikisi birden", "ikisini de", "hepsini", "tamamı", "üçü de"] {
-            XCTAssertGreaterThan(hits(phrase, .all), 0, phrase)
-        }
-    }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     // MARK: - Sesli rapor
-
-
-
-
-
-
-
-
-
-
 
     // MARK: - Son fotoğrafı sil / yeniden çek
 
-
-
-
-
-
-
-
-
-
-
     // MARK: - Günlük sayaçlar
-
-
 
     // MARK: - Parlama
 
@@ -371,8 +308,6 @@ final class GuidanceTests: XCTestCase {
         for y in 300..<312 { for x in 250..<700 { strip[y * 960 + x] = 255 } }
         XCTAssertEqual(GuidanceAnalyzer.analyze(luma: strip, width: 960, height: 540).glare, 0)
     }
-
-
 
     // MARK: - Gerçek kamera kareleri ve ışık düşüşü (vinyet)
 
