@@ -130,6 +130,17 @@ final class GeminiVideoQueueTests: XCTestCase {
         XCTAssertTrue(q.contains("sıralı"))
     }
 
+    func testExamModeSwitchIsOffByDefaultAndStoredChoiceIsKept() {
+        UserDefaults.standard.removeObject(forKey: "examEnabled")
+        XCTAssertFalse(AppSettings().examEnabled, "varsayılan: normal mod")
+        let s = AppSettings()
+        s.examEnabled = true
+        XCTAssertTrue(AppSettings().examEnabled, "anahtar yeniden açılışta korunur")
+        s.examEnabled = false
+        XCTAssertFalse(AppSettings().examEnabled)
+        UserDefaults.standard.removeObject(forKey: "examEnabled")
+    }
+
     func testVideoGuidanceIsOnByDefaultAndStoredChoiceIsKept() {
         UserDefaults.standard.removeObject(forKey: "videoGuidance")
         XCTAssertTrue(AppSettings().videoGuidance, "varsayılan: video sırasında konum tarifi açık")

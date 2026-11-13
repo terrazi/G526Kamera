@@ -92,7 +92,7 @@ extension ExamPrompts {
         "type": "OBJECT",
         "properties": [
             "anlasilan": ["type": "STRING"],
-            "islem": ["type": "STRING", "enum": ["cevap", "tekrar", "hepsi", "devam", "bitir", "anlasilmadi"]],
+            "islem": ["type": "STRING", "enum": ["cevap", "tekrar", "hepsi", "devam", "bitir", "kapat", "anlasilmadi"]],
             "numaralar": ["type": "ARRAY", "items": ["type": "INTEGER"]],
             "cevap": ["type": "STRING"]
         ],
@@ -107,7 +107,8 @@ extension ExamPrompts {
             "- tekrar: kullanıcı belirli soruların kayıtlı cevaplarının yeniden okunmasını istiyor; 'numaralar'a soru numaralarını yaz.",
             "- hepsi: bütün cevapların baştan okunmasını istiyor.",
             "- devam: sıradaki sorulara geçilmesini istiyor.",
-            "- bitir: sınavı bitirmek istiyor.",
+            "- bitir: yapılan sınavı bitirmek / sonlandırmak istiyor ('sınavı bitir', 'sınavı sonlandır', 'sınavı tamamla', 'sınavı kes', 'sınav tamam').",
+            "- kapat: deneme sınavı modunu kapatıp normal moda dönmek istiyor ('sınavı kapat', 'deneme sınavı modunu kapat').",
             "- cevap: bunlardan başka bir şey söylüyor ya da soruyor (bir soruyu açıkla, neden bu şık, yeniden çöz, kontrol et, başka bir "
                 + "soru…). 'cevap' alanına sesle okunacak kısa, düz Türkçe bir cevap yaz (en çok yaklaşık altı cümle; madde işareti, sembol, "
                 + "kalın yazı yok). Belgelerdeki soruları ve aşağıdaki kayıtlı cevapları esas al; emin değilsen bunu söyle, uydurma.",

@@ -169,6 +169,8 @@ final class AppSettings: ObservableObject {
     @Published var examVideoFirst: Bool { didSet { d.set(examVideoFirst, forKey: "examVideoFirst") } }
     /// Sınav açılırken ses, mikrofon, internet ve Gemini sınanır
     @Published var examSelfCheck: Bool { didSet { d.set(examSelfCheck, forKey: "examSelfCheck") } }
+    /// Ana sayfadaki "Deneme sınavını etkinleştir" anahtarı: açıkken uygulama deneme sınavı modunda, kapalıyken normal çalışır
+    @Published var examEnabled: Bool { didSet { d.set(examEnabled, forKey: "examEnabled") } }
     /// Bağlantı kestirmesinin adı (Kestirmeler uygulamasındaki kestirme: hücresel veriyi kapat-aç). İnternet gidince çalışır; boşsa kapalı
     @Published var connectionShortcutName: String { didSet { d.set(connectionShortcutName, forKey: "connectionShortcutName") } }
     /// Ses kestirmesinin adı (Bluetooth'u kapat-aç). Mikrofon uzun süre sessiz kalınca ya da ses mikrofon alıcısına gidince çalışır; boşsa kapalı
@@ -296,6 +298,7 @@ final class AppSettings: ObservableObject {
         examGap = min(max(d.object(forKey: "examGap") as? Int ?? 3, 0), 10)
         examVideoFirst = d.object(forKey: "examVideoFirst") as? Bool ?? true
         examSelfCheck = d.object(forKey: "examSelfCheck") as? Bool ?? true
+        examEnabled = d.object(forKey: "examEnabled") as? Bool ?? false
         connectionShortcutName = AppSettings.migratedConnectionShortcutName(d)
         audioShortcutName = d.string(forKey: "audioShortcutName") ?? ""
         previewOff = d.object(forKey: "previewOff") as? Bool ?? false

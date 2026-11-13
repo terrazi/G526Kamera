@@ -251,6 +251,16 @@ enum ExamText {
     private static let sendStems = ["gonder", "yolla", "yukle", "aktar", "ilet", "drive"]
     private static let endWords = ["kapat", "kapa", "cik", "sonlan", "sonland", "bitir", "bitt", "tamamla", "tamamlan",
                                    "tamamlad", "bitis", "sonuc", "bitm"]
+    /// "Sınavı kapat" = deneme sınavı MODUNU kapat (açık sınav da biter); "sınavı sonlandır / bitir" yalnız yapılan sınavı bitirir
+    private static let closeWords = ["kapat", "kapa"]
+    /// "Sınavı kes" de yapılan sınavı sonlandırır (yalnız "sınav" sözcüğüyle; "kesin" gibi sözcüklerle karışmasın diye tam sözcük)
+    private static let endExact: Set<String> = ["kes", "kesin", "keselim", "kesiyorum", "kestim", "kesti"]
+    /// Olumsuz söyleyişler ("sınavı kapatma"): ne kapatma ne sonlandırma sayılır
+    private static let closeRefuse: Set<String> = ["kapatma", "kapatmayin", "kapatmayalim", "kapama", "kapamayin", "sonlandirma",
+                                                   "sonlandirmayin", "sonlandirmayalim"]
+    /// "Normal moda geç / geçiş yap / dön", "normal modda çalış" da deneme sınavı modunu kapatır
+    private static let normalSwitch = ["gec", "calis", "don", "kullan", "ac"]
+    private static let normalNo = ["gecme", "calisma", "donme", "acma", "kullanma"]
     private static let contWords: Set<String> = [
         "devam", "surdur", "surdurun", "evet", "peki", "haydi", "hadi", "baslayalim", "basla", "baslat", "oldu", "olur",
         "tamam", "tamamdir", "tabi", "tabii", "tabiki", "elbette", "buyur", "hazirim", "hazir", "gec", "gecelim", "sonraki",
@@ -287,13 +297,23 @@ enum ExamText {
         let scanSubject = has(toks, scanSubj)
         let scanVerb = has(toks, ["tara", "cek", "cekim", "ekle", "tarat"])
 
+        // Deneme sınavı modunu kapatma ("sınavı kapat", "sınav modunu kapat", "normal moda geç", "normal modda çalış"):
+        // sınav sürüyorsa o da biter. "Sınavı sonlandır / bitir" ise yalnız yapılan sınavı bitirir.
+        let refusing = exact(toks, closeRefuse)
+        if valid.contains("close") && !neg && !refusing {
+            if sinav && has(toks, closeWords) { return "close" }
+            if has(toks, ["normal"]) && has(toks, ["mod"]) && has(toks, normalSwitch) && !has(toks, normalNo) { return "close" }
+        }
+
         // Video aşaması (yalnız o aşamada geçerli): sil → göndermeden sil; atla → fotoğrafa geç; durdur/kapat → kaydı bitir; evet / hayır
         // ("sınav" sözcüğü geçiyorsa bunlar değil, sınavı kapatma / bitirme komutu sayılır)
         if valid.contains("vdel") && !examWord && exact(toks, vdelWords) { return "vdel" }
         if valid.contains("vskip") && !examWord && (exact(toks, vskipWords) || has(toks, ["fotograf", "taramaya"])) { return "vskip" }
         if valid.contains("vstop") && !examWord && exact(toks, vstopWords) { return "vstop" }
         if valid.contains("no") && (neg || exact(toks, noWords) || has(toks, ["fotograf", "tarama"])) { return "no" }
-        if valid.contains("yes") && (exact(toks, contWords) || has(toks, ["devam", "evet"])) { return "yes" }
+        // "Sınav tamam" sınavı bitirir; videoya "devam" sorusuna verilen "tamam" ise evettir
+        let examDone = examWord && !has(toks, ["devam", "evet"]) && (toks.contains("tamam") || toks.contains("tamamdir"))
+        if valid.contains("yes") && !examDone && (exact(toks, contWords) || has(toks, ["devam", "evet"])) { return "yes" }
 
         if valid.contains("cancel") {
             let strong = toks.contains(where: { cancelWords.contains($0) && !weakCancel.contains($0) })
@@ -319,16 +339,17 @@ enum ExamText {
             }
         }
         if valid.contains("end") {
-            if sinav && (has(toks, endWords) || has(toks, ["sona", "erd"]) || exact(toks, ["tamam", "tamamdir", "yeter", "bu", "kadar"])) && !neg {
+            if sinav && (has(toks, endWords) || has(toks, ["sona", "erd"]) || exact(toks, endExact)
+                         || exact(toks, ["tamam", "tamamdir", "yeter", "bu", "kadar"])) && !neg && !refusing {
                 return "end"
             }
-            if !valid.contains("scan_done") && !neg
+            if !valid.contains("scan_done") && !neg && !refusing
                 && (has(toks, endWords) || (toks.contains("bu") && toks.contains("kadar"))
                     || exact(toks, ["gorusuruz", "hoscakal", "cikis", "bye", "gule", "saol", "sagol", "tesekkurler", "tesekkur"])) {
                 return "end"
             }
         }
-        if valid.contains("scan_done") && !neg {
+        if valid.contains("scan_done") && !neg && !refusing {
             if has(toks, sendStems) && (scanSubject || toks.count <= 3 || has(toks, ["hepsi", "artik", "simdi", "drive"])) {
                 return "scan_done"
             }
@@ -368,5 +389,7 @@ enum ExamText {
     static let hints: [String] = [
         "deneme sınavı modu", "deneme sınavı", "sınav modu", "tarama tamamlandı", "taramalar tamamlandı", "taramaya devam",
         "sınav tamamlandı", "son sayfayı sil", "tüm cevapları oku", "devam", "iptal", "duraklat", "yeni sınav",
-        "durdur", "sil", "atla", "evet", "hayır", "videoya devam"]
+        "durdur", "sil", "atla", "evet", "hayır", "videoya devam",
+        "sınavı başlat", "sınavı sonlandır", "sınavı bitir", "sınavı kapat", "sınav modunu kapat", "normal moda geç",
+        "deneme sınavını etkinleştir"]
 }

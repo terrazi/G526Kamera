@@ -28,7 +28,7 @@ struct ContentView: View {
                     VoiceRow(status: model.speechStatus, heard: model.heardText,
                              enabled: settings.voiceEnabled || settings.guidanceEnabled)
                     if settings.geminiEnabled { GeminiRow(chat: model.gemini, exam: model.exam) }
-                    ExamRow(exam: model.exam)
+                    ExamRow(exam: model.exam, enabled: $settings.examEnabled)
                     Toggle(isOn: $settings.motionEnabled) {
                         Label("Görüntü değişince otomatik çek", systemImage: "wand.and.rays")
                     }
@@ -444,9 +444,11 @@ struct GeminiRow: View {
 }
 
 
-/// Deneme sınavı kartı: adım, sayaçlar, son söylenen cümle ve başlat / kapat düğmeleri
+/// Deneme sınavı kartı: etkinleştirme anahtarı; açıkken adım, sayaçlar, son söylenen cümle ve başlat / sonlandır düğmeleri
 struct ExamRow: View {
     @ObservedObject var exam: ExamMode
+    /// Ana sayfadaki "Deneme sınavını etkinleştir" anahtarı: açıkken uygulama deneme sınavı modunda, kapalıyken normal çalışır
+    @Binding var enabled: Bool
 
     private var headline: String {
         switch exam.stage {
@@ -485,8 +487,32 @@ struct ExamRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Label(headline, systemImage: "list.number")
-                .font(.subheadline.weight(.semibold))
+            Toggle(isOn: $enabled) {
+                Label("Deneme sınavını etkinleştir", systemImage: "list.number")
+                    .font(.subheadline.weight(.semibold))
+            }
+            .accessibilityIdentifier("sinav-etkin")
+            if !enabled {
+                Text("Kapalı: uygulama normal çalışır.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .accessibilityIdentifier("sinav-kapali")
+            } else {
+                examContent
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(Color(UIColor.secondarySystemBackground))
+        .cornerRadius(12)
+    }
+
+    /// Mod açıkken: adım, sayaçlar, son söylenen cümle, cevap anahtarı ve başlat / sonlandır düğmeleri
+    @ViewBuilder
+    private var examContent: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(headline, systemImage: "list.bullet.rectangle")
+                .font(.footnote.weight(.semibold))
                 .accessibilityIdentifier("sinav-durum")
             if !exam.status.isEmpty {
                 Text(exam.status).font(.caption).foregroundColor(.secondary)
@@ -515,7 +541,7 @@ struct ExamRow: View {
                 .accessibilityIdentifier("sinav-anahtar")
             }
             HStack(spacing: 12) {
-                Button(exam.info.active ? "Sınavı kapat" : "Deneme sınavı modu") {
+                Button(exam.info.active ? "Sınavı sonlandır" : "Sınavı başlat") {
                     if exam.info.active {
                         exam.stop()
                     } else {
@@ -531,10 +557,6 @@ struct ExamRow: View {
                 }
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .background(Color(UIColor.secondarySystemBackground))
-        .cornerRadius(12)
     }
 }
 

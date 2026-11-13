@@ -308,7 +308,7 @@ final class ExamMode: ObservableObject {
     static let stateFile = "sinav.json"
     /// Mod dışı taramada, PDF olarak çoktan gönderilmiş sayfaların sınava alınabileceği süre (sn)
     static let adoptWindow: Double = 30 * 60
-    private static let idleValid: Set<String> = ["start", "scan_done", "end", "undo"]
+    private static let idleValid: Set<String> = ["start", "scan_done", "end", "undo", "close"]
 
     @Published private(set) var stage = "idle"
     @Published private(set) var status = ""
@@ -348,14 +348,26 @@ final class ExamMode: ObservableObject {
     /// Açılış sınamasında "tamam" beklenen süreler (sn): ilk deneme, ikinci deneme
     var checkTimeouts: (first: Double, second: Double) = (15, 12)
     private var checkProblem = ""
+    /// "Sınavı kapat" ya da anahtarın kapatılması: açık sınav bitince deneme sınavı modu da kapanır
+    private var closeAfter = false
+    /// Mod kapatılırken (sesle "sınavı kapat") çağrılır: uygulama ayarı kapatır, anahtar ve mod birlikte kapanır. Verilmezse mod doğrudan kapanır.
+    var onCloseMode: (() -> Void)?
     /// Bağlantı yoklaması en erken bu zamanda (bekleme döngüsünde saniyede 4 kez)
     private var nextLinkCheck: Double = 0
     /// Program açılınca yapılan sınama tamamlandı mı (bir açılışta bir kez) ve geçti mi; geçtiyse sınav başlarken yeniden sınanmaz
     private var startupDone = false
     private var startupRunning = false
     @Published private(set) var startupReady = false
+    /// Deneme sınavı modu etkin mi (ana sayfadaki anahtar). Kapalıyken uygulama normal çalışır: açılış sınaması yapılmaz, sınav sesli
+    /// komutları ("sınavı başlat" dışında) yok sayılır ve "sınavı başlat" yalnızca "etkin değil" cevabı alır. Varsayılan açık: uygulama
+    /// ayardan verir (`setEnabled`).
+    @Published private(set) var enabled = true
     /// Açılış sınaması bu açılışta yapıldı (geçti ya da kaldı); yeniden denenmez
     var startupFinished: Bool { return startupDone }
+
+    static let disabledNotice = "Deneme sınavı etkin değil. Ana sayfadaki “Deneme sınavını etkinleştir” anahtarını açın."
+    static let enabledNotice = "Deneme sınavı modu açık. Başlamak için “sınavı başlat” deyin."
+    static let leftNotice = "Deneme sınavı modu kapandı. Normal mod."
     /// "Dinle": sınav sırasında her an Gemini ile serbest sesli konuşma
     private var freeActive = false
     private var freeRestart = false
@@ -506,22 +518,30 @@ final class ExamMode: ObservableObject {
             return false
         }
         if !running { return outside(name, text) }
-        if name == "end" {
+        // "Sınavı kapat": açık sınav sonlandırılır, bitince mod da kapanır
+        if name == "close" { closeAfter = true }
+        let queued = (name == "close") ? "end" : name
+        if queued == "end" {
             aborted = true
             ports.stopSpeaking()
             ports.stopListening()
         }
-        cmds.append((name: name, text: text))
+        cmds.append((name: queued, text: text))
         return true
     }
 
     /// Serbest söylenen metin (ses tanımadan). Anlam olarak komuta çevrilir; yorumlandıysa true.
     @discardableResult
     func hear(_ text: String) -> Bool {
+        if !running && !enabled {
+            // Normal mod: sınav sözleri işlenmez; yalnız "sınavı başlat" denirse neden başlamadığı söylenir
+            if ExamText.match(text, ["start"]) == "start" { return command("start", text: text) }
+            return false
+        }
         if running {
             let ok = valid
             if ok.isEmpty { return false }
-            if let name = ExamText.match(text, ok.union(["end"])) {
+            if let name = ExamText.match(text, ok.union(["end", "close"])) {
                 return command(name, text: text)
             }
             if wantText && ExamMode.looksLikeQuestionRef(text) {
@@ -553,7 +573,7 @@ final class ExamMode: ObservableObject {
 
     /// Mod kapalıyken söylenen "tarama tamamlandı" sınava alınabilir mi (olağan "hepsi tamamlandı" gönderimi araya girmesin diye)
     func wouldAdopt(_ text: String) -> Bool {
-        if running { return false }
+        if running || !enabled { return false }
         guard ExamText.match(text, ["scan_done"]) == "scan_done", ExamMode.mentionsScanning(text) else { return false }
         return !ports.pending().isEmpty || !recentSent().isEmpty
     }
@@ -594,7 +614,17 @@ final class ExamMode: ObservableObject {
 
     /// Mod kapalıyken gelen komutlar yok sayılmaz: gerekirse mod kendiliğinden açılır ya da kısa bir cevap verilir.
     private func outside(_ name: String, _ text: String) -> Bool {
+        if !enabled {
+            if name == "start" {
+                bg { await self.sayNow(ExamMode.disabledNotice) }
+                return true            // karşılık verildi (ses tanıma yeniden başlar, aynı söz bir daha işlenmez)
+            }
+            return false
+        }
         switch name {
+        case "close":
+            leaveMode()
+            return true
         case "start":
             return start()
         case "scan_done":
@@ -731,6 +761,8 @@ final class ExamMode: ObservableObject {
             }
         case "bitir":
             command("end", source: "ui")
+        case "kapat":
+            command("close", source: "ui")
         case "cevap" where !reply.isEmpty:
             await freeLines([reply])
         case "tekrar", "hepsi":
@@ -772,6 +804,7 @@ final class ExamMode: ObservableObject {
 
     @discardableResult
     func start() -> Bool {
+        guard enabled else { return false }       // kapalıyken başlatılamaz (sesli komutta "etkin değil" cevabı `outside`'ta verilir)
         if startupRunning {
             bg { await self.sayNow("Önce hazırlık sınamasını tamamlayalım.") }
             return false
@@ -816,7 +849,7 @@ final class ExamMode: ObservableObject {
     /// sınanmaz. Sorun varsa nedeni söylenir ve ekrana yazılır; "deneme sınavı modu" denince sınama yeniden yapılır.
     @discardableResult
     func startupCheck() -> Bool {
-        guard !running, !startupDone, ports.selfCheckOn() else { return false }
+        guard enabled, !running, !startupDone, ports.selfCheckOn() else { return false }
         let why = ports.preflight(needCamera: false)
         if !why.isEmpty {
             // Henüz hazır değil (ör. ses tanıma açılıyor): çağıran birkaç kez yeniden dener; sınama başlamadığı için "yapıldı" sayılmaz
@@ -863,6 +896,7 @@ final class ExamMode: ObservableObject {
         startupReady = ok
         setStatus(ok ? "" : checkProblem)
         refreshInfo()
+        await finishCloseRequest()
     }
 
     /// Mod kapalıyken "tarama tamamlandı" denince: son taramalarla gönderme adımından başlar.
@@ -892,9 +926,55 @@ final class ExamMode: ObservableObject {
         return true
     }
 
-    /// Ekran düğmesi: sınavı kapatır (kayıtlar saklanır)
+    /// Deneme sınavı modundan çıkar (normal moda dön): sesle "sınavı kapat" (açık sınav yoksa doğrudan, varsa sınav bitince)
+    private func leaveMode() {
+        if let close = onCloseMode { close() } else { setEnabled(false) }
+    }
+
+    /// Sınav (ya da hazırlık sınaması) bitti: kapatma istenmişse mod da kapanır
+    private func finishCloseRequest() async {
+        guard closeAfter else { return }
+        closeAfter = false
+        if enabled {
+            leaveMode()            // ayar kapanır, `setEnabled(false)` "Normal mod" der
+        } else {
+            await sayNow(ExamMode.leftNotice)   // anahtardan kapatıldı: sınav sonlandı, şimdi mod bilgisi
+        }
+    }
+
+    /// Ekran düğmesi: açık sınavı sonlandırır (kayıtlar saklanır; deneme sınavı modu açık kalır)
     func stop() {
         if running { command("end", text: "", source: "ui") }
+    }
+
+    /// Ana sayfadaki "Deneme sınavını etkinleştir" anahtarı. Açılınca açılış sınaması bu açılışta yeniden yapılabilir (kulaklık, mikrofon,
+    /// internet değişmiş olabilir) ve kısa bir bilgi verilir; kapanınca açık sınav (ya da sınama) durdurulur, kayıtlar saklanır ve sonra
+    /// yeniden açılınca "yarım kalan sınav" olarak sürdürülür. Kapalıyken sınav özellikleri çalışmaz: uygulama normaldir.
+    func setEnabled(_ on: Bool, announce: Bool = true) {
+        guard on != enabled else { return }
+        if on {
+            enabled = true
+            startupDone = false
+            startupReady = false
+            checkProblem = ""
+            setStatus("")
+            refreshInfo()
+            if announce && !ports.selfCheckOn() { bg { await self.sayNow(ExamMode.enabledNotice) } }
+        } else {
+            let wasRunning = running
+            if wasRunning {
+                closeAfter = true
+                command("end", text: "", source: "ui")   // sınav kendi sonlandırma cümlesini söyler, sonra mod bilgisi gelir
+            }
+            enabled = false
+            startupReady = false
+            if !wasRunning {
+                checkProblem = ""
+                setStatus("")
+            }
+            refreshInfo()
+            if announce && !wasRunning { bg { await self.sayNow(ExamMode.leftNotice) } }
+        }
     }
 
     private func launch(resume: Bool) {
@@ -1111,6 +1191,7 @@ final class ExamMode: ObservableObject {
 
     private func close() async {
         let quiet = !checkProblem.isEmpty
+        let leaving = closeAfter
         let leftDuringCheck = checking && !quiet
         if checking { hasState = false; checking = false }
         let finished = hasState && (st.stage == "review" || st.stage == "done")
@@ -1146,14 +1227,17 @@ final class ExamMode: ObservableObject {
             // Sorun zaten okundu; ekranda da kalsın
             setStatus(checkProblem)
         } else if leftDuringCheck {
-            await sayNow("Deneme sınavı kapatıldı.")
+            await sayNow("Deneme sınavı sonlandırıldı.")
         } else if finished {
             await sayNow("Deneme sınavı tamamlandı.")
         } else if held > 0 {
-            await sayNow("Deneme sınavı kapatıldı. Taranan \(held) sayfa, ayarlarınızdaki yöntemle klasöre kaydedilecek.")
+            await sayNow("Deneme sınavı sonlandırıldı. Taranan \(held) sayfa, ayarlarınızdaki yöntemle klasöre kaydedilecek.")
+        } else if leaving {
+            await sayNow("Deneme sınavı sonlandırıldı. Kayıtlarınız saklandı.")
         } else {
-            await sayNow("Deneme sınavı kapatıldı. Kayıtlarınız saklandı; deneme sınavı modu deyince kaldığınız yerden devam edebilirsiniz.")
+            await sayNow("Deneme sınavı sonlandırıldı. Kayıtlarınız saklandı; “sınavı başlat” deyince kaldığınız yerden devam edebilirsiniz.")
         }
+        await finishCloseRequest()
     }
 
     private func resumePrompt() async throws {

@@ -436,6 +436,14 @@ final class AppModel: ObservableObject {
             }
             .store(in: &cancellables)
 
+        // Deneme sınavı etkinleştirme anahtarı: açıkken sınav modu, kapalıyken normal mod
+        settings.$examEnabled
+            .removeDuplicates()
+            .sink { [weak self] on in
+                Task { @MainActor in self?.examEnabledChanged(on) }
+            }
+            .store(in: &cancellables)
+
         // "Hepsi tamamlandı" gönderimi bitince / başarısız olunca sesli haber ver
         Publishers.CombineLatest3(queue.$pending, queue.$uploaded, queue.$lastError)
             .sink { [weak self] _, _, _ in
@@ -486,7 +494,7 @@ final class AppModel: ObservableObject {
     }
 
     private func startupCheckAttempt() {
-        guard started else { return }
+        guard started, settings.examEnabled else { return }
         if exam.startupCheck() || exam.startupFinished { return }
         startupCheckTries += 1
         if startupCheckTries <= 6 { startupCheckTick() }
@@ -621,7 +629,7 @@ final class AppModel: ObservableObject {
             commands.append(SpeechTrigger.Command(id: "modelRepeat", phrases: ModelChoice.repeatPhrases))
             commands.append(SpeechTrigger.Command(id: "modelCancel", phrases: ModelChoice.cancelPhrases))
         }
-        speech.extraHints = ExamText.hints
+        speech.extraHints = settings.examEnabled ? ExamText.hints : []
         speech.setCommands(commands)
         guard settings.voiceEnabled || guidanceWanted else {
             speechActive = false
@@ -943,6 +951,20 @@ final class AppModel: ObservableObject {
     /// Sesli konumlandırma açık mı: sınav zorlamışsa o, değilse ayar
     private var guidanceWanted: Bool { return pageVideoActive || (examGuide ?? settings.guidanceEnabled) }
 
+    /// Ana sayfadaki "Deneme sınavını etkinleştir" anahtarı değişti (açılışta da bir kez): sınav modu ayara uydurulur.
+    /// Açılınca açılış sınaması (ses, mikrofon, internet, Gemini) bu kez yeniden yapılır; kapanınca açık sınav durur, uygulama normal çalışır.
+    private func examEnabledChanged(_ on: Bool) {
+        let e = exam
+        guard e.enabled != on else { return }
+        e.setEnabled(on)
+        // Sınav sözcükleri yalnız mod açıkken ses tanımaya ipucu olarak verilir
+        if started && !examActive { restartSpeech() }
+        if on {
+            startupCheckTries = 0
+            if started { scheduleStartupCheck() }
+        }
+    }
+
     private func makeExam() -> ExamMode {
         let client = GeminiClient(key: { AppSettings.shared.activeGeminiProfile.key },
                                   model: { AppSettings.shared.activeGeminiProfile.model },
@@ -979,10 +1001,14 @@ final class AppModel: ObservableObject {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("G526", isDirectory: true)
         let s = settings
-        return ExamMode(ports: ports,
-                        settings: { ExamSettings(group: ExamSettings.defaultGroup, fetch: ExamSettings.defaultFetch, cancelWindow: s.examCancelWindow, gap: s.examGap,
-                                                  videoSeconds: s.examVideoMaxSeconds, pageVideo: s.examPageVideo, pageSeconds: s.pageVideoSeconds) },
-                        directory: base)
+        let e = ExamMode(ports: ports,
+                         settings: { ExamSettings(group: ExamSettings.defaultGroup, fetch: ExamSettings.defaultFetch, cancelWindow: s.examCancelWindow, gap: s.examGap,
+                                                   videoSeconds: s.examVideoMaxSeconds, pageVideo: s.examPageVideo, pageSeconds: s.pageVideoSeconds) },
+                         directory: base)
+        // Ayar ilk haliyle uygulanır (açılışta bilgi cümlesi söylenmez); sesle "sınavı kapat" anahtarı da kapatır
+        e.setEnabled(s.examEnabled, announce: false)
+        e.onCloseMode = { [weak self] in self?.settings.examEnabled = false }
+        return e
     }
 
     /// Sınavda "dinle": sürekli dinleyen komut durur (mikrofonu tek kayıtçı kullanır), "tamam" denene kadar kaydedilir, sonra komutlar geri açılır

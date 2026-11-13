@@ -109,7 +109,7 @@ final class ListenTests: XCTestCase {
         let text = ExamPrompts.freePrompt(record: "Soru 1: B. Soru 2: C.")
         XCTAssertTrue(text.contains("Soru 1: B. Soru 2: C."))
         XCTAssertTrue(text.contains("'tamam'"))
-        for word in ["tekrar", "hepsi", "devam", "bitir", "cevap", "anlasilmadi"] {
+        for word in ["tekrar", "hepsi", "devam", "bitir", "kapat", "cevap", "anlasilmadi"] {
             XCTAssertTrue(text.contains(word), word)
         }
         XCTAssertTrue(ExamPrompts.freePrompt(record: "").contains("(henüz yok)"))

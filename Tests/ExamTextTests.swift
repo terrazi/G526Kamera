@@ -31,6 +31,81 @@ final class ExamTextTests: XCTestCase {
         }
     }
 
+    /// "Sınavı kapat" = deneme sınavı modunu kapat; "sonlandır / bitir" yalnız yapılan sınavı bitirir
+    func testCloseModeIsDistinctFromEndExam() {
+        let idle: Set<String> = ["start", "scan_done", "end", "undo", "close"]
+        let closing = ["sınavı kapat", "sınav modunu kapat", "deneme sınav modunu kapat", "deneme sınavı modunu kapat",
+                       "deneme sınavını kapat", "sınav modunu kapatalım", "normal moda geç", "normal moda geçiş yap",
+                       "normal modda çalış", "normal moda dön", "normal modu aç", "normal moda geçelim"]
+        expect(closing.map { ($0, "close") }, idle, "KAPAT")
+        let ending = ["sınavı sonlandır", "sınavı bitir", "sınav tamamlandı", "deneme sınavı bitti", "sınavı sonlandırın",
+                      "sınavı tamamla", "sınavı kes", "sınavı tamamlandı", "sınav sona erdi", "sınavı sona erdi", "sınav tamam",
+                      "deneme sınavı tamam", "sınavı bitirelim", "sınavı kesin"]
+        expect(ending.map { ($0, "end") }, idle, "SONLANDIR")
+    }
+
+    func testCloseWordsWorkInEveryExamStage() {
+        let stages: [Set<String>] = [
+            ["scan_done", "more", "undo", "end", "close"],
+            ["continue", "pause", "end", "close"],
+            ["vstop", "vdel", "vskip", "end", "close"],
+            ["yes", "no", "end", "close"],
+            ["cancel", "end", "close"],
+        ]
+        for valid in stages {
+            expect([("sınavı kapat", "close"), ("sınav modunu kapat", "close"), ("normal moda geç", "close"),
+                    ("sınavı sonlandır", "end"), ("sınavı bitir", "end"), ("sınavı tamamla", "end"), ("sınavı kes", "end"),
+                    ("sınav sona erdi", "end")], valid, "AŞAMA \(valid.sorted())")
+        }
+    }
+
+    /// "Sınavı sonlandır" türevleri: yapılan sınavı bitirir, modu kapatmaz
+    func testEndExamDerivatives() {
+        let phrases = ["sınavı sonlandır", "sınavı bitir", "sınavı tamamla", "sınavı kes", "sınav tamamlandı", "sınav sona erdi",
+                       "sınav tamam", "deneme sınavını bitir", "deneme sınavını sonlandır", "sınavı keselim", "sınavı sonuçlandır"]
+        let stages: [Set<String>] = [
+            ["start", "scan_done", "end", "undo", "close"],
+            ["scan_done", "more", "undo", "end", "close"],
+            ["continue", "pause", "end", "close"],
+            ["vstop", "vdel", "vskip", "end", "close"],
+            ["yes", "no", "end", "close"],
+            ["cancel", "end", "close"],
+            ["continue", "new", "end", "close"],
+        ]
+        for valid in stages {
+            expect(phrases.map { ($0, "end") }, valid, "SONLANDIR \(valid.sorted())")
+        }
+    }
+
+    func testEndDerivativesDoNotTriggerOnUnrelatedOrNegatedSpeech() {
+        let idle: Set<String> = ["start", "scan_done", "end", "undo", "close"]
+        expect([("kes", nil), ("kesin", nil), ("bu kesin doğru", nil), ("sınavı sonlandırma", nil), ("sınavı bitirme", nil),
+                ("sınav bitmedi", nil), ("sınavı tamamlama", nil), ("sınav henüz tamam değil", nil)], idle, "KARIŞMA")
+    }
+
+    func testExamTamamEndsExamButPlainTamamStillAnswersYes() {
+        let ask: Set<String> = ["yes", "no", "end", "close"]
+        expect([("tamam", "yes"), ("evet", "yes"), ("devam", "yes"), ("tamam devam", "yes"), ("sınav tamam", "end"),
+                ("sınavı tamamla", "end")], ask, "TAMAM")
+    }
+
+    func testCloseIsNotMatchedWithoutTheCloseCommand() {
+        // Eski komut kümelerinde (close yok) "sınavı kapat" eskisi gibi sınavı bitirir
+        expect([("sınavı kapat", "end"), ("sınavı sonlandır", "end")], ["scan_done", "end"], "ESKİ")
+        expect([("normal moda geç", nil)], ["scan_done", "end"], "ESKİ")
+    }
+
+    func testCloseWordsAreNotMistakenForOtherCommands() {
+        let idle: Set<String> = ["start", "scan_done", "end", "undo", "close"]
+        // Olumsuz ve ilgisiz cümleler kapatma sayılmaz
+        expect([("sınavı kapatma", nil), ("sınavı kapatmayın", nil), ("normal moda geçme", nil), ("normal moda geçmeyelim", nil),
+                ("normal çalışsın", nil), ("moda geç", nil), ("normal", nil), ("kapat", nil), ("bugün hava normal", nil),
+                ("sınavı başlat", "start"), ("deneme sınavı modu", "start")], idle, "YANLIŞ")
+        // Video aşamasında yalnız "kapat" kaydı durdurur; "sınavı kapat" modu kapatır
+        let rec: Set<String> = ["vstop", "vdel", "vskip", "end", "close"]
+        expect([("kapat", "vstop"), ("durdur", "vstop"), ("sınavı kapat", "close")], rec, "VİDEO")
+    }
+
     func testAnswerContext() {
         expect([("devam", "continue"), ("duraklat", "pause"), ("dur", "pause"), ("bir dakika", "pause"), ("tamam devam et", "continue"),
                 ("bitir", "end"), ("sınav tamamlandı", "end"), ("bu kadar", "end"), ("sus", "pause"), ("yeter", "pause"),

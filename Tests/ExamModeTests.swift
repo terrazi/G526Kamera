@@ -609,7 +609,7 @@ final class ExamModeTests: XCTestCase {
         XCTAssertTrue(exam.start())
         await scanPages(exam, p, ["a.jpg"])
         await finish(exam)
-        XCTAssertTrue(p.spoken.last?.hasPrefix("Deneme sınavı kapatıldı. Taranan 1 sayfa") == true, "\(p.spoken.last ?? "")")
+        XCTAssertTrue(p.spoken.last?.hasPrefix("Deneme sınavı sonlandırıldı. Taranan 1 sayfa") == true, "\(p.spoken.last ?? "")")
         XCTAssertEqual(p.holds.last, false)
         XCTAssertEqual(p.released, 1)
         XCTAssertEqual(exam.stage, "idle")
@@ -936,7 +936,7 @@ final class ExamModeTests: XCTestCase {
         XCTAssertTrue(spoke(p, "Ses sınaması başarısız"))
         XCTAssertFalse(spoke(p, "hazır."))
         XCTAssertNil(exam.savedSummary(), "yarım kalan boş sınav kaydedilmemeli")
-        XCTAssertFalse(spoke(p, "Deneme sınavı kapatıldı"), "sorun zaten okundu")
+        XCTAssertFalse(spoke(p, "Deneme sınavı sonlandırıldı"), "sorun zaten okundu")
     }
 
     func testSelfCheckReportsInternetOrGeminiProblem() async {
@@ -963,7 +963,7 @@ final class ExamModeTests: XCTestCase {
         _ = await until { self.spoke(p, "Beni duyabiliyor musunuz") }
         await finish(exam)
         XCTAssertNil(exam.savedSummary())
-        XCTAssertTrue(spoke(p, "Deneme sınavı kapatıldı."))
+        XCTAssertTrue(spoke(p, "Deneme sınavı sonlandırıldı."))
     }
 
     func testSelfCheckIsSkippedWhenResuming() async {
@@ -1550,6 +1550,20 @@ final class ExamModeTests: XCTestCase {
         XCTAssertTrue(done, "sınav kapanmadı")
         XCTAssertEqual(p.videoSends, 0)
         XCTAssertEqual(p.videoStops, 0, "\"sınavı kapat\" videoyu durdurmak değil sınavı kapatmaktır")
+        let left = await until { !exam.enabled }
+        XCTAssertTrue(left, "\"sınavı kapat\" deneme sınavı modunu da kapatır")
+    }
+
+    func testSpokenEndWordsDuringVideoEndExamButKeepTheMode() async {
+        let p = FakePorts()
+        let exam = await videoExam(p)
+        p.videoPhaseValue = .recording
+        await say(exam, "sınavı sonlandır")
+        let done = await exam.waitDone(timeout: 8)
+        XCTAssertTrue(done, "sınav sonlanmadı")
+        XCTAssertEqual(p.videoStops, 0)
+        XCTAssertTrue(exam.enabled, "\"sınavı sonlandır\" modu kapatmaz")
+        XCTAssertFalse(spoke(p, ExamMode.leftNotice))
     }
 
     func testWithoutVideoSettingExamStartsWithPhotoScanning() async {
@@ -1695,5 +1709,351 @@ final class ExamModeTests: XCTestCase {
             XCTAssertNotNil(link.repairLine)
             XCTAssertNotNil(link.waitLine)
         }
+    }
+
+    // MARK: Deneme sınavı etkinleştirme anahtarı (kapalıyken uygulama normal çalışır)
+
+    private func off(_ p: FakePorts) -> ExamMode {
+        let exam = make(p)
+        exam.setEnabled(false, announce: false)
+        return exam
+    }
+
+    func testExamModeIsEnabledByDefaultForTheMachineryAndSwitchable() {
+        let exam = make(FakePorts())
+        XCTAssertTrue(exam.enabled)
+        exam.setEnabled(false, announce: false)
+        XCTAssertFalse(exam.enabled)
+        exam.setEnabled(true, announce: false)
+        XCTAssertTrue(exam.enabled)
+        exam.setEnabled(true, announce: false)
+        XCTAssertTrue(exam.enabled, "aynı değeri yinelemek bir şey değiştirmez")
+    }
+
+    func testDisabledModeDoesNotRunTheStartupCheck() {
+        let p = FakePorts()
+        p.checkOn = true
+        let exam = off(p)
+        XCTAssertFalse(exam.startupCheck())
+        XCTAssertEqual(p.systemChecks, 0)
+        XCTAssertFalse(exam.active)
+        XCTAssertFalse(exam.startupFinished, "kapalıyken sınama yapılmış sayılmaz")
+    }
+
+    func testDisabledModeCannotStartAnExam() {
+        let p = FakePorts()
+        let exam = off(p)
+        XCTAssertFalse(exam.start())
+        XCTAssertFalse(exam.active)
+        XCTAssertEqual(p.videoArms, 0)
+        XCTAssertTrue(p.spoken.isEmpty, "düğmeyle çağrılsa da sessiz kalır (düğme zaten görünmez)")
+    }
+
+    func testDisabledModeAnswersOnlyTheStartWordAndExplainsWhy() async {
+        let p = FakePorts()
+        let exam = off(p)
+        XCTAssertTrue(exam.hear("sınavı başlat"), "karşılık verildi")
+        let said = await until { p.spoken.contains(ExamMode.disabledNotice) }
+        XCTAssertTrue(said, "\(p.spoken)")
+        XCTAssertFalse(exam.active)
+        XCTAssertTrue(exam.command("start"))
+        let twice = await until { p.spoken.filter { $0 == ExamMode.disabledNotice }.count == 2 }
+        XCTAssertTrue(twice)
+        XCTAssertFalse(exam.active)
+        XCTAssertEqual(p.videoArms, 0)
+    }
+
+    func testDisabledModeIgnoresEveryOtherExamWord() async {
+        let p = FakePorts()
+        p.pendingList = ["a.jpg"]
+        p.sentFiles = [ExamSentFile(id: "f1", name: "x.pdf", size: 4000, photos: 2, time: 1001)]
+        let exam = off(p)
+        for text in ["tarama tamamlandı", "sınavı bitir", "sınavı sonlandır", "sınavı kapat", "normal moda geç", "son sayfayı sil",
+                     "37. soruyu oku", "tüm cevapları oku", "hepsi tamamlandı", "evet", "devam"] {
+            XCTAssertFalse(exam.hear(text), "kapalıyken işlenmemeli: \(text)")
+        }
+        XCTAssertFalse(exam.command("scan_done"))
+        XCTAssertFalse(exam.command("undo"))
+        XCTAssertFalse(exam.command("end"))
+        XCTAssertFalse(exam.command("close"))
+        XCTAssertFalse(exam.wouldAdopt("tarama tamamlandı"), "normal modda \"tarama tamamlandı\" olağan gönderimdir")
+        await settle()
+        XCTAssertTrue(p.spoken.isEmpty, "\(p.spoken)")
+        XCTAssertEqual(p.removed, [])
+        XCTAssertFalse(exam.active)
+    }
+
+    func testEnabledModeStillAdoptsWhenAllowed() {
+        let p = FakePorts()
+        p.pendingList = ["a.jpg"]
+        let exam = make(p)
+        XCTAssertTrue(exam.wouldAdopt("tarama tamamlandı"))
+    }
+
+    func testEnablingGivesAShortNoticeWhenThereIsNoStartupCheck() async {
+        let p = FakePorts()
+        p.checkOn = false
+        let exam = off(p)
+        exam.setEnabled(true)
+        let said = await until { p.spoken.contains(ExamMode.enabledNotice) }
+        XCTAssertTrue(said, "\(p.spoken)")
+        XCTAssertTrue(exam.enabled)
+    }
+
+    func testEnablingWithStartupCheckStaysQuietAndAllowsTheCheckAgain() async {
+        let p = FakePorts()
+        p.checkOn = true
+        let exam = make(p)
+        // Açılışta sınama yapılıp tamamlanmış olsun
+        XCTAssertTrue(exam.startupCheck())
+        await say(exam, "evet")
+        let ready = await until { exam.startupReady }
+        XCTAssertTrue(ready)
+        _ = await exam.waitDone(timeout: 8)
+        XCTAssertEqual(p.systemChecks, 1)
+        // Anahtar kapanıp açılınca sınama yeniden yapılabilir
+        exam.setEnabled(false, announce: false)
+        XCTAssertFalse(exam.startupReady)
+        p.spoken.removeAll()
+        exam.setEnabled(true)
+        XCTAssertFalse(exam.startupReady)
+        XCTAssertFalse(exam.startupFinished)
+        await settle()
+        XCTAssertFalse(spoke(p, ExamMode.enabledNotice), "sınama yapılacaksa ayrı bir bilgi cümlesi söylenmez")
+        XCTAssertTrue(exam.startupCheck())
+        await say(exam, "evet")
+        let again = await until { exam.startupReady }
+        XCTAssertTrue(again, "\(p.spoken)")
+        _ = await exam.waitDone(timeout: 8)
+        XCTAssertEqual(p.systemChecks, 2)
+    }
+
+    func testExamStartsNormallyAfterEnabling() async {
+        let p = FakePorts()
+        let exam = off(p)
+        XCTAssertFalse(exam.start())
+        exam.setEnabled(true, announce: false)
+        XCTAssertTrue(exam.start())
+        let scanning = await until { exam.status == "Tarama: 0 sayfa" }
+        XCTAssertTrue(scanning, "\(p.spoken)")
+        await finish(exam)
+        XCTAssertTrue(exam.enabled, "sınavı sonlandırmak modu kapatmaz")
+    }
+
+    func testTurningTheSwitchOffEndsARunningExamAndSaysNormalMode() async {
+        let p = FakePorts()
+        let exam = make(p)
+        XCTAssertTrue(exam.start())
+        await scanPages(exam, p, ["a.jpg"])
+        exam.setEnabled(false)
+        let done = await exam.waitDone(timeout: 8)
+        XCTAssertTrue(done, "sınav durmadı")
+        let told = await until { p.spoken.contains(ExamMode.leftNotice) }
+        XCTAssertTrue(told, "\(p.spoken)")
+        XCTAssertFalse(exam.enabled)
+        XCTAssertFalse(exam.active)
+        let ended = p.spoken.firstIndex { $0.hasPrefix("Deneme sınavı sonlandırıldı. Taranan 1 sayfa") }
+        let normal = p.spoken.firstIndex(of: ExamMode.leftNotice)
+        XCTAssertNotNil(ended, "\(p.spoken)")
+        XCTAssertNotNil(normal)
+        if let e = ended, let n = normal { XCTAssertLessThan(e, n, "önce sınav sonlanır, sonra mod bilgisi") }
+        XCTAssertEqual(p.spoken.filter { $0 == ExamMode.leftNotice }.count, 1, "mod bilgisi bir kez söylenir")
+    }
+
+    func testTurningTheSwitchOffWhenIdleSaysNormalModeOnce() async {
+        let p = FakePorts()
+        let exam = make(p)
+        exam.setEnabled(false)
+        let told = await until { p.spoken.contains(ExamMode.leftNotice) }
+        XCTAssertTrue(told)
+        await settle()
+        XCTAssertEqual(p.spoken, [ExamMode.leftNotice])
+    }
+
+    // "Sınavı sonlandır" yalnız yapılan sınavı bitirir; "sınavı kapat" modu da kapatır
+
+    func testSpokenEndKeepsTheModeOn() async {
+        let p = FakePorts()
+        let exam = make(p)
+        XCTAssertTrue(exam.start())
+        await scanPages(exam, p, ["a.jpg"])
+        await say(exam, "sınavı sonlandır")
+        let done = await exam.waitDone(timeout: 8)
+        XCTAssertTrue(done)
+        XCTAssertTrue(exam.enabled, "mod açık kalır")
+        XCTAssertTrue(spoke(p, "Deneme sınavı sonlandırıldı. Taranan 1 sayfa"), "\(p.spoken)")
+        XCTAssertFalse(spoke(p, ExamMode.leftNotice))
+        XCTAssertTrue(spoke(p, "Deneme sınavı sonlandırıldı") && !spoke(p, "Normal mod"))
+        // Mod açık kaldığı için yeniden başlatılabilir
+        XCTAssertTrue(exam.start())
+        await finish(exam)
+    }
+
+    func testSpokenCloseEndsTheExamAndLeavesTheMode() async {
+        let p = FakePorts()
+        let exam = make(p)
+        XCTAssertTrue(exam.start())
+        await scanPages(exam, p, ["a.jpg"])
+        await say(exam, "sınavı kapat")
+        let done = await exam.waitDone(timeout: 8)
+        XCTAssertTrue(done)
+        let told = await until { p.spoken.contains(ExamMode.leftNotice) }
+        XCTAssertTrue(told, "\(p.spoken)")
+        XCTAssertFalse(exam.enabled, "mod kapandı")
+        XCTAssertTrue(spoke(p, "Deneme sınavı sonlandırıldı. Taranan 1 sayfa"))
+        XCTAssertEqual(p.spoken.filter { $0 == ExamMode.leftNotice }.count, 1)
+        XCTAssertFalse(exam.start(), "kapalı modda sınav başlamaz")
+    }
+
+    func testEveryCloseSayingLeavesTheModeDuringAnExam() async {
+        for phrase in ["sınav modunu kapat", "deneme sınav modunu kapat", "normal moda geç", "normal moda geçiş yap", "normal modda çalış"] {
+            let p = FakePorts()
+            let exam = make(p)
+            XCTAssertTrue(exam.start(), phrase)
+            await scanPages(exam, p, ["a.jpg"])
+            await say(exam, phrase)
+            let done = await exam.waitDone(timeout: 8)
+            XCTAssertTrue(done, "\(phrase): sınav sonlanmadı")
+            let told = await until { p.spoken.contains(ExamMode.leftNotice) }
+            XCTAssertTrue(told, "\(phrase): \(p.spoken)")
+            XCTAssertFalse(exam.enabled, phrase)
+        }
+    }
+
+    func testCloseWhenNoExamIsRunningLeavesTheModeDirectly() async {
+        for phrase in ["sınavı kapat", "sınav modunu kapat", "normal moda geç", "normal modda çalış"] {
+            let p = FakePorts()
+            let exam = make(p)
+            XCTAssertTrue(exam.hear(phrase), phrase)
+            XCTAssertFalse(exam.enabled, phrase)
+            let told = await until { p.spoken.contains(ExamMode.leftNotice) }
+            XCTAssertTrue(told, "\(phrase): \(p.spoken)")
+            XCTAssertFalse(spoke(p, "Açık bir deneme sınavı yok."), "kapatma isteği \"açık sınav yok\" cevabı almaz")
+        }
+    }
+
+    func testEndWhenNoExamIsRunningKeepsTheMode() async {
+        let p = FakePorts()
+        let exam = make(p)
+        XCTAssertTrue(exam.hear("sınavı sonlandır"))
+        let said = await until { p.spoken.contains("Açık bir deneme sınavı yok.") }
+        XCTAssertTrue(said)
+        XCTAssertTrue(exam.enabled, "sonlandırılacak sınav yoksa mod yine de açık kalır")
+    }
+
+    func testCloseCallsTheModeCallbackInsteadOfClosingByItself() async {
+        let p = FakePorts()
+        let exam = make(p)
+        var calls = 0
+        exam.onCloseMode = { calls += 1 }
+        XCTAssertTrue(exam.start())
+        await scanPages(exam, p, ["a.jpg"])
+        await say(exam, "sınavı kapat")
+        let done = await exam.waitDone(timeout: 8)
+        XCTAssertTrue(done)
+        let called = await until { calls == 1 }
+        XCTAssertTrue(called, "uygulama ayarı kapatır; mod ayardan kapanır")
+        XCTAssertTrue(exam.enabled, "kapanışı uygulama yapar (ayar → setEnabled)")
+        exam.setEnabled(false)   // uygulamanın ayar değişikliğine tepkisi
+        XCTAssertFalse(exam.enabled)
+    }
+
+    func testCloseWhileIdleUsesTheCallbackToo() {
+        let p = FakePorts()
+        let exam = make(p)
+        var calls = 0
+        exam.onCloseMode = { calls += 1 }
+        XCTAssertTrue(exam.hear("normal moda geç"))
+        XCTAssertEqual(calls, 1)
+    }
+
+    func testCloseDuringTheStartupCheckStopsItAndLeavesTheMode() async {
+        let p = FakePorts()
+        p.checkOn = true
+        let exam = make(p)
+        XCTAssertTrue(exam.startupCheck())
+        let asked = await until { self.spoke(p, "Beni duyabiliyor musunuz? Lütfen teyit edin.") }
+        XCTAssertTrue(asked)
+        await say(exam, "normal moda geç")
+        let done = await exam.waitDone(timeout: 8)
+        XCTAssertTrue(done)
+        let told = await until { p.spoken.contains(ExamMode.leftNotice) }
+        XCTAssertTrue(told, "\(p.spoken)")
+        XCTAssertFalse(exam.enabled)
+        XCTAssertFalse(exam.startupReady)
+    }
+
+    func testEndDuringTheStartupCheckKeepsTheMode() async {
+        let p = FakePorts()
+        p.checkOn = true
+        let exam = make(p)
+        XCTAssertTrue(exam.startupCheck())
+        let asked = await until { self.spoke(p, "Beni duyabiliyor musunuz? Lütfen teyit edin.") }
+        XCTAssertTrue(asked)
+        await say(exam, "sınavı sonlandır")
+        let done = await exam.waitDone(timeout: 8)
+        XCTAssertTrue(done)
+        XCTAssertTrue(exam.enabled)
+        XCTAssertFalse(spoke(p, ExamMode.leftNotice))
+    }
+
+    func testDinleCanCloseTheMode() async {
+        let p = FakePorts()
+        let exam = await reviewed(p)
+        p.listenResults = [Data(count: 64)]
+        p.rawReplies = [freeReply("kapat")]
+        XCTAssertTrue(exam.listenRequest(source: "ui"))
+        let done = await exam.waitDone(timeout: 8)
+        XCTAssertTrue(done, "sınav kapanmadı: \(p.spoken.suffix(4))")
+        let told = await until { p.spoken.contains(ExamMode.leftNotice) }
+        XCTAssertTrue(told, "\(p.spoken.suffix(4))")
+        XCTAssertFalse(exam.enabled)
+        XCTAssertTrue(spoke(p, "Deneme sınavı tamamlandı."))
+    }
+
+    func testDinleEndKeepsTheModeOn() async {
+        let p = FakePorts()
+        let exam = await reviewed(p)
+        p.listenResults = [Data(count: 64)]
+        p.rawReplies = [freeReply("bitir")]
+        XCTAssertTrue(exam.listenRequest(source: "ui"))
+        let done = await exam.waitDone(timeout: 8)
+        XCTAssertTrue(done)
+        XCTAssertTrue(exam.enabled)
+        XCTAssertFalse(spoke(p, ExamMode.leftNotice))
+    }
+
+    func testEveryEndSayingEndsTheExamButKeepsTheMode() async {
+        for phrase in ["sınavı sonlandır", "sınavı bitir", "sınavı tamamla", "sınavı kes", "sınav tamamlandı", "sınav sona erdi", "sınav tamam"] {
+            let p = FakePorts()
+            let exam = make(p)
+            XCTAssertTrue(exam.start(), phrase)
+            await scanPages(exam, p, ["a.jpg"])
+            await say(exam, phrase)
+            let done = await exam.waitDone(timeout: 8)
+            XCTAssertTrue(done, "\(phrase): sınav sonlanmadı")
+            XCTAssertTrue(exam.enabled, "\(phrase): mod açık kalmalı")
+            XCTAssertTrue(spoke(p, "Deneme sınavı sonlandırıldı"), "\(phrase): \(p.spoken)")
+            await settle()
+            XCTAssertFalse(spoke(p, ExamMode.leftNotice), phrase)
+        }
+    }
+
+    func testCloseKeepsTheSavedExamSoItCanResumeAfterReEnabling() async {
+        let p = FakePorts()
+        let dir = tmpDir()
+        let first = make(p, dir: dir)
+        XCTAssertTrue(first.start())
+        await scanPages(first, p, ["a.jpg"])
+        await say(first, "sınavı kapat")
+        _ = await first.waitDone(timeout: 8)
+        let closed = await until { !first.enabled }
+        XCTAssertTrue(closed)
+        // Yeni açılış: kayıt duruyor, mod yeniden açılınca devam edilebilir
+        let again = make(p, dir: dir)
+        XCTAssertTrue(again.start())
+        let asked = await until { self.spoke(p, "Yarım kalan bir deneme sınavı var") }
+        XCTAssertTrue(asked, "\(p.spoken)")
+        await finish(again)
     }
 }
