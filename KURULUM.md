@@ -26,6 +26,7 @@ Gemini'ye gönderir ve cevapları kulaklıktan okur. Ayrıntılı işleyiş: `do
 - **Kamera:** kamera adı (UID) hazır gelir; parola; görüntü yönü.
 - **Kestirmeler:** kamera Wi-Fi kestirmesinin adı, internet kestirmesinin adı, deneme sayısı ve aralığı.
 - **Gemini:** en az bir profile API anahtarı yapıştırın; **Anahtarı dene** ile sınayın. Eski sürümün anahtarları silinir, yeniden girin.
+- **Gemini'ye gönderilen:** *Akıllı* (varsayılan) temiz okunan soruları metin, şüpheli soruları PDF gönderir; metin çok daha küçük ve hızlıdır. Şekil / formül / tablolu sorularda *Hep PDF* daha güvenlidir.
 - **Ses:** konuşma sesi ve hızı, okuma arası beklemeler. Ses yalnız kulaklığa verilir.
 - **Belge klasörü:** "G526 Belgeler" klasörünü bir kez seçin.
 

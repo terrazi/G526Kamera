@@ -26,6 +26,15 @@ Hiçbir şey telefonda denenmedi: yalnız GitHub Actions'ta derlendi ve birim te
    arayla; bir soru için en çok 5 deneme (ayar, 0 = sınırsız), sonra "okunamadı" sayılıp tarama sürer. Toplam süre sınırı 15 dk (ayar).
 7. Kabul edilen her soru için en iyi 2 kare `S12.pdf` olur; grup boyutu 2–3 ise ayrıca `S12-14.pdf` yapılır (Gemini'ye bu gider).
    Alta uzanan sorular için "N. sorunun devamını kameraya tutun" denir; devam sayfası birleştirilir.
+   **Canlı OCR (çekim öncesi):** Belge kadrajdayken telefon en çok saniyede ~2 kez canlı görüntüden yazı okur (Apple Vision, internetsiz).
+   Görünen bütün numaralı sorular kadraja tam sığıyorsa (numaradan son şığa kadar, kenarlara taşmadan) çekim hemen başlar; sığmayan bir soru
+   varsa "13. soru alttan kesilmiş…" gibi numarasıyla söylenir (aynı uyarı 12 sn'de bir). Canlı sonuç yalnız okunan kareden beri sahne
+   oynamadıysa ve 8 sn'den eski değilse geçerlidir; canlı karar yoksa konum tarifinin "tamam"ına bakılır. Pil / ısınma için okuma yalnız belge
+   görünürken ve çekim penceresi dışında çalışır. **Telefonda hız ve ısınma etkisi cihazda denenmedi.**
+   **Numara oylaması:** Bir çekimin karelerinde aynı yerdeki numara satırı farklı okunabilir (13 → 18). Aynı yerde en az 2 kare aynı numarayı
+   okuduysa ve başka bir okuma ondan en az iki kat az oy aldıysa azınlık çoğunluğa çevrilir; böylece tek karedeki yanlış okuma sahte
+   "18. soru" doğurmaz. Eşit / yakın oyda dokunulmaz (sayfa çevrilmiş olabilir). Tüm karelerde aynı yanlış okunan numara bu yolla
+   düzeltilemez; bunu Gemini'nin gördüğü numara ile ayrıca denetlemek ileri bir adımdır (yapılmadı).
    **Yarım soru önlemi:** Amaç her sorunun tek karede tam görünmesidir. (1) Evrak görününce çekim hemen başlamaz: konum tarifi motoru yazının
    kadraja tam sığmasını bekler ("kamerayı aşağı kaydırın", "yaklaşın" …; "Tamam, böyle" dedikten sonra çekilir); sığmazsa en çok 15 sn
    beklenir, sonra yine de çekilir. (2) Çekimde bir soru alttan kesik çıkarsa yarım soru kabul edilmez: "N. soru alttan kesilmiş" uyarısı
@@ -40,6 +49,10 @@ Hiçbir şey telefonda denenmedi: yalnız GitHub Actions'ta derlendi ve birim te
 9. İnternet sırasında kapalıdır (kamera Wi-Fi'sinde hücresel kesilir). Tarama bitince kamera akışı durdurulur, internet yoklanır, yoksa
    ayardaki TEK internet kestirmesi (Wi-Fi kapat → 2 sn bekle → hücreseli aç) ayardaki sayıda/aralıkla çalıştırılır; internet gelince durur.
 10. Gemini: PDF'ler standart istemle 4 profillik zincire gider (Gemini 3.6 Flash → 3.5 Flash-Lite → 3.1 Flash-Lite ücretsiz → 3.1 Flash-Lite
+    **Gemini'ye ne gider (Ayarlar > Gemini):** *Akıllı* (varsayılan): telefonun okuduğu soru temizse (bütün şıklar var, ortalama okuma güveni ≥ 0,85,
+    hiçbir satır < 0,5, şekil / tablo boşluğu ve formül / kesir / üs izi yok, en az 15 karakter) yalnız metin gider (birkaç KB, hızlı); şüpheli
+    sorular PDF olarak gider. *Hep PDF*: her soru görüntü. *Yalnız metin*: metni olan her soru metin (şekil / formül kaybolur). Üst + alt
+    parçası ayrı çekilen sorunun metni birleştirilir; bir parçanın metni yoksa o soru PDF gider. Metin soruları PDF sınırına sayılmaz.
     ücretli). Kota dolarsa / hata olursa / cevap gecikirse sıradaki modele geçilir ve nedeni sesle söylenir. Eksik ya da okunamayan sorular
     bir kez yeniden sorulur.
 11. Cevaplar sıralanır, kulaklıkla okunur ("Birinci soru, ADANA, kırk iki."; şık kodu ayardaki "Şık kodları"ndan), her cevaptan sonra ilk
