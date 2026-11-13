@@ -116,6 +116,7 @@ enum GeminiVideo {
             throw GeminiError("Gemini API anahtarı girilmemiş. Ayarlardan yapıştırın.", .key)
         }
         var lastError = GeminiError("Gemini cevap vermedi.", .error)
+        var trail: [String] = []
         let megabytes = String(format: "%.1f", Double(videoData.count) / 1_048_576).replacingOccurrences(of: ".", with: ",")
         for (i, profile) in order.enumerated() {
             let isLast = i == order.count - 1
@@ -163,12 +164,28 @@ enum GeminiVideo {
                 return result
             } catch let e as GeminiError {
                 if let file = uploaded { await client.deleteFile(name: file.name) }
+                trail.append(failureLine(profile: profile, error: e))
                 lastError = e
-                guard !isLast, GeminiChat.chainWorthy(e) else { throw e }
+                guard !isLast, GeminiChat.chainWorthy(e) else { throw combined(e, trail: trail) }
                 let text = GeminiChat.switchText(from: profile, error: e, to: order[i + 1])
                 notify(text.replacingOccurrences(of: "Sorunuz", with: "Video"))
             }
         }
-        throw lastError
+        throw combined(lastError, trail: trail)
+    }
+
+    /// Hangi modelin (ve anahtar hatasında hangi anahtarın) neden başarısız olduğu: "Ücretli Gemini 3.1 Flash-Lite: … (anahtar: AIza…x7Qd, 39 karakter)"
+    static func failureLine(profile: GeminiProfileInfo, error e: GeminiError) -> String {
+        var line = "\(profile.name): \(e.message)"
+        if e.kind == .key { line += " (anahtar: \(GeminiProfiles.keyHint(profile.key)))" }
+        return line
+    }
+
+    /// Denenen her modelin sonucu tek iletide toplanır (kırmızı kutuda hangi modelin neden düştüğü görünsün); tür ve durum kodu son hatanın kalır
+    static func combined(_ last: GeminiError, trail: [String]) -> GeminiError {
+        guard !trail.isEmpty else { return last }
+        var merged = GeminiError(trail.joined(separator: " "), last.kind, status: last.status)
+        merged.timedOut = last.timedOut
+        return merged
     }
 }

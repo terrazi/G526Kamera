@@ -64,6 +64,26 @@ enum GeminiProfiles {
     }
 
     /// Anahtarı ve modeli dolu olan profiller (yuva sırasıyla)
+    /// Hata iletilerinde anahtarın kendisini göstermeden hangi anahtarın kullanıldığını tanıtır: "AIza…x7Qd, 39 karakter"
+    static func keyHint(_ key: String) -> String {
+        let k = key.trimmed
+        if k.isEmpty { return "anahtar boş" }
+        if k.count <= 8 { return "\(k.count) karakter" }
+        return "\(k.prefix(4))…\(k.suffix(4)), \(k.count) karakter"
+    }
+
+    /// Yapıştırılan anahtarda bilinen hatalar (boşluk, tırnak, kırpılmış ya da başka bir şey yapıştırılmış); sorun yoksa nil.
+    /// Google AI Studio anahtarları "AIza" ile başlar ve 39 karakterdir.
+    static func keyShapeProblem(_ key: String) -> String? {
+        let k = key.trimmed
+        if k.isEmpty { return nil }
+        if k.contains(where: { $0.isWhitespace }) { return "Anahtarın içinde boşluk ya da satır sonu var; tek parça yapıştırın." }
+        if k.contains(where: { "\"'“”‘’`".contains($0) }) { return "Anahtarın içinde tırnak işareti var; tırnaksız yapıştırın." }
+        if !k.hasPrefix("AIza") { return "AI Studio anahtarları “AIza” ile başlar; bu başka bir şey olabilir." }
+        if k.count != 39 { return "AI Studio anahtarı 39 karakterdir; bu \(k.count) karakter (eksik ya da fazla yapışmış olabilir)." }
+        return nil
+    }
+
     static func usable(_ list: [GeminiProfileInfo]) -> [GeminiProfileInfo] {
         return list.filter { $0.usable }
     }

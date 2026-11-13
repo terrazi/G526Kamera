@@ -384,10 +384,17 @@ struct SettingsView: View {
                     TextField("Model (ör. \(GeminiConfig.defaultModel))", text: profileModel(i))
                         .textInputAutocapitalization(.never)
                         .disableAutocorrection(true)
-                    SecureField("API anahtarı", text: profileKey(i))
+                    // anahtar açık görünür: doğru yapıştırıldığı gözle kontrol edilebilsin
+                    TextField("API anahtarı", text: profileKey(i))
+                        .font(.system(.footnote, design: .monospaced))
                         .textInputAutocapitalization(.never)
                         .disableAutocorrection(true)
                         .accessibilityIdentifier("gemini-anahtar-\(i + 1)")
+                    if let problem = GeminiProfiles.keyShapeProblem(settings.geminiKeys[i]) {
+                        Text(problem).font(.caption).foregroundColor(.red)
+                    } else if !settings.geminiKeys[i].trimmed.isEmpty {
+                        Text("\(settings.geminiKeys[i].trimmed.count) karakter").font(.caption).foregroundColor(.secondary)
+                    }
                     Toggle("Ücretsiz anahtar", isOn: profileFree(i))
                 }
             }
