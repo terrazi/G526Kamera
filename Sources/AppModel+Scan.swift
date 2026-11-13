@@ -360,7 +360,7 @@ extension AppModel {
             switch action {
             case .accept(let n, let picks, let continuing):
                 if let urls = await renderPages(picks: picks, frames: frames, question: n) {
-                    ledger.accept(number: n, pages: urls, continuing: continuing)
+                    ledger.accept(number: n, pages: urls, continuing: continuing, text: Self.text(of: picks))
                     savePDF(for: n)
                     accepted.append(n)
                 } else {
@@ -369,7 +369,7 @@ extension AppModel {
                 }
             case .startOpen(let n, let picks):
                 if let urls = await renderPages(picks: picks, frames: frames, question: n) {
-                    ledger.startOpen(number: n, pages: urls)
+                    ledger.startOpen(number: n, pages: urls, text: Self.text(of: picks))
                     opened = n
                 } else {
                     rejects.append((n, .unreadable))
@@ -377,12 +377,12 @@ extension AppModel {
                 }
             case .extendOpen(let n, let picks):
                 if let urls = await renderPages(picks: picks, frames: frames, question: n) {
-                    ledger.extendOpen(number: n, pages: urls)
+                    ledger.extendOpen(number: n, pages: urls, text: Self.text(of: picks))
                     opened = n
                 }
             case .stashTail(let n, let picks):
                 if let urls = await renderPages(picks: picks, frames: frames, question: n) {
-                    ledger.stashTail(number: n, pages: urls)
+                    ledger.stashTail(number: n, pages: urls, text: Self.text(of: picks))
                     stashed.append(n)
                 }
             case .reject(let n, let problems):
@@ -404,6 +404,11 @@ extension AppModel {
         speakCapture(accepted: accepted.sorted(), opened: opened, stashed: stashed.sorted(), limited: limited, rejects: rejects,
                      duplicates: duplicates, general: general)
         return result
+    }
+
+    /// Seçilen en iyi karedeki sorunun okunan metni
+    static func text(of picks: [ShotCandidate]) -> QuestionText? {
+        return picks.first.map { QuestionText.from(block: $0.block) }
     }
 
     /// Çekim sonucunu tek konuşmada bildirir: alınanlar, devam isteği, en önemli tek uyarı

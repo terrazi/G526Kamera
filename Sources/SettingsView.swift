@@ -166,6 +166,12 @@ struct SettingsView: View {
 
     private var geminiSection: some View {
         Section(header: Text("Gemini (4 model profili)")) {
+            Picker("Gemini'ye gönderilen", selection: $settings.geminiInput) {
+                Text("Akıllı").tag(0)
+                Text("Hep PDF").tag(1)
+                Text("Yalnız metin").tag(2)
+            }
+            HelpRow("Metin birkaç KB’dir: PDF’den çok daha küçük olduğu için daha hızlı gider. Akıllı: telefon soruyu temiz okuduysa (bütün şıklar var, okuma güveni yüksek, şekil / tablo / formül izi yok) yalnız metin gider; şüpheli sorular PDF olarak gider. Hep PDF: her soru görüntü olarak gider (en güvenli, en yavaş). Yalnız metin: şekil, tablo ve formüller kaybolur, okuma hatası cevabı bozabilir; yalnız düz metin sorularda önerilir.")
             Picker("İlk denenen model", selection: $settings.geminiActive) {
                 ForEach(0..<GeminiProfiles.slotCount, id: \.self) { i in
                     Text(settings.geminiProfiles[i].name.trimmed.isEmpty ? "Model \(i + 1)" : settings.geminiProfiles[i].name).tag(i + 1)

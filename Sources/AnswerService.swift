@@ -14,11 +14,13 @@ struct AnswerRecord: Equatable {
     static let unsure = "belirsiz"
 }
 
-/// Gemini'ye gidecek bir PDF: bir soru ya da bir soru grubu
+/// Gemini'ye gidecek bir belge: bir soru ya da bir soru grubunun PDF'i; ya da (temiz okunan soruda) telefonun okuduğu düz metin
 struct AnswerDoc: Equatable {
     let name: String
     let numbers: [Int]
     let data: Data
+    /// Doluysa PDF yerine bu metin gider (`data` metnin baytlarıdır: istek boyutu hesabı için)
+    var text: String? = nil
 }
 
 /// Soru PDF'lerini Gemini'ye standart bir metinle gönderir ve cevapları sıralı, eksiksiz toplar.
@@ -28,7 +30,7 @@ enum AnswerService {
     static let maxDocsPerRequest = 20
 
     static let system: String = [
-        "Sen bir deneme sınavı yardımcısısın. Kullanıcı, sınav sorularını kameradan çekilmiş görüntülerden hazırlanan PDF dosyaları olarak verdi. "
+        "Sen bir deneme sınavı yardımcısısın. Kullanıcı, sınav sorularını kameradan çekilmiş görüntülerden hazırlanan PDF dosyaları olarak ya da (bazı sorular için) bu görüntülerden telefonda okunmuş düz metin olarak verdi. "
             + "Her PDF bir soruyu (ya da dosya adında yazan sorular grubunu) içerir; dosya adı soru numarasını gösterir (S12.pdf = 12. soru). "
             + "Cevapların sesli okunacak. Kurallar:",
         "1. Bir sorunun birden çok sayfası olabilir: bunlar AYNI sorunun farklı kare görüntüleridir ya da sorunun devamıdır. En okunaklı "
@@ -43,6 +45,8 @@ enum AnswerService {
             + "yazıyla yaz, kısaltma ve sembol kullanma (% yerine yüzde, TL yerine Türk lirası, kg yerine kilogram). Şıkta metin yoksa "
             + "(yalnız harf ya da şekil) 'deger' boş olsun.",
         "6. Gerekçe, açıklama ya da yorum yazma; yalnız istenen alanları doldur.",
+        "7. Bazı sorular PDF yerine 'telefonun okuduğu metin' olarak gelir. Bu metinde okuma hataları (bozuk harf, eksik sembol, karışan satır) olabilir: "
+            + "anlamına göre dikkatle oku. Metin soruyu ya da şıkları çözmeye yetmiyorsa 'okunamadi' yaz, tahmin etme.",
         "Çıktı her zaman istenen JSON biçiminde olmalı."
     ].joined(separator: "\n")
 
@@ -68,8 +72,12 @@ enum AnswerService {
         var all: [Int] = []
         for d in docs {
             let label = d.numbers.count == 1 ? "\(d.numbers[0]). soru" : "sorular: " + d.numbers.map { String($0) }.joined(separator: ", ")
-            parts.append(["text": "Dosya: \(d.name) (\(label))"])
-            parts.append(["inlineData": ["mimeType": "application/pdf", "data": d.data.base64EncodedString()]])
+            if let text = d.text {
+                parts.append(["text": "Soru metni: \(d.name) (\(label)) — telefonun okuduğu metin:\n\(text)"])
+            } else {
+                parts.append(["text": "Dosya: \(d.name) (\(label))"])
+                parts.append(["inlineData": ["mimeType": "application/pdf", "data": d.data.base64EncodedString()]])
+            }
             all += d.numbers
         }
         parts.append(["text": prompt(numbers: all.sorted())])
@@ -92,14 +100,19 @@ enum AnswerService {
         var out: [[AnswerDoc]] = []
         var cur: [AnswerDoc] = []
         var bytes = 0
+        var pdfs = 0
         for d in docs.sorted(by: { ($0.numbers.first ?? 0) < ($1.numbers.first ?? 0) }) {
-            if !cur.isEmpty && (bytes + d.data.count > budget || cur.count >= max(maxDocs, 1)) {
+            let isPDF = d.text == nil
+            // PDF sayısı sınırlıdır; düz metinler sayıya girmez (birkaç KB'dir)
+            if !cur.isEmpty && (bytes + d.data.count > budget || (isPDF && pdfs >= max(maxDocs, 1))) {
                 out.append(cur)
                 cur = []
                 bytes = 0
+                pdfs = 0
             }
             cur.append(d)
             bytes += d.data.count
+            if isPDF { pdfs += 1 }
         }
         if !cur.isEmpty { out.append(cur) }
         return out

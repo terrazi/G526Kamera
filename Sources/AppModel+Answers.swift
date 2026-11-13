@@ -45,11 +45,25 @@ extension AppModel {
 
     // MARK: - Gemini
 
-    /// Alınan soruların gönderilecek PDF'leri: grup boyutuna göre birleştirilir (S12.pdf ya da S12-14.pdf)
+    /// Alınan soruların Gemini'ye gidecek belgeleri. Ayara göre: telefonda temiz okunan sorular düz metin olarak (küçük, hızlı), diğerleri
+    /// grup boyutuna göre birleştirilmiş PDF olarak (S12.pdf ya da S12-14.pdf) gider.
     func buildAnswerDocs() -> [AnswerDoc] {
         guard let files = files else { return [] }
         var docs: [AnswerDoc] = []
-        for group in QuestionGroups.split(ledger.acceptedNumbers, size: settings.groupSize) {
+        let accepted = ledger.acceptedNumbers
+        var textNumbers: [Int] = []
+        if settings.geminiInput != 1 {
+            for n in accepted {
+                guard let q = ledger.texts[n] else { continue }
+                if settings.geminiInput == 2 || q.isReliable(optionCount: ledger.optionCount) { textNumbers.append(n) }
+            }
+        }
+        for n in textNumbers {
+            guard let q = ledger.texts[n] else { continue }
+            docs.append(AnswerDoc(name: "S\(n)", numbers: [n], data: Data(q.text.utf8), text: q.text))
+        }
+        let pdfNumbers = accepted.filter { !textNumbers.contains($0) }
+        for group in QuestionGroups.split(pdfNumbers, size: settings.groupSize) {
             let jpegs = group.flatMap { ledger.pages[$0] ?? [] }
             guard !jpegs.isEmpty else { continue }
             let name = QuestionGroups.pdfName(group)
@@ -66,6 +80,7 @@ extension AppModel {
             }
             docs.append(AnswerDoc(name: name, numbers: group, data: data))
         }
+        tlog("[gemini] \(textNumbers.count) soru metin, \(pdfNumbers.count) soru PDF olarak gönderilecek")
         return docs
     }
 
@@ -91,7 +106,7 @@ extension AppModel {
             pass += 1
             for chunk in AnswerService.chunk(pending) {
                 if Task.isCancelled { return }
-                setStatus("Gemini'ye soruluyor (\(chunk.count) PDF)")
+                setStatus("Gemini'ye soruluyor (\(chunk.count) parça)")
                 do {
                     let got = try await AnswerService.ask(docs: chunk, profiles: profiles, active: settings.geminiActive,
                                                           waitLimit: wait) { [weak self] text in

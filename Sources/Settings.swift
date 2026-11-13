@@ -34,6 +34,8 @@ final class AppSettings: ObservableObject {
     @Published var optionCount: Int { didSet { d.set(optionCount, forKey: "optionCount") } }
     /// Gemini'ye giden PDF kaç sorudan oluşsun (1 = her soru ayrı PDF)
     @Published var groupSize: Int { didSet { d.set(groupSize, forKey: "groupSize") } }
+    /// Gemini'ye ne gitsin: 0 = akıllı (telefonda temiz okunan soru metin, şüpheli soru PDF), 1 = hep PDF (görüntü), 2 = yalnız metin
+    @Published var geminiInput: Int { didSet { d.set(geminiInput, forKey: "geminiInput") } }
     /// Kamera hazırken "evrakı kameraya tutun" uyarısı bu kadar saniyede bir tekrarlanır
     @Published var readyRepeatSeconds: Int { didSet { d.set(readyRepeatSeconds, forKey: "readyRepeatSeconds") } }
     /// Evrak bu kadar dakikada tutulmazsa taramadan vazgeçilir
@@ -123,6 +125,7 @@ final class AppSettings: ObservableObject {
         questionTotal = AppSettings.clamp(d.object(forKey: "questionTotal") as? Int, range: AppSettings.questionTotalRange, fallback: 0)
         optionCount = d.object(forKey: "optionCount") as? Int == 4 ? 4 : 5
         groupSize = AppSettings.clamp(d.object(forKey: "groupSize") as? Int, range: 1...3, fallback: 1)
+        geminiInput = AppSettings.clamp(d.object(forKey: "geminiInput") as? Int, range: 0...2, fallback: 0)
         readyRepeatSeconds = AppSettings.clamp(d.object(forKey: "readyRepeatSeconds") as? Int, range: 10...300, fallback: 30)
         readyMaxMinutes = AppSettings.clamp(d.object(forKey: "readyMaxMinutes") as? Int, range: 1...120, fallback: 10)
         maxAttempts = AppSettings.clamp(d.object(forKey: "maxAttempts") as? Int, range: 0...50, fallback: 5)

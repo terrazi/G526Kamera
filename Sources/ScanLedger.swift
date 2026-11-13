@@ -57,6 +57,10 @@ struct ScanLedger: Equatable {
     private(set) var openOrder: [Int] = []
     /// Devamı (alt kısmı) alınmış, başı bekleyen sorular: sorular karışık sırada çekilince oluşur
     private(set) var tails: [Int: [URL]] = [:]
+    /// Alınan soruların telefonda okunan metni (Gemini'ye PDF yerine metin göndermek için); metni birleştirilemeyen sorunun metni yoktur
+    private(set) var texts: [Int: QuestionText] = [:]
+    private var openTexts: [Int: QuestionText] = [:]
+    private var tailTexts: [Int: QuestionText] = [:]
     private(set) var duplicates = 0
 
     init(total: Int, optionCount: Int = 5, maxAttempts: Int = 5) {
@@ -103,36 +107,51 @@ struct ScanLedger: Equatable {
     // MARK: Değişiklikler
 
     /// `continuing`: bu çekim, daha önce alınmış bir parçayla birleşir. Başı bekleyen soruya devam parçası eklenir; devamı bekleyen soruya baş eklenir.
-    mutating func accept(number: Int, pages newPages: [URL], continuing: Bool) {
+    mutating func accept(number: Int, pages newPages: [URL], continuing: Bool, text: QuestionText? = nil) {
         var all = newPages
+        var combined = text
         if continuing {
             if let head = openParts[number] {
                 all = head + newPages
+                combined = Self.join(openTexts[number], text)
             } else if let tail = tails[number] {
                 all = newPages + tail
+                combined = Self.join(text, tailTexts[number])
             }
         }
         pages[number] = all
+        texts[number] = combined
         unreadable.remove(number)
         openParts[number] = nil
+        openTexts[number] = nil
         openOrder.removeAll { $0 == number }
         tails[number] = nil
+        tailTexts[number] = nil
     }
 
-    mutating func startOpen(number: Int, pages newPages: [URL]) {
+    /// İki parçanın metni birleşir; biri yoksa birleşik metin de yoktur (o soru PDF olarak gider)
+    private static func join(_ first: QuestionText?, _ second: QuestionText?) -> QuestionText? {
+        guard let a = first, let b = second else { return nil }
+        return QuestionText.merged([a, b])
+    }
+
+    mutating func startOpen(number: Int, pages newPages: [URL], text: QuestionText? = nil) {
         openParts[number] = newPages
+        openTexts[number] = text
         openOrder.removeAll { $0 == number }
         openOrder.append(number)
     }
 
-    mutating func extendOpen(number: Int, pages newPages: [URL]) {
+    mutating func extendOpen(number: Int, pages newPages: [URL], text: QuestionText? = nil) {
         guard let head = openParts[number] else { return }
         openParts[number] = head + newPages
+        openTexts[number] = Self.join(openTexts[number], text)
     }
 
-    mutating func stashTail(number: Int, pages newPages: [URL]) {
+    mutating func stashTail(number: Int, pages newPages: [URL], text: QuestionText? = nil) {
         guard pages[number] == nil else { return }
         tails[number] = newPages
+        tailTexts[number] = text
     }
 
     /// Soru bu çekimde gönderime uygun çıkmadı. Deneme sınırı dolduysa soru "okunamadı" işaretlenir ve true döner.
@@ -153,8 +172,10 @@ struct ScanLedger: Equatable {
     mutating func giveUpOnMissing() {
         for n in missing { unreadable.insert(n) }
         openParts = [:]
+        openTexts = [:]
         openOrder = []
         tails = [:]
+        tailTexts = [:]
     }
 }
 

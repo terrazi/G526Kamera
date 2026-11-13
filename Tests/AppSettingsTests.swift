@@ -3,7 +3,7 @@ import XCTest
 
 /// Yeni sürümün ayar varsayılanları ve sınırları (kullanıcının kararlarıyla uyumlu olmalı)
 final class AppSettingsTests: XCTestCase {
-    private let keys = ["questionTotal", "optionCount", "groupSize", "readyRepeatSeconds", "readyMaxMinutes", "maxAttempts",
+    private let keys = ["questionTotal", "optionCount", "groupSize", "geminiInput", "readyRepeatSeconds", "readyMaxMinutes", "maxAttempts",
                         "scanMaxMinutes", "missingWaitSeconds", "guidanceSharpness", "shortcutTries", "shortcutWaitSeconds",
                         "geminiWaitLimit", "answerPauseSeconds", "repeatPauseSeconds", "timestampMode", "previewOff", "dimScreen",
                         "jpegQuality", "sharpenImages", "cameraShortcutName", "connectionShortcutName", "geminiOptionCodes"]
@@ -36,6 +36,7 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(s.questionTotal, 0, "soru sayısı her sınavdan önce girilir")
         XCTAssertEqual(s.optionCount, 5)
         XCTAssertEqual(s.groupSize, 1)
+        XCTAssertEqual(s.geminiInput, 0, "varsayılan: akıllı (temiz sorular metin, şüpheliler PDF)")
         XCTAssertEqual(s.readyRepeatSeconds, 30)
         XCTAssertEqual(s.readyMaxMinutes, 10)
         XCTAssertEqual(s.maxAttempts, 5)
