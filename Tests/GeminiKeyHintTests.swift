@@ -89,4 +89,30 @@ final class GeminiKeyHintTests: XCTestCase {
         XCTAssertEqual(GeminiProfiles.keyKindLabel(free: true), "Ücretsiz anahtar")
         XCTAssertEqual(GeminiProfiles.keyKindLabel(free: false), "Ücretli anahtar")
     }
+
+    func testNewAQKeyIsNotFlaggedAsWrong() {
+        let aq = "AQ.Ab8RN6" + String(repeating: "k", count: 40)
+        XCTAssertNil(GeminiProfiles.keyShapeProblem(aq))
+        XCTAssertNotNil(GeminiProfiles.keyShapeProblem("AQ.abc"), "çok kısa AQ. anahtarı eksik yapışmıştır")
+        XCTAssertTrue(GeminiProfiles.keyShapeProblem("sk-abc")?.contains("AQ.") == true, "uyarı iki biçimi de anlatır")
+    }
+
+    func testClipboardAQKeyIsExtractedAndTrailingDotDropped() {
+        let aq = "AQ.Ab8RN6" + String(repeating: "k", count: 40)
+        XCTAssertEqual(GeminiProfiles.cleanedKey(fromClipboard: "Anahtarım: \(aq). Kullan"), aq)
+        XCTAssertEqual(GeminiProfiles.cleanedKey(fromClipboard: "\(aq)\n"), aq)
+    }
+
+    func testRejectedAQKeyGetsFormatNoteButAIzaKeyDoesNot() {
+        let aq = "AQ.Ab8RN6" + String(repeating: "k", count: 40)
+        let err = GeminiError("API anahtarı geçersiz.", .key, status: 400)
+        let withNote = GeminiProfiles.keyTestText(model: "m", key: aq, result: .failure(err))
+        XCTAssertTrue(withNote.text.contains("AQ.") && withNote.text.contains("Cloud Console"))
+        let plain = GeminiProfiles.keyTestText(model: "m", key: good, result: .failure(err))
+        XCTAssertEqual(plain.text, "✗ API anahtarı geçersiz.")
+        let quota = GeminiProfiles.keyTestText(model: "m", key: aq, result: .failure(GeminiError("Kota.", .quota)))
+        XCTAssertEqual(quota.text, "✗ Kota.", "yalnız anahtar hatasında not eklenir")
+        let line = GeminiVideo.failureLine(profile: GeminiProfileInfo(slot: 6, name: "Ücretli", model: "m", key: aq, free: false), error: err)
+        XCTAssertTrue(line.contains("Cloud Console"))
+    }
 }

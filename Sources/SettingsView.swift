@@ -297,7 +297,7 @@ struct SettingsView: View {
             } catch {
                 outcome = .failure(GeminiError(error.localizedDescription, .error))
             }
-            let text = GeminiProfiles.keyTestText(model: profile.model, result: outcome)
+            let text = GeminiProfiles.keyTestText(model: profile.model, key: profile.key, result: outcome)
             tlog("[gemini] anahtar denemesi (\(profile.name), \(GeminiProfiles.keyHint(profile.key))): \(text.text)")
             keyTestResults[slot] = text
             testingKeySlot = 0

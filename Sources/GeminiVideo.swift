@@ -177,7 +177,10 @@ enum GeminiVideo {
     /// Hangi modelin (ve anahtar hatasında hangi anahtarın) neden başarısız olduğu: "Ücretli Gemini 3.1 Flash-Lite: … (anahtar: AIza…x7Qd, 39 karakter)"
     static func failureLine(profile: GeminiProfileInfo, error e: GeminiError) -> String {
         var line = "\(profile.name): \(e.message)"
-        if e.kind == .key { line += " (anahtar: \(GeminiProfiles.keyHint(profile.key)))" }
+        if e.kind == .key {
+            line += " (anahtar: \(GeminiProfiles.keyHint(profile.key)))"
+            if let note = GeminiProfiles.keyFormatNote(key: profile.key) { line += " " + note }
+        }
         return line
     }
 

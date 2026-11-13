@@ -73,13 +73,15 @@ enum GeminiProfiles {
     }
 
     /// Yapıştırılan anahtarda bilinen hatalar (boşluk, tırnak, kırpılmış ya da başka bir şey yapıştırılmış); sorun yoksa nil.
-    /// Google AI Studio anahtarları "AIza" ile başlar ve 39 karakterdir.
+    /// Eski AI Studio anahtarları "AIza" ile başlar ve 39 karakterdir; yenileri "AQ." ile başlar.
     static func keyShapeProblem(_ key: String) -> String? {
         let k = key.trimmed
         if k.isEmpty { return nil }
         if k.contains(where: { $0.isWhitespace }) { return "Anahtarın içinde boşluk ya da satır sonu var; tek parça yapıştırın." }
         if k.contains(where: { "\"'“”‘’`".contains($0) }) { return "Anahtarın içinde tırnak işareti var; tırnaksız yapıştırın." }
-        if !k.hasPrefix("AIza") { return "AI Studio anahtarları “AIza” ile başlar; bu başka bir şey olabilir." }
+        // Google 2026'da AI Studio'da yeni "AQ." biçimli (kimlik doğrulama) anahtarlara geçti; uzunlukları sabit değildir
+        if k.hasPrefix("AQ.") { return k.count < 20 ? "“AQ.” ile başlayan anahtar çok kısa; eksik yapışmış olabilir." : nil }
+        if !k.hasPrefix("AIza") { return "AI Studio anahtarları “AIza” ya da “AQ.” ile başlar; bu başka bir şey olabilir." }
         if k.count != 39 { return "AI Studio anahtarı 39 karakterdir; bu \(k.count) karakter (eksik ya da fazla yapışmış olabilir)." }
         return nil
     }
@@ -96,18 +98,29 @@ enum GeminiProfiles {
         if let range = text.range(of: "AIza[0-9A-Za-z_\\-]{35}", options: .regularExpression) {
             return String(text[range])
         }
+        if let range = text.range(of: "AQ\\.[0-9A-Za-z_.\\-]{20,}", options: .regularExpression) {
+            return String(text[range]).trimmingCharacters(in: CharacterSet(charactersIn: "."))
+        }
         let quotes = CharacterSet(charactersIn: "\"'“”‘’`")
         let cleaned = text.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: quotes)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return cleaned.isEmpty ? nil : cleaned
     }
 
+    /// Yeni biçimli ("AQ.") anahtar Google'ın REST uç noktasında bazı hesaplarda reddedilebiliyor; anahtar hatasında bu bilgi eklenir
+    static func keyFormatNote(key: String) -> String? {
+        guard key.trimmed.hasPrefix("AQ.") else { return nil }
+        return "Bu anahtar yeni “AQ.” biçiminde; Google bunu bazı hesaplarda reddediyor. Google Cloud Console’da Generative Language API’ye kısıtlı yeni bir anahtar (AIza…) oluşturmayı deneyin."
+    }
+
     /// "Anahtarı dene" sonucu: anahtarın model listesini alabilmesi Google'ın anahtarı kabul ettiğini gösterir (belirteç harcamaz);
     /// ardından profildeki modelin bu anahtarda görünüp görünmediği söylenir.
-    static func keyTestText(model: String, result: Result<[String], GeminiError>) -> (ok: Bool, text: String) {
+    static func keyTestText(model: String, key: String = "", result: Result<[String], GeminiError>) -> (ok: Bool, text: String) {
         switch result {
         case .failure(let e):
-            return (false, "✗ " + e.message)
+            var text = "✗ " + e.message
+            if e.kind == .key, let note = keyFormatNote(key: key) { text += " " + note }
+            return (false, text)
         case .success(let names):
             let wanted = model.trimmed.hasPrefix("models/") ? String(model.trimmed.dropFirst("models/".count)) : model.trimmed
             if wanted.isEmpty { return (true, "✓ Anahtar kabul edildi. (Bu profilde model adı boş.)") }
