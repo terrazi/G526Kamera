@@ -115,7 +115,7 @@ enum ModelChoice {
     static let changePhrases = "model değiştir, modeli değiştir, model seç, modeli seç, ana model seç"
     private static let numberWords = ["bir", "iki", "üç", "dört", "beş"]
 
-    /// k. alternatif model = (k+1). profil; slot 2...6: "birinci alternatif model seç" … "beşinci alternatif model seç"
+    /// k. alternatif model = (k+1). profil; slot 2...4: "birinci alternatif model seç" … "üçüncü alternatif model seç"
     static func alternativePhrases(slot: Int) -> String {
         let k = min(max(slot - 1, 1), numberWords.count)
         let w = ordinals[k - 1], nw = numberWords[k - 1]
@@ -124,7 +124,7 @@ enum ModelChoice {
     static var secondPhrases: String { return alternativePhrases(slot: 2) }
     static var thirdPhrases: String { return alternativePhrases(slot: 3) }
 
-    /// Komut kimliği alternatif model komutu mu ("model2" … "model6"); "model", "modelRepeat", "modelCancel" değil
+    /// Komut kimliği alternatif model komutu mu ("model2" … "model4"); "model", "modelRepeat", "modelCancel" değil
     static func isAlternativeID(_ id: String) -> Bool {
         let rest = id.dropFirst(5)
         return id.hasPrefix("model") && !rest.isEmpty && rest.allSatisfy({ $0.isNumber })
@@ -168,7 +168,7 @@ final class ModelChooser {
         self.timeout = timeout
     }
 
-    /// "Model değiştir" (slot 1), "birinci alternatif model seç" (2) … "beşinci alternatif model seç" (6)
+    /// "Model değiştir" (slot 1), "birinci alternatif model seç" (2) … "üçüncü alternatif model seç" (4)
     func begin(slot newSlot: Int = 1) {
         let slot = min(max(newSlot, 1), GeminiProfiles.slotCount)
         let own = profiles().first(where: { $0.slot == slot })?.key.trimmed ?? ""

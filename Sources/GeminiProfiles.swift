@@ -21,49 +21,63 @@ struct GeminiProfileInfo: Equatable {
 }
 
 enum GeminiProfiles {
-    static let slotCount = 6
+    /// Model profili sayısı: 4 (kullanıcı kararı 2026-11-13: Gemini 3.8 Flash çok yoğun, Gemini 2.5 Pro kaldırılmış; ikisi çıkarıldı)
+    static let slotCount = 4
+    /// Eski düzen: 6 yuva. Yeni düzene geçişte eski 1. (Gemini 3.8 Flash) ve 3. (Gemini 2.5 Pro) yuva atılır;
+    /// eski 2., 4., 5., 6. yuva sırasıyla yeni 1.–4. yuva olur.
+    static let legacySlotCount = 6
+    static let legacyKeptSlots = [2, 4, 5, 6]
+    /// Keychain'deki düzen işareti: yoksa kayıtlı anahtarlar eski düzendendir (silinir); uygulama silinip yeniden yüklense de Keychain'de kalır
+    static let layoutMarker = "geminiLayout"
+    static let layoutVersion = "4"
 
     /// Keychain adı: 1. profil eski "geminiApiKey" adını korur
     static func keychainName(slot: Int) -> String {
         return slot == 1 ? "geminiApiKey" : "geminiApiKey\(slot)"
     }
 
+    /// Eski düzendeki yuva numarasının yeni düzendeki karşılığı (atılan yuva, sonraki korunan yuvaya gider: 1→1, 2→1, 3→2, 4→2, 5→3, 6→4)
+    static func newSlot(fromLegacy old: Int) -> Int {
+        for (i, kept) in legacyKeptSlots.enumerated() where old <= kept { return i + 1 }
+        return slotCount
+    }
+
+    /// Eski 6 profilden yenilerini kurar (ad, model, ücretsiz bayrağı korunur); liste 6 değilse varsayılanlar
+    static func profiles(fromLegacy saved: [GeminiProfile]) -> [GeminiProfile] {
+        guard saved.count == legacySlotCount else { return defaults() }
+        return migrated(legacyKeptSlots.map { saved[$0 - 1] })
+    }
+
     /// Varsayılan sıra = model zincirinin sırası = PERFORMANS sırası (kota dolunca / hata olunca / cevap gecikince bir sonrakine geçilir):
-    /// 1. Gemini 3.8 Flash, 2. Gemini 3.6 Flash, 3. Gemini 2.5 Pro, 4. Gemini 3.5 Flash-Lite, 5. Gemini 3.1 Flash-Lite (hepsi ücretsiz katmanda),
-    /// 6. ücretli Gemini 3.1 Flash-Lite (kendi ücretli anahtarı; ucuz: ≈0,25 $ / 1,50 $ milyon belirteç; günlük sınırı yok, en sonda). Kullanıcı Ayarlardan ya da "model değiştir" ile değiştirir.
-    static let defaultSecondModel = "gemini-3.6-flash"
-    static let defaultThirdModel = "gemini-2.5-pro"
+    /// 1. Gemini 3.6 Flash, 2. Gemini 3.5 Flash-Lite, 3. Gemini 3.1 Flash-Lite (hepsi ücretsiz katmanda),
+    /// 4. ücretli Gemini 3.1 Flash-Lite (kendi ücretli anahtarı; ucuz: ≈0,25 $ / 1,50 $ milyon belirteç; günlük sınırı yok, en sonda). Kullanıcı Ayarlardan ya da "model değiştir" ile değiştirir.
+    static let defaultFlashModel = "gemini-3.6-flash"
     static let defaultLiteModel = "gemini-3.5-flash-lite"
     static let defaultOldLiteModel = "gemini-3.1-flash-lite"
-    static let defaultNames = ["Gemini 3.8 Flash", "Gemini 3.6 Flash", "Gemini 2.5 Pro", "Gemini 3.5 Flash-Lite",
-                               "Gemini 3.1 Flash-Lite", "Ücretli Gemini 3.1 Flash-Lite"]
+    static let defaultNames = ["Gemini 3.6 Flash", "Gemini 3.5 Flash-Lite", "Gemini 3.1 Flash-Lite", "Ücretli Gemini 3.1 Flash-Lite"]
 
     static func defaults() -> [GeminiProfile] {
-        return [GeminiProfile(name: defaultNames[0], model: GeminiConfig.defaultModel, free: true),
-                GeminiProfile(name: defaultNames[1], model: defaultSecondModel, free: true),
-                GeminiProfile(name: defaultNames[2], model: defaultThirdModel, free: true),
-                GeminiProfile(name: defaultNames[3], model: defaultLiteModel, free: true),
-                GeminiProfile(name: defaultNames[4], model: defaultOldLiteModel, free: true),
-                GeminiProfile(name: defaultNames[5], model: defaultOldLiteModel, free: false)]
+        return [GeminiProfile(name: defaultNames[0], model: defaultFlashModel, free: true),
+                GeminiProfile(name: defaultNames[1], model: defaultLiteModel, free: true),
+                GeminiProfile(name: defaultNames[2], model: defaultOldLiteModel, free: true),
+                GeminiProfile(name: defaultNames[3], model: defaultOldLiteModel, free: false)]
     }
 
     /// Kaydedilmiş profillerde eksik yuvalar varsayılanla tamamlanır, boş kalan modeller varsayılanla dolar (anahtar girilene kadar etkisizdir);
-    /// yalnız adı da eski varsayılansa ("Pro", "Ücretsiz", "Model N") ad yenilenir. Kullanıcının yazdığı model ve ad korunur.
+    /// boş ya da "Model N" adı varsayılan adla yenilenir. Kullanıcının yazdığı model ve ad korunur.
     static func migrated(_ saved: [GeminiProfile]) -> [GeminiProfile] {
-        var list = saved
+        var list = Array(saved.prefix(slotCount))
         let defs = defaults()
         while list.count < defs.count { list.append(defs[list.count]) }
-        let oldNames: [[String]] = [["Flash"], ["Pro"], ["Ücretsiz"], [], [], []]
-        for i in list.indices where i < defs.count && saved.indices.contains(i) && list[i].model.trimmed.isEmpty {
+        for i in list.indices where saved.indices.contains(i) && list[i].model.trimmed.isEmpty {
             list[i].model = defs[i].model
             list[i].free = defs[i].free
             let name = list[i].name.trimmed
-            if name.isEmpty || oldNames[i].contains(name) || name == "Model \(i + 1)" { list[i].name = defs[i].name }
+            if name.isEmpty || name == "Model \(i + 1)" { list[i].name = defs[i].name }
         }
         return list
     }
 
-    /// Anahtarı ve modeli dolu olan profiller (yuva sırasıyla)
     /// Hata iletilerinde anahtarın kendisini göstermeden hangi anahtarın kullanıldığını tanıtır: "AIza…x7Qd, 39 karakter"
     static func keyHint(_ key: String) -> String {
         let k = key.trimmed
@@ -150,6 +164,7 @@ enum GeminiProfiles {
         return (false, text)
     }
 
+    /// Anahtarı ve modeli dolu olan profiller (yuva sırasıyla)
     static func usable(_ list: [GeminiProfileInfo]) -> [GeminiProfileInfo] {
         return list.filter { $0.usable }
     }

@@ -427,7 +427,7 @@ final class GeminiChat: ObservableObject {
     /// Cevap bekleme sınırı en az bu kadar sn sayılır (çok kısa sınır her soruyu bir sonraki modele iter)
     var waitMin: TimeInterval = 10
 
-    /// Seçili profilden sonra sıradaki kullanılabilir (anahtarı ve modeli dolu) profiller: 1→2→…→6→1 döngüsü
+    /// Seçili profilden sonra sıradaki kullanılabilir (anahtarı ve modeli dolu) profiller: 1→2→3→4→1 döngüsü
     func chainOthers(_ opts: GeminiOptions) -> [GeminiProfileInfo] {
         let act = GeminiProfiles.active(opts.profiles, active: opts.active)
         let usable = GeminiProfiles.usable(opts.profiles)

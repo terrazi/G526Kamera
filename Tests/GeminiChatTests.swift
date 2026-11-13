@@ -803,7 +803,7 @@ final class GeminiChatTests: XCTestCase {
     private func chainProfiles() -> [GeminiProfileInfo] {
         let names = GeminiProfiles.defaultNames
         let models = GeminiProfiles.defaults().map { $0.model }
-        return (1...6).map { GeminiProfileInfo(slot: $0, name: names[$0 - 1], model: models[$0 - 1], key: "k\($0)", free: $0 != 6) }
+        return (1...4).map { GeminiProfileInfo(slot: $0, name: names[$0 - 1], model: models[$0 - 1], key: "k\($0)", free: $0 != 4) }
     }
 
     private func setUpChain(active: Int = 1, waitLimit: TimeInterval = 30) {
@@ -822,59 +822,59 @@ final class GeminiChatTests: XCTestCase {
 
     func testChainQuotaGoesToTheSecondModelAndSaysSo() async {
         setUpChain()
-        client.failModels["-|gemini-3.8-flash"] = dailyQuota
+        client.failModels["-|gemini-3.6-flash"] = dailyQuota
         await askChain()
-        XCTAssertEqual(client.calls.map { $0.model ?? "-" }, ["-", "gemini-3.6-flash"])
+        XCTAssertEqual(client.calls.map { $0.model ?? "-" }, ["-", "gemini-3.5-flash-lite"])
         XCTAssertEqual(client.calls.map { $0.key ?? "-" }, ["-", "k2"])
         XCTAssertEqual(client.calls.map { $0.text }, ["toplam nedir", "toplam nedir"], "aynı soru yinelenmeli")
         XCTAssertEqual(client.calls.map { $0.timeout }, [30, 30])
-        XCTAssertEqual(log.spoken.first, "Gemini 3.8 Flash kotası doldu. Sorunuz Gemini 3.6 Flash modeline gönderiliyor.")
+        XCTAssertEqual(log.spoken.first, "Gemini 3.6 Flash kotası doldu. Sorunuz Gemini 3.5 Flash-Lite modeline gönderiliyor.")
         XCTAssertEqual(chat.answer, "Cevap 2.")
         XCTAssertEqual(chat.error, "")
-        XCTAssertTrue(chat.notes.contains { $0.contains("Gemini 3.6 Flash modelinden geldi") && $0.contains("kotası doldu") }, "\(chat.notes)")
+        XCTAssertTrue(chat.notes.contains { $0.contains("Gemini 3.5 Flash-Lite modelinden geldi") && $0.contains("kotası doldu") }, "\(chat.notes)")
     }
 
     func testChainSkipsAModelWhoseDailyQuotaIsFullOnTheNextQuestion() async {
         setUpChain()
-        client.failModels["-|gemini-3.8-flash"] = dailyQuota
+        client.failModels["-|gemini-3.6-flash"] = dailyQuota
         await askChain()
         _ = await waitUntil { self.chat.phase == .idle }
         let spokenBefore = log.spoken.count
         await askChain("başka soru", until: "Cevap 3.")
-        XCTAssertEqual(client.calls.map { $0.model ?? "-" }, ["-", "gemini-3.6-flash", "gemini-3.6-flash"], "kotası dolu model atlanır")
+        XCTAssertEqual(client.calls.map { $0.model ?? "-" }, ["-", "gemini-3.5-flash-lite", "gemini-3.5-flash-lite"], "kotası dolu model atlanır")
         XCTAssertFalse(log.spoken.dropFirst(spokenBefore).contains { $0.contains("Sorunuz") }, "tekrar bildirim yok")
     }
 
     func testChainMovesOnWhenTheModelTakesTooLong() async {
         setUpChain(waitLimit: 2)
-        client.timeoutModels = ["-|gemini-3.8-flash"]
+        client.timeoutModels = ["-|gemini-3.6-flash"]
         await askChain()
         XCTAssertEqual(client.calls.first?.timeout, chat.waitMin, "çok kısa sınır en az waitMin sayılır")
-        XCTAssertEqual(client.calls.map { $0.model ?? "-" }, ["-", "gemini-3.6-flash"])
-        XCTAssertEqual(log.spoken.first, "Gemini 3.8 Flash uzun süre cevap vermedi. Sorunuz Gemini 3.6 Flash modeline gönderiliyor.")
+        XCTAssertEqual(client.calls.map { $0.model ?? "-" }, ["-", "gemini-3.5-flash-lite"])
+        XCTAssertEqual(log.spoken.first, "Gemini 3.6 Flash uzun süre cevap vermedi. Sorunuz Gemini 3.5 Flash-Lite modeline gönderiliyor.")
         XCTAssertEqual(chat.error, "")
     }
 
     func testChainServerErrorAlsoMovesOn() async {
         setUpChain()
-        client.failModels["-|gemini-3.8-flash"] = busy503
+        client.failModels["-|gemini-3.6-flash"] = busy503
         await askChain()
-        XCTAssertEqual(client.calls.map { $0.model ?? "-" }, ["-", "gemini-3.6-flash"])
-        XCTAssertEqual(log.spoken.first, "Gemini 3.8 Flash şu an çok yoğun. Sorunuz Gemini 3.6 Flash modeline gönderiliyor.")
+        XCTAssertEqual(client.calls.map { $0.model ?? "-" }, ["-", "gemini-3.5-flash-lite"])
+        XCTAssertEqual(log.spoken.first, "Gemini 3.6 Flash şu an çok yoğun. Sorunuz Gemini 3.5 Flash-Lite modeline gönderiliyor.")
     }
 
     func testChainEndsWithThePaidProfileUsingItsOwnKeyAndNoWaitLimit() async {
         setUpChain()
-        for id in ["-|gemini-3.8-flash", "k2|gemini-3.6-flash", "k3|gemini-2.5-pro", "k4|gemini-3.5-flash-lite", "k5|gemini-3.1-flash-lite"] {
+        for id in ["-|gemini-3.6-flash", "k2|gemini-3.5-flash-lite", "k3|gemini-3.1-flash-lite"] {
             client.failModels[id] = dailyQuota
         }
         await askChain()
         XCTAssertEqual(client.calls.map { $0.model ?? "-" },
-                       ["-", "gemini-3.6-flash", "gemini-2.5-pro", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3.1-flash-lite"])
-        XCTAssertEqual(client.calls.map { $0.key ?? "-" }, ["-", "k2", "k3", "k4", "k5", "k6"])
-        XCTAssertEqual(client.calls.map { $0.timeout }, [30, 30, 30, 30, 30, nil], "son modele bekleme sınırı konmaz")
+                       ["-", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3.1-flash-lite"])
+        XCTAssertEqual(client.calls.map { $0.key ?? "-" }, ["-", "k2", "k3", "k4"])
+        XCTAssertEqual(client.calls.map { $0.timeout }, [30, 30, 30, nil], "son modele bekleme sınırı konmaz")
         XCTAssertTrue(log.spoken.contains("Gemini 3.1 Flash-Lite kotası doldu. Sorunuz Ücretli Gemini 3.1 Flash-Lite modeline gönderiliyor."), "\(log.spoken)")
-        XCTAssertEqual(chat.answer, "Cevap 6.")
+        XCTAssertEqual(chat.answer, "Cevap 4.")
         XCTAssertEqual(chat.error, "")
     }
 
@@ -882,15 +882,15 @@ final class GeminiChatTests: XCTestCase {
         setUpChain()
         for p in chainProfiles() { client.failModels["\(p.slot == 1 ? "-" : p.key)|\(p.model)"] = dailyQuota }
         await askChain()
-        XCTAssertEqual(client.calls.count, 6)
+        XCTAssertEqual(client.calls.count, 4)
         XCTAssertTrue(chat.error.hasPrefix("Tüm modeller denendi"), chat.error)
         XCTAssertTrue(chat.error.contains("günlük kotası doldu"), chat.error)
         XCTAssertTrue(chat.answer.isEmpty)
     }
 
     func testChainRotatesFromTheActiveProfile() {
-        setUpChain(active: 4)
-        XCTAssertEqual(chat.chainOthers(options).map { $0.slot }, [5, 6, 1, 2, 3])
+        setUpChain(active: 3)
+        XCTAssertEqual(chat.chainOthers(options).map { $0.slot }, [4, 1, 2])
     }
 
     func testChainIgnoresProfilesWithoutKeysAndIsOffWhenAloneOrDisabled() async {
@@ -901,7 +901,7 @@ final class GeminiChatTests: XCTestCase {
         XCTAssertTrue(chat.chainOthers(options).isEmpty)
         options.profiles = chainProfiles()
         options.chainFallback = false
-        client.failModels["-|gemini-3.8-flash"] = dailyQuota
+        client.failModels["-|gemini-3.6-flash"] = dailyQuota
         await askChain()
         XCTAssertEqual(client.calls.count, 1, "zincir kapalıyken yalnız seçili model sorulur")
         XCTAssertEqual(chat.error, dailyQuota.message)
@@ -921,7 +921,7 @@ final class GeminiChatTests: XCTestCase {
     }
 
     func testChainDocsOfAnotherKeyAreSentInlineWithoutFileAddresses() {
-        let act = chainProfiles()[0], other = chainProfiles()[5]
+        let act = chainProfiles()[0], other = chainProfiles()[3]
         var d = GeminiDoc(name: "a.pdf", data: Data("%PDF-1.4 a".utf8))
         d.uri = "https://files/a"
         d.remote = "files/a"

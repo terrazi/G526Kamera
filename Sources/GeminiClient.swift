@@ -5,7 +5,10 @@ import Foundation
 /// uygun olsun diye kısa/düz Türkçe istenir ve JSON olarak alınır: {"soru": anlaşılan soru, "cevap": cevap}.
 enum GeminiConfig {
     static let baseURL = "https://generativelanguage.googleapis.com/v1beta"
-    static let defaultModel = "gemini-3.8-flash"
+    static let defaultModel = "gemini-3.6-flash"
+    /// Kendiliğinden yedek model seçilirken önerilmeyen modeller: Gemini 3.8 Flash çok yoğun (kullanıcı kararı 2026-11-13),
+    /// Gemini 2.5 Pro kaldırılmış. Ayarlardan elle yazılırsa yine kullanılır.
+    static let avoidedModels: Set<String> = ["gemini-3.8-flash", "gemini-2.5-pro"]
     /// Ham PDF baytları; base64 ile ~18,7 MB olur, istek 20 MB'ın altında kalır
     static let inlineBudget = 14 * 1024 * 1024
     /// Sohbet geçmişinde tutulan son soru-cevap sayısı
@@ -308,7 +311,7 @@ enum GeminiSupport {
         guard let regex = try? NSRegularExpression(pattern: "^gemini-(\\d+(?:\\.\\d+)?)-flash(-lite)?$") else { return [] }
         var flash: [(version: [Int], name: String)] = []
         var lite: [(version: [Int], name: String)] = []
-        for n in names where n != current {
+        for n in names where n != current && !GeminiConfig.avoidedModels.contains(n) {
             guard let m = regex.firstMatch(in: n, range: NSRange(n.startIndex..., in: n)),
                   let vr = Range(m.range(at: 1), in: n) else { continue }
             let version = n[vr].split(separator: ".").compactMap { Int($0) }

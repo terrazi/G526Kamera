@@ -103,7 +103,7 @@ final class AppSettings: ObservableObject {
     @Published var geminiProfiles: [GeminiProfile] {
         didSet { d.set(try? JSONEncoder().encode(geminiProfiles), forKey: "geminiProfiles") }
     }
-    /// Profillerin API anahtarları (Keychain: geminiApiKey … geminiApiKey6); yalnız bu telefonda
+    /// Profillerin API anahtarları (Keychain: geminiApiKey … geminiApiKey4); yalnız bu telefonda
     @Published var geminiKeys: [String] {
         didSet {
             for (i, key) in geminiKeys.enumerated() {
@@ -111,7 +111,7 @@ final class AppSettings: ObservableObject {
             }
         }
     }
-    /// Kullanılan profil (1-6)
+    /// Kullanılan profil (1-4)
     @Published var geminiActive: Int { didSet { d.set(geminiActive, forKey: "geminiActive") } }
     /// Aylık harcama sınırı dolunca "ücretsiz" işaretli profile geç
     @Published var geminiAutoFallback: Bool { didSet { d.set(geminiAutoFallback, forKey: "geminiAutoFallback") } }
@@ -252,9 +252,20 @@ final class AppSettings: ObservableObject {
         guidanceAutoPick = d.object(forKey: "guidanceAutoPick") as? Bool ?? true
         finishWord = d.string(forKey: "finishWord") ?? "hepsi tamamlandı"
         geminiEnabled = d.object(forKey: "geminiEnabled") as? Bool ?? false
+        // Eski 6 profilli düzenden geçiş (kullanıcı kararı 2026-11-13: eski anahtarlar silinsin, yeniden girilecek):
+        // Keychain'de düzen işareti yoksa eski anahtarlar silinir, profiller (ad/model/ücretsiz) yeni 4 yuvaya taşınır.
+        let legacyLayout = Keychain.get(GeminiProfiles.layoutMarker) != GeminiProfiles.layoutVersion
+        if legacyLayout {
+            for slot in 1...GeminiProfiles.legacySlotCount { Keychain.remove(GeminiProfiles.keychainName(slot: slot)) }
+            Keychain.set(GeminiProfiles.layoutVersion, for: GeminiProfiles.layoutMarker)
+        }
         geminiKeys = (1...GeminiProfiles.slotCount).map { Keychain.get(GeminiProfiles.keychainName(slot: $0)) ?? "" }
-        if let data = d.data(forKey: "geminiProfiles"), let saved = try? JSONDecoder().decode([GeminiProfile].self, from: data),
-           saved.count >= 3 && saved.count <= GeminiProfiles.slotCount {
+        let savedProfiles = d.data(forKey: "geminiProfiles").flatMap { try? JSONDecoder().decode([GeminiProfile].self, from: $0) }
+        if legacyLayout, let saved = savedProfiles {
+            let list = GeminiProfiles.profiles(fromLegacy: saved)
+            geminiProfiles = list
+            d.set(try? JSONEncoder().encode(list), forKey: "geminiProfiles")
+        } else if let saved = savedProfiles, saved.count >= 3 && saved.count <= GeminiProfiles.slotCount {
             // Boş kalmış profil modelleri varsayılanla dolar (anahtar girilene kadar etkisiz); kullanıcının yazdıkları korunur
             geminiProfiles = GeminiProfiles.migrated(saved)
         } else {
@@ -263,7 +274,9 @@ final class AppSettings: ObservableObject {
             if let old = d.string(forKey: "geminiModel"), !old.trimmed.isEmpty { list[0].model = old.trimmed }
             geminiProfiles = list
         }
-        geminiActive = min(max(d.object(forKey: "geminiActive") as? Int ?? 1, 1), GeminiProfiles.slotCount)
+        let storedActive = d.object(forKey: "geminiActive") as? Int ?? 1
+        geminiActive = min(max(legacyLayout ? GeminiProfiles.newSlot(fromLegacy: storedActive) : storedActive, 1), GeminiProfiles.slotCount)
+        if legacyLayout { d.set(geminiActive, forKey: "geminiActive") }
         geminiChainFallback = d.object(forKey: "geminiChainFallback") as? Bool ?? true
         geminiWaitLimit = min(max(d.object(forKey: "geminiWaitLimit") as? Int ?? 30, 0), 600)
         geminiAutoFallback = d.object(forKey: "geminiAutoFallback") as? Bool ?? true
@@ -273,7 +286,9 @@ final class AppSettings: ObservableObject {
         videoHighRes = d.object(forKey: "videoHighRes") as? Bool ?? true
         geminiOverloadFallback = d.object(forKey: "geminiOverloadFallback") as? Bool ?? true
         geminiCapMonth = d.string(forKey: "geminiCapMonth") ?? ""
-        geminiCapPrev = min(max(d.object(forKey: "geminiCapPrev") as? Int ?? 1, 1), GeminiProfiles.slotCount)
+        let storedCapPrev = d.object(forKey: "geminiCapPrev") as? Int ?? 1
+        geminiCapPrev = min(max(legacyLayout ? GeminiProfiles.newSlot(fromLegacy: storedCapPrev) : storedCapPrev, 1), GeminiProfiles.slotCount)
+        if legacyLayout { d.set(geminiCapPrev, forKey: "geminiCapPrev") }
         geminiSessionTimeout = min(max(d.object(forKey: "geminiSessionTimeout") as? Int ?? 0, 0), 86400)
         geminiSession = d.object(forKey: "geminiSession") as? Bool ?? true
         // Eski varsayılan ("gemini") "dinle, gemini"ye yükselir; kullanıcının kendi yazdığı sözcükler korunur

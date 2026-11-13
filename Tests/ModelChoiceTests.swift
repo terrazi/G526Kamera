@@ -84,32 +84,32 @@ final class ModelChoiceListTests: XCTestCase {
 final class ProfileDefaultsTests: XCTestCase {
     func testDefaultModelsAndNamesFollowThePerformanceOrder() {
         let list = GeminiProfiles.defaults()
-        XCTAssertEqual(GeminiProfiles.slotCount, 6)
-        XCTAssertEqual(list.map { $0.model }, ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-2.5-pro", "gemini-3.5-flash-lite",
-                                                "gemini-3.1-flash-lite", "gemini-3.1-flash-lite"])
-        XCTAssertEqual(list.map { $0.name }, ["Gemini 3.8 Flash", "Gemini 3.6 Flash", "Gemini 2.5 Pro", "Gemini 3.5 Flash-Lite",
-                                               "Gemini 3.1 Flash-Lite", "Ücretli Gemini 3.1 Flash-Lite"])
-        XCTAssertEqual(list.map { $0.free }, [true, true, true, true, true, false])
-        XCTAssertEqual(GeminiConfig.defaultModel, "gemini-3.8-flash")
+        XCTAssertEqual(GeminiProfiles.slotCount, 4)
+        XCTAssertEqual(list.map { $0.model }, ["gemini-3.6-flash", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3.1-flash-lite"])
+        XCTAssertEqual(list.map { $0.name }, ["Gemini 3.6 Flash", "Gemini 3.5 Flash-Lite", "Gemini 3.1 Flash-Lite", "Ücretli Gemini 3.1 Flash-Lite"])
+        XCTAssertEqual(list.map { $0.free }, [true, true, true, false])
+        XCTAssertEqual(GeminiConfig.defaultModel, "gemini-3.6-flash")
         XCTAssertEqual(GeminiProfiles.defaultNames, list.map { $0.name })
     }
 
-    func testMigrationAppendsMissingSlotsFillsEmptyModelsAndRenamesOldDefaultNamesOnly() {
-        let saved = [GeminiProfile(name: "Flash", model: "gemini-3.8-flash", free: false),
-                     GeminiProfile(name: "Pro", model: "", free: false),
+    func testBusy38FlashAndRetired25ProAreGoneFromTheDefaults() {
+        let list = GeminiProfiles.defaults()
+        XCTAssertFalse(list.contains { $0.model == "gemini-3.8-flash" || $0.model == "gemini-2.5-pro" })
+        XCTAssertFalse(list.contains { $0.name.contains("3.8") || $0.name.contains("2.5") })
+        XCTAssertNotEqual(GeminiConfig.defaultModel, "gemini-3.8-flash")
+    }
+
+    func testMigrationFillsEmptyModelsAndAppendsMissingSlots() {
+        let saved = [GeminiProfile(name: "Model 1", model: "", free: false),
+                     GeminiProfile(name: "Flash", model: "", free: false),
                      GeminiProfile(name: "Ücretsiz", model: "", free: false)]
         let list = GeminiProfiles.migrated(saved)
-        XCTAssertEqual(list.count, 6, "eksik yuvalar varsayılanla tamamlanır")
-        XCTAssertEqual(list[0].model, "gemini-3.8-flash", "kullanıcının modeli ezilmez")
-        XCTAssertEqual(list[0].name, "Flash")
-        XCTAssertFalse(list[0].free, "kullanıcının ücretsiz bayrağı korunur")
-        XCTAssertEqual(list.map { $0.model }, ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-2.5-pro", "gemini-3.5-flash-lite",
-                                                "gemini-3.1-flash-lite", "gemini-3.1-flash-lite"])
-        XCTAssertEqual(list[1].name, "Gemini 3.6 Flash")
-        XCTAssertEqual(list[2].name, "Gemini 2.5 Pro")
-        XCTAssertTrue(list[2].free, "boş modelli profil varsayılan bayrağını alır")
-        XCTAssertEqual(list[5].name, "Ücretli Gemini 3.1 Flash-Lite")
-        XCTAssertFalse(list[5].free)
+        XCTAssertEqual(list.count, 4, "eksik yuva varsayılanla tamamlanır")
+        XCTAssertEqual(list.map { $0.model }, ["gemini-3.6-flash", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3.1-flash-lite"])
+        XCTAssertEqual(list[0].name, "Gemini 3.6 Flash", "boş model + “Model N” adı varsayılanla yenilenir")
+        XCTAssertEqual(list[1].name, "Flash", "kullanıcının yazdığı ad korunur")
+        XCTAssertTrue(list[1].free, "boş modelli profil varsayılan bayrağını alır")
+        XCTAssertFalse(list[3].free)
     }
 
     func testMigrationKeepsTheUsersOwnNamesAndModels() {
@@ -117,10 +117,44 @@ final class ProfileDefaultsTests: XCTestCase {
                      GeminiProfile(name: "Benim Pro", model: "gemini-3.8-pro", free: false),
                      GeminiProfile(name: "Hızlı", model: "", free: true)]
         let list = GeminiProfiles.migrated(saved)
+        XCTAssertEqual(list[0].model, "x")
+        XCTAssertFalse(list[0].free, "kullanıcının ücretsiz bayrağı korunur")
         XCTAssertEqual(list[1].name, "Benim Pro")
         XCTAssertEqual(list[1].model, "gemini-3.8-pro")
         XCTAssertEqual(list[2].name, "Hızlı", "kullanıcının adı korunur, yalnız boş model dolar")
-        XCTAssertEqual(list[2].model, "gemini-2.5-pro")
+        XCTAssertEqual(list[2].model, "gemini-3.1-flash-lite")
+    }
+
+    private func legacySix() -> [GeminiProfile] {
+        return (1...6).map { GeminiProfile(name: "N\($0)", model: "m\($0)", free: $0 != 6) }
+    }
+
+    func testLegacySixProfilesKeepOnlySlots2And4And5And6() {
+        let list = GeminiProfiles.profiles(fromLegacy: legacySix())
+        XCTAssertEqual(list.map { $0.name }, ["N2", "N4", "N5", "N6"], "eski 1. (3.8 Flash) ve 3. (2.5 Pro) yuva atılır")
+        XCTAssertEqual(list.map { $0.model }, ["m2", "m4", "m5", "m6"])
+        XCTAssertEqual(list.map { $0.free }, [true, true, true, false], "ücretli bayrağı son profilde kalır")
+    }
+
+    func testLegacyDefaultSixBecomeTheNewFourDefaults() {
+        let old = [GeminiProfile(name: "Gemini 3.8 Flash", model: "gemini-3.8-flash", free: true),
+                   GeminiProfile(name: "Gemini 3.6 Flash", model: "gemini-3.6-flash", free: true),
+                   GeminiProfile(name: "Gemini 2.5 Pro", model: "gemini-2.5-pro", free: true),
+                   GeminiProfile(name: "Gemini 3.5 Flash-Lite", model: "gemini-3.5-flash-lite", free: true),
+                   GeminiProfile(name: "Gemini 3.1 Flash-Lite", model: "gemini-3.1-flash-lite", free: true),
+                   GeminiProfile(name: "Ücretli Gemini 3.1 Flash-Lite", model: "gemini-3.1-flash-lite", free: false)]
+        XCTAssertEqual(GeminiProfiles.profiles(fromLegacy: old), GeminiProfiles.defaults())
+    }
+
+    func testLegacyListOfAnotherSizeFallsBackToDefaults() {
+        XCTAssertEqual(GeminiProfiles.profiles(fromLegacy: Array(legacySix().prefix(3))), GeminiProfiles.defaults())
+        XCTAssertEqual(GeminiProfiles.profiles(fromLegacy: []), GeminiProfiles.defaults())
+    }
+
+    func testLegacySlotNumbersMapToTheNextKeptSlot() {
+        XCTAssertEqual((1...6).map { GeminiProfiles.newSlot(fromLegacy: $0) }, [1, 1, 2, 2, 3, 4])
+        XCTAssertEqual(GeminiProfiles.newSlot(fromLegacy: 9), 4)
+        XCTAssertEqual(GeminiProfiles.newSlot(fromLegacy: 0), 1)
     }
 }
 

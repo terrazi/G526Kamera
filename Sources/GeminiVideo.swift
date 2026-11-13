@@ -85,7 +85,7 @@ enum GeminiVideo {
         ]
     }
 
-    /// Denenecek profiller: seçili profil, zincir açıksa ardından 1→…→6 döngüsüyle anahtarı ve modeli dolu olanlar
+    /// Denenecek profiller: seçili profil, zincir açıksa ardından 1→…→4 döngüsüyle anahtarı ve modeli dolu olanlar
     static func candidates(profiles: [GeminiProfileInfo], active: Int, chain: Bool) -> [GeminiProfileInfo] {
         let usable = GeminiProfiles.usable(profiles)
         let act = GeminiProfiles.active(profiles, active: active)

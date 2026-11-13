@@ -471,6 +471,14 @@ final class GeminiSessionTextTests: XCTestCase {
         XCTAssertEqual(GeminiSupport.pickFallbackModels(["gemini-2.5-flash", "gemini-3-flash"], current: "x"), ["gemini-3-flash", "gemini-2.5-flash"])
     }
 
+    func testAutomaticFallbackNeverPicksTheBusy38FlashOrRetiredModels() {
+        let names = ["gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash-lite", "gemini-2.5-pro"]
+        XCTAssertEqual(GeminiSupport.pickFallbackModels(names, current: "gemini-3.6-flash", limit: 4), ["gemini-3.7-flash", "gemini-3.5-flash-lite"],
+                       "3.8 Flash yoğun olduğu için yedek seçilmez")
+        XCTAssertEqual(GeminiSupport.pickFallbackModels(["gemini-3.8-flash"], current: "x"), [])
+        XCTAssertTrue(GeminiConfig.avoidedModels.contains("gemini-2.5-pro"))
+    }
+
     func testTruncatedJsonSalvagesAnswerInsteadOfReadingRawJson() throws {
         func response(_ text: String, finish: String) -> [String: Any] {
             return ["candidates": [["finishReason": finish, "content": ["parts": [["text": text]]]]]]
