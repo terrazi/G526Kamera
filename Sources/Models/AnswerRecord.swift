@@ -51,6 +51,12 @@ enum AnswerParser {
         return Parsed(number: number, option: option, text: text, spoken: spoken)
     }
 
+    /// Cevap cümlesi, kaydedilen numarayla: "Soru N, Şık, Cevap". Şık çözülemediyse ham satırın başına numara eklenir.
+    static func spokenLine(number: Int, option: String, text: String, fallback: String) -> String {
+        if option.isEmpty { return "Soru \(number), \(fallback)" }
+        return "Soru \(number), \(option)" + (text.isEmpty ? "" : ", \(text)")
+    }
+
     /// Biçim işaretlerini (yıldız, ters tırnak, köşeli parantez, başlık) atar
     private static func cleaned(_ raw: String) -> String {
         let junk = CharacterSet(charactersIn: "*`[]#_")

@@ -93,6 +93,9 @@ açık ve kilitsiz olmalı. Yedek: uygulama açıksa saat gelince kendisi başla
    Ana ekranda **Yüklenen sorular** tek listede görünür; her sorunun yanında bir işaret vardır: **saat** = okunuyor, "Cevapla"
    demenizi bekliyor; **mektup** = Gemini'ye gitti, cevap bekleniyor; **gülen yüz** = cevaplandı (cevap ve model altında yazar);
    **kırmızı çarpı** = gitmedi (nedeni kırmızıyla yazar, soruyu yeniden okuyun).
+   **Soru numarası:** soruları karışık okuyabilirsiniz. Her sorunun başında numarayı söyleyin ("soru yedi", "7. soru", "yedinci soru",
+   "soru numarası on iki"); cevap ve kayıt **söylediğiniz numarayla** yapılır (`soru_7`), sıraya bakılmaz. Aynı numarayı yeniden
+   okursanız eski cevabın yerine yenisi yazılır. Numara hiç söylenmezse sıradaki numara verilir ve soru listesinde turuncu bir not çıkar.
 3. Cevaplar, seçtiğiniz **kayıt klasöründe gün klasörü** altında `soru_1`, `soru_2`… olarak kalır (`cevaplar.txt` de yazılır).
 4. Bitince **Testi Bitir** (yanlışlıkla basılmasın diye bir onay sorar), sonra **Cevapları Tekrarla**: sistem internetsiz çalışır,
    kayıtlar sırayla çalınır, aralarında ayardaki süre kadar bekler.

@@ -169,9 +169,9 @@ final class SessionFlowTests: XCTestCase {
         let h = SessionHarness()
         h.answering.results = [.success(FakeAnswering.reply(5)), .success(FakeAnswering.reply(6))]
         _ = await h.startListening()
-        h.ask("Beşinci soru")
+        h.ask("Hangisi doğrudur")   // numara okunmadı: Gemini sesten duyar
         _ = await waitUntil { h.vm.answers.count == 1 && h.vm.phase == .listening }
-        h.ask("Altıncı soru")
+        h.ask("Başka bir metin")
         _ = await waitUntil { h.answering.calls.count == 2 }
         XCTAssertEqual(h.answering.calls.map { $0.expectedNumber }, [1, 6])
     }

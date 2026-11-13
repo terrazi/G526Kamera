@@ -161,6 +161,12 @@ struct ContentView: View {
                     .foregroundColor(.secondary)
             case .answered(let spoken):
                 Text(spoken).font(.footnote.bold())
+                if entry.numberSource == .sequence {
+                    Text("Numara okunmadı; sıradaki numara verildi. Numarayı \"soru yedi\" gibi okuyun.")
+                        .font(.caption2)
+                        .foregroundColor(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 if !entry.model.isEmpty {
                     Text(entry.model).font(.caption2).foregroundColor(.secondary)
                 }

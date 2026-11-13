@@ -338,21 +338,29 @@ final class SessionViewModel: ObservableObject {
         phase = .answering
         statusNote = ""
         let question = match.question
-        beginEntry(text: question, withAudio: audio != nil)
-        tlog("[soru \(nextNumber)] Gemini'ye gönderildi (\(audio != nil ? "ses kaydıyla" : "yalnız metin"), \(question.count) karakter)")
-        work = Task { [weak self] in await self?.answer(question: question, english: english, audio: audio) }
+        // Kayıt, okunan numarayla yapılır: kullanıcı soruları sırayla okumak zorunda değildir
+        let spokenNumber = SpokenNumber.extract(from: question)
+        let announced = spokenNumber ?? nextNumber
+        beginEntry(text: question, withAudio: audio != nil, number: announced)
+        tlog("[soru \(announced)] Gemini'ye gönderildi (\(audio != nil ? "ses kaydıyla" : "yalnız metin"), \(question.count) karakter; numara \(spokenNumber != nil ? "okundu" : "okunmadı, sıradaki"))")
+        work = Task { [weak self] in await self?.answer(question: question, english: english, audio: audio, spokenNumber: spokenNumber) }
     }
 
     // MARK: Cevaplama ve seslendirme (Modül 5)
 
-    func answer(question: String, english: String = "", audio: Data?) async {
+    func answer(question: String, english: String = "", audio: Data?, spokenNumber: Int? = nil) async {
         do {
-            let reply = try await deps.answering.answer(question: question, english: english, expectedNumber: nextNumber, audio: audio)
+            let reply = try await deps.answering.answer(question: question, english: english, expectedNumber: spokenNumber ?? nextNumber, audio: audio)
             guard !Task.isCancelled, phase == .answering else { return }
-            let number = reply.number ?? nextNumber
+            // Numara önceliği: kullanıcının okuduğu (dikte metninden) > Gemini'nin metinden/sesten okuduğu > sıradaki
+            let number = spokenNumber ?? reply.number ?? nextNumber
+            let source: QuestionEntry.NumberSource = spokenNumber != nil ? .spoken : (reply.number != nil ? .heard : .sequence)
             nextNumber = number + 1
-            let record = AnswerRecord(number: number, option: reply.option, text: reply.text, spoken: reply.spoken)
-            finishEntry(.answered(record.spoken), number: number, model: reply.model)
+            // Cevap cümlesi (kulaklıktan okunan ve dosyaya yazılan) her zaman kaydedilen numarayı taşır
+            let spoken = reply.number == number ? reply.spoken : AnswerParser.spokenLine(number: number, option: reply.option, text: reply.text, fallback: reply.spoken)
+            let record = AnswerRecord(number: number, option: reply.option, text: reply.text, spoken: spoken)
+            tlog("[soru \(number)] numara kaynağı: \(source.logName)")
+            finishEntry(.answered(record.spoken), number: number, model: reply.model, source: source)
             // Cevap yedek profilden geldiyse sebebi kırmızı kutuda yazılır; ilk profilden gelince silinir
             if reply.note.isEmpty { clearWarning("yedek") } else { warn("yedek", reply.note) }
             store(record)
@@ -388,15 +396,15 @@ final class SessionViewModel: ObservableObject {
     // MARK: Soru listesi (ana ekran)
 
     /// Tetikleyiciyle yüklenen soru listeye "gönderiliyor" işaretiyle girer
-    func beginEntry(text: String, withAudio: Bool) {
+    func beginEntry(text: String, withAudio: Bool, number: Int? = nil) {
         abandonEntry("Cevap alınamadı. Soruyu yeniden okuyun.")
         entrySeq += 1
         currentEntry = entrySeq
-        questions.append(QuestionEntry(id: entrySeq, text: text, withAudio: withAudio, number: nextNumber))
+        questions.append(QuestionEntry(id: entrySeq, text: text, withAudio: withAudio, number: number ?? nextNumber))
     }
 
     /// Giden sorunun işaretini günceller (cevap geldi / gitmedi)
-    func finishEntry(_ state: QuestionEntry.State, number: Int? = nil, model: String = "") {
+    func finishEntry(_ state: QuestionEntry.State, number: Int? = nil, model: String = "", source: QuestionEntry.NumberSource? = nil) {
         guard let id = currentEntry, let index = questions.firstIndex(where: { $0.id == id }) else { return }
         questions[index].state = state
         switch state {
@@ -405,6 +413,7 @@ final class SessionViewModel: ObservableObject {
         case .sending: break
         }
         if let number = number { questions[index].number = number }
+        if let source = source { questions[index].numberSource = source }
         if !model.isEmpty { questions[index].model = model }
         currentEntry = nil
     }

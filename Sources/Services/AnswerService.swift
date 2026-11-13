@@ -57,7 +57,9 @@ final class GeminiAnswerService: Answering {
     dikte metninden çok daha doğrudur (ses kaydıyla birlikte değerlendir); Türkçe cümlelerde ise İngilizce metin anlamsızdır, onu yok say. \
     İki metin birbirini tamamlayabilir: Türkçe şıkları ve soru kalıbını Türkçe metinden, İngilizce cümleyi İngilizce metinden al.
 
-    Soru numarası okunmadıysa ya da anlaşılmadıysa kullanıcı mesajındaki ipucunu kullan. Cevap metnini şıktan kısaca yaz. \
+    Kullanıcı soruları sırayla okumak zorunda değildir (önce Soru 7, sonra Soru 3 okunabilir): numarayı sıradan ya da ipucundan \
+    çıkarma, okunan numarayı aynen yaz. Soru numarası hiç okunmadıysa ya da anlaşılmadıysa kullanıcı mesajındaki ipucunu kullan. \
+    Cevap metnini şıktan kısaca yaz. \
     Giriş, açıklama, markdown, tırnak ve ek cümle yazma. Emin değilsen en olası şıkkı yaz.
     """
 
@@ -81,7 +83,7 @@ final class GeminiAnswerService: Answering {
     // MARK: İstek ve cevap (saf yardımcılar)
 
     static func userText(question: String, english: String = "", expectedNumber: Int, hasAudio: Bool = false) -> String {
-        let hint = "İpucu: soru numarası okunmadıysa bu soruyu Soru \(expectedNumber) say."
+        let hint = "İpucu: soru numarası okunmadıysa bu soruyu Soru \(expectedNumber) say. Numara okunduysa sıraya değil okunan numaraya uy."
         var text: String
         if hasAudio {
             text = "\(hint)\n\nBu mesajda soruyu okuyanın ses kaydı var (asıl kaynak). Dikte metni yalnız ipucudur, hatalı olabilir:\n\(question)"
