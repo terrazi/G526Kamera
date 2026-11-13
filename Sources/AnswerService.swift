@@ -251,6 +251,7 @@ enum AnswerService {
 
     /// Bir PDF grubunu sorar. Hata olursa (zincir açık) sıradaki profile geçer ve `notify` ile kısa bilgi verir. Son profile bekleme sınırı konmaz.
     static func ask(docs: [AnswerDoc], profiles: [GeminiProfileInfo], active: Int, waitLimit setting: TimeInterval,
+                    makeClient: ((GeminiProfileInfo) -> GeminiClient)? = nil,
                     notify: @escaping (String) -> Void) async throws -> [AnswerRecord] {
         let order = chainOrder(profiles: profiles, active: active)
         guard !order.isEmpty else {
@@ -261,7 +262,7 @@ enum AnswerService {
         for (i, profile) in order.enumerated() {
             let isLast = i == order.count - 1
             let limit = isLast ? nil : waitLimit(setting: setting, docCount: docs.count)
-            let client = GeminiClient(key: { profile.key }, model: { profile.model })
+            let client = makeClient?(profile) ?? GeminiClient(key: { profile.key }, model: { profile.model })
             do {
                 let body = try requestBody(docs: docs, thinking: GeminiSupport.thinkingLevel(model: profile.model, setting: "auto"))
                 let object = try await client.generate(model: profile.model, key: profile.key, body: body,

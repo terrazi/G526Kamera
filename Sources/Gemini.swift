@@ -4,9 +4,6 @@ import Foundation
 enum GeminiConfig {
     static let baseURL = "https://generativelanguage.googleapis.com/v1beta"
     static let defaultModel = "gemini-3.6-flash"
-    /// Kendiliğinden yedek model seçilirken önerilmeyen modeller: Gemini 3.8 Flash çok yoğun (kullanıcı kararı 2026-11-13),
-    /// Gemini 2.5 Pro kaldırılmış. Ayarlardan elle yazılırsa yine kullanılır.
-    static let avoidedModels: Set<String> = ["gemini-3.8-flash", "gemini-2.5-pro"]
     /// Bir istekte inline gönderilecek en çok PDF baytı: base64 ile ~18,7 MB olur, istek sınırı (20 MB) aşılmaz
     static let inlineBudget = 14 * 1024 * 1024
     /// Şık harfleri yerine sesli okunan kod sözcükleri
@@ -31,12 +28,6 @@ struct GeminiError: LocalizedError {
     }
 
     var errorDescription: String? { return message }
-}
-
-/// Gemini'ye verilecek bir PDF (bellekte)
-struct GeminiDoc {
-    let name: String
-    let data: Data
 }
 
 /// Yardımcı işlevler: hata çevirisi, şık kodları, düşünme ayarı, model listesi

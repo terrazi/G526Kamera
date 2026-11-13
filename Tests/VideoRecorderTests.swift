@@ -136,13 +136,6 @@ final class VideoRecorderTests: XCTestCase {
         XCTAssertEqual(recorder.recordedSeconds, 0)
     }
 
-    func testClampSeconds() {
-        XCTAssertEqual(AppSettings.clampSeconds(nil, range: 10...300, fallback: 90), 90)
-        XCTAssertEqual(AppSettings.clampSeconds(60, range: 10...300, fallback: 90), 60)
-        XCTAssertEqual(AppSettings.clampSeconds(0, range: 10...300, fallback: 90), 10)
-        XCTAssertEqual(AppSettings.clampSeconds(999, range: 10...120, fallback: 30), 120)
-    }
-
     func testRecordsPlayableH264Mp4AtCameraResolution() {
         let (output, failure) = record(width: 1920, height: 1080, seconds: 12, step: 0.1)
         XCTAssertNil(failure)

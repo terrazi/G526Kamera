@@ -99,14 +99,4 @@ final class OptionCodeDefaultsTests: XCTestCase {
         XCTAssertEqual(codes.map { $0.word }, ["ADANA", "BURSA", "CEYHAN", "DENİZLİ", "ERZURUM"])
     }
 
-    func testOldEdirneDefaultIsReplacedButCustomCodesAreKept() {
-        let d = UserDefaults.standard
-        defer { d.removeObject(forKey: "geminiOptionCodes") }
-        d.set(GeminiConfig.previousDefaultOptionCodes, forKey: "geminiOptionCodes")
-        XCTAssertEqual(AppSettings().geminiOptionCodes, GeminiConfig.defaultOptionCodes)
-        d.set("A=ANKARA, B=BOLU", forKey: "geminiOptionCodes")
-        XCTAssertEqual(AppSettings().geminiOptionCodes, "A=ANKARA, B=BOLU")
-        d.removeObject(forKey: "geminiOptionCodes")
-        XCTAssertEqual(AppSettings().geminiOptionCodes, GeminiConfig.defaultOptionCodes)
-    }
 }

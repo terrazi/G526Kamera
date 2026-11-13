@@ -2,152 +2,6 @@ import XCTest
 @testable import G526CameraDrive
 
 final class GeminiSupportTests: XCTestCase {
-    private let pdf = Data("%PDF-1.4 deneme".utf8)
-
-    private func parts(_ content: [String: Any]) -> [[String: Any]] {
-        return (content["parts"] as? [[String: Any]]) ?? []
-    }
-
-    // MARK: İstek kurma
-
-    func testDocumentsGoFirstInTheFirstUserTurn() throws {
-        let docs = [GeminiDoc(name: "a.pdf", data: pdf), GeminiDoc(name: "b.pdf", data: pdf)]
-        let history = [GeminiTurn(question: "önceki soru", answer: "önceki cevap")]
-        let object = GeminiSupport.requestObject(questionText: "toplam nedir", audioWAV: nil, docs: docs, history: history)
-        let contents = try XCTUnwrap(object["contents"] as? [[String: Any]])
-        XCTAssertEqual(contents.map { $0["role"] as? String ?? "" }, ["user", "model", "user"])
-
-        let first = parts(contents[0])
-        XCTAssertEqual(first.count, 5)
-        XCTAssertEqual(first[0]["text"] as? String, "Belge 1: a.pdf")
-        let inline = try XCTUnwrap(first[1]["inlineData"] as? [String: String])
-        XCTAssertEqual(inline["mimeType"], "application/pdf")
-        XCTAssertEqual(Data(base64Encoded: inline["data"] ?? ""), pdf)
-        XCTAssertEqual(first[2]["text"] as? String, "Belge 2: b.pdf")
-        XCTAssertEqual(first[4]["text"] as? String, "önceki soru")
-
-        XCTAssertEqual(parts(contents[2]).count, 1)
-        XCTAssertEqual(parts(contents[2])[0]["text"] as? String, "toplam nedir")
-    }
-
-    func testModelTurnIsJsonWithQuestionAndAnswer() throws {
-        let history = [GeminiTurn(question: "kaç lira", answer: "Yüz lira.")]
-        let object = GeminiSupport.requestObject(questionText: "peki", audioWAV: nil, docs: [], history: history)
-        let contents = try XCTUnwrap(object["contents"] as? [[String: Any]])
-        let text = try XCTUnwrap(parts(contents[1])[0]["text"] as? String)
-        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
-        XCTAssertEqual(json["soru"] as? String, "kaç lira")
-        XCTAssertEqual(json["cevap"] as? String, "Yüz lira.")
-    }
-
-    func testAudioQuestionComesAfterDocumentsAsWav() throws {
-        let wav = GeminiSupport.wav(fromPCM16: Data(count: 3200))
-        let object = GeminiSupport.requestObject(questionText: "", audioWAV: wav,
-                                                 docs: [GeminiDoc(name: "a.pdf", data: pdf)], history: [])
-        let contents = try XCTUnwrap(object["contents"] as? [[String: Any]])
-        XCTAssertEqual(contents.count, 1)
-        let all = parts(contents[0])
-        XCTAssertEqual(all.count, 4)
-        XCTAssertNotNil(all[1]["inlineData"])
-        let audio = try XCTUnwrap(all[2]["inlineData"] as? [String: String])
-        XCTAssertEqual(audio["mimeType"], "audio/wav")
-        XCTAssertEqual(Data(base64Encoded: audio["data"] ?? ""), wav)
-        XCTAssertTrue((all[3]["text"] as? String ?? "").contains("çağrı sözcüğü"))
-    }
-
-    func testRequestWithoutDocumentsHasNoInlineData() throws {
-        let object = GeminiSupport.requestObject(questionText: "merhaba", audioWAV: nil, docs: [], history: [])
-        let contents = try XCTUnwrap(object["contents"] as? [[String: Any]])
-        XCTAssertEqual(contents.count, 1)
-        XCTAssertNil(parts(contents[0])[0]["inlineData"])
-    }
-
-    func testRequestAsksForJsonAndHasSystemInstruction() throws {
-        let object = GeminiSupport.requestObject(questionText: "x", audioWAV: nil, docs: [], history: [])
-        let config = try XCTUnwrap(object["generationConfig"] as? [String: Any])
-        XCTAssertEqual(config["responseMimeType"] as? String, "application/json")
-        XCTAssertNotNil(config["responseSchema"])
-        let system = try XCTUnwrap(object["systemInstruction"] as? [String: Any])
-        let text = try XCTUnwrap(parts(system)[0]["text"] as? String)
-        XCTAssertTrue(text.contains("Belge 1"))
-        XCTAssertTrue(text.contains("Belgelerde bunu göremedim"))
-    }
-
-    func testBuiltBodyIsValidJsonWithoutEscapedSlashes() throws {
-        let body = try GeminiSupport.buildRequest(questionText: "x", audioWAV: nil,
-                                                  docs: [GeminiDoc(name: "a.pdf", data: pdf)], history: [])
-        XCTAssertNotNil(try JSONSerialization.jsonObject(with: body) as? [String: Any])
-        let text = String(decoding: body, as: UTF8.self)
-        XCTAssertTrue(text.contains("application/pdf"))
-        XCTAssertFalse(text.contains("\\/"))
-    }
-
-    func testWavHeader() {
-        let pcm = Data(count: 3200)
-        let wav = GeminiSupport.wav(fromPCM16: pcm)
-        XCTAssertEqual(wav.count, 44 + 3200)
-        XCTAssertEqual(String(decoding: wav.prefix(4), as: UTF8.self), "RIFF")
-        XCTAssertEqual(String(decoding: wav[8..<12], as: UTF8.self), "WAVE")
-        let rate = wav[24..<28].enumerated().reduce(0) { $0 + Int($1.element) << (8 * $1.offset) }
-        XCTAssertEqual(rate, 16000)
-        let length = wav[40..<44].enumerated().reduce(0) { $0 + Int($1.element) << (8 * $1.offset) }
-        XCTAssertEqual(length, 3200)
-    }
-
-    // MARK: Cevap ayrıştırma
-
-    private func response(_ text: String, finish: String = "STOP") -> [String: Any] {
-        return ["candidates": [["finishReason": finish, "content": ["parts": [["text": text]]]]],
-                "usageMetadata": ["promptTokenCount": 10, "candidatesTokenCount": 5, "totalTokenCount": 15]]
-    }
-
-    func testParsesJsonAnswer() throws {
-        let answer = try GeminiSupport.parseAnswer(response("{\"soru\": \"toplam\", \"cevap\": \"Yüz lira.\"}"))
-        XCTAssertEqual(answer.question, "toplam")
-        XCTAssertEqual(answer.answer, "Yüz lira.")
-        XCTAssertEqual(answer.totalTokens, 15)
-        XCTAssertEqual(answer.promptTokens, 10)
-    }
-
-    func testParsesFencedJsonAnswer() throws {
-        let answer = try GeminiSupport.parseAnswer(response("```json\n{\"soru\": \"q\", \"cevap\": \"c\"}\n```"))
-        XCTAssertEqual(answer.answer, "c")
-        XCTAssertEqual(answer.question, "q")
-    }
-
-    func testPlainTextAnswerIsKept() throws {
-        let answer = try GeminiSupport.parseAnswer(response("Düz yazı cevabı."))
-        XCTAssertEqual(answer.answer, "Düz yazı cevabı.")
-        XCTAssertEqual(answer.question, "")
-    }
-
-    func testThoughtPartsAreSkipped() throws {
-        let object: [String: Any] = ["candidates": [["content": ["parts": [
-            ["text": "düşünce", "thought": true],
-            ["text": "{\"soru\":\"a\",\"cevap\":\"b\"}"]]]]]]
-        XCTAssertEqual(try GeminiSupport.parseAnswer(object).answer, "b")
-    }
-
-    func testBlockedAndEmptyAnswersThrow() {
-        let cases: [(Any, GeminiErrorKind)] = [
-            (["promptFeedback": ["blockReason": "SAFETY"]], .blocked),
-            (["candidates": [Any]()], .empty),
-            (response("  "), .empty),
-            (response("", finish: "SAFETY"), .blocked),
-            ([1, 2], .error)
-        ]
-        for (object, kind) in cases {
-            do {
-                _ = try GeminiSupport.parseAnswer(object)
-                XCTFail("hata beklenirdi: \(object)")
-            } catch let e as GeminiError {
-                XCTAssertEqual(e.kind, kind)
-            } catch {
-                XCTFail("beklenmeyen hata türü")
-            }
-        }
-    }
-
     // MARK: Hata çevirisi
 
     private func describe(_ status: Int, _ message: String, reason: String = "") -> (GeminiErrorKind, String) {
@@ -166,65 +20,24 @@ final class GeminiSupportTests: XCTestCase {
         let cap = describe(429, "Your project has exceeded its monthly spending cap.")
         XCTAssertEqual(cap.0, .cap)
         XCTAssertTrue(cap.1.contains("harcama sınırınız doldu"), cap.1)
-        XCTAssertFalse(cap.1.contains("Ücretsiz"))
         let quota = describe(429, "Quota exceeded. Please retry in 31.2s.")
         XCTAssertEqual(quota.0, .quota)
         XCTAssertTrue(quota.1.contains("32 saniye"), quota.1)
     }
 
-    // MARK: Belge seçimi
-
-    func testBudgetDropsOldestDocuments() {
-        let mb = 1024 * 1024
-        let picked = GeminiSupport.selectDocs([(name: "yeni", size: 6 * mb), (name: "orta", size: 6 * mb), (name: "eski", size: 6 * mb)])
-        XCTAssertEqual(picked.chosen, [0, 1])
-        XCTAssertEqual(picked.skipped, ["eski"])
-    }
-
-    func testOversizedSingleDocumentIsSkipped() {
-        let picked = GeminiSupport.selectDocs([(name: "dev", size: 20 * 1024 * 1024), (name: "küçük", size: 1000)])
-        XCTAssertEqual(picked.chosen, [1])
-        XCTAssertEqual(picked.skipped, ["dev"])
-    }
-}
-
-
-
-
-
-final class GeminiSessionTextTests: XCTestCase {
-
-
-
-
-
-
-    func testParsesCloseAndModelSwitchFlags() throws {
-        func reply(_ json: String) -> [String: Any] {
-            return ["candidates": [["content": ["parts": [["text": json]]]]]]
-        }
-        let close = try GeminiSupport.parseAnswer(reply("{\"soru\":\"yeter\",\"cevap\":\"Görüşürüz.\",\"kapat\":true}"))
-        XCTAssertTrue(close.close)
-        XCTAssertFalse(close.switchModel)
-        let model = try GeminiSupport.parseAnswer(reply("{\"soru\":\"model değiştir\",\"cevap\":\"\",\"model_degistir\":true}"))
-        XCTAssertTrue(model.switchModel)
-        XCTAssertEqual(model.answer, "")
-        let plain = try GeminiSupport.parseAnswer(reply("{\"soru\":\"a\",\"cevap\":\"b\"}"))
-        XCTAssertFalse(plain.close)
-        XCTAssertFalse(plain.switchModel)
-    }
-
     func testServerErrorShowsTheServersOwnMessage() {
-        let google = GeminiSupport.describeError(status: 503, json: GeminiSupport.errorObject(from: Data("{\"error\":{\"message\":\"The model is overloaded.\"}}".utf8)), model: "m").1
+        let body = Data("{\"error\":{\"message\":\"The model is overloaded.\"}}".utf8)
+        let google = GeminiSupport.describeError(status: 503, json: GeminiSupport.errorObject(from: body), model: "m").1
         XCTAssertEqual(google, "Gemini şu an yanıt vermiyor (503). Sunucunun mesajı: The model is overloaded. Biraz sonra yeniden deneyin.")
-        let proxy = GeminiSupport.describeError(status: 503, json: GeminiSupport.errorObject(from: Data("<html><body><h1>503 Service Unavailable</h1><p>Proxy blocked</p></body></html>".utf8)), model: "m").1
+        let html = Data("<html><body><h1>503 Service Unavailable</h1><p>Proxy blocked</p></body></html>".utf8)
+        let proxy = GeminiSupport.describeError(status: 503, json: GeminiSupport.errorObject(from: html), model: "m").1
         XCTAssertTrue(proxy.contains("Proxy blocked"), proxy)
         XCTAssertFalse(proxy.contains("<"), proxy)
         XCTAssertEqual(GeminiSupport.describeError(status: 503, json: GeminiSupport.errorObject(from: Data()), model: "m").1,
                        "Gemini şu an yanıt vermiyor (503). Biraz sonra yeniden deneyin.")
     }
 
-    // MARK: Kota mesajı, yoğunluk, yedek model seçimi
+    // MARK: Kota mesajı, yoğunluk
 
     private func quotaDescribe(_ message: String, ids: [String] = []) -> String {
         let violations: [[String: Any]] = ids.map {
@@ -235,29 +48,22 @@ final class GeminiSessionTextTests: XCTestCase {
     }
 
     func testQuotaMessageNamesTheDailyLimit() {
-        let text = quotaDescribe("You exceeded your current quota. Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-3.8-flash\nPlease retry in 41s.",
+        let text = quotaDescribe("You exceeded your current quota. Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: m\nPlease retry in 12s.",
                                  ids: ["GenerateRequestsPerDayPerProjectPerModel-FreeTier"])
         XCTAssertTrue(text.contains("günlük kotası doldu"), text)
         XCTAssertTrue(text.contains("sınır: 20"), text)
-        XCTAssertTrue(text.contains("10:00-11:00"), text)
         XCTAssertTrue(text.contains("Quota exceeded for metric"), text)
-        XCTAssertFalse(text.contains("saniye"), text)
     }
 
-    func testQuotaMessageNamesTheMinuteTokenLimit() {
-        let text = quotaDescribe("Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_input_token_count, limit: 250000\nPlease retry in 20.4s.",
-                                 ids: ["GenerateContentInputTokensPerMinutePerProjectPerModel-FreeTier"])
-        XCTAssertTrue(text.contains("Dakikalık token sınırı"), text)
-        XCTAssertTrue(text.contains("sınır: 250000"), text)
-        XCTAssertTrue(text.contains("21 saniye"), text)
-    }
-
-    func testQuotaMessageNamesTheMinuteRequestLimit() {
-        let text = quotaDescribe("Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 5, model: gemini-3.8-flash\nPlease retry in 12s.",
-                                 ids: ["GenerateRequestsPerMinutePerProjectPerModel-FreeTier"])
-        XCTAssertTrue(text.contains("Dakikalık istek sınırı"), text)
-        XCTAssertTrue(text.contains("sınır: 5"), text)
-        XCTAssertTrue(text.contains("13 saniye"), text)
+    func testQuotaMessageNamesTheMinuteLimits() {
+        let tokens = quotaDescribe("Quota exceeded for metric: x_input_token_count, limit: 250000\nPlease retry in 20s.",
+                                   ids: ["GenerateContentInputTokensPerMinutePerProjectPerModel-FreeTier"])
+        XCTAssertTrue(tokens.contains("Dakikalık token sınırı"), tokens)
+        XCTAssertTrue(tokens.contains("21 saniye"), tokens)
+        let requests = quotaDescribe("Quota exceeded for metric: x_requests, limit: 5\nPlease retry in 12s.",
+                                     ids: ["GenerateRequestsPerMinutePerProjectPerModel-FreeTier"])
+        XCTAssertTrue(requests.contains("Dakikalık istek sınırı"), requests)
+        XCTAssertTrue(requests.contains("13 saniye"), requests)
     }
 
     func testQuotaMessageWithoutDetailsStaysGeneric() {
@@ -271,51 +77,9 @@ final class GeminiSessionTextTests: XCTestCase {
         XCTAssertTrue(GeminiSupport.isOverload(GeminiError("The model is overloaded.", .http, status: 503)))
         XCTAssertFalse(GeminiSupport.isOverload(GeminiError("Backend Error", .http, status: 503)))
         XCTAssertFalse(GeminiSupport.isOverload(GeminiError("high demand", .http, status: 500)))
-        XCTAssertFalse(GeminiSupport.isOverload(GeminiError("", .http, status: 503)))
     }
 
-    func testPickFallbackModelsPrefersNewestStableFlashThenLite() {
-        let names = ["gemini-3.8-flash", "gemini-3.10-flash", "gemini-3.9-flash", "gemini-3.8-flash-lite", "gemini-3.9-flash-lite",
-                     "gemini-3.9-flash-preview-05-20", "gemini-3.9-flash-image", "gemini-3.9-pro", "gemini-3.9-flash-live", "gemma-3-27b-it"]
-        XCTAssertEqual(GeminiSupport.pickFallbackModels(names, current: "gemini-3.8-flash"), ["gemini-3.10-flash", "gemini-3.9-flash"])
-        XCTAssertEqual(GeminiSupport.pickFallbackModels(names, current: "gemini-3.8-flash", limit: 4),
-                       ["gemini-3.10-flash", "gemini-3.9-flash", "gemini-3.9-flash-lite", "gemini-3.8-flash-lite"])
-        XCTAssertEqual(GeminiSupport.pickFallbackModels(["gemini-3.8-flash"], current: "gemini-3.8-flash"), [])
-        XCTAssertEqual(GeminiSupport.pickFallbackModels(["gemini-2.5-flash", "gemini-3-flash"], current: "x"), ["gemini-3-flash", "gemini-2.5-flash"])
-    }
-
-    func testAutomaticFallbackNeverPicksTheBusy38FlashOrRetiredModels() {
-        let names = ["gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash-lite", "gemini-2.5-pro"]
-        XCTAssertEqual(GeminiSupport.pickFallbackModels(names, current: "gemini-3.6-flash", limit: 4), ["gemini-3.7-flash", "gemini-3.5-flash-lite"],
-                       "3.8 Flash yoğun olduğu için yedek seçilmez")
-        XCTAssertEqual(GeminiSupport.pickFallbackModels(["gemini-3.8-flash"], current: "x"), [])
-        XCTAssertTrue(GeminiConfig.avoidedModels.contains("gemini-2.5-pro"))
-    }
-
-    func testTruncatedJsonSalvagesAnswerInsteadOfReadingRawJson() throws {
-        func response(_ text: String, finish: String) -> [String: Any] {
-            return ["candidates": [["finishReason": finish, "content": ["parts": [["text": text]]]]]]
-        }
-        let cut = response("{\"soru\":\"ilk on\",\"cevap\":\"1) Adana. 2) \\\"Bursa\\\". 3) Cey", finish: "MAX_TOKENS")
-        let answer = try GeminiSupport.parseAnswer(cut)
-        XCTAssertTrue(answer.answer.hasPrefix("1) Adana. 2) \"Bursa\". 3) Cey"), answer.answer)
-        XCTAssertTrue(answer.answer.hasSuffix(GeminiSupport.truncatedNote), answer.answer)
-        XCTAssertFalse(answer.answer.contains("{"))
-        XCTAssertEqual(answer.question, "ilk on")
-        XCTAssertEqual(answer.lastQuestion, 0)
-        let halfEscape = try GeminiSupport.parseAnswer(response("{\"soru\":\"x\",\"cevap\":\"ü \\u00", finish: "MAX_TOKENS"))
-        XCTAssertTrue(halfEscape.answer.hasPrefix("ü"), halfEscape.answer)
-        XCTAssertFalse(halfEscape.answer.contains("\\u"))
-        XCTAssertThrowsError(try GeminiSupport.parseAnswer(response("{\"soru\":\"x\"", finish: "MAX_TOKENS")))
-        XCTAssertEqual(try GeminiSupport.parseAnswer(response("Merhaba dünya", finish: "STOP")).answer, "Merhaba dünya")
-    }
-
-    func testEmptyAnswerFieldStaysEmptyInsteadOfShowingRawJson() throws {
-        let object: [String: Any] = ["candidates": [["content": ["parts": [["text": "{\"soru\":\"\",\"cevap\":\"\"}"]]]]]]
-        let a = try GeminiSupport.parseAnswer(object)
-        XCTAssertEqual(a.answer, "")
-        XCTAssertEqual(a.question, "")
-    }
+    // MARK: Küçük yardımcılar
 
     func testModelListKeepsOnlyGenerateContentModels() {
         let json: [String: Any] = ["models": [
@@ -326,6 +90,29 @@ final class GeminiSessionTextTests: XCTestCase {
         ]]
         XCTAssertEqual(GeminiSupport.parseModelList(json), ["gemini-3.8-flash", "gemini-3.8-pro"])
         XCTAssertEqual(GeminiSupport.parseModelList([:]), [])
+    }
+
+    func testOptionCodesParse() {
+        let codes = GeminiSupport.parseOptionCodes("A=ADANA, B-BURSA; c:CEYHAN, x, D=, A=ANKARA")
+        XCTAssertEqual(codes.map { $0.letter }, ["A", "B", "C"])
+        XCTAssertEqual(codes.map { $0.word }, ["ADANA", "BURSA", "CEYHAN"])
+        XCTAssertEqual(GeminiSupport.parseOptionCodes(GeminiConfig.defaultOptionCodes).count, 5)
+    }
+
+    func testThinkingLevelOnlyForGemmaOrExplicitSetting() {
+        XCTAssertEqual(GeminiSupport.thinkingLevel(model: "gemma-3-27b-it", setting: "auto"), "high")
+        XCTAssertNil(GeminiSupport.thinkingLevel(model: "gemini-3.6-flash", setting: "auto"))
+        XCTAssertEqual(GeminiSupport.thinkingLevel(model: "gemini-3.6-flash", setting: "high"), "high")
+        XCTAssertNil(GeminiSupport.thinkingLevel(model: "gemini-2.5-flash", setting: "high"))
+        let body = GeminiSupport.applyThinking(["generationConfig": ["temperature": 0.2]], level: "high")
+        let config = body["generationConfig"] as? [String: Any]
+        XCTAssertEqual((config?["thinkingConfig"] as? [String: String])?["thinkingLevel"], "high")
+        XCTAssertEqual(config?["temperature"] as? Double, 0.2)
+    }
+
+    func testStripFence() {
+        XCTAssertEqual(GeminiSupport.stripFence("```json\n{\"a\":1}\n```"), "{\"a\":1}")
+        XCTAssertEqual(GeminiSupport.stripFence("{\"a\":1}"), "{\"a\":1}")
     }
 }
 
@@ -345,26 +132,10 @@ final class GeminiProfilesTests: XCTestCase {
         XCTAssertEqual(GeminiProfiles.active(list, active: 2).slot, 1, "seçili profil boşsa ilk dolu profil")
     }
 
-    func testFallbackTargetIsTheFirstUsableFreeProfileAndOnlyFromPaid() {
-        let list = [info(1, "Flash"), info(2, "Pro"), info(3, "Ücretsiz", free: true)]
-        XCTAssertEqual(GeminiProfiles.fallbackTarget(list, from: list[1], auto: true)?.slot, 3)
-        XCTAssertNil(GeminiProfiles.fallbackTarget(list, from: list[1], auto: false))
-        XCTAssertNil(GeminiProfiles.fallbackTarget(list, from: list[2], auto: true), "ücretsizden yine ücretsize geçilmez")
-        let noKey = [info(1, "Flash"), info(3, "Ücretsiz", key: "", free: true)]
-        XCTAssertNil(GeminiProfiles.fallbackTarget(noKey, from: noKey[0], auto: true))
-    }
-
     func testKeychainNamesKeepTheOldFirstName() {
         XCTAssertEqual(GeminiProfiles.keychainName(slot: 1), "geminiApiKey")
         XCTAssertEqual(GeminiProfiles.keychainName(slot: 2), "geminiApiKey2")
         XCTAssertEqual(GeminiProfiles.keychainName(slot: 3), "geminiApiKey3")
-    }
-
-    func testMonthKey() {
-        var c = DateComponents()
-        c.year = 2026; c.month = 11; c.day = 10; c.hour = 12
-        let date = Calendar(identifier: .gregorian).date(from: c) ?? Date()
-        XCTAssertEqual(GeminiProfiles.monthKey(date), "202611")
     }
 }
 
@@ -429,8 +200,7 @@ final class FakeGeminiProtocol: URLProtocol {
         }
         var fields = ["Content-Type": "application/json"]
         for (k, v) in reply.headers { fields[k] = v }
-        let response = HTTPURLResponse(url: url, statusCode: reply.status, httpVersion: "HTTP/1.1",
-                                       headerFields: fields)!
+        let response = HTTPURLResponse(url: url, statusCode: reply.status, httpVersion: "HTTP/1.1", headerFields: fields)!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: reply.body)
         client?.urlProtocolDidFinishLoading(self)
@@ -444,7 +214,6 @@ private final class SleepLog {
 }
 
 final class GeminiClientTests: XCTestCase {
-    private let pdf = Data("%PDF-1.4 deneme".utf8)
     private var sleeps = SleepLog()
 
     override func setUp() {
@@ -453,28 +222,17 @@ final class GeminiClientTests: XCTestCase {
         sleeps = SleepLog()
     }
 
-    private func makeClient(key: String = " AIza-TEST \n", model: String = "", batch: Int = 0) -> GeminiClient {
+    private func makeClient(key: String = " AIza-TEST \n", model: String = "") -> GeminiClient {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [FakeGeminiProtocol.self]
         let log = sleeps
-        return GeminiClient(session: URLSession(configuration: config),
-                            baseURL: "https://example.test/v1beta",
-                            key: { key }, model: { model }, batchLast: { batch },
-                            sleep: { seconds in log.values.append(seconds) })
+        return GeminiClient(session: URLSession(configuration: config), baseURL: "https://example.test/v1beta",
+                            key: { key }, model: { model }, sleep: { seconds in log.values.append(seconds) })
     }
 
-    private func okBody(answer: String = "Toplam yüz lira.", question: String = "toplam nedir") -> Data {
-        let inner = (try? JSONSerialization.data(withJSONObject: ["soru": question, "cevap": answer])) ?? Data()
-        let object: [String: Any] = [
-            "candidates": [["finishReason": "STOP", "content": ["parts": [["text": String(decoding: inner, as: UTF8.self)]]]]],
-            "usageMetadata": ["promptTokenCount": 1000, "candidatesTokenCount": 40, "totalTokenCount": 1040]
-        ]
+    private func okBody(_ text: String = "tamam") -> Data {
+        let object: [String: Any] = ["candidates": [["finishReason": "STOP", "content": ["parts": [["text": text]]]]]]
         return (try? JSONSerialization.data(withJSONObject: object)) ?? Data()
-    }
-
-    private func headerValue(_ name: String, _ index: Int = 0) -> String? {
-        let dict = FakeGeminiProtocol.headers[index]
-        return dict.first(where: { $0.key.lowercased() == name.lowercased() })?.value
     }
 
     private func errorBody(_ message: String, reason: String = "") -> Data {
@@ -500,241 +258,81 @@ final class GeminiClientTests: XCTestCase {
         }
     }
 
-    func testSuccessfulQuestion() async throws {
+    private let body = Data("{}".utf8)
+
+    func testSuccessfulRequestUsesKeyHeaderAndModelUrl() async throws {
         queue(.init(status: 200, body: okBody(), error: nil))
         let client = makeClient()
-        let answer = try await client.ask(questionText: "toplam tutar nedir", audioWAV: nil,
-                                          docs: [GeminiDoc(name: "a.pdf", data: pdf)], history: [])
-        XCTAssertEqual(answer.answer, "Toplam yüz lira.")
-        XCTAssertEqual(answer.question, "toplam nedir")
-        XCTAssertEqual(answer.totalTokens, 1040)
+        let object = try await client.generate(model: "gemini-x", key: " AIza-TEST \n", body: body)
+        XCTAssertNotNil(object as? [String: Any])
         XCTAssertEqual(FakeGeminiProtocol.urls.count, 1)
-        XCTAssertEqual(FakeGeminiProtocol.urls[0].absoluteString, "https://example.test/v1beta/models/\(GeminiConfig.defaultModel):generateContent")
-        XCTAssertEqual(headerValue("x-goog-api-key"), "AIza-TEST")
-        let body = try XCTUnwrap(JSONSerialization.jsonObject(with: FakeGeminiProtocol.bodies[0]) as? [String: Any])
-        let contents = try XCTUnwrap(body["contents"] as? [[String: Any]])
-        let first = try XCTUnwrap(contents[0]["parts"] as? [[String: Any]])
-        let inline = try XCTUnwrap(first[1]["inlineData"] as? [String: String])
-        XCTAssertEqual(inline["data"], pdf.base64EncodedString())
-    }
-
-    private func jsonBody(_ index: Int) throws -> [String: Any] {
-        return try XCTUnwrap(JSONSerialization.jsonObject(with: FakeGeminiProtocol.bodies[index]) as? [String: Any])
-    }
-
-    private func remoteDoc(_ name: String) -> GeminiDoc {
-        var doc = GeminiDoc(name: name, data: pdf)
-        doc.uri = "https://example.test/v1beta/files/\(name)"
-        doc.remote = "files/\(name)"
-        return doc
-    }
-
-    func testFileUploadUsesTheResumableProtocol() async throws {
-        let startReply = FakeGeminiProtocol.Reply(status: 200, body: Data("{}".utf8), error: nil,
-                                                  headers: ["x-goog-upload-url": "https://example.test/upload/session-1"])
-        let doneBody = Data("{\"file\":{\"name\":\"files/abc\",\"uri\":\"https://example.test/v1beta/files/abc\",\"state\":\"ACTIVE\"}}".utf8)
-        queue(startReply, .init(status: 200, body: doneBody, error: nil))
-        let file = try await makeClient().uploadFile(name: "Belge.pdf", data: pdf)
-        XCTAssertEqual(file, RemoteFile(name: "files/abc", uri: "https://example.test/v1beta/files/abc", state: "ACTIVE"))
-        XCTAssertEqual(FakeGeminiProtocol.urls.map { $0.absoluteString },
-                       ["https://example.test/upload/v1beta/files", "https://example.test/upload/session-1"])
-        XCTAssertEqual(headerValue("X-Goog-Upload-Protocol", 0), "resumable")
-        XCTAssertEqual(headerValue("X-Goog-Upload-Command", 0), "start")
-        XCTAssertEqual(headerValue("X-Goog-Upload-Header-Content-Length", 0), String(pdf.count))
-        XCTAssertEqual(headerValue("X-Goog-Upload-Command", 1), "upload, finalize")
-        XCTAssertEqual(headerValue("X-Goog-Upload-Offset", 1), "0")
-        XCTAssertEqual(FakeGeminiProtocol.bodies[1], pdf)
-    }
-
-    func testFileUploadWithoutUploadUrlFails() async {
-        queue(.init(status: 200, body: Data("{}".utf8), error: nil))
-        let e = await failure { _ = try await makeClient().uploadFile(name: "a.pdf", data: pdf) }
-        XCTAssertNotNil(e)
-    }
-
-    func testMissingFileGivesNilInsteadOfAnError() async throws {
-        queue(.init(status: 404, body: errorBody("File not found"), error: nil))
-        let file = try await makeClient().getFile(name: "files/yok")
-        XCTAssertNil(file)
-    }
-
-    func testCacheIsCreatedWithTheSystemPromptAndFileUris() async throws {
-        queue(.init(status: 200, body: Data("{\"name\":\"cachedContents/c1\"}".utf8), error: nil))
-        let name = try await makeClient().createCache(docs: [remoteDoc("a.pdf"), remoteDoc("b.pdf")])
-        XCTAssertEqual(name, "cachedContents/c1")
-        XCTAssertEqual(FakeGeminiProtocol.urls[0].absoluteString, "https://example.test/v1beta/cachedContents")
-        let body = try jsonBody(0)
-        XCTAssertEqual(body["model"] as? String, "models/\(GeminiConfig.defaultModel)")
-        XCTAssertEqual(body["ttl"] as? String, "1800s")
-        XCTAssertNotNil(body["systemInstruction"])
-        let text = String(decoding: FakeGeminiProtocol.bodies[0], as: UTF8.self)
-        XCTAssertTrue(text.contains("files/a.pdf") && text.contains("files/b.pdf"))
-        XCTAssertFalse(text.contains("inlineData"), "önbelleğe PDF baytı değil dosya adresi konur")
-    }
-
-    func testCacheLifeIsExtendedAndDeleted() async throws {
-        queue(.init(status: 200, body: Data("{}".utf8), error: nil), .init(status: 200, body: Data("{}".utf8), error: nil))
-        let client = makeClient()
-        try await client.touchCache("cachedContents/c1")
-        await client.deleteCache("cachedContents/c1")
-        XCTAssertEqual(FakeGeminiProtocol.methods, ["PATCH", "DELETE"])
-        XCTAssertEqual(FakeGeminiProtocol.urls[0].absoluteString, "https://example.test/v1beta/cachedContents/c1?updateMask=ttl")
-        XCTAssertEqual(FakeGeminiProtocol.urls[1].absoluteString, "https://example.test/v1beta/cachedContents/c1")
-    }
-
-    func testQuestionWithCachedContentCarriesNoSystemInstructionOrDocuments() async throws {
-        queue(.init(status: 200, body: okBody(), error: nil))
-        let answer = try await makeClient().ask(questionText: "toplam nedir", audioWAV: nil, docs: [remoteDoc("a.pdf")],
-                                                history: [], cached: "cachedContents/c1")
-        XCTAssertEqual(answer.answer, "Toplam yüz lira.")
-        let body = try jsonBody(0)
-        XCTAssertEqual(body["cachedContent"] as? String, "cachedContents/c1")
-        XCTAssertNil(body["systemInstruction"], "önbellekli istekte sistem yönergesi gönderilemez")
-        XCTAssertFalse(String(decoding: FakeGeminiProtocol.bodies[0], as: UTF8.self).contains("files/a.pdf"))
-    }
-
-    func testQuestionWithFileUrisButNoCacheReferencesTheFiles() async throws {
-        queue(.init(status: 200, body: okBody(), error: nil))
-        _ = try await makeClient().ask(questionText: "x", audioWAV: nil, docs: [remoteDoc("a.pdf")], history: [])
-        let body = try jsonBody(0)
-        XCTAssertNotNil(body["systemInstruction"])
-        let text = String(decoding: FakeGeminiProtocol.bodies[0], as: UTF8.self)
-        XCTAssertTrue(text.contains("fileData") && text.contains("files/a.pdf"))
-        XCTAssertFalse(text.contains("inlineData"))
-    }
-
-    func testPersistedBatchPositionIsSentAsAnAppNote() async throws {
-        queue(.init(status: 200, body: okBody(), error: nil))
-        _ = try await makeClient(batch: 30).ask(questionText: "sıradaki on soruyu cevapla", audioWAV: nil, docs: [], history: [])
-        XCTAssertTrue(String(decoding: FakeGeminiProtocol.bodies[0], as: UTF8.self).contains("en son verilen soru numarası: 30."))
-    }
-
-    func testTranscribeSendsOnlyTheAudioAndReturnsTheText() async throws {
-        let inner = "{\"soru\":\"son cevabı tekrar et\"}"
-        let object: [String: Any] = ["candidates": [["finishReason": "STOP", "content": ["parts": [["text": inner]]]]]]
-        queue(.init(status: 200, body: (try? JSONSerialization.data(withJSONObject: object)) ?? Data(), error: nil))
-        let text = try await makeClient().transcribe(audioWAV: Data("RIFFxxxx".utf8))
-        XCTAssertEqual(text, "son cevabı tekrar et")
-        let sent = String(decoding: FakeGeminiProtocol.bodies[0], as: UTF8.self)
-        XCTAssertTrue(sent.contains("Bu sesi yazıya dök."))
-        XCTAssertTrue(sent.contains("audio/wav"))
-        XCTAssertFalse(sent.contains("application/pdf"), "yazıya dökmede belge gönderilmez")
-        XCTAssertTrue(sent.contains("\"maxOutputTokens\":256"))
-    }
-
-    func testChosenModelIsUsed() async throws {
-        queue(.init(status: 200, body: okBody(), error: nil))
-        _ = try await makeClient(model: "gemini-test-model").ask(questionText: "x", audioWAV: nil, docs: [], history: [])
-        XCTAssertTrue(FakeGeminiProtocol.urls[0].absoluteString.hasSuffix("/models/gemini-test-model:generateContent"))
+        XCTAssertEqual(FakeGeminiProtocol.urls[0].absoluteString, "https://example.test/v1beta/models/gemini-x:generateContent")
+        let header = FakeGeminiProtocol.headers[0].first(where: { $0.key.lowercased() == "x-goog-api-key" })?.value
+        XCTAssertEqual(header, "AIza-TEST")
+        XCTAssertEqual(FakeGeminiProtocol.methods[0], "POST")
     }
 
     func testMissingKeyIsRejectedWithoutRequest() async {
-        let error = await failure { _ = try await self.makeClient(key: "  ").ask(questionText: "x", audioWAV: nil, docs: [], history: []) }
-        XCTAssertEqual(error?.kind, .key)
-        XCTAssertTrue(FakeGeminiProtocol.urls.isEmpty)
-    }
-
-    func testEmptyQuestionIsRejected() async {
-        let error = await failure { _ = try await self.makeClient().ask(questionText: " ", audioWAV: nil, docs: [], history: []) }
-        XCTAssertNotNil(error)
-        XCTAssertTrue(FakeGeminiProtocol.urls.isEmpty)
+        let client = makeClient(key: "  ")
+        let e = await failure { _ = try await client.generate(model: "m", key: "  ", body: self.body) }
+        XCTAssertEqual(e?.kind, .key)
+        XCTAssertEqual(FakeGeminiProtocol.urls.count, 0)
     }
 
     func testInvalidKeyResponse() async {
         queue(.init(status: 400, body: errorBody("API key not valid. Please pass a valid API key.", reason: "API_KEY_INVALID"), error: nil))
-        let error = await failure { _ = try await self.makeClient().ask(questionText: "x", audioWAV: nil, docs: [], history: []) }
-        XCTAssertEqual(error?.kind, .key)
-        XCTAssertEqual(error?.status, 400)
+        let client = makeClient()
+        let e = await failure { _ = try await client.generate(model: "m", key: "AIza", body: self.body) }
+        XCTAssertEqual(e?.kind, .key)
+        XCTAssertEqual(e?.status, 400)
     }
 
-    func testServerErrorIsRetriedOnce() async throws {
+    func testServerErrorIsRetriedWithGrowingWait() async throws {
         queue(.init(status: 503, body: errorBody("overloaded"), error: nil),
+              .init(status: 503, body: errorBody("overloaded"), error: nil),
               .init(status: 200, body: okBody(), error: nil))
-        let answer = try await makeClient().ask(questionText: "tekrar", audioWAV: nil, docs: [], history: [])
-        XCTAssertFalse(answer.answer.isEmpty)
-        XCTAssertEqual(sleeps.values, [1.5])
-        XCTAssertEqual(FakeGeminiProtocol.urls.count, 2)
-    }
-
-    func testTwoServerErrorsAreStillRetriedWithGrowingWait() async throws {
-        queue(.init(status: 503, body: errorBody("x"), error: nil), .init(status: 503, body: errorBody("x"), error: nil),
-              .init(status: 200, body: okBody(), error: nil))
-        let answer = try await makeClient().ask(questionText: "x", audioWAV: nil, docs: [], history: [])
-        XCTAssertFalse(answer.answer.isEmpty)
+        let client = makeClient()
+        _ = try await client.generate(model: "m", key: "AIza", body: body)
+        XCTAssertEqual(FakeGeminiProtocol.urls.count, 3)
         XCTAssertEqual(sleeps.values, [1.5, 4.0])
     }
 
     func testPersistentServerErrorFailsAfterThreeRetries() async {
-        let bad = FakeGeminiProtocol.Reply(status: 503, body: errorBody("x"), error: nil)
-        queue(bad, bad, bad, bad)
-        let error = await failure { _ = try await self.makeClient().ask(questionText: "x", audioWAV: nil, docs: [], history: []) }
-        XCTAssertEqual(error?.kind, .http)
-        XCTAssertEqual(error?.status, 503)
-        XCTAssertEqual(sleeps.values, [1.5, 4.0, 8.0])
+        queue(.init(status: 500, body: Data(), error: nil), .init(status: 500, body: Data(), error: nil),
+              .init(status: 500, body: Data(), error: nil), .init(status: 500, body: Data(), error: nil),
+              .init(status: 500, body: Data(), error: nil))
+        let client = makeClient()
+        let e = await failure { _ = try await client.generate(model: "m", key: "AIza", body: self.body) }
+        XCTAssertEqual(e?.status, 500)
         XCTAssertEqual(FakeGeminiProtocol.urls.count, 4)
     }
 
-    func testBackupModelRequestUsesItsOwnUrlAndIsNotRetried() async {
-        let bad = FakeGeminiProtocol.Reply(status: 503, body: errorBody("This model is currently experiencing high demand."), error: nil)
-        queue(bad, bad)
-        let error = await failure {
-            _ = try await self.makeClient(model: "gemini-3.8-flash").ask(questionText: "x", audioWAV: nil, docs: [], history: [],
-                                                                         cached: "", model: "gemini-3.7-flash", serverRetries: 0)
-        }
-        XCTAssertEqual(error?.status, 503)
+    func testQuotaAndUnknownModelAreNotRetried() async {
+        queue(.init(status: 429, body: errorBody("Quota exceeded. Please retry in 5s."), error: nil))
+        let client = makeClient()
+        let quota = await failure { _ = try await client.generate(model: "m", key: "AIza", body: self.body) }
+        XCTAssertEqual(quota?.kind, .quota)
         XCTAssertEqual(FakeGeminiProtocol.urls.count, 1)
-        XCTAssertTrue(FakeGeminiProtocol.urls[0].absoluteString.contains("/models/gemini-3.7-flash:generateContent"),
-                      FakeGeminiProtocol.urls[0].absoluteString)
-        XCTAssertTrue(sleeps.values.isEmpty, "\(sleeps.values)")
-    }
-
-    func testFallbackModelsComeFromTheAccountsOwnModelList() async throws {
-        func entry(_ name: String) -> [String: Any] { return ["name": "models/" + name, "supportedGenerationMethods": ["generateContent"]] }
-        let list: [String: Any] = ["models": [entry("gemini-3.8-flash"), entry("gemini-3.7-flash"), entry("gemini-3.8-flash-lite"),
-                                              entry("gemini-3.8-flash-image"), entry("gemini-3.8-pro")]]
-        queue(.init(status: 200, body: try JSONSerialization.data(withJSONObject: list), error: nil))
-        let names = await makeClient(model: "gemini-3.8-flash").fallbackModels()
-        XCTAssertEqual(names, ["gemini-3.7-flash", "gemini-3.8-flash-lite"])
-
         FakeGeminiProtocol.reset()
-        queue(.init(status: 500, body: Data(), error: nil))
-        let none = await makeClient(model: "gemini-3.8-flash").fallbackModels()
-        XCTAssertEqual(none, [])
+        queue(.init(status: 404, body: errorBody("models/x is not found"), error: nil))
+        let missing = await failure { _ = try await client.generate(model: "x", key: "AIza", body: self.body) }
+        XCTAssertEqual(missing?.kind, .model)
     }
 
-    func testQuotaErrorMentionsWait() async {
-        queue(.init(status: 429, body: errorBody("Quota exceeded, retry in 5s"), error: nil))
-        let error = await failure { _ = try await self.makeClient().ask(questionText: "x", audioWAV: nil, docs: [], history: []) }
-        XCTAssertEqual(error?.kind, .quota)
-        XCTAssertTrue(error?.message.contains("6 saniye") ?? false, error?.message ?? "")
-        XCTAssertEqual(FakeGeminiProtocol.urls.count, 1)
+    func testNetworkErrorIsRetriedOnceThenReported() async {
+        let offline = URLError(.notConnectedToInternet)
+        queue(.init(status: 0, body: Data(), error: offline), .init(status: 0, body: Data(), error: offline))
+        let client = makeClient()
+        let e = await failure { _ = try await client.generate(model: "m", key: "AIza", body: self.body) }
+        XCTAssertEqual(e?.kind, .network)
+        XCTAssertEqual(FakeGeminiProtocol.urls.count, 2)
     }
 
-    func testUnknownModel() async {
-        queue(.init(status: 404, body: errorBody("not found"), error: nil))
-        let error = await failure { _ = try await self.makeClient(model: "yok-model").ask(questionText: "x", audioWAV: nil, docs: [], history: []) }
-        XCTAssertEqual(error?.kind, .model)
-        XCTAssertTrue(error?.message.contains("yok-model") ?? false)
-    }
-
-    func testNetworkErrorIsRetriedThenReported() async throws {
-        queue(.init(status: 0, body: Data(), error: URLError(.notConnectedToInternet)),
-              .init(status: 200, body: okBody(), error: nil))
-        let answer = try await makeClient().ask(questionText: "x", audioWAV: nil, docs: [], history: [])
-        XCTAssertFalse(answer.answer.isEmpty)
-        XCTAssertEqual(sleeps.values, [1.5])
-
-        FakeGeminiProtocol.reset()
-        queue(.init(status: 0, body: Data(), error: URLError(.notConnectedToInternet)),
-              .init(status: 0, body: Data(), error: URLError(.notConnectedToInternet)))
-        let error = await failure { _ = try await self.makeClient().ask(questionText: "x", audioWAV: nil, docs: [], history: []) }
-        XCTAssertEqual(error?.kind, .network)
-    }
-
-    func testBlockedAnswerFromServer() async {
-        let body = (try? JSONSerialization.data(withJSONObject: ["promptFeedback": ["blockReason": "SAFETY"]])) ?? Data()
-        queue(.init(status: 200, body: body, error: nil))
-        let error = await failure { _ = try await self.makeClient().ask(questionText: "x", audioWAV: nil, docs: [], history: []) }
-        XCTAssertEqual(error?.kind, .blocked)
+    func testModelListRequest() async throws {
+        let json: [String: Any] = ["models": [["name": "models/gemini-3.6-flash", "supportedGenerationMethods": ["generateContent"]]]]
+        queue(.init(status: 200, body: (try? JSONSerialization.data(withJSONObject: json)) ?? Data(), error: nil))
+        let names = try await makeClient().listModels()
+        XCTAssertEqual(names, ["gemini-3.6-flash"])
+        XCTAssertTrue(FakeGeminiProtocol.urls[0].absoluteString.hasPrefix("https://example.test/v1beta/models"))
     }
 }

@@ -157,8 +157,9 @@ final class AppSettings: ObservableObject {
             geminiProfiles = GeminiProfiles.defaults()
         }
         let storedActive = d.object(forKey: "geminiActive") as? Int ?? 1
-        geminiActive = min(max(legacyLayout ? GeminiProfiles.newSlot(fromLegacy: storedActive) : storedActive, 1), GeminiProfiles.slotCount)
-        if legacyLayout { d.set(geminiActive, forKey: "geminiActive") }
+        let startActive = min(max(legacyLayout ? GeminiProfiles.newSlot(fromLegacy: storedActive) : storedActive, 1), GeminiProfiles.slotCount)
+        geminiActive = startActive
+        if legacyLayout { d.set(startActive, forKey: "geminiActive") }
         geminiWaitLimit = min(max(d.object(forKey: "geminiWaitLimit") as? Int ?? 30, 0), 600)
         let storedCodes = d.string(forKey: "geminiOptionCodes")
         geminiOptionCodes = storedCodes ?? GeminiConfig.defaultOptionCodes

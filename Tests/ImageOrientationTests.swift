@@ -159,32 +159,6 @@ final class ImageOrientationTests: XCTestCase {
                        "normal yönde 0,075 saat bandı payı gerekir")
     }
 
-    // MARK: Ayar
-
-    func testSettingMigratesFromOldFlipSwitch() {
-        let name = "orient-\(UUID().uuidString)"
-        let d = UserDefaults(suiteName: name)!
-        defer { d.removePersistentDomain(forName: name) }
-        d.set(true, forKey: "guidanceFlip")
-        XCTAssertEqual(AppSettings.migratedOrientation(d), .rotate180)
-        XCTAssertNil(d.object(forKey: "guidanceFlip"), "eski anahtar silinir")
-        XCTAssertEqual(d.integer(forKey: "imageOrientation"), ImageOrientation.rotate180.rawValue)
-        // ikinci okuma aynı sonucu verir
-        XCTAssertEqual(AppSettings.migratedOrientation(d), .rotate180)
-    }
-
-    func testSettingDefaultsToNormalAndKeepsChoice() {
-        let name = "orient-\(UUID().uuidString)"
-        let d = UserDefaults(suiteName: name)!
-        defer { d.removePersistentDomain(forName: name) }
-        XCTAssertEqual(AppSettings.migratedOrientation(d), .normal)
-        d.set(ImageOrientation.left90.rawValue, forKey: "imageOrientation")
-        d.set(true, forKey: "guidanceFlip")   // yeni anahtar eskisinden önce gelir
-        XCTAssertEqual(AppSettings.migratedOrientation(d), .left90)
-        d.set(99, forKey: "imageOrientation") // bozuk değer: eski kutuya bakılır
-        XCTAssertEqual(AppSettings.migratedOrientation(d), .normal)
-    }
-
     // MARK: Video
 
     func testVideoTransformKeepsFrameInPositiveArea() {

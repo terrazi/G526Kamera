@@ -176,18 +176,4 @@ enum GeminiProfiles {
         return list.first(where: { $0.slot == active }) ?? list.first
             ?? GeminiProfileInfo(slot: 1, name: defaultNames[0], model: GeminiConfig.defaultModel, key: "", free: false)
     }
-
-    /// Aylık harcama sınırı dolunca geçilecek profil: şimdikisi ücretli olmalı, yedek ücretsiz ve kullanılabilir olmalı
-    static func fallbackTarget(_ list: [GeminiProfileInfo], from current: GeminiProfileInfo, auto: Bool) -> GeminiProfileInfo? {
-        guard auto, !current.free else { return nil }
-        return usable(list).first(where: { $0.free && $0.slot != current.slot })
-    }
-
-    /// "202611" gibi ay anahtarı (yedeğe geçilen ayı hatırlamak için)
-    static func monthKey(_ date: Date) -> String {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone.current
-        let c = calendar.dateComponents([.year, .month], from: date)
-        return String(format: "%04d%02d", c.year ?? 0, c.month ?? 0)
-    }
 }
