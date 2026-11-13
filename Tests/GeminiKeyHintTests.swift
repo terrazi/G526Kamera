@@ -84,4 +84,9 @@ final class GeminiKeyHintTests: XCTestCase {
         XCTAssertNil(GeminiProfiles.cleanedKey(fromClipboard: " \n\t"))
         XCTAssertNil(GeminiProfiles.cleanedKey(fromClipboard: "\"\""))
     }
+
+    func testKeyKindLabelFollowsTheSwitch() {
+        XCTAssertEqual(GeminiProfiles.keyKindLabel(free: true), "Ücretsiz anahtar")
+        XCTAssertEqual(GeminiProfiles.keyKindLabel(free: false), "Ücretli anahtar")
+    }
 }

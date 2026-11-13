@@ -84,6 +84,11 @@ enum GeminiProfiles {
         return nil
     }
 
+    /// Profildeki "ücretsiz" anahtarının yazısı: anahtar türü neyse yazı da odur (anahtar kapalıyken "Ücretli")
+    static func keyKindLabel(free: Bool) -> String {
+        return free ? "Ücretsiz anahtar" : "Ücretli anahtar"
+    }
+
     /// Panodan yapıştırılan metinden anahtarı ayıklar: metinde bir "AIza…" anahtarı varsa o alınır (başında "API key:" gibi
     /// sözcükler ya da tırnak olsa da); yoksa baştaki/sondaki boşluk ve tırnaklar atılır. Boşsa nil.
     static func cleanedKey(fromClipboard text: String?) -> String? {

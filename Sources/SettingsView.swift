@@ -444,7 +444,7 @@ struct SettingsView: View {
                     if let result = keyTestResults[i + 1] {
                         Text(result.text).font(.caption).foregroundColor(result.ok ? .green : .red).textSelection(.enabled)
                     }
-                    Toggle("Ücretsiz anahtar", isOn: profileFree(i))
+                    Toggle(GeminiProfiles.keyKindLabel(free: settings.geminiProfiles[i].free), isOn: profileFree(i))
                 }
             }
             Toggle("Model zinciri: kota dolunca / hata olunca / geç cevap gelince sıradaki modele geç", isOn: $settings.geminiChainFallback)
