@@ -22,7 +22,7 @@ struct SettingsView: View {
                         .accessibilityIdentifier("ayar-gemini")
                     NavigationLink(destination: filesPage) { statusRow("Dosya ve diğer", filesStatus, warn: !DocumentFolder.shared.hasChoice) }
                         .accessibilityIdentifier("ayar-dosya")
-                    HelpRow("Ayarlar dört başlıkta toplanır. Her başlıkta önce temel ayarlar, altta “Gelişmiş ayarlar” vardır; varsayılan değerlerle çalışır, değiştirmeniz gerekmez. İlk kurulumda yalnız Gemini anahtarını ve belge klasörünü girmeniz yeter.")
+                    HelpRow("Ayarlar dört başlıkta toplanır; bir başlığı açınca o konudaki bütün ayarlar alt alta görünür. Varsayılan değerlerle çalışır, değiştirmeniz gerekmez. Ana ekrandaki “Ekranı kilitle” düğmesi dokunmatik ekranı kilitler (program ve sesli komutlar çalışmayı sürdürür); kilidi açmak için ekrandaki kilit düğmesine 3 saniye basılı tutun. İlk kurulumda yalnız Gemini anahtarını ve belge klasörünü girmeniz yeter.")
                 }
             }
             .navigationTitle("Ayarlar")
@@ -81,77 +81,49 @@ struct SettingsView: View {
 
     private var filesStatus: String { return DocumentFolder.shared.hasChoice ? "klasör seçildi" : "klasör seçilmedi" }
 
-    private func advancedLink<D: View>(_ destination: D) -> some View {
-        Section {
-            NavigationLink(destination: destination) { Text("Gelişmiş ayarlar") }
-        }
-    }
-
-    /// 1) Kamera: bağlantı ve temel ayarlar; gelişmiş: fotoğraf, otomatik çekim, sesli konumlandırma, pil ve ısınma
+    /// 1) Kamera: bağlantı, görüntü yönü, video, fotoğraf, otomatik çekim, sesli konumlandırma, pil ve ısınma (hepsi tek sayfada)
     private var cameraPage: some View {
         Form {
             cameraSection
-            advancedLink(cameraAdvancedPage)
-        }
-        .navigationTitle("Kamera")
-        .navigationBarTitleDisplayMode(.inline)
-    }
-
-    private var cameraAdvancedPage: some View {
-        Form {
             videoSection
             photoSection
             motionSection
             guidanceSection
             powerSection
         }
-        .navigationTitle("Kamera: gelişmiş")
+        .navigationTitle("Kamera")
         .navigationBarTitleDisplayMode(.inline)
     }
 
-    /// 2) Ses: çıkış, ses düzeni, deneme; gelişmiş: sesli komut ve okuma sesi
+    /// 2) Ses: çıkış, ses düzeni, deneme, sesli komut ve okuma sesi
     private var soundPage: some View {
         Form {
             soundSection
-            advancedLink(soundAdvancedPage)
+            voiceSection
+            readingVoiceSection
         }
         .navigationTitle("Ses")
         .navigationBarTitleDisplayMode(.inline)
     }
 
-    private var soundAdvancedPage: some View {
-        Form {
-            voiceSection
-            readingVoiceSection
-        }
-        .navigationTitle("Ses: gelişmiş")
-        .navigationBarTitleDisplayMode(.inline)
-    }
-
-    /// 3) Gemini: gizlilik onayı, sesle soru, model profilleri ve API anahtarları, video gönderimi; gelişmiş: deneme sınavı
+    /// 3) Gemini: gizlilik onayı, sesle soru, model profilleri ve API anahtarları, video gönderimi, deneme sınavı
     private var geminiPage: some View {
         Form {
             geminiPrivacySection
             geminiSection
             geminiModelsSection
-            advancedLink(geminiAdvancedPage)
+            examSection
         }
         .navigationTitle("Gemini")
         .navigationBarTitleDisplayMode(.inline)
     }
 
-    private var geminiAdvancedPage: some View {
-        Form {
-            examSection
-        }
-        .navigationTitle("Gemini: gelişmiş")
-        .navigationBarTitleDisplayMode(.inline)
-    }
-
-    /// 4) Dosya ve diğer: belge klasörü, tanı ve günlük, sürüm; gelişmiş: kaydetme ve kestirmeler
+    /// 4) Dosya ve diğer: belge klasörü, kaydetme, kestirmeler, tanı ve günlük, sürüm
     private var filesPage: some View {
         Form {
             DocumentFolderSection()
+            saveSection
+            selfHealSection
             Section {
                 NavigationLink(destination: DiagnosticsView()) {
                     Text("Tanı ve günlük")
@@ -165,18 +137,8 @@ struct SettingsView: View {
                         .textSelection(.enabled)
                 }
             }
-            advancedLink(filesAdvancedPage)
         }
         .navigationTitle("Dosya ve diğer")
-        .navigationBarTitleDisplayMode(.inline)
-    }
-
-    private var filesAdvancedPage: some View {
-        Form {
-            saveSection
-            selfHealSection
-        }
-        .navigationTitle("Dosya: gelişmiş")
         .navigationBarTitleDisplayMode(.inline)
     }
 
@@ -232,8 +194,8 @@ struct SettingsView: View {
                 Text("Düşük 640×360").tag(2)
             }
             Picker("Kadraj yönü", selection: $settings.guidanceFrame) {
-                Text("Dikey (tam sayfa)").tag(1)
                 Text("Yatay").tag(0)
+                Text("Dikey (tam sayfa)").tag(1)
             }
             Picker("Görüntü yönü", selection: $settings.imageOrientation) {
                 ForEach(AppSettings.orientations(forFrame: settings.guidanceFrame), id: \.self) { o in

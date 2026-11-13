@@ -153,7 +153,8 @@ final class FolderPicker: NSObject, UIDocumentPickerDelegate {
 
     static func topController() -> UIViewController? {
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-        let windows = scenes.flatMap { $0.windows }
+        // Ekran kilidi penceresi (dokunmatik kilit) hiçbir zaman sayfa açılacak pencere sayılmaz
+        let windows = scenes.flatMap { $0.windows }.filter { !($0.rootViewController is LockHostingController) }
         let window = windows.first(where: { $0.isKeyWindow }) ?? windows.first
         var top = window?.rootViewController
         while let presented = top?.presentedViewController, !presented.isBeingDismissed {

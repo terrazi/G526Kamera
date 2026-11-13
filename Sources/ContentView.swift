@@ -14,6 +14,7 @@ struct ContentView: View {
                     powerToggles
                     captureButton
                     pauseButton
+                    lockButton
                     videoButton
                     if !model.videoRecording { pageVideoButton }
                     if model.queuedVideos > 0 || model.sendingVideos { sendVideosButton }
@@ -197,6 +198,26 @@ struct ContentView: View {
             .cornerRadius(12)
         }
         .accessibilityIdentifier("duraklat")
+    }
+
+    /// Dokunmatik ekran kilidi: kilitliyken ekrana dokunmak bir şey yaptırmaz (program ve sesli komutlar çalışır); açmak için
+    /// kilit penceresindeki düğmeye 3 saniye basılı tutulur
+    private var lockButton: some View {
+        Button {
+            model.lockScreen()
+        } label: {
+            HStack {
+                Image(systemName: "lock.fill")
+                Text("Ekranı kilitle")
+                    .fontWeight(.semibold)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .background(Color.gray)
+            .foregroundColor(.white)
+            .cornerRadius(12)
+        }
+        .accessibilityIdentifier("ekraniKilitle")
     }
 
     /// Video kaydı: açıkken kırmızı; en çok ayardaki süre (varsayılan 90 sn) sürer, "kapat" denince ya da süre dolunca biter ve belge klasörüne kaydedilir

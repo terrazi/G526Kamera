@@ -73,7 +73,7 @@ final class AppSettings: ObservableObject {
     @Published var guidanceAutoCapture: Bool { didSet { d.set(guidanceAutoCapture, forKey: "guidanceAutoCapture") } }
     /// Görüntü yönü: önizleme, fotoğraf/PDF, video ve sesli yönlendirme bu yöne göre çevrilir
     @Published var imageOrientation: ImageOrientation { didSet { d.set(imageOrientation.rawValue, forKey: "imageOrientation") } }
-    /// Yönlendirmenin hedef kadrajı: 1 = dikey tam sayfa (varsayılan), 0 = bütün kare
+    /// Önizleme kutusunun / yönlendirmenin kadrajı: 0 = yatay (varsayılan; kamera görüntüsü olduğu gibi), 1 = dikey tam sayfa
     @Published var guidanceFrame: Int {
         didSet {
             d.set(guidanceFrame, forKey: "guidanceFrame")
@@ -240,7 +240,7 @@ final class AppSettings: ObservableObject {
         statusNotices = d.object(forKey: "statusNotices") as? Bool ?? true
         guidanceAutoCapture = d.object(forKey: "guidanceAutoCapture") as? Bool ?? true
         // Kadraj yönü ile görüntü yönü uyumlu olmalı (bkz. orientation(_:forFrame:))
-        let frameValue = d.object(forKey: "guidanceFrame") as? Int ?? 1
+        let frameValue = d.object(forKey: "guidanceFrame") as? Int ?? AppSettings.defaultFrame
         let orient = AppSettings.orientation(AppSettings.migratedOrientation(d), forFrame: frameValue)
         d.set(orient.rawValue, forKey: "imageOrientation")
         imageOrientation = orient
@@ -355,6 +355,9 @@ extension AppSettings {
         d.removeObject(forKey: "cellularShortcutName")
         return name
     }
+
+    /// Kadraj yönünün varsayılanı: yatay (kullanıcı kararı 2026-11-13; daha önce dikeydi)
+    static let defaultFrame = 0
 
     /// Dikey kadrajda (1) yatay kamera karesi dik çevrilir ki dikey kutuya kırpılmadan tam otursun: 90° sağa ya da sola.
     /// Yatay kadrajda (0) çevrilmez ya da 180° olur.

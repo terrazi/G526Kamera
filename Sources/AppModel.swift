@@ -212,6 +212,8 @@ final class AppModel: ObservableObject {
         let now = ProcessInfo.processInfo.systemUptime
         return thermalHot || now < stallShedUntil || now < safeModeUntil
     }
+    /// Dokunmatik ekran kilidi: kilitliyken ekrana dokunmak yok sayılır, program ve sesli komutlar çalışır (3 sn basılı tutunca açılır)
+    let screenLock = ScreenLock()
     /// Son sağlık örneğindeki "son dakikadaki takılma sayısı" ("durum bilgisi ver" okur)
     private var lastStalls = 0
     /// "Duraklat" komutu verildi: konuşma, çekim, rehberlik, sınav akışı, gönderim ve yeni Gemini istekleri "devam et" gelene kadar tutulur
@@ -284,6 +286,7 @@ final class AppModel: ObservableObject {
         client.onState = { [weak self] state in
             Task { @MainActor in self?.stateChanged(state) }
         }
+        screenLock.onChange = { [weak self] locked in self?.screenLockChanged(locked) }
         client.onDeviceInfo = { [weak self] info in
             let text = AppModel.describe(info)
             Task { @MainActor in
@@ -2466,6 +2469,18 @@ final class AppModel: ObservableObject {
             examVideoWork = work
             DispatchQueue.main.asyncAfter(deadline: .now() + remaining, execute: work)
         }
+    }
+
+    /// Ana ekrandaki "Ekranı kilitle" düğmesi: dokunmatik ekran kilitlenir (kilit penceresindeki düğmeye 3 saniye basılı tutunca açılır)
+    func lockScreen() {
+        if !screenLock.lock() { flash("Ekran kilitlenemedi", seconds: 3) }
+    }
+
+    private func screenLockChanged(_ locked: Bool) {
+        tlog("[kilit] ekran \(locked ? "kilitlendi" : "kilidi açıldı")")
+        say(locked ? "Ekran kilitlendi. Açmak için ekrandaki düğmeye \(Int(ScreenLock.holdSeconds)) saniye basılı tutun."
+                   : "Ekran kilidi açıldı.",
+            interrupt: false, force: true, whilePaused: true)
     }
 
     /// "Durum bilgisi ver": programın o an ne yaptığını ve telefonun durumunu kısaca söyler (sınav sürerken de çalışır).
