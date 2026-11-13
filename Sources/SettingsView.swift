@@ -282,22 +282,20 @@ struct SettingsView: View {
         tlog("[gemini] \(slot). profile anahtar yapıştırıldı (\(GeminiProfiles.keyHint(key)))")
     }
 
-    /// Profilin anahtarını Google'a denetir: model listesi istenir (ücretsizdir, belirteç harcamaz)
+    /// Profilin anahtarını Google'a denetir: profildeki modele çok kısa bir soru gider (birkaç belirteç); başlık reddedilirse
+    /// anahtar adreste de denenir, ikisinin sonucu da gösterilir
     private func testGeminiKey(slot: Int) {
         guard let profile = settings.geminiProfileInfos().first(where: { $0.slot == slot }) else { return }
         testingKeySlot = slot
         keyTestResults[slot] = (true, "Google'a soruluyor…")
         let client = GeminiClient(key: { profile.key }, model: { profile.model })
         Task { @MainActor in
-            let outcome: Result<[String], GeminiError>
-            do {
-                outcome = .success(try await client.listModels())
-            } catch let e as GeminiError {
-                outcome = .failure(e)
-            } catch {
-                outcome = .failure(GeminiError(error.localizedDescription, .error))
+            let header = await client.probeKey(model: profile.model, key: profile.key, viaQuery: false)
+            var query: KeyProbe?
+            if GeminiProfiles.isKeyRejection(header) {
+                query = await client.probeKey(model: profile.model, key: profile.key, viaQuery: true)
             }
-            let text = GeminiProfiles.keyTestText(model: profile.model, key: profile.key, result: outcome)
+            let text = GeminiProfiles.keyProbeText(model: profile.model, key: profile.key, header: header, query: query)
             tlog("[gemini] anahtar denemesi (\(profile.name), \(GeminiProfiles.keyHint(profile.key))): \(text.text)")
             keyTestResults[slot] = text
             testingKeySlot = 0

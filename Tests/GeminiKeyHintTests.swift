@@ -43,32 +43,6 @@ final class GeminiKeyHintTests: XCTestCase {
         XCTAssertEqual(GeminiVideo.combined(last, trail: []).message, "son")
     }
 
-    func testKeyTestSaysAcceptedAndModelAvailable() {
-        let r = GeminiProfiles.keyTestText(model: " gemini-3.8-flash ", result: .success(["a", "gemini-3.8-flash"]))
-        XCTAssertTrue(r.ok)
-        XCTAssertTrue(r.text.contains("gemini-3.8-flash"))
-        XCTAssertTrue(r.text.hasPrefix("✓"))
-        XCTAssertTrue(GeminiProfiles.keyTestText(model: "models/a", result: .success(["a"])).ok)
-    }
-
-    func testKeyTestAcceptedKeyButMissingModelIsNotOk() {
-        let r = GeminiProfiles.keyTestText(model: "yok-model", result: .success(["a", "b"]))
-        XCTAssertFalse(r.ok)
-        XCTAssertTrue(r.text.contains("Anahtar kabul edildi"))
-        XCTAssertTrue(r.text.contains("yok-model"))
-    }
-
-    func testKeyTestRejectedKeyShowsGoogleReason() {
-        let r = GeminiProfiles.keyTestText(model: "m", result: .failure(GeminiError("API anahtarı geçersiz.", .key, status: 400)))
-        XCTAssertFalse(r.ok)
-        XCTAssertEqual(r.text, "✗ API anahtarı geçersiz.")
-    }
-
-    func testKeyTestWithEmptyModelStillAcceptsKey() {
-        let r = GeminiProfiles.keyTestText(model: "  ", result: .success([]))
-        XCTAssertTrue(r.ok)
-    }
-
     func testClipboardKeyIsExtractedFromSurroundingText() {
         XCTAssertEqual(GeminiProfiles.cleanedKey(fromClipboard: "  \(good)\n"), good)
         XCTAssertEqual(GeminiProfiles.cleanedKey(fromClipboard: "API key: \(good) (ücretsiz)"), good)
@@ -103,16 +77,75 @@ final class GeminiKeyHintTests: XCTestCase {
         XCTAssertEqual(GeminiProfiles.cleanedKey(fromClipboard: "\(aq)\n"), aq)
     }
 
-    func testRejectedAQKeyGetsFormatNoteButAIzaKeyDoesNot() {
-        let aq = "AQ.Ab8RN6" + String(repeating: "k", count: 40)
+
+    private let aq = "AQ.Ab8RN6" + String(repeating: "k", count: 40)
+
+    func testProbeWorkingKeyIsOk() {
+        let r = GeminiProfiles.keyProbeText(model: "m", key: good, header: KeyProbe(status: 200, message: ""), query: nil)
+        XCTAssertTrue(r.ok)
+        XCTAssertTrue(r.text.hasPrefix("✓ Anahtar ve model çalışıyor"))
+    }
+
+    func testProbeQuotaOrOverloadMeansKeyWasAccepted() {
+        let quota = GeminiProfiles.keyProbeText(model: "m", key: good, header: KeyProbe(status: 429, message: "Resource exhausted"), query: nil)
+        XCTAssertTrue(quota.ok)
+        XCTAssertTrue(quota.text.contains("Anahtar kabul edildi") && quota.text.contains("kota"))
+        let busy = GeminiProfiles.keyProbeText(model: "m", key: good, header: KeyProbe(status: 503, message: "overloaded"), query: nil)
+        XCTAssertTrue(busy.ok)
+        XCTAssertTrue(busy.text.contains("Anahtar kabul edildi"))
+    }
+
+    func testProbeUnknownModelIsKeyOkButNotOk() {
+        let r = GeminiProfiles.keyProbeText(model: "yok-model", key: good, header: KeyProbe(status: 404, message: "not found"), query: nil)
+        XCTAssertFalse(r.ok)
+        XCTAssertTrue(r.text.contains("Anahtar kabul edildi") && r.text.contains("yok-model"))
+    }
+
+    func testProbeRejectedKeyShowsGoogleAnswerFromBothWays() {
+        let header = KeyProbe(status: 400, message: "API key not valid. Please pass a valid API key.")
+        let query = KeyProbe(status: 401, message: "Request had invalid authentication credentials.")
+        let r = GeminiProfiles.keyProbeText(model: "m", key: good, header: header, query: query)
+        XCTAssertFalse(r.ok)
+        XCTAssertTrue(r.text.contains("Başlıkla: HTTP 400") && r.text.contains("Adreste: HTTP 401"))
+        XCTAssertTrue(r.text.contains("API key not valid"))
+        XCTAssertFalse(r.text.contains("Cloud Console"), "AIza anahtarına AQ notu eklenmez")
+    }
+
+    func testProbeAQKeyRejectedGetsFormatNote() {
+        let header = KeyProbe(status: 400, message: "API key not valid.")
+        let r = GeminiProfiles.keyProbeText(model: "m", key: aq, header: header, query: KeyProbe(status: 400, message: "API key not valid."))
+        XCTAssertFalse(r.ok)
+        XCTAssertTrue(r.text.contains("Cloud Console"))
+    }
+
+    func testProbeWorksOnlyViaQueryIsReported() {
+        let header = KeyProbe(status: 401, message: "ACCESS_TOKEN_TYPE_UNSUPPORTED")
+        let r = GeminiProfiles.keyProbeText(model: "m", key: aq, header: header, query: KeyProbe(status: 200, message: ""))
+        XCTAssertTrue(r.ok)
+        XCTAssertTrue(r.text.contains("adreste"))
+    }
+
+    func testProbeNetworkFailureIsNotCalledKeyFailure() {
+        let r = GeminiProfiles.keyProbeText(model: "m", key: good, header: KeyProbe(status: 0, message: "çevrimdışı"), query: nil)
+        XCTAssertFalse(r.ok)
+        XCTAssertTrue(r.text.contains("İnternete ulaşılamadı"))
+        XCTAssertFalse(GeminiProfiles.isKeyRejection(KeyProbe(status: 0, message: "")))
+    }
+
+    func testOtherBadRequestIsNotBlamedOnTheKey() {
+        let probe = KeyProbe(status: 400, message: "Invalid JSON payload received.")
+        XCTAssertFalse(GeminiProfiles.isKeyRejection(probe))
+        let r = GeminiProfiles.keyProbeText(model: "m", key: good, header: probe, query: nil)
+        XCTAssertTrue(r.text.contains("Google isteği kabul etmedi"))
+        XCTAssertTrue(GeminiProfiles.isKeyRejection(KeyProbe(status: 403, message: "")))
+        XCTAssertTrue(GeminiProfiles.isKeyRejection(KeyProbe(status: 400, message: "API key expired.")))
+    }
+
+    func testFailureLineGetsFormatNoteOnlyForAQKeys() {
         let err = GeminiError("API anahtarı geçersiz.", .key, status: 400)
-        let withNote = GeminiProfiles.keyTestText(model: "m", key: aq, result: .failure(err))
-        XCTAssertTrue(withNote.text.contains("AQ.") && withNote.text.contains("Cloud Console"))
-        let plain = GeminiProfiles.keyTestText(model: "m", key: good, result: .failure(err))
-        XCTAssertEqual(plain.text, "✗ API anahtarı geçersiz.")
-        let quota = GeminiProfiles.keyTestText(model: "m", key: aq, result: .failure(GeminiError("Kota.", .quota)))
-        XCTAssertEqual(quota.text, "✗ Kota.", "yalnız anahtar hatasında not eklenir")
-        let line = GeminiVideo.failureLine(profile: GeminiProfileInfo(slot: 6, name: "Ücretli", model: "m", key: aq, free: false), error: err)
-        XCTAssertTrue(line.contains("Cloud Console"))
+        let aqLine = GeminiVideo.failureLine(profile: GeminiProfileInfo(slot: 6, name: "Ücretli", model: "m", key: aq, free: false), error: err)
+        XCTAssertTrue(aqLine.contains("Cloud Console"))
+        let line = GeminiVideo.failureLine(profile: GeminiProfileInfo(slot: 1, name: "Bir", model: "m", key: good, free: true), error: err)
+        XCTAssertFalse(line.contains("Cloud Console"))
     }
 }

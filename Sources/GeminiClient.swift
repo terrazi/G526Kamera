@@ -1258,3 +1258,45 @@ extension GeminiClient {
         }
     }
 }
+
+// MARK: - Anahtar denemesi (Ayarlar → "Anahtarı dene")
+
+/// Tek bir deneme isteğinin sonucu: HTTP durumu (0 = ağa ulaşılamadı) ve Google'ın kendi iletisi
+struct KeyProbe: Equatable {
+    var status: Int
+    var message: String
+}
+
+extension GeminiClient {
+    /// Anahtarı gerçek kullanımdaki gibi sınar: profildeki modele çok kısa bir soru gönderir (birkaç belirteç harcar).
+    /// `viaQuery` false ise anahtar `x-goog-api-key` başlığıyla (belgelerdeki yol), true ise adreste (`?key=`) gönderilir.
+    /// Hata fırlatmaz; Google'ın ham durumunu ve iletisini döndürür ki ne dediği olduğu gibi görülebilsin.
+    func probeKey(model: String, key: String, viaQuery: Bool) async -> KeyProbe {
+        let name = model.trimmed.hasPrefix("models/") ? String(model.trimmed.dropFirst("models/".count)) : model.trimmed
+        let escaped = name.addingPercentEncoding(withAllowedCharacters: GeminiClient.pathAllowed) ?? name
+        let secret = key.trimmed
+        var address = baseURL + "/models/\(escaped):generateContent"
+        if viaQuery { address += "?key=" + (secret.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? secret) }
+        guard let url = URL(string: address) else { return KeyProbe(status: 0, message: "adres geçersiz") }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 30
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if !viaQuery { request.setValue(secret, forHTTPHeaderField: "x-goog-api-key") }
+        let object: [String: Any] = [
+            "contents": [["role": "user", "parts": [["text": "Yalnızca “tamam” yaz."]]]],
+            "generationConfig": ["maxOutputTokens": 16]
+        ]
+        guard let body = try? JSONSerialization.data(withJSONObject: object) else { return KeyProbe(status: 0, message: "istek kurulamadı") }
+        do {
+            let (data, response) = try await session.upload(for: request, from: body)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            let error = (GeminiSupport.errorObject(from: data)["error"] as? [String: Any]) ?? [:]
+            let message = ((error["message"] as? String) ?? "").trimmed
+            tlog("[gemini] anahtar sınaması (\(viaQuery ? "adres" : "başlık")): HTTP \(status) \(message.prefix(120))")
+            return KeyProbe(status: status, message: message)
+        } catch {
+            return KeyProbe(status: 0, message: error.localizedDescription)
+        }
+    }
+}
