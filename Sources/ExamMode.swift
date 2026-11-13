@@ -38,7 +38,7 @@ struct ExamSettings: Equatable {
 
 /// Sınav sırasında kopabilen bağlantılar (önem sırasıyla): kulaklık/ses çıkışı, mikrofon, internet
 enum ExamLink: String, Equatable, Hashable {
-    case audio, mic, internet
+    case audio, mic, internet, camera
 
     /// Geri gelince söylenen ad
     var word: String {
@@ -46,6 +46,7 @@ enum ExamLink: String, Equatable, Hashable {
         case .audio: return "Ses"
         case .mic: return "Mikrofon"
         case .internet: return "İnternet"
+        case .camera: return "Kamera"
         }
     }
 
@@ -55,6 +56,7 @@ enum ExamLink: String, Equatable, Hashable {
         case .audio: return "Kulaklık / ses çıkışı kesildi: sınav bekletildi"
         case .mic: return "Mikrofondan ses gelmiyor: sınav bekletildi"
         case .internet: return "İnternet kesildi: sınav bekletildi"
+        case .camera: return "Kamera bağlantısı kesildi: sınav bekletildi"
         }
     }
 
@@ -64,6 +66,7 @@ enum ExamLink: String, Equatable, Hashable {
         case .audio: return nil
         case .mic: return "Mikrofondan ses gelmiyor, sınav bekletildi. Ses gelince kaldığımız yerden devam edeceğiz."
         case .internet: return "İnternet kesildi, sınav bekletildi. İnternet gelince kaldığımız yerden devam edeceğiz."
+        case .camera: return "Kamera bağlantısı kesildi, sınav bekletildi. Kamera gelince kaldığımız yerden devam edeceğiz."
         }
     }
 
@@ -73,6 +76,7 @@ enum ExamLink: String, Equatable, Hashable {
         case .audio: return nil
         case .mic: return "Ses kestirmesi çalıştırılıyor."
         case .internet: return "Bağlantı kestirmesi çalıştırılıyor."
+        case .camera: return "Kamera kestirmesi çalıştırılıyor."
         }
     }
 
@@ -82,6 +86,7 @@ enum ExamLink: String, Equatable, Hashable {
         case .audio: return nil
         case .mic: return "Mikrofondan hâlâ ses gelmiyor, bekliyorum."
         case .internet: return "İnternet hâlâ yok, bekliyorum."
+        case .camera: return "Kamera hâlâ yok, bekliyorum."
         }
     }
 }

@@ -1704,7 +1704,7 @@ final class ExamModeTests: XCTestCase {
         XCTAssertNil(ExamLink.audio.lostLine, "ses çıkışı kesikken söylenemez")
         XCTAssertNil(ExamLink.audio.repairLine)
         XCTAssertNil(ExamLink.audio.waitLine)
-        for link in [ExamLink.mic, ExamLink.internet] {
+        for link in [ExamLink.mic, ExamLink.internet, ExamLink.camera] {
             XCTAssertNotNil(link.lostLine)
             XCTAssertNotNil(link.repairLine)
             XCTAssertNotNil(link.waitLine)

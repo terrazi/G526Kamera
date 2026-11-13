@@ -100,6 +100,39 @@ final class SelfHealTests: XCTestCase {
         XCTAssertEqual(t.record(online: false, now: 90, canRepair: true), .repair, "bekleme 60 sn")
     }
 
+    func testTimerJitterDoesNotLoseACountedCheck() {
+        var t = OfflineTracker()
+        // yoklama 30 sn'de bir, zamanlayıcı birkaç yüz ms erken gelebilir: 59,8 sn "60 sn arayla" sayılır
+        _ = t.record(online: false, now: 0, canRepair: true)
+        _ = t.record(online: false, now: 29.9, canRepair: true)
+        _ = t.record(online: false, now: 59.8, canRepair: true)
+        XCTAssertEqual(t.counted, 2)
+        _ = t.record(online: false, now: 89.7, canRepair: true)
+        XCTAssertEqual(t.record(online: false, now: 119.6, canRepair: true), .repair, "0, 59,8, 119,6 → 3 sayılan yoklama")
+        // bekleme de aynı payla: 60 sn'lik bekleme 59,5 sn sonra bitmiş sayılır
+        XCTAssertEqual(t.record(online: false, now: 179.1, canRepair: true), .repair)
+    }
+
+    func testCameraLinkTextsAreForVoice() {
+        XCTAssertEqual(ExamLink.camera.word, "Kamera")
+        XCTAssertNotNil(ExamLink.camera.lostLine)
+        XCTAssertNotNil(ExamLink.camera.repairLine)
+        XCTAssertNotNil(ExamLink.camera.waitLine)
+        XCTAssertTrue(ExamLink.camera.statusText.contains("Kamera"))
+        XCTAssertTrue(ExamLink.camera.repairLine?.contains("Kamera kestirmesi") == true)
+    }
+
+    func testCameraShortcutNameIsPersisted() {
+        let d = UserDefaults.standard
+        let saved = d.object(forKey: "cameraShortcutName")
+        defer { d.set(saved, forKey: "cameraShortcutName") }
+        d.removeObject(forKey: "cameraShortcutName")
+        let s = AppSettings()
+        XCTAssertEqual(s.cameraShortcutName, "", "varsayılan boş: kamera kestirmesi kapalı")
+        s.cameraShortcutName = "Wi-Fi Yenile"
+        XCTAssertEqual(d.string(forKey: "cameraShortcutName"), "Wi-Fi Yenile")
+    }
+
     func testRecoveryResetsTheCountedChecks() {
         var t = OfflineTracker()
         _ = t.record(online: false, now: 0, canRepair: true)
@@ -131,7 +164,7 @@ final class SelfHealTests: XCTestCase {
         XCTAssertEqual([s.repairChecks, s.repairCheckSeconds, s.repairWaitSeconds], [3, 60, 60])
         d.set(99, forKey: "repairChecks"); d.set(1, forKey: "repairCheckSeconds"); d.set(99999, forKey: "repairWaitSeconds")
         s = AppSettings()
-        XCTAssertEqual([s.repairChecks, s.repairCheckSeconds, s.repairWaitSeconds], [10, 10, 3600], "üst/alt sınırlar uygulanır")
+        XCTAssertEqual([s.repairChecks, s.repairCheckSeconds, s.repairWaitSeconds], [10, 30, 3600], "üst/alt sınırlar uygulanır")
         s.repairChecks = 4
         XCTAssertEqual(d.integer(forKey: "repairChecks"), 4, "değişiklik kalıcıdır")
     }
@@ -194,6 +227,8 @@ final class SelfHealTests: XCTestCase {
         XCTAssertTrue(c.hasSuffix("input=text&text=baglanti"), c)
         let a = try XCTUnwrap(ShortcutLink.pickerURL(kind: .audio)).absoluteString
         XCTAssertTrue(a.hasSuffix("input=text&text=ses"), a)
+        let k = try XCTUnwrap(ShortcutLink.pickerURL(kind: .camera)).absoluteString
+        XCTAssertTrue(k.hasSuffix("input=text&text=kamera"), k)
     }
 
     func testSelectionFromHelperShortcutLink() throws {
@@ -204,6 +239,9 @@ final class SelfHealTests: XCTestCase {
         let audio = try XCTUnwrap(ShortcutLink.selection(from: try XCTUnwrap(URL(string: "g526kamera://sec?tur=Ses&ad=%20Ses%20Onar%20"))))
         XCTAssertEqual(audio.kind, .audio, "tür büyük/küçük harf ve boşluktan etkilenmez")
         XCTAssertEqual(audio.name, "Ses Onar", "ad kırpılır")
+        let camera = try XCTUnwrap(ShortcutLink.selection(from: try XCTUnwrap(URL(string: "g526kamera://sec?tur=kamera&ad=Wi-Fi%20Yenile"))))
+        XCTAssertEqual(camera.kind, .camera)
+        XCTAssertEqual(camera.name, "Wi-Fi Yenile")
     }
 
     func testSelectionIgnoresOtherLinksAndEmptyNames() throws {

@@ -189,6 +189,11 @@ final class AppModel: ObservableObject {
     private var videoStopWork: DispatchWorkItem?
     // İnternet yoklaması ve kendi kendini onarma
     private var offlineTracker = OfflineTracker()
+    /// Kamera (Wi-Fi) bağlantısı için aynı izleyici: "internet" yerine "kamera görüntüsü geliyor mu" yoklanır
+    private var cameraTracker = OfflineTracker()
+    private var cameraDown = false
+    /// Son kestirmenin çalıştırıldığı an: iki kestirme art arda çalışıp birbirini ezmesin
+    private var lastShortcutAt: TimeInterval = -1000
     /// Ses kestirmesi (Bluetooth kapat-aç): mikrofon sessizliği ve ses yolu için ayrı sınırlayıcılar (3 dakikada bir, en çok 3 kez)
     private var micRepair = RepairThrottle(cooldown: 180, maxTries: 3)
     private var routeRepair = RepairThrottle(cooldown: 180, maxTries: 3)
@@ -1939,7 +1944,8 @@ final class AppModel: ObservableObject {
 
     private func startSelfChecks() {
         netTimer?.invalidate()
-        netTimer = Timer.scheduledTimer(withTimeInterval: 45, repeats: true) { [weak self] _ in
+        // 30 sn'de bir: "1 dakika arayla yoklama" ayarı dakikada bir sayılsın (45 sn'de bir gelseydi her ikinci tur, yani 90 sn'de bir sayılırdı)
+        netTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.netTick() }
         }
         if routeObserver == nil {
@@ -2086,6 +2092,7 @@ final class AppModel: ObservableObject {
         netTimer = nil
         // Kestirme çalışırken program arka plana geçer: deneme sayıları ve bekleme süreleri bilerek korunur (sonsuz döngü olmasın)
         offlineTracker.suspend()
+        cameraTracker.suspend()
         routeWarnSince = nil
         setNotice(.network, "")
         setNotice(.mic, "")
@@ -2126,8 +2133,45 @@ final class AppModel: ObservableObject {
         runAudioShortcut(reason: "ses kulaklığa gitmiyor")
     }
 
+    /// Başka bir kestirme az önce çalıştırıldıysa (Kestirmeler uygulaması arka plana alıyor) yenisi bu süre beklenir
+    private var shortcutBusy: Bool { return ProcessInfo.processInfo.systemUptime - lastShortcutAt < 30 }
+
+    /// Kamera görüntüsü yoksa (bağlanıyor / görüntü gelmiyor) sayar; art arda yeterince yoklamada gelmezse kamera kestirmesini çalıştırır.
+    /// Kamera kapalıysa (UID yok / durdurulmuş) kesinti sayılmaz.
+    private func cameraTick() {
+        guard started else { return }
+        let expected = cameraState != .stopped && CameraUID(settings.uid) != nil
+        let live = cameraState.isLive && decoding
+        cameraTracker.repairChecks = settings.repairChecks
+        cameraTracker.checkInterval = TimeInterval(settings.repairCheckSeconds)
+        cameraTracker.repairCooldown = TimeInterval(settings.repairWaitSeconds)
+        let canRepair = ShortcutLink.url(name: settings.cameraShortcutName) != nil
+            && UIApplication.shared.applicationState == .active && !shortcutBusy
+        let action = cameraTracker.record(online: !expected || live, now: ProcessInfo.processInfo.systemUptime, canRepair: canRepair)
+        if !expected || live { cameraDown = false }
+        switch action {
+        case .none:
+            break
+        case .warn:
+            cameraDown = true
+        case .repair:
+            cameraDown = true
+            if examActive {
+                // Sınav önce sesli haber verir, sonra kestirmeyi o çalıştırır (kestirme programı arka plana atar)
+                examRepairWanted.insert(.camera)
+            } else {
+                tlog("[onarım] kamera görüntüsü yok: kamera kestirmesi")
+                say("Kamera bağlantısı yok, kamera kestirmesi çalıştırılıyor.", interrupt: false, force: true)
+                runShortcut(named: settings.cameraShortcutName)
+            }
+        case .recovered:
+            examRepairWanted.remove(.camera)
+        }
+    }
+
     private func netTick() {
         guard started else { return }
+        cameraTick()
         routeTick()
         guard !netProbing else { return }
         netProbing = true
@@ -2141,7 +2185,7 @@ final class AppModel: ObservableObject {
         netProbing = false
         guard started else { return }
         let canRepair = ShortcutLink.url(name: settings.connectionShortcutName) != nil
-            && UIApplication.shared.applicationState == .active
+            && UIApplication.shared.applicationState == .active && !shortcutBusy
         offlineTracker.repairChecks = settings.repairChecks
         offlineTracker.checkInterval = TimeInterval(settings.repairCheckSeconds)
         offlineTracker.repairCooldown = TimeInterval(settings.repairWaitSeconds)
@@ -2181,6 +2225,7 @@ final class AppModel: ObservableObject {
         switch pick.kind {
         case .connection: settings.connectionShortcutName = pick.name
         case .audio: settings.audioShortcutName = pick.name
+        case .camera: settings.cameraShortcutName = pick.name
         }
         tlog("[onarım] \(pick.kind.title) kestirmesi listeden seçildi: \(pick.name)")
         flash("\(pick.kind.title) kestirmesi seçildi: \(pick.name)", seconds: 6)
@@ -2194,6 +2239,7 @@ final class AppModel: ObservableObject {
     /// Kestirmeler uygulamasında verilen adlı kestirmeyi çalıştırır; bitince uygulamaya döner
     private func runShortcut(named name: String) {
         guard let url = ShortcutLink.url(name: name) else { return }
+        lastShortcutAt = ProcessInfo.processInfo.systemUptime
         tlog("[onarım] kestirme çalıştırılıyor: \(name)")
         HealthMonitor.shared.mark("kestirme çalıştırılıyor")
         UIApplication.shared.open(url) { opened in
@@ -2233,6 +2279,8 @@ final class AppModel: ObservableObject {
         if AudioRoute.phoneSpeakerOnly(outputs) || !AudioRoute.routeWarning(outputs).isEmpty { lost.append(.audio) }
         if let at = micSilentAt, now - at < 12 { lost.append(.mic) }
         if internetDown { lost.append(.internet) }
+        // Kamera yalnız kamera kestirmesi seçiliyse sınavı bekletir (seçili değilse sınavın eski işleyişi değişmez); görüntü gelince hemen kalkar
+        if cameraDown && !(cameraState.isLive && decoding) && ShortcutLink.url(name: settings.cameraShortcutName) != nil { lost.append(.camera) }
         return lost
     }
 
@@ -2243,6 +2291,8 @@ final class AppModel: ObservableObject {
         switch link {
         case .internet:
             return ShortcutLink.url(name: settings.connectionShortcutName) != nil
+        case .camera:
+            return ShortcutLink.url(name: settings.cameraShortcutName) != nil
         case .mic:
             return ShortcutLink.url(name: settings.audioShortcutName) != nil && micRepair.wouldAllow(now: now)
         case .audio:
@@ -2256,6 +2306,9 @@ final class AppModel: ObservableObject {
         switch link {
         case .internet:
             runShortcut(named: settings.connectionShortcutName)
+        case .camera:
+            tlog("[onarım] sınav: kamera kesintisi, kamera kestirmesi")
+            runShortcut(named: settings.cameraShortcutName)
         case .mic:
             guard micRepair.allow(now: now) else { return }
             tlog("[onarım] sınav: mikrofon kesintisi, ses kestirmesi")

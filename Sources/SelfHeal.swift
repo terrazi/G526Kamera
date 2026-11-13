@@ -24,6 +24,9 @@ struct OfflineTracker {
     /// Bir kesinti süresince en çok bu kadar onarım denemesi
     var maxRepairsPerOutage = 3
 
+    /// Zamanlayıcı birkaç yüz ms oynayabilir ("60 sn" yoklaması 59,9'da gelirse bir tur kaybolmasın): süre karşılaştırmasında bu pay tanınır
+    static let slack: TimeInterval = 2
+
     private(set) var failures = 0
     private(set) var counted = 0
     private(set) var warned = false
@@ -50,12 +53,12 @@ struct OfflineTracker {
             return wasDown ? .recovered : .none
         }
         failures += 1
-        if lastCounted.map({ now - $0 >= checkInterval }) ?? true {
+        if lastCounted.map({ now - $0 >= checkInterval - OfflineTracker.slack }) ?? true {
             counted += 1
             lastCounted = now
         }
         guard failures >= failuresToWarn else { return .none }
-        let due = lastRepair.map { now - $0 >= repairCooldown } ?? true
+        let due = lastRepair.map { now - $0 >= repairCooldown - OfflineTracker.slack } ?? true
         if canRepair && counted >= repairChecks && repairs < maxRepairsPerOutage && due {
             repairs += 1
             lastRepair = now
@@ -119,8 +122,15 @@ enum AudioHealth {
 enum ShortcutKind: String {
     case connection = "baglanti"
     case audio = "ses"
+    case camera = "kamera"
 
-    var title: String { return self == .connection ? "Bağlantı" : "Ses" }
+    var title: String {
+        switch self {
+        case .connection: return "Bağlantı"
+        case .audio: return "Ses"
+        case .camera: return "Kamera"
+        }
+    }
 }
 
 enum ShortcutLink {

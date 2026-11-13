@@ -156,15 +156,18 @@ struct SettingsView: View {
             Stepper(value: $settings.repairChecks, in: AppSettings.repairChecksRange) {
                 Text("Kestirmeden önce yoklama: \(settings.repairChecks) kez")
             }
-            Stepper(value: $settings.repairCheckSeconds, in: AppSettings.repairCheckSecondsRange, step: 10) {
+            Stepper(value: $settings.repairCheckSeconds, in: AppSettings.repairCheckSecondsRange, step: 30) {
                 Text("Yoklamalar arası: \(settings.repairCheckSeconds) sn")
             }
             Stepper(value: $settings.repairWaitSeconds, in: AppSettings.repairWaitSecondsRange, step: 10) {
                 Text("Kestirme denemeleri arası bekleme: \(settings.repairWaitSeconds) sn")
             }
             HelpRow("İnternet kesilince program her \(settings.repairCheckSeconds) saniyede bir yoklar; art arda \(settings.repairChecks) yoklamada internet yoksa bağlantı kestirmesini çalıştırır, işe yaramazsa \(settings.repairWaitSeconds) saniye sonra yeniden dener (bir kesintide en çok 3 deneme). Kestirmenin adı boşsa hiçbir şey çalışmaz. Önerilen kestirme: Hücresel Veriyi Ayarla Kapalı → Bekle 3 sn → Hücresel Veriyi Ayarla Açık.")
+            shortcutRow(kind: .camera, title: "Kamera kestirmesi", name: $settings.cameraShortcutName, identifier: "kamera-kestirmesi")
+            HelpRow("Kamera (Wi-Fi) kestirmesi: kamera görüntüsü art arda \(settings.repairChecks) yoklamada (\(settings.repairCheckSeconds) sn arayla) gelmezse çalışır; aynı üç süre ayarı geçerlidir, en çok 3 deneme. Önerilen: Wi-Fi'yi Kapat → Bekle 3 sn → Wi-Fi'yi Aç (telefon kamera ağına yeniden katılır). Sınav sürerken önce sınav bekletilir ve sesli haber verilir; kestirme boşsa sınav eskisi gibi çalışır.")
             shortcutRow(kind: .audio, title: "Ses kestirmesi", name: $settings.audioShortcutName, identifier: "ses-kestirmesi")
             HelpRow("Ses kestirmesi: mikrofon 90 saniyedir hiç ses vermiyorsa ya da ses kulaklığa değil mikrofon alıcısına gidiyorsa çalışır (ses bağlantısını yeniden kuran kestirme). Kestirme çalışırken program birkaç saniye arka plana gider; ekran açık ve program önde olmalıdır.")
+            HelpRow("Sınav sırasında arama ve mesaj gelmesin: iOS uygulamalara aramayı reddetme / mesajı engelleme izni vermez, bunu telefonun Odak özelliği yapar. Kestirmeler → Otomasyon → Yeni → Uygulama → “G526 Kamera” → Açıldığında → “Odağı Ayarla: Rahatsız Etme, Aç” → Hemen Çalıştır. İkinci otomasyon: Kapatıldığında → Odağı Kapat. Odak ayarında “izin verilen kişiler: hiç kimse” seçin. Arayan kişi reddedilmez (arama sessiz çalar); tam engel için yalnız operatör çağrı yönlendirmesi vardır. Kestirmeye eklenen “Odağı aç” yalnız o kestirme çalışınca açar.")
             HelpRow("iOS, uygulamaların Kestirmeler listesini görmesine izin vermez; bu yüzden ad yazılır ya da yapıştırılır. “Listeden seç” için bir kez Kestirmeler uygulamasında “\(ShortcutLink.pickerName)” adlı bir kestirme yapın: 1) “Kestirmelerimi Al” (Get My Shortcuts), 2) “Listeden Seç”, 3) “URL Kodla” (girdi: Seçilen Öğe), 4) “URL’leri Aç”: g526kamera://sec?tur=Kestirme Girdisi&ad=URL Kodlanmış Metin (Kestirme Girdisi ve URL Kodlanmış Metin değişken olarak eklenir). “Listeden seç”e basınca bu kestirme listeyi gösterir, seçtiğiniz ad kutuya kendiliğinden yazılır. Eylem adları iOS sürümünüze göre biraz değişebilir.")
         }
     }

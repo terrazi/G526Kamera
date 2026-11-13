@@ -173,13 +173,15 @@ final class AppSettings: ObservableObject {
     @Published var examEnabled: Bool { didSet { d.set(examEnabled, forKey: "examEnabled") } }
     /// Bağlantı kestirmesinin adı (Kestirmeler uygulamasındaki kestirme: hücresel veriyi kapat-aç). İnternet gidince çalışır; boşsa kapalı
     @Published var connectionShortcutName: String { didSet { d.set(connectionShortcutName, forKey: "connectionShortcutName") } }
+    /// Kamera (Wi-Fi) kestirmesi: kamera görüntüsü art arda `repairChecks` yoklamada gelmezse çalışır (aynı üç süre ayarı geçerli)
+    @Published var cameraShortcutName: String { didSet { d.set(cameraShortcutName, forKey: "cameraShortcutName") } }
     /// İnternet kestirmesi: bu kadar yoklamada (varsayılan 3) art arda internet yoksa çalışır; yoklamalar arası (varsayılan 60 sn);
     /// kestirme denemeleri arası bekleme (varsayılan 60 sn). Kullanıcı kararı 2026-11-13: hepsi 1 dakika.
     @Published var repairChecks: Int { didSet { d.set(repairChecks, forKey: "repairChecks") } }
     @Published var repairCheckSeconds: Int { didSet { d.set(repairCheckSeconds, forKey: "repairCheckSeconds") } }
     @Published var repairWaitSeconds: Int { didSet { d.set(repairWaitSeconds, forKey: "repairWaitSeconds") } }
     static let repairChecksRange = 1...10
-    static let repairCheckSecondsRange = 10...600
+    static let repairCheckSecondsRange = 30...600
     static let repairWaitSecondsRange = 30...3600
     /// Ses kestirmesinin adı (Bluetooth'u kapat-aç). Mikrofon uzun süre sessiz kalınca ya da ses mikrofon alıcısına gidince çalışır; boşsa kapalı
     @Published var audioShortcutName: String { didSet { d.set(audioShortcutName, forKey: "audioShortcutName") } }
@@ -329,6 +331,7 @@ final class AppSettings: ObservableObject {
         repairCheckSeconds = AppSettings.clampSeconds(d.object(forKey: "repairCheckSeconds") as? Int, range: AppSettings.repairCheckSecondsRange, fallback: 60)
         repairWaitSeconds = AppSettings.clampSeconds(d.object(forKey: "repairWaitSeconds") as? Int, range: AppSettings.repairWaitSecondsRange, fallback: 60)
         audioShortcutName = d.string(forKey: "audioShortcutName") ?? ""
+        cameraShortcutName = d.string(forKey: "cameraShortcutName") ?? ""
         previewOff = d.object(forKey: "previewOff") as? Bool ?? false
         dimScreen = d.object(forKey: "dimScreen") as? Bool ?? false
     }
