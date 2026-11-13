@@ -26,6 +26,10 @@ Hiçbir şey telefonda denenmedi: yalnız GitHub Actions'ta derlendi ve birim te
    arayla; bir soru için en çok 5 deneme (ayar, 0 = sınırsız), sonra "okunamadı" sayılıp tarama sürer. Toplam süre sınırı 15 dk (ayar).
 7. Kabul edilen her soru için en iyi 2 kare `S12.pdf` olur; grup boyutu 2–3 ise ayrıca `S12-14.pdf` yapılır (Gemini'ye bu gider).
    Alta uzanan sorular için "N. sorunun devamını kameraya tutun" denir; devam sayfası birleştirilir.
+   **Yarım soru önlemi:** Amaç her sorunun tek karede tam görünmesidir. (1) Evrak görününce çekim hemen başlamaz: konum tarifi motoru yazının
+   kadraja tam sığmasını bekler ("kamerayı aşağı kaydırın", "yaklaşın" …; "Tamam, böyle" dedikten sonra çekilir); sığmazsa en çok 15 sn
+   beklenir, sonra yine de çekilir. (2) Çekimde bir soru alttan kesik çıkarsa yarım soru kabul edilmez: "N. soru alttan kesilmiş" uyarısı
+   verilir (deneme sayılır). 2 uyarıya rağmen sığmazsa (sayfa sonunda gerçekten bölünen soru) üst kısım parça olarak alınır ve devamı istenir.
    **Karışık sıra:** Sorular sırayla çekilmek zorunda değildir. Kayıt defteri her şeyi soru numarasına göre tutar: alınan sorular, eksikler,
    deneme sayıları ve yarım kalan sorular numarasıyla saklanır; hangi sırayla çekildikleri sonucu etkilemez. Sayfanın başındaki numarasız
    parça, sayfadaki ilk numaralı sorudan bir önceki sorunun devamıdır (sayfada numara yoksa ve tek yarım soru varsa onunki). Birden çok soru

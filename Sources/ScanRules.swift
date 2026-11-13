@@ -12,6 +12,8 @@ enum ScanRules {
     static let emptyForEnd = 20.0
     /// Soru sayısı bilinmiyorsa: hiç yeni soru alınmadan bu kadar süre geçerse tarama biter
     static let noProgressForEnd = 90.0
+    /// Belge göründükten sonra yazı kadraja tam sığana ("Tamam" denene) kadar çekim bu kadar (sn) ertelenir; süre dolunca yine de çekilir
+    static let framingWaitSeconds = 15.0
     /// Aynı sahne kadrajda duruyorsa (sayfa çevrilmedi) bu kadar süre sonra yeniden çekilir
     static let retrySameSceneSeconds = 12.0
     /// Önceki çekime göre sahne farkı bundan büyükse sayfa çevrildi / kamera oynadı sayılır (GuidanceConfig.changeToRearm ile aynı)
@@ -69,6 +71,14 @@ enum ScanRules {
         if firstCapture { return true }
         if diffToCapture > rearmDiff && stillFor >= stillNeeded { return true }
         return sinceLastWindow >= retrySameSceneSeconds
+    }
+
+    /// Çekimden önce kadraj denetimi (yarım soru kalmasın): konum tarifi "tamam" diyorsa (yazı kadraja tam sığıyor) hemen çekilir;
+    /// aksi halde yönlendirme sürer ve `framingWaitSeconds` dolunca yine de çekilir. `advice`: kamera durgunken ölçülen son öneri.
+    static func framingReady(docFor: TimeInterval, advice: GuidanceAdvice?, adviceAge: TimeInterval) -> Bool {
+        if docFor >= settleSeconds + framingWaitSeconds { return true }
+        guard let a = advice, adviceAge < 2 else { return false }
+        return a == .ok
     }
 
     /// Hazır uyarısı: son söylenişten bu yana yeterli süre geçti mi (hiç söylenmediyse hemen)

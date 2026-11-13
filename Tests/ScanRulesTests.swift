@@ -170,3 +170,25 @@ final class RunNameTests: XCTestCase {
         XCTAssertEqual(RunName.make(date, timeZone: istanbul), "Sinav-20261113-1300")
     }
 }
+
+/// Çekimden önce kadraj denetimi: yazı kadraja tam sığmadan (yarım soru kalmasın) çekim başlamaz
+final class FramingGateTests: XCTestCase {
+    func testCaptureWaitsUntilTheTextFitsTheFrame() {
+        XCTAssertTrue(ScanRules.framingReady(docFor: 3, advice: .ok, adviceAge: 0.5))
+        for advice in [GuidanceAdvice.moveDown, .moveUp, .moveLeft, .moveRight, .closer, .farther, .noText] {
+            XCTAssertFalse(ScanRules.framingReady(docFor: 3, advice: advice, adviceAge: 0.5), "\(advice) iken çekilmez")
+        }
+    }
+
+    func testCaptureWaitsWhileTheCameraIsMovingOrTheAdviceIsStale() {
+        XCTAssertFalse(ScanRules.framingReady(docFor: 3, advice: nil, adviceAge: 0.5), "kamera hareket ediyorsa öneri yoktur")
+        XCTAssertFalse(ScanRules.framingReady(docFor: 3, advice: .ok, adviceAge: 2.5), "eski ölçüme güvenilmez")
+    }
+
+    func testCaptureHappensAnywayAfterTheWaitingLimit() {
+        let limit = ScanRules.settleSeconds + ScanRules.framingWaitSeconds
+        XCTAssertFalse(ScanRules.framingReady(docFor: limit - 0.5, advice: .moveDown, adviceAge: 0.5))
+        XCTAssertTrue(ScanRules.framingReady(docFor: limit, advice: .moveDown, adviceAge: 0.5), "sığmasa da süre dolunca çekilir")
+        XCTAssertTrue(ScanRules.framingReady(docFor: limit, advice: nil, adviceAge: 99))
+    }
+}

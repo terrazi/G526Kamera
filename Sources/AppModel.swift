@@ -109,6 +109,9 @@ final class AppModel: ObservableObject {
     /// Konum tarifi şu an söylensin mi (yalnız yeni çekim beklenirken)
     var guidanceActive = false
     var lastDocAt: TimeInterval?
+    /// Konum tarifi motorunun kamera durgunken verdiği son öneri ve zamanı: çekim, yazı kadraja tam sığınca başlar
+    var lastAdvice: GuidanceAdvice?
+    var lastAdviceAt: TimeInterval = 0
     var repeatGate = RepeatGate()
     /// Kestirmeden dönüş sayacı (g526kamera://kestirme gelince artar)
     var shortcutReturns = 0
@@ -258,6 +261,8 @@ final class AppModel: ObservableObject {
         if DocumentGate.isDocument(sample.metrics) { lastDocAt = now }
         guard guidanceActive, phase == .scanning || phase == .waitingForPage else { return }
         let out = guidance.videoStep(sample.metrics, time: sample.time, stillFor: sample.stillFor)
+        lastAdvice = out.advice
+        lastAdviceAt = now
         // Kadraj boşken ("Yazı görünmüyor") konuşulmaz: evrak bekleme ve eksik soru uyarıları zaten bunu söyler; sayfa çevrilirken susulur
         if out.advice == .noText { return }
         if let text = out.speak, voice.sayIfIdle(text) { lastSaid = text }

@@ -91,6 +91,15 @@ struct ScanLedger: Equatable {
 
     func attemptCount(_ n: Int) -> Int { return attempts[n] ?? 0 }
 
+    /// Alttan kesik görünen soru için bu kadar uyarı yapılır; hâlâ sığmıyorsa (sayfa sonunda gerçekten bölünen soru) parça olarak kabul edilir
+    static let warningsBeforePartial = 2
+
+    /// Alttan kesik soru artık parça olarak alınabilir mi: yeterince uyarılmış ya da alt kısmı zaten çekilmiş
+    func partialAllowed(_ n: Int) -> Bool {
+        let need = maxAttempts > 0 ? min(ScanLedger.warningsBeforePartial, maxAttempts - 1) : ScanLedger.warningsBeforePartial
+        return hasTail(n) || attemptCount(n) >= need
+    }
+
     // MARK: Değişiklikler
 
     /// `continuing`: bu çekim, daha önce alınmış bir parçayla birleşir. Başı bekleyen soruya devam parçası eklenir; devamı bekleyen soruya baş eklenir.
@@ -188,11 +197,14 @@ enum ScanPlanner {
             } else if !o.full.picks.isEmpty {
                 actions.append(.accept(number: o.number, picks: o.full.picks, continuing: false))
             } else if !o.open.picks.isEmpty {
-                // sonu daha önce çekilmişse baş ile birleşip soru tamamlanır
                 if ledger.hasTail(o.number) {
+                    // sonu daha önce çekilmişse baş ile birleşip soru tamamlanır
                     actions.append(.accept(number: o.number, picks: o.open.picks, continuing: true))
-                } else {
+                } else if ledger.partialAllowed(o.number) {
                     actions.append(.startOpen(number: o.number, picks: o.open.picks))
+                } else {
+                    // Yarım soru istenmez: önce "alttan kesilmiş" uyarısı verilir; birkaç uyarıya rağmen sığmazsa parça alınır
+                    actions.append(.reject(number: o.number, problems: [.cutBottom]))
                 }
             } else {
                 actions.append(.reject(number: o.number, problems: o.full.problems))

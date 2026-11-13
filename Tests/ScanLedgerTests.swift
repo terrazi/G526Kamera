@@ -120,12 +120,38 @@ final class ScanPlannerTests: XCTestCase {
         XCTAssertEqual(actions, [.reject(number: 7, problems: [.blurry])])
     }
 
-    func testOpenQuestionStartsAPartialCapture() {
+    func testCutQuestionIsWarnedAboutBeforeItIsTakenAsAPart() {
         let open = ShotSelection(picks: [candidate(9, options: "ABCD", y0: 0.70)], problems: [])
-        let actions = ScanPlanner.plan(analysis([QuestionOutcome(number: 9, full: empty, open: open)]), ledger: ScanLedger(total: 20))
-        guard case .startOpen(let n, let picks)? = actions.first else { return XCTFail("parça alınmalıydı") }
+        let outcome = QuestionOutcome(number: 9, full: empty, open: open)
+        var ledger = ScanLedger(total: 20)
+        // İlk iki çekimde yarım soru istenmez: "alttan kesilmiş" uyarısı verilir
+        for _ in 0..<ScanLedger.warningsBeforePartial {
+            XCTAssertEqual(ScanPlanner.plan(analysis([outcome]), ledger: ledger), [.reject(number: 9, problems: [.cutBottom])])
+            ledger.noteReject(number: 9)
+        }
+        // Uyarılara rağmen sığmadıysa (sayfa sonunda bölünen soru) parça alınır
+        guard case .startOpen(let n, let picks)? = ScanPlanner.plan(analysis([outcome]), ledger: ledger).first else {
+            return XCTFail("parça alınmalıydı")
+        }
         XCTAssertEqual(n, 9)
         XCTAssertEqual(picks.count, 1)
+    }
+
+    func testPartialIsTakenAtOnceWhenTheAttemptLimitIsTiny() {
+        let open = ShotSelection(picks: [candidate(9, options: "ABCD", y0: 0.70)], problems: [])
+        let outcome = QuestionOutcome(number: 9, full: empty, open: open)
+        let one = ScanLedger(total: 20, maxAttempts: 1)
+        XCTAssertTrue(one.partialAllowed(9), "tek denemede uyarı beklenemez: soru okunamadı olurdu")
+        guard case .startOpen? = ScanPlanner.plan(analysis([outcome]), ledger: one).first else { return XCTFail("parça alınmalıydı") }
+        XCTAssertFalse(ScanLedger(total: 20, maxAttempts: 5).partialAllowed(9))
+        XCTAssertFalse(ScanLedger(total: 20, maxAttempts: 0).partialAllowed(9))
+    }
+
+    func testFullQuestionIsNeverWarnedAbout() {
+        let actions = ScanPlanner.plan(analysis([QuestionOutcome(number: 9, full: selection(9), open: empty)]), ledger: ScanLedger(total: 20))
+        guard case .accept(let n, _, let continuing)? = actions.first else { return XCTFail("tam soru kabul edilmeliydi") }
+        XCTAssertEqual(n, 9)
+        XCTAssertFalse(continuing)
     }
 
     func testLeadingPartCompletesTheOpenQuestion() {
