@@ -11,56 +11,48 @@ Hiçbir şey telefonda denenmedi: yalnız GitHub Actions'ta derlendi ve birim te
 - Telefon açık, ekran açık ve şarjda olmalı (kilitliyken kamera akışı ve ses sürmez). Telefon yeniden başlarsa ya da uygulama kapanırsa
   program kendini toparlamaz (kullanıcı kararı).
 
-## Akış
-1. Açılış: "N soru taranacak" denir (soru sayısı ayardan; girilmemişse kırmızı kutuda "Soru sayısı girilmemiş" yazar ve program yedek
-   bitiş kurallarıyla çalışır).
+## Akış (sayfa sayfa)
+Sınav kâğıdı SORU SORU değil SAYFA SAYFA taranır: telefon soru numarası ya da şık yeri okumaz. (Eski soru-soru tasarımda telefonun yanlış
+okuduğu numara — 41. soruyu 11 saymak gibi — Gemini'ye yanlış etiketle gidiyor ve cevap yanlış numarayla okunuyordu; bu yüzden kaldırıldı.)
+1. Açılış: "N soru, M sayfa taranacak" denir (ayardan; girilmemişse kırmızı kutuda uyarı yazar ve program yedek bitiş kurallarıyla çalışır).
 2. Kamera Wi-Fi kestirmesi çalışır (ayarda adı yazılıysa); kare gelene dek ayardaki sayıda/aralıkla yeniden denenir
    (varsayılan 30 deneme × 60 sn).
 3. Kamera canlıyken kulaklığa "Kamera hazır. Taranacak evrakı hazırlayıp kameraya tutun." denir; evrak gelene dek 30 sn'de bir
    (ayar) tekrarlanır; en çok 10 dk (ayar) beklenir, sonra kırmızı kutu + sesli bildirim.
-4. Belge görününce 2 sn bekler, sonra 5 sn'lik pencere: ≈10 kare (her yarım saniyeden en net kare) ve 5 sn'lik video (klasöre kaydedilir).
-   Pencere boyunca sesli konum yönlendirmesi sürer (sola/sağa/yukarı/aşağı, yaklaş/uzaklaş).
-5. Her karede cihaz üstü OCR (Vision) soru numaralarını ve şıkları bulur. Kırpma: numara satırından 2 satır yukarı, son şıktan (E) 4 satır
-   aşağı; bir sonraki sorunun numarasında biter. İki sütunlu sayfa desteklenir.
-6. Kalite kapısı: kesik / eksik şık / bulanık / parlama / okunmuyor / çok küçük. Sorun varsa nedeni sesle söylenir; aynı uyarı en az 10 sn
-   arayla; bir soru için en çok 5 deneme (ayar, 0 = sınırsız), sonra "okunamadı" sayılıp tarama sürer. Toplam süre sınırı 15 dk (ayar).
-7. Kabul edilen her soru için en iyi 2 kare `S12.pdf` olur; grup boyutu 2–3 ise ayrıca `S12-14.pdf` yapılır (Gemini'ye bu gider).
-   Alta uzanan sorular için "N. sorunun devamını kameraya tutun" denir; devam sayfası birleştirilir.
-   **Canlı OCR (çekim öncesi):** Belge kadrajdayken telefon en çok saniyede ~2 kez canlı görüntüden yazı okur (Apple Vision, internetsiz).
-   Görünen bütün numaralı sorular kadraja tam sığıyorsa (numaradan son şığa kadar, kenarlara taşmadan) çekim hemen başlar; sığmayan bir soru
-   varsa "13. soru alttan kesilmiş…" gibi numarasıyla söylenir (aynı uyarı 12 sn'de bir). Canlı sonuç yalnız okunan kareden beri sahne
-   oynamadıysa ve 8 sn'den eski değilse geçerlidir; canlı karar yoksa konum tarifinin "tamam"ına bakılır. Pil / ısınma için okuma yalnız belge
-   görünürken ve çekim penceresi dışında çalışır. **Telefonda hız ve ısınma etkisi cihazda denenmedi.**
-   **Numara oylaması:** Bir çekimin karelerinde aynı yerdeki numara satırı farklı okunabilir (13 → 18). Aynı yerde en az 2 kare aynı numarayı
-   okuduysa ve başka bir okuma ondan en az iki kat az oy aldıysa azınlık çoğunluğa çevrilir; böylece tek karedeki yanlış okuma sahte
-   "18. soru" doğurmaz. Eşit / yakın oyda dokunulmaz (sayfa çevrilmiş olabilir). Tüm karelerde aynı yanlış okunan numara bu yolla
-   düzeltilemez; bunu Gemini'nin gördüğü numara ile ayrıca denetlemek ileri bir adımdır (yapılmadı).
-   **Yarım soru önlemi:** Amaç her sorunun tek karede tam görünmesidir. (1) Evrak görününce çekim hemen başlamaz: konum tarifi motoru yazının
-   kadraja tam sığmasını bekler ("kamerayı aşağı kaydırın", "yaklaşın" …; "Tamam, böyle" dedikten sonra çekilir); sığmazsa en çok 15 sn
-   beklenir, sonra yine de çekilir. (2) Çekimde bir soru alttan kesik çıkarsa yarım soru kabul edilmez: "N. soru alttan kesilmiş" uyarısı
-   verilir (deneme sayılır). 2 uyarıya rağmen sığmazsa (sayfa sonunda gerçekten bölünen soru) üst kısım parça olarak alınır ve devamı istenir.
-   **Karışık sıra:** Sorular sırayla çekilmek zorunda değildir. Kayıt defteri her şeyi soru numarasına göre tutar: alınan sorular, eksikler,
-   deneme sayıları ve yarım kalan sorular numarasıyla saklanır; hangi sırayla çekildikleri sonucu etkilemez. Sayfanın başındaki numarasız
-   parça, sayfadaki ilk numaralı sorudan bir önceki sorunun devamıdır (sayfada numara yoksa ve tek yarım soru varsa onunki). Birden çok soru
-   aynı anda yarım kalabilir. Bir sorunun alt kısmı başından önce çekilirse alt kısım numarasıyla saklanır ("N. sorunun alt kısmı alındı. Üst
-   kısmını da kameraya tutun" denir); üst kısım gelince birleşir. PDF'ler (S12.pdf, S12-14.pdf) ve cevap okuma her zaman numara sırasındadır.
-8. Bitiş: bütün sorular alınınca. Eksik varken belge 10 sn görünmezse "15 ve 22 eksik. İlgili sayfaları kameraya tutun." denir, 60 sn
-   (ayar) beklenir (20 sn'de bir tekrar; ilerleme olursa süre yenilenir); olmazsa kalanlar kırmızı kutuda listelenir ve tarama biter.
-9. İnternet sırasında kapalıdır (kamera Wi-Fi'sinde hücresel kesilir). Tarama bitince kamera akışı durdurulur, internet yoklanır, yoksa
-   ayardaki TEK internet kestirmesi (Wi-Fi kapat → 2 sn bekle → hücreseli aç) ayardaki sayıda/aralıkla çalıştırılır; internet gelince durur.
-10. Gemini: PDF'ler standart istemle 4 profillik zincire gider (Gemini 3.6 Flash → 3.5 Flash-Lite → 3.1 Flash-Lite ücretsiz → 3.1 Flash-Lite
-    **Gemini'ye ne gider (Ayarlar > Gemini):** *Akıllı* (varsayılan): telefonun okuduğu soru temizse (bütün şıklar var, ortalama okuma güveni ≥ 0,85,
-    hiçbir satır < 0,5, şekil / tablo boşluğu ve formül / kesir / üs izi yok, en az 15 karakter) yalnız metin gider (birkaç KB, hızlı); şüpheli
-    sorular PDF olarak gider. *Hep PDF*: her soru görüntü. *Yalnız metin*: metni olan her soru metin (şekil / formül kaybolur). Üst + alt
-    parçası ayrı çekilen sorunun metni birleştirilir; bir parçanın metni yoksa o soru PDF gider. Metin soruları PDF sınırına sayılmaz.
-    ücretli). Kota dolarsa / hata olursa / cevap gecikirse sıradaki modele geçilir ve nedeni sesle söylenir. Eksik ya da okunamayan sorular
-    bir kez yeniden sorulur.
-11. Cevaplar sıralanır, kulaklıkla okunur ("Birinci soru, ADANA, kırk iki."; şık kodu ayardaki "Şık kodları"ndan), her cevaptan sonra ilk
-    okuma için 3 sn, tekrar için 5 sn (ayarlar) beklenir; sonra "Cevaplar bir kez daha okunuyor", hepsi tekrar okunur, okunamayanlar
-    sayılır, "Deneme sınavı tamamlandı" denir. `Cevaplar.txt` sınav alt klasörüne yazılır.
+4. Belge görününce 2 sn bekler, sonra sayfa çekimi başlar (varsayılan 8 sn, ayar 3–30): kamera sayfanın üstünde YAKINDAN, yavaşça gezdirilir.
+   Sayfa tek kareye sığmak zorunda değildir. Çekim boyunca video yazılır (saniyede 2 kare; her yarım saniyeden en net kare) ve aynı
+   kareler ayrıca toplanır. **Sesli konum tarifi, kadraj bekleme, canlı OCR ve kalite reddi YOKTUR.**
+5. Çekim bitince tek bir denetim yapılır: videonun bütününde sayfanın kenarları görüldü mü? Apple Vision belge algılaması her karede
+   kâğıt kenarlarını bulur; üst kenar bir karede, alt kenar başka karede görülmesi yeterlidir (ayar: kapalı / üst-alt / dört kenar,
+   varsayılan üst-alt). Eksik kenar varsa "Sayfanın alt kenarı görünmedi. Sayfayı yeniden gezdirin." denir ve sayfa yeniden istenir; bir
+   sayfa için en çok çekim sayısı (varsayılan 2) dolunca sayfa olduğu gibi alınır ("… görünmemiş olabilir" denir). Kenar güvenilir
+   bulunan kare sayısı 3'ten azsa (Vision bulamadıysa) denetim sessizce atlanır. **Bu denetimin gerçek sayfalarda ne kadar doğru çalıştığı
+   telefonda denenmedi**: yakın çekimde kâğıt kenarı hiç görünmeyebilir; yanlış alarm olursa Ayarlar'dan "Kapalı" seçin.
+6. Alınan sayfa için: videodan zaman çizgisi boyunca 8 dilimin en net karesi seçilir (parlamalı kare cezalı) ve çok sayfalı PDF yapılır
+   (`Sayfa01.pdf`); video `Sayfa01.mp4` olarak klasöre yazılır. Sesle "Birinci sayfa alındı." denir.
+7. Bitiş: ayarda sayfa sayısı varsa o kadar sayfa alınınca. Sayfa sayısı girilmediyse en az bir sayfa alındıktan sonra kadraj 20 sn boş
+   kalırsa ya da 90 sn yeni sayfa gelmezse. Toplam süre sınırı 15 dk (ayar). "Tarama bitti. N sayfa alındı." denir.
+   Aynı sayfa iki kez taranırsa cevaplar soru numarasına göre birleşir (zararsız ama gereksiz iş).
+8. İnternet tarama sırasında kapalıdır (kamera Wi-Fi'sinde hücresel kesilir). Tarama bitince kamera akışı durdurulur, internet yoklanır,
+   yoksa ayardaki TEK internet kestirmesi (Wi-Fi kapat → 2 sn bekle → hücreseli aç) ayardaki sayıda/aralıkla çalıştırılır; internet gelince durur.
+9. Gemini: her sayfa için gezdirme videosu ve/veya net karelerin PDF'i, standart bir istemle 4 profillik zincire gider (Gemini 3.6 Flash →
+   3.5 Flash-Lite → 3.1 Flash-Lite ücretsiz → 3.1 Flash-Lite ücretli). Kota dolarsa / hata olursa / cevap gecikirse sıradaki modele geçilir
+   ve nedeni sesle söylenir. Bir istekte en çok 4 sayfa ve ≈14 MB (inline sınırı 20 MB) gider; gönderilemeyen sayfalar bir kez yeniden denenir.
+   **Gemini'ye ne gider (Ayarlar > Gemini):** *Video + net kareler* (varsayılan), *Yalnız net kareler*, *Yalnız video*.
+   İstem Gemini'ye şunu söyler: sayfa yakından gezdirilerek çekildi, kareler birbirini kısmen örter, bir soru bir karede yarım olabilir,
+   kareleri birleştir; soru numarasını sayfadaki yazıdan oku; yarım ya da okunamayan soru için `okunamadi` yaz. Soru sayısı biliniyorsa
+   numaraların 1–N arasında olduğu da söylenir. Görüntü çözünürlüğü `MEDIA_RESOLUTION_HIGH` istenir.
+   **Bilinen sınır (belgeli):** Gemini videoyu saniyede 1 kare örnekler (kayıt 2 kare/sn olduğundan her ikinci kare atlanır) ve Gemini 3
+   modellerinde videonun kare başına belirteç bütçesi görüntününkinden küçüktür (yüksek çözünürlükte bile video karesi ≈280, görüntü ≈1120);
+   küçük yazı videoda zor okunabilir. Bu yüzden varsayılan olarak videonun yanında net kareler de gider. Hangi ayarın daha iyi okuduğu
+   **denenmedi**; cihazda ve gerçek sınav kâğıdıyla karşılaştırılmalı.
+10. Cevaplar Gemini'nin okuduğu soru numarasına göre sıralanır, kulaklıkla okunur ("Birinci soru, ADANA, kırk iki."; şık kodu ayardaki
+    "Şık kodları"ndan), her cevaptan sonra ilk okuma için 3 sn, tekrar için 5 sn beklenir; sonra "Cevaplar bir kez daha okunuyor", hepsi
+    tekrar okunur. Soru sayısı girildiyse cevabı gelmeyen / okunamayan numaralar sayılır ("Okunamayan ya da cevaplanamayan sorular: …"),
+    "Deneme sınavı tamamlandı" denir. `Cevaplar.txt` sınav alt klasörüne yazılır. Eksik soru için kamera yeniden açılmaz.
 
 ## Dosyalar
-`G526 Belgeler/Sinav-yyyyMMdd-HHmm/` altında: `S12.pdf`, `S12-14.pdf`, `V01.mp4` …, `Cevaplar.txt`. Klasör telefonda kalır, program silmez.
+`G526 Belgeler/Sinav-yyyyMMdd-HHmm/` altında: `Sayfa01.pdf`, `Sayfa01.mp4`, `Sayfa02.pdf` …, `Cevaplar.txt`. Klasör telefonda kalır, program silmez.
 
 ## Arama / mesaj engelleme
 Uygulama aramaları ya da mesajları engelleyemez. Sınav süresince Odak (Rahatsız Etme) kullanın ve Kestirmeler otomasyonuyla aynı saatte
@@ -73,6 +65,8 @@ Odak'ı açın; arama/mesaj tamamen susmayabilir, bunu garanti etmiyoruz.
 - İsteğe bağlı "G526 Kestirme Seç": ayarlarda adı yazmak yerine listeden seçmek için (Ayarlar'daki yardım metni anlatır).
 
 ## Kod haritası
-- Saf mantık (CI'da sınanır): `QuestionLayout`, `QualityGate`, `ScanLedger`/`ScanPlanner`, `CaptureAnalyzer`, `ScanRules`, `TurkishNumbers`, `AnswerService`.
-- Akış: `AppModel` (+Scan, +Answers). Kamera hattı: `CameraClient` → `H264Decoder` → `FramePipeline` → `FrameCollector`/`GuidanceEngine`.
+- Saf mantık (CI'da sınanır): `PageSweep` (kenar kapsaması, net kare seçimi), `ScanRules`, `ReadingPlan`, `TurkishNumbers`, `AnswerService`, `PageEdges`, `DocumentGate`.
+- Akış: `AppModel` (+Scan, +Answers). Kamera hattı: `CameraClient` → `H264Decoder` → `FramePipeline` → `FrameCollector` / `VideoRecorder`.
 - Gemini: `Gemini`, `GeminiProfiles`, `AnswerService`. Kestirmeler ve internet yoklaması: `Kestirme`.
+- Kullanılmayan ama silinmemiş: `Guidance.swift` içindeki konum tarifi motoru (`GuidanceEngine`, `GuidanceAdvisor` …) ve testleri. Yalnız belge
+  ölçümü (`GuidanceAnalyzer`, `PageMetrics`, `DocumentGate`) kullanılır. Silinecek adaydır.

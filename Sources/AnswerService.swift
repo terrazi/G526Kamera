@@ -14,39 +14,40 @@ struct AnswerRecord: Equatable {
     static let unsure = "belirsiz"
 }
 
-/// Gemini'ye gidecek bir belge: bir soru ya da bir soru grubunun PDF'i; ya da (temiz okunan soruda) telefonun okuduğu düz metin
+/// Gemini'ye gidecek bir sayfa: kamera sayfanın üstünde gezdirilirken kaydedilen video ve/veya videodan seçilen net karelerin PDF'i.
+/// Soru numaralarını telefon okumaz; Gemini sayfadan kendisi okur.
 struct AnswerDoc: Equatable {
-    let name: String
-    let numbers: [Int]
-    let data: Data
-    /// Doluysa PDF yerine bu metin gider (`data` metnin baytlarıdır: istek boyutu hesabı için)
-    var text: String? = nil
+    /// 1'den başlar
+    let page: Int
+    var pdf: Data? = nil
+    var video: Data? = nil
+
+    var name: String { return "Sayfa \(page)" }
+    var bytes: Int { return (pdf?.count ?? 0) + (video?.count ?? 0) }
 }
 
-/// Soru PDF'lerini Gemini'ye standart bir metinle gönderir ve cevapları sıralı, eksiksiz toplar.
+/// Sayfaları Gemini'ye standart bir metinle gönderir ve cevapları sıralı, eksiksiz toplar.
 /// Model zinciri: seçili profil → (kota dolunca / hata olunca / cevap gecikince) sıradaki profil → … (4 profil, döngüyle).
 enum AnswerService {
-    /// Bir istekteki en çok PDF sayısı (daha fazlası ayrı isteklere bölünür)
-    static let maxDocsPerRequest = 20
+    /// Bir istekteki en çok sayfa sayısı (daha fazlası ayrı isteklere bölünür)
+    static let maxDocsPerRequest = 4
 
     static let system: String = [
-        "Sen bir deneme sınavı yardımcısısın. Kullanıcı, sınav sorularını kameradan çekilmiş görüntülerden hazırlanan PDF dosyaları olarak ya da (bazı sorular için) bu görüntülerden telefonda okunmuş düz metin olarak verdi. "
-            + "Her PDF bir soruyu (ya da dosya adında yazan sorular grubunu) içerir; dosya adı soru numarasını gösterir (S12.pdf = 12. soru). "
-            + "Cevapların sesli okunacak. Kurallar:",
-        "1. Bir sorunun birden çok sayfası olabilir: bunlar AYNI sorunun farklı kare görüntüleridir ya da sorunun devamıdır. En okunaklı "
-            + "görüntüyü esas al, birleştirerek oku; soruyu iki kez sayma. Soru numarasını sayfadaki yazıdan ve dosya adından doğrula.",
-        "2. Soruyu ve bütün şıkları (A, B, C, D, E) titizlikle oku: tabloları, şekilleri, küçük yazıları atlama. Eğik ya da gölgeli görüntüleri "
-            + "dikkatle oku.",
-        "3. Soruyu doğru çöz. Hesap gerektiren sorularda hesabı dikkatle yap ve sonucu şıklarla karşılaştır; bilgi sorularında bilmediğin "
-            + "şeyi uydurma. Emin olmadığın soruda en olası şıkkı yaz ama 'durum' alanına 'belirsiz' koy.",
-        "4. 'durum' alanı: 'tamam' (cevaptan eminsin), 'belirsiz' (emin değilsin), 'okunamadi' (soru ya da şıklar okunamıyor, eksik ya da yarım; "
-            + "bu durumda 'sik' ve 'deger' boş olsun, tahmin etme).",
+        "Sen bir deneme sınavı yardımcısısın. Kullanıcı sınav kâğıdının her sayfasını kamerayı sayfanın üstünde YAKINDAN GEZDİREREK çekti. "
+            + "Bu yüzden bir sayfa tek karede görünmez: her sayfa için kameranın sayfada gezindiği bir VİDEO ve/veya bu videodan seçilmiş net "
+            + "kareleri içeren bir PDF verilir. Kareler sayfanın farklı yerlerini gösterir ve birbirini kısmen örter. Cevapların sesli okunacak. Kurallar:",
+        "1. Her sayfa için bütün kareleri birleştirerek sayfanın tamamını oku. Bir soru bir karede yarım, sonraki karede devam ediyor olabilir: "
+            + "parçaları birleştir. Aynı soruyu iki kez sayma. Sayfada ya da sayfalar arasında aynı soru tekrar görünürse bir kez cevapla.",
+        "2. Soru numarasını sayfadaki yazıdan oku (sayfa sırasından ya da tahminle değil). Numarası okunamayan soru için kayıt yazma. Soruyu ve "
+            + "bütün şıkları (A, B, C, D, E) titizlikle oku: tabloları, şekilleri, küçük yazıları atlama.",
+        "3. Sayfadaki her soruyu doğru çöz. Hesap gerektiren sorularda hesabı dikkatle yap ve sonucu şıklarla karşılaştır; bilgi sorularında "
+            + "bilmediğin şeyi uydurma. Emin olmadığın soruda en olası şıkkı yaz ama 'durum' alanına 'belirsiz' koy.",
+        "4. 'durum' alanı: 'tamam' (cevaptan eminsin), 'belirsiz' (emin değilsin), 'okunamadi' (numarası okunan sorunun metni ya da şıkları "
+            + "görüntülerde eksik ya da okunamıyor; bu durumda 'sik' ve 'deger' boş olsun, tahmin etme).",
         "5. 'sik' doğru şıkkın harfidir (A, B, C…), 'deger' şıkkın metni ya da değeridir: belgede yazdığı gibi, eksiksiz; sayıları okunuşuyla "
             + "yazıyla yaz, kısaltma ve sembol kullanma (% yerine yüzde, TL yerine Türk lirası, kg yerine kilogram). Şıkta metin yoksa "
             + "(yalnız harf ya da şekil) 'deger' boş olsun.",
         "6. Gerekçe, açıklama ya da yorum yazma; yalnız istenen alanları doldur.",
-        "7. Bazı sorular PDF yerine 'telefonun okuduğu metin' olarak gelir. Bu metinde okuma hataları (bozuk harf, eksik sembol, karışan satır) olabilir: "
-            + "anlamına göre dikkatle oku. Metin soruyu ya da şıkları çözmeye yetmiyorsa 'okunamadi' yaz, tahmin etme.",
         "Çıktı her zaman istenen JSON biçiminde olmalı."
     ].joined(separator: "\n")
 
@@ -59,28 +60,33 @@ enum AnswerService {
         "required": ["cevaplar"]
     ]
 
-    static func prompt(numbers: [Int]) -> String {
-        let list = numbers.map { String($0) }.joined(separator: ", ")
-        return "Şu soruları cevapla: \(list). Her biri için 'cevaplar' listesine tam bir kayıt yaz (no, durum, sik, deger), "
-            + "soru numarasına göre küçükten büyüğe sırala, hiçbirini atlama."
+    /// `total`: sınavın toplam soru sayısı (0 = bilinmiyor); `optionCount`: soru başına şık sayısı
+    static func prompt(total: Int, optionCount: Int) -> String {
+        var text = "Verilen sayfalardaki bütün soruları cevapla. Her soru için 'cevaplar' listesine tam bir kayıt yaz (no, durum, sik, deger), "
+            + "soru numarasına göre küçükten büyüğe sırala, görünen hiçbir soruyu atlama."
+        let letters = optionCount == 4 ? "A–D" : "A–E"
+        text += " Her sorunun şıkları \(letters) arasındadır."
+        if total > 0 { text += " Sınavda toplam \(total) soru var; soru numaraları 1–\(total) arasındadır." }
+        return text
     }
 
     // MARK: İstek
 
-    static func requestBody(docs: [AnswerDoc], thinking: String?) throws -> Data {
+    static func requestBody(docs: [AnswerDoc], total: Int = 0, optionCount: Int = 5, thinking: String?) throws -> Data {
         var parts: [[String: Any]] = []
-        var all: [Int] = []
-        for d in docs {
-            let label = d.numbers.count == 1 ? "\(d.numbers[0]). soru" : "sorular: " + d.numbers.map { String($0) }.joined(separator: ", ")
-            if let text = d.text {
-                parts.append(["text": "Soru metni: \(d.name) (\(label)) — telefonun okuduğu metin:\n\(text)"])
-            } else {
-                parts.append(["text": "Dosya: \(d.name) (\(label))"])
-                parts.append(["inlineData": ["mimeType": "application/pdf", "data": d.data.base64EncodedString()]])
+        for d in docs.sorted(by: { $0.page < $1.page }) {
+            var what: [String] = []
+            if d.video != nil { what.append("video") }
+            if d.pdf != nil { what.append("net kareler (PDF)") }
+            parts.append(["text": "\(d.name): " + what.joined(separator: " ve ")])
+            if let video = d.video {
+                parts.append(["inlineData": ["mimeType": "video/mp4", "data": video.base64EncodedString()]])
             }
-            all += d.numbers
+            if let pdf = d.pdf {
+                parts.append(["inlineData": ["mimeType": "application/pdf", "data": pdf.base64EncodedString()]])
+            }
         }
-        parts.append(["text": prompt(numbers: all.sorted())])
+        parts.append(["text": prompt(total: total, optionCount: optionCount)])
         let object: [String: Any] = [
             "contents": [["role": "user", "parts": parts]],
             "systemInstruction": ["parts": [["text": system]]],
@@ -88,31 +94,28 @@ enum AnswerService {
                 "temperature": 0.2,
                 "responseMimeType": "application/json",
                 "responseSchema": schema,
-                "maxOutputTokens": 8192
+                // Küçük yazı okunacağı için görüntü / video / PDF en yüksek çözünürlükle işlenir
+                "mediaResolution": "MEDIA_RESOLUTION_HIGH",
+                "maxOutputTokens": 16384
             ] as [String: Any]
         ]
         let body = GeminiSupport.applyThinking(object, level: thinking)
         return try JSONSerialization.data(withJSONObject: body, options: [.withoutEscapingSlashes])
     }
 
-    /// PDF'leri istek sınırlarına göre gruplara böler: bir istekteki toplam bayt (inline sınırı) ve PDF sayısı sınırlıdır
+    /// Sayfaları istek sınırlarına göre gruplara böler: bir istekteki toplam bayt (inline sınırı) ve sayfa sayısı sınırlıdır. Sayfa sırası korunur.
     static func chunk(_ docs: [AnswerDoc], budget: Int = GeminiConfig.inlineBudget, maxDocs: Int = maxDocsPerRequest) -> [[AnswerDoc]] {
         var out: [[AnswerDoc]] = []
         var cur: [AnswerDoc] = []
         var bytes = 0
-        var pdfs = 0
-        for d in docs.sorted(by: { ($0.numbers.first ?? 0) < ($1.numbers.first ?? 0) }) {
-            let isPDF = d.text == nil
-            // PDF sayısı sınırlıdır; düz metinler sayıya girmez (birkaç KB'dir)
-            if !cur.isEmpty && (bytes + d.data.count > budget || (isPDF && pdfs >= max(maxDocs, 1))) {
+        for d in docs.sorted(by: { $0.page < $1.page }) {
+            if !cur.isEmpty && (bytes + d.bytes > budget || cur.count >= max(maxDocs, 1)) {
                 out.append(cur)
                 cur = []
                 bytes = 0
-                pdfs = 0
             }
             cur.append(d)
-            bytes += d.data.count
-            if isPDF { pdfs += 1 }
+            bytes += d.bytes
         }
         if !cur.isEmpty { out.append(cur) }
         return out
@@ -254,17 +257,17 @@ enum AnswerService {
         return merged
     }
 
-    /// Bir istek için bekleme sınırı: ayardaki süre (en az 10 sn) + PDF başına birkaç saniye
+    /// Bir istek için bekleme sınırı: ayardaki süre (en az 10 sn) + sayfa başına birkaç saniye (video ve kareler işlenir)
     static func waitLimit(setting: TimeInterval, docCount: Int) -> TimeInterval? {
         guard setting > 0 else { return nil }
-        return max(setting, 10) + Double(docCount) * 3
+        return max(setting, 10) + Double(docCount) * 8
     }
 
     // MARK: Gönderim
 
-    /// Bir PDF grubunu sorar. Hata olursa (zincir açık) sıradaki profile geçer ve `notify` ile kısa bilgi verir. Son profile bekleme sınırı konmaz.
-    static func ask(docs: [AnswerDoc], profiles: [GeminiProfileInfo], active: Int, waitLimit setting: TimeInterval,
-                    makeClient: ((GeminiProfileInfo) -> GeminiClient)? = nil,
+    /// Bir sayfa grubunu sorar. Hata olursa (zincir açık) sıradaki profile geçer ve `notify` ile kısa bilgi verir. Son profile bekleme sınırı konmaz.
+    static func ask(docs: [AnswerDoc], total: Int = 0, optionCount: Int = 5, profiles: [GeminiProfileInfo], active: Int,
+                    waitLimit setting: TimeInterval, makeClient: ((GeminiProfileInfo) -> GeminiClient)? = nil,
                     notify: @escaping (String) -> Void) async throws -> [AnswerRecord] {
         let order = chainOrder(profiles: profiles, active: active)
         guard !order.isEmpty else {
@@ -277,7 +280,8 @@ enum AnswerService {
             let limit = isLast ? nil : waitLimit(setting: setting, docCount: docs.count)
             let client = makeClient?(profile) ?? GeminiClient(key: { profile.key }, model: { profile.model })
             do {
-                let body = try requestBody(docs: docs, thinking: GeminiSupport.thinkingLevel(model: profile.model, setting: "auto"))
+                let body = try requestBody(docs: docs, total: total, optionCount: optionCount,
+                                           thinking: GeminiSupport.thinkingLevel(model: profile.model, setting: "auto"))
                 let object = try await client.generate(model: profile.model, key: profile.key, body: body,
                                                        serverRetries: GeminiClient.askServerRetries, timeout: limit)
                 let records = parse(try responseText(object))

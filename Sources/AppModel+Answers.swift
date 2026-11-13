@@ -45,106 +45,103 @@ extension AppModel {
 
     // MARK: - Gemini
 
-    /// Alınan soruların Gemini'ye gidecek belgeleri. Ayara göre: telefonda temiz okunan sorular düz metin olarak (küçük, hızlı), diğerleri
-    /// grup boyutuna göre birleştirilmiş PDF olarak (S12.pdf ya da S12-14.pdf) gider.
+    /// Alınan sayfaların Gemini'ye gidecek belgeleri. Ayara göre her sayfa için gezdirme videosu ve/veya videodan seçilen net karelerin PDF'i.
+    /// İstenen parça yoksa (video yazılamadıysa gibi) elde olan gönderilir.
     func buildAnswerDocs() -> [AnswerDoc] {
-        guard let files = files else { return [] }
+        let mode = settings.pageInput
         var docs: [AnswerDoc] = []
-        let accepted = ledger.acceptedNumbers
-        var textNumbers: [Int] = []
-        if settings.geminiInput != 1 {
-            for n in accepted {
-                guard let q = ledger.texts[n] else { continue }
-                if settings.geminiInput == 2 || q.isReliable(optionCount: ledger.optionCount) { textNumbers.append(n) }
+        var videoBytes = 0
+        var pdfBytes = 0
+        for p in pages {
+            var doc = AnswerDoc(page: p.number)
+            if mode != 2, let url = p.pdf, let data = try? Data(contentsOf: url) { doc.pdf = data }
+            if mode != 1, let url = p.video, let data = try? Data(contentsOf: url) { doc.video = data }
+            if doc.pdf == nil && doc.video == nil {
+                // istenen parça yok: öbürü varsa o gönderilir
+                if let url = p.pdf, let data = try? Data(contentsOf: url) { doc.pdf = data }
+                if let url = p.video, let data = try? Data(contentsOf: url) { doc.video = data }
             }
-        }
-        for n in textNumbers {
-            guard let q = ledger.texts[n] else { continue }
-            docs.append(AnswerDoc(name: "S\(n)", numbers: [n], data: Data(q.text.utf8), text: q.text))
-        }
-        let pdfNumbers = accepted.filter { !textNumbers.contains($0) }
-        for group in QuestionGroups.split(pdfNumbers, size: settings.groupSize) {
-            let jpegs = group.flatMap { ledger.pages[$0] ?? [] }
-            guard !jpegs.isEmpty else { continue }
-            let name = QuestionGroups.pdfName(group)
-            guard let pdf = try? files.buildPDF(name: name, jpegs: jpegs), let data = try? Data(contentsOf: pdf) else {
-                addNote("pdf", "\(TurkishNumbers.spokenList(group)). soru PDF'e çevrilemedi.")
+            guard doc.pdf != nil || doc.video != nil else {
+                addNote("sayfa\(p.number)", "\(p.number). sayfanın dosyaları okunamadı; bu sayfa gönderilmiyor.")
                 continue
             }
-            if group.count > 1 {
-                do {
-                    try DocumentFolder.shared.store(file: pdf, subfolder: runName, name: name)
-                } catch {
-                    addNote("klasor", "Belge klasörüne yazılamadı: \(error.localizedDescription)")
-                }
-            }
-            docs.append(AnswerDoc(name: name, numbers: group, data: data))
+            videoBytes += doc.video?.count ?? 0
+            pdfBytes += doc.pdf?.count ?? 0
+            docs.append(doc)
         }
-        tlog("[gemini] \(textNumbers.count) soru metin, \(pdfNumbers.count) soru PDF olarak gönderilecek")
+        tlog("[gemini] \(docs.count) sayfa gönderilecek: video \(videoBytes / 1024) KB, kareler \(pdfBytes / 1024) KB")
         return docs
     }
 
-    /// Sorular Gemini'ye gider (model zinciriyle), eksik kalanlar bir kez daha sorulur, cevaplar sırayla okunur
+    /// Sayfalar Gemini'ye gider (model zinciriyle), gönderilemeyenler bir kez daha denenir, cevaplar sırayla okunur
     func answerAndRead() async {
         phase = .asking
         setStatus("Cevaplar hazırlanıyor")
         let docs = buildAnswerDocs()
         guard !docs.isEmpty else {
-            say("Sorular PDF'e çevrilemedi. Gemini'ye gönderilecek bir şey yok.")
+            say("Sayfalar gönderilemedi. Gemini'ye gönderilecek bir şey yok.")
             await voice.waitUntilIdle()
             return
         }
-        let requested = docs.flatMap { $0.numbers }.sorted()
+        let total = settings.questionTotal
+        let optionCount = settings.optionCount
         let profiles = settings.geminiProfileInfos()
         let wait = TimeInterval(settings.geminiWaitLimit)
-        say("Sorular Gemini'ye gönderiliyor.")
+        say("Sayfalar Gemini'ye gönderiliyor.")
         var records: [Int: AnswerRecord] = [:]
         var lastError: String?
         var pending = docs
         var pass = 0
         while pass < 2 && !pending.isEmpty && !Task.isCancelled {
             pass += 1
+            var failed: [AnswerDoc] = []
             for chunk in AnswerService.chunk(pending) {
                 if Task.isCancelled { return }
-                setStatus("Gemini'ye soruluyor (\(chunk.count) parça)")
+                setStatus("Gemini'ye soruluyor (\(chunk.count) sayfa)")
                 do {
-                    let got = try await AnswerService.ask(docs: chunk, profiles: profiles, active: settings.geminiActive,
-                                                          waitLimit: wait) { [weak self] text in
+                    let got = try await AnswerService.ask(docs: chunk, total: total, optionCount: optionCount, profiles: profiles,
+                                                          active: settings.geminiActive, waitLimit: wait) { [weak self] text in
                         Task { @MainActor in self?.say(text) }
                     }
-                    for r in got where requested.contains(r.number) {
+                    for r in got where r.number >= 1 && (total <= 0 || r.number <= total) {
                         if let old = records[r.number], AppModel.isGood(old), !AppModel.isGood(r) { continue }
                         records[r.number] = r
                     }
                 } catch {
                     lastError = (error as? GeminiError)?.message ?? error.localizedDescription
                     tlog("[gemini] istek başarısız: \(lastError ?? "")")
+                    failed += chunk
                 }
             }
-            let missing = ReadingPlan.unanswered(requested: requested, records: Array(records.values))
-            pending = docs.filter { d in d.numbers.contains(where: { missing.contains($0) }) }
+            pending = failed
             if pass < 2 && !pending.isEmpty {
-                say("Eksik cevaplar yeniden soruluyor.")
+                say("Gönderilemeyen sayfalar yeniden deneniyor.")
             }
         }
         if Task.isCancelled { return }
         let list = records.values.sorted { $0.number < $1.number }
         answers = list
-        let unanswered = ReadingPlan.unanswered(requested: requested, records: list)
-        if let error = lastError, !unanswered.isEmpty {
-            addNote("gemini", "Gemini: \(error)")
+        if !pending.isEmpty {
+            addNote("gemini", "Gemini: \(lastError ?? "cevap alınamadı") (gönderilemeyen sayfalar: " + pending.map { String($0.page) }.joined(separator: ", ") + ")")
         }
+        let unanswered = ReadingPlan.unanswered(requested: AppModel.expectedNumbers(total: total, records: list), records: list)
         if !unanswered.isEmpty {
             addNote("cevapsiz", "Cevabı alınamayan sorular: " + unanswered.map { String($0) }.joined(separator: ", "))
         }
         let codes = GeminiSupport.parseOptionCodes(settings.geminiOptionCodes)
         saveAnswerText(list, unanswered: unanswered, codes: codes)
         if list.isEmpty {
-            say("Gemini cevap vermedi. Sorular klasörde duruyor.")
+            say("Gemini cevap vermedi. Sayfalar klasörde duruyor.")
             await voice.waitUntilIdle()
             return
         }
         await readAnswers(list, unanswered: unanswered, codes: codes)
+    }
+
+    /// Cevabı beklenen soru numaraları: soru sayısı girilmişse 1…sayı, girilmemişse Gemini'nin verdiği numaralar
+    static func expectedNumbers(total: Int, records: [AnswerRecord]) -> [Int] {
+        if total > 0 { return Array(1...total) }
+        return records.map { $0.number }
     }
 
     /// Cevap kullanılabilir mi (şık var ve okunamadı değil)
@@ -191,7 +188,7 @@ extension AppModel {
         await pause(Double(settings.repeatPauseSeconds))
         await speakAll(lines, pauseSeconds: Double(settings.repeatPauseSeconds))
         if Task.isCancelled { return }
-        let bad = Array(Set(unanswered + ledger.unreadableNumbers)).sorted()
+        let bad = unanswered
         if !bad.isEmpty {
             await pause(Double(settings.repeatPauseSeconds))
             await sayAndWait(ReadingPlan.unansweredText(bad))

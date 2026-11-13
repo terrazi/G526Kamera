@@ -87,8 +87,9 @@ final class ScanFiles {
         return root.appendingPathComponent("S\(question)-\(part)-\(serial).jpg")
     }
 
-    func videoURL(index: Int) -> URL {
-        return root.appendingPathComponent(String(format: "V%02d.mp4", index))
+    /// Sayfa çekiminden seçilen net karenin JPEG adresi
+    func jpegURL(page: Int, serial: Int) -> URL {
+        return root.appendingPathComponent("Sayfa\(page)-\(serial).jpg")
     }
 
     /// JPEG'i yazar ve adresini verir
@@ -97,6 +98,11 @@ final class ScanFiles {
         try data.write(to: url, options: .atomic)
         return url
     }
+
+    func videoURL(index: Int) -> URL {
+        return root.appendingPathComponent(String(format: "V%02d.mp4", index))
+    }
+
 
     /// JPEG'leri çok sayfalı PDF'e sarar (her sayfa bir JPEG; yeniden sıkıştırma yok)
     func buildPDF(name: String, jpegs: [URL]) throws -> URL {

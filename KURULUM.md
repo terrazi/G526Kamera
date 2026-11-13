@@ -1,7 +1,7 @@
 # G526 Kamera — Kurulum (iPhone 12 mini, Mac gerekmez)
 
-Bu uygulama G526 (LookCam / MYKJ) Wi-Fi kameranızdan canlı görüntü alır, evraktaki soruları kendiliğinden bulup PDF yapar,
-Gemini'ye gönderir ve cevapları kulaklıktan okur. Ayrıntılı işleyiş: `docs/YENI_SURUM_TASARIM.md`.
+Bu uygulama G526 (LookCam / MYKJ) Wi-Fi kameranızdan canlı görüntü alır, kâğıdı sayfa sayfa (kamerayı sayfada gezdirerek) video olarak
+çeker, videoyu ve net kareleri Gemini'ye gönderir, soru numaralarını Gemini okur ve cevapları kulaklıktan okur. Ayrıntılı işleyiş: `docs/YENI_SURUM_TASARIM.md`.
 
 > Hiçbir özellik telefonda denenmedi; yalnız GitHub Actions'ta derlendi ve birim testlerden geçti.
 
@@ -22,11 +22,11 @@ Gemini'ye gönderir ve cevapları kulaklıktan okur. Ayrıntılı işleyiş: `do
 ## 3) Uygulamada ayar (sınavdan önce, bir kez)
 
 **Ayarlar** (ana ekranda sağ üst):
-- **Tarama:** soru sayısı (her sınavdan önce), şık sayısı (4/5), PDF grup boyutu (1–3), uyarı tekrarı, bekleme süreleri, deneme sayısı.
+- **Tarama:** soru sayısı ve sayfa sayısı (her sınavdan önce), şık sayısı (4/5), sayfa çekimi süresi, sayfa kenarı denetimi, sayfa başına en çok çekim, uyarı tekrarı, bekleme süreleri.
 - **Kamera:** kamera adı (UID) hazır gelir; parola; görüntü yönü.
 - **Kestirmeler:** kamera Wi-Fi kestirmesinin adı, internet kestirmesinin adı, deneme sayısı ve aralığı.
 - **Gemini:** en az bir profile API anahtarı yapıştırın; **Anahtarı dene** ile sınayın. Eski sürümün anahtarları silinir, yeniden girin.
-- **Gemini'ye gönderilen:** *Akıllı* (varsayılan) temiz okunan soruları metin, şüpheli soruları PDF gönderir; metin çok daha küçük ve hızlıdır. Şekil / formül / tablolu sorularda *Hep PDF* daha güvenlidir.
+- **Gemini'ye gönderilen:** *Video + net kareler* (varsayılan), *Yalnız net kareler* ya da *Yalnız video*. Küçük yazıyı hangisinin daha iyi okuduğu denenmedi; sınav öncesi bir deneme sayfasıyla karşılaştırın.
 - **Ses:** konuşma sesi ve hızı, okuma arası beklemeler. Ses yalnız kulaklığa verilir.
 - **Belge klasörü:** "G526 Belgeler" klasörünü bir kez seçin.
 
@@ -38,7 +38,7 @@ Gemini'ye gönderir ve cevapları kulaklıktan okur. Ayrıntılı işleyiş: `do
 4. İsteğe bağlı: sınav süresince **Odak** (Rahatsız Etme) açan otomasyon. Uygulama aramaları/mesajları engelleyemez.
 
 ## 5) Sınav günü
-Telefon açık, ekran açık, şarjda ve kulaklık takılı olsun. Evrakı kameranın önüne hazır tutun. Gerisini program yapar.
+Telefon açık, ekran açık, şarjda ve kulaklık takılı olsun. Evrakı kameranın önüne tutun; belge görününce 2 sn sonra çekim başlar: kamerayı sayfanın üstünde yakından, yavaşça üstten alta gezdirin (iki sütunluysa sütun sütun). Konum tarifi yoktur; yalnız “N. sayfa alındı” ve sayfa kenarı görünmediyse “yeniden gezdirin” denir. Gerisini program yapar.
 
 ## Sorun giderme
 - **Kamera bulunamadı:** Ayarlar > G526 Kamera > **Yerel Ağ** açık mı? UID doğru mu? Kamera Wi-Fi kestirmesi çalıştı mı?

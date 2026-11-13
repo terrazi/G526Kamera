@@ -2,33 +2,55 @@ import XCTest
 @testable import G526CameraDrive
 
 final class AnswerServiceTests: XCTestCase {
-    private func doc(_ name: String, _ numbers: [Int], bytes: Int = 10) -> AnswerDoc {
-        return AnswerDoc(name: name, numbers: numbers, data: Data(repeating: 0x25, count: bytes))
+    private func doc(_ page: Int, pdf: Int = 10, video: Int = 0) -> AnswerDoc {
+        return AnswerDoc(page: page, pdf: pdf > 0 ? Data(repeating: 0x25, count: pdf) : nil,
+                         video: video > 0 ? Data(repeating: 0x66, count: video) : nil)
     }
 
     // MARK: İstek
 
-    func testRequestBody() throws {
-        let data = try AnswerService.requestBody(docs: [doc("S3.pdf", [3]), doc("S1-2.pdf", [1, 2])], thinking: nil)
+    func testRequestBodyCarriesVideoAndPdfPerPageInPageOrder() throws {
+        let data = try AnswerService.requestBody(docs: [doc(2, pdf: 10), doc(1, pdf: 10, video: 20)], total: 50, optionCount: 5, thinking: nil)
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
         let contents = try XCTUnwrap(json["contents"] as? [[String: Any]])
         let parts = try XCTUnwrap(contents.first?["parts"] as? [[String: Any]])
-        XCTAssertEqual(parts.count, 5, "her PDF için etiket + veri, sonda istem")
-        XCTAssertEqual(parts[0]["text"] as? String, "Dosya: S3.pdf (3. soru)")
-        let inline = try XCTUnwrap(parts[1]["inlineData"] as? [String: Any])
-        XCTAssertEqual(inline["mimeType"] as? String, "application/pdf")
-        XCTAssertEqual(inline["data"] as? String, Data(repeating: 0x25, count: 10).base64EncodedString())
-        XCTAssertEqual(parts[2]["text"] as? String, "Dosya: S1-2.pdf (sorular: 1, 2)")
-        let last = try XCTUnwrap(parts[4]["text"] as? String)
-        XCTAssertTrue(last.contains("1, 2, 3"), "istemde numaralar küçükten büyüğe: \(last)")
+        XCTAssertEqual(parts.count, 6, "1. sayfa: etiket + video + pdf; 2. sayfa: etiket + pdf; sonda istem")
+        XCTAssertEqual(parts[0]["text"] as? String, "Sayfa 1: video ve net kareler (PDF)")
+        let video = try XCTUnwrap(parts[1]["inlineData"] as? [String: Any])
+        XCTAssertEqual(video["mimeType"] as? String, "video/mp4")
+        XCTAssertEqual(video["data"] as? String, Data(repeating: 0x66, count: 20).base64EncodedString())
+        let pdf = try XCTUnwrap(parts[2]["inlineData"] as? [String: Any])
+        XCTAssertEqual(pdf["mimeType"] as? String, "application/pdf")
+        XCTAssertEqual(parts[3]["text"] as? String, "Sayfa 2: net kareler (PDF)")
+        XCTAssertNotNil(parts[4]["inlineData"])
+        let last = try XCTUnwrap(parts[5]["text"] as? String)
+        XCTAssertTrue(last.contains("1–50"), "toplam soru sayısı istemde: \(last)")
         let config = try XCTUnwrap(json["generationConfig"] as? [String: Any])
         XCTAssertEqual(config["responseMimeType"] as? String, "application/json")
+        XCTAssertEqual(config["mediaResolution"] as? String, "MEDIA_RESOLUTION_HIGH")
         XCTAssertNotNil(config["responseSchema"])
         XCTAssertNotNil(json["systemInstruction"])
     }
 
-    func testPromptListsNumbers() {
-        XCTAssertTrue(AnswerService.prompt(numbers: [4, 9]).contains("4, 9"))
+    func testRequestBodyVideoOnlyPage() throws {
+        let data = try AnswerService.requestBody(docs: [doc(3, pdf: 0, video: 5)], thinking: nil)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let parts = try XCTUnwrap((json["contents"] as? [[String: Any]])?.first?["parts"] as? [[String: Any]])
+        XCTAssertEqual(parts.count, 3)
+        XCTAssertEqual(parts[0]["text"] as? String, "Sayfa 3: video")
+    }
+
+    func testPromptMentionsTotalAndOptions() {
+        let p = AnswerService.prompt(total: 40, optionCount: 4)
+        XCTAssertTrue(p.contains("A–D"))
+        XCTAssertTrue(p.contains("1–40"))
+        XCTAssertFalse(AnswerService.prompt(total: 0, optionCount: 5).contains("toplam"), "sayı bilinmiyorsa söylenmez")
+        XCTAssertTrue(AnswerService.prompt(total: 0, optionCount: 5).contains("A–E"))
+    }
+
+    func testSystemPromptTellsGeminiToReadNumbersFromThePage() {
+        XCTAssertTrue(AnswerService.system.contains("Soru numarasını sayfadaki yazıdan oku"))
+        XCTAssertTrue(AnswerService.system.contains("GEZDİREREK"))
     }
 
     func testSchemaCarriesTheFourFields() throws {
@@ -40,17 +62,22 @@ final class AnswerServiceTests: XCTestCase {
     // MARK: Gruplama
 
     func testChunkSplitsByCountAndBytes() {
-        let docs = (1...5).map { doc("S\($0).pdf", [$0], bytes: 40) }
+        let docs = (1...5).map { doc($0, pdf: 40) }
         XCTAssertEqual(AnswerService.chunk(docs, budget: 1000, maxDocs: 20).count, 1)
         XCTAssertEqual(AnswerService.chunk(docs, budget: 1000, maxDocs: 2).map { $0.count }, [2, 2, 1])
-        XCTAssertEqual(AnswerService.chunk(docs, budget: 100, maxDocs: 20).map { $0.count }, [2, 2, 1], "100 bayt sınırı = iki PDF")
+        XCTAssertEqual(AnswerService.chunk(docs, budget: 100, maxDocs: 20).map { $0.count }, [2, 2, 1], "100 bayt sınırı = iki sayfa")
         XCTAssertEqual(AnswerService.chunk([], budget: 100, maxDocs: 2).count, 0)
     }
 
-    func testChunkKeepsQuestionOrderAndOversizeDocAlone() {
-        let docs = [doc("S9.pdf", [9], bytes: 500), doc("S2.pdf", [2], bytes: 10), doc("S5.pdf", [5], bytes: 10)]
+    func testChunkKeepsPageOrderAndOversizeDocAlone() {
+        let docs = [doc(9, pdf: 300, video: 200), doc(2, pdf: 10), doc(5, pdf: 10)]
         let chunks = AnswerService.chunk(docs, budget: 100, maxDocs: 20)
-        XCTAssertEqual(chunks.map { $0.map { $0.numbers[0] } }, [[2, 5], [9]])
+        XCTAssertEqual(chunks.map { $0.map { $0.page } }, [[2, 5], [9]])
+    }
+
+    func testDocBytesCountVideoAndPdf() {
+        XCTAssertEqual(doc(1, pdf: 10, video: 30).bytes, 40)
+        XCTAssertEqual(doc(1, pdf: 0, video: 30).bytes, 30)
     }
 
     // MARK: Cevabı çözme
@@ -206,7 +233,7 @@ final class AnswerServiceTests: XCTestCase {
 
     func testWaitLimit() {
         XCTAssertNil(AnswerService.waitLimit(setting: 0, docCount: 5))
-        XCTAssertEqual(AnswerService.waitLimit(setting: 30, docCount: 4), 42)
+        XCTAssertEqual(AnswerService.waitLimit(setting: 30, docCount: 4), 62)
         XCTAssertEqual(AnswerService.waitLimit(setting: 3, docCount: 0), 10, "en az 10 sn")
     }
 }
@@ -250,7 +277,7 @@ final class AnswerChainTests: XCTestCase {
         return (try? JSONSerialization.data(withJSONObject: ["error": err])) ?? Data()
     }
 
-    private let docs = [AnswerDoc(name: "S1.pdf", numbers: [1], data: Data("%PDF".utf8))]
+    private let docs = [AnswerDoc(page: 1, pdf: Data("%PDF".utf8), video: nil)]
 
     private func ask(_ list: [GeminiProfileInfo], active: Int = 1, notes: Notes) async throws -> [AnswerRecord] {
         return try await AnswerService.ask(docs: docs, profiles: list, active: active, waitLimit: 30,

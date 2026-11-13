@@ -4,40 +4,30 @@ import Foundation
 enum ScanRules {
     /// Belge görününce çekime başlamadan önce beklenen süre (sn)
     static let settleSeconds = 2.0
-    /// Bir çekimin süresi (sn): kare toplama ve video
-    static let windowSeconds = 5.0
-    /// Soru sayısı biliniyorsa: kadrajda belge bu kadar süre yoksa eksik sorular sorulur
-    static let emptyForMissing = 10.0
-    /// Soru sayısı bilinmiyorsa: kadrajda belge bu kadar süre yoksa tarama biter
+    /// Kadrajda belge bu kadar süre yoksa (sayfa sayısı bilinmiyorsa ya da sayfa alınmışsa) tarama biter
     static let emptyForEnd = 20.0
-    /// Soru sayısı bilinmiyorsa: hiç yeni soru alınmadan bu kadar süre geçerse tarama biter
+    /// Hiç yeni sayfa alınmadan bu kadar süre geçerse tarama biter
     static let noProgressForEnd = 90.0
-    /// Belge göründükten sonra yazı kadraja tam sığana ("Tamam" denene) kadar çekim bu kadar (sn) ertelenir; süre dolunca yine de çekilir
-    static let framingWaitSeconds = 15.0
     /// Aynı sahne kadrajda duruyorsa (sayfa çevrilmedi) bu kadar süre sonra yeniden çekilir
     static let retrySameSceneSeconds = 12.0
-    /// Önceki çekime göre sahne farkı bundan büyükse sayfa çevrildi / kamera oynadı sayılır (GuidanceConfig.changeToRearm ile aynı)
+    /// Önceki çekime göre sahne farkı bundan büyükse sayfa çevrildi / kamera oynadı sayılır
     static let rearmDiff = 4.0
-    /// Eksik sorular bu aralıkla yeniden hatırlatılır (sn)
-    static let missingRepeatSeconds = 20.0
-    /// Aynı uyarı bu süreden önce yeniden söylenmez (sn)
-    static let sameWarningGap = 10.0
     /// Kamera görüntüsü bu süre gelmezse kamera kopmuş sayılır (sn)
     static let cameraLostSeconds = 12.0
     /// Kestirme geri dönüşü en çok bu kadar beklenir (sn)
     static let shortcutReturnSeconds = 40.0
     /// Kulaklık yokken cevapların okunması en çok bu kadar beklenir (sn)
     static let headphonesWaitSeconds = 600.0
+    /// Bir sayfa için Gemini'ye gidecek en çok net kare sayısı
+    static let maxStills = 8
 
     enum EndReason: Equatable {
-        /// Bütün sorular alındı (ya da deneme sınırı dolduğu için okunamadı sayıldı)
+        /// İstenen sayfa sayısı alındı
         case complete
         /// Toplam tarama süresi doldu
         case timeLimit
-        /// Soru sayısı girilmemişti: belge görünmüyor / yeni soru gelmiyor
-        case noMoreQuestions
-        /// Eksik sorular için bekleme süresi doldu
-        case missingGaveUp
+        /// Kadraj boşaldı ya da yeni sayfa gelmiyor
+        case noMorePages
         /// Hazır uyarısına rağmen hiç evrak gösterilmedi
         case readyTimeout
         /// Kamera görüntüsü kesildi ve yeniden bağlanamadı
@@ -46,51 +36,25 @@ enum ScanRules {
 
     enum Verdict: Equatable {
         case keepGoing
-        /// Eksik soruları söyle ve bekle
-        case askMissing
         case finish(EndReason)
     }
 
-    /// Her döngüde sorulur: tarama sürsün mü, eksik sorular mı sorulsun, bitsin mi
-    static func verdict(total: Int, accepted: Int, complete: Bool, elapsed: TimeInterval, maxSeconds: TimeInterval,
-                        emptyFor: TimeInterval, sinceProgress: TimeInterval, asked: Bool, deadlinePassed: Bool) -> Verdict {
-        if complete { return .finish(.complete) }
+    /// Her döngüde sorulur: tarama sürsün mü, bitsin mi. `pageTotal` 0 ise sayfa sayısı bilinmiyordur.
+    static func verdict(pageTotal: Int, pages: Int, elapsed: TimeInterval, maxSeconds: TimeInterval,
+                        emptyFor: TimeInterval, sinceProgress: TimeInterval) -> Verdict {
+        if pageTotal > 0 && pages >= pageTotal { return .finish(.complete) }
         if maxSeconds > 0 && elapsed >= maxSeconds { return .finish(.timeLimit) }
-        if total <= 0 {
-            if accepted > 0 && (emptyFor >= emptyForEnd || sinceProgress >= noProgressForEnd) { return .finish(.noMoreQuestions) }
-            return .keepGoing
-        }
-        if asked && deadlinePassed { return .finish(.missingGaveUp) }
-        if !asked && accepted > 0 && emptyFor >= emptyForMissing { return .askMissing }
+        if pages > 0 && (emptyFor >= emptyForEnd || sinceProgress >= noProgressForEnd) { return .finish(.noMorePages) }
         return .keepGoing
     }
 
-    /// Yeni bir çekim başlatılabilir mi (belge sabit görünüyor): ilk çekimde hemen; sonrakilerde sayfa çevrilince ya da aynı sahne uzun süre durursa
+    /// Yeni bir çekim başlatılabilir mi (belge görünüyor): ilk çekimde hemen; sonrakilerde sayfa çevrilip kamera biraz durunca ya da
+    /// aynı sahne uzun süre durursa
     static func canRearm(firstCapture: Bool, diffToCapture: Double, stillFor: TimeInterval, sinceLastWindow: TimeInterval,
                          stillNeeded: TimeInterval = 0.4) -> Bool {
         if firstCapture { return true }
         if diffToCapture > rearmDiff && stillFor >= stillNeeded { return true }
         return sinceLastWindow >= retrySameSceneSeconds
-    }
-
-    /// Canlı okumanın sonucu bu kadar saniyeden eskiyse kullanılmaz
-    static let liveMaxAge = 8.0
-
-    /// Canlı okuma sonucu hâlâ geçerli mi: yeterince yeni ve okunan kareden beri sahne değişmemiş (kamera / sayfa oynamamış)
-    static func liveVerdictValid(takenAt: TimeInterval, now: TimeInterval, sampleArrived: TimeInterval, stillFor: TimeInterval) -> Bool {
-        let age = now - takenAt
-        guard age >= 0, age <= liveMaxAge else { return false }
-        return takenAt >= sampleArrived - stillFor - 0.3
-    }
-
-    /// Çekimden önce kadraj denetimi (yarım soru kalmasın). `live`: geçerli canlı okuma varsa "görünen sorular tam sığıyor mu" kararı;
-    /// o yoksa konum tarifinin (kamera durgunken ölçülen) son önerisi "tamam" ise hazırdır. Sığmıyorsa yönlendirme sürer;
-    /// `framingWaitSeconds` dolunca yine de çekilir.
-    static func framingReady(docFor: TimeInterval, advice: GuidanceAdvice?, adviceAge: TimeInterval, live: Bool? = nil) -> Bool {
-        if docFor >= settleSeconds + framingWaitSeconds { return true }
-        if let l = live { return l }
-        guard let a = advice, adviceAge < 2 else { return false }
-        return a == .ok
     }
 
     /// Hazır uyarısı: son söylenişten bu yana yeterli süre geçti mi (hiç söylenmediyse hemen)
@@ -104,64 +68,35 @@ enum ScanRules {
         return maxMinutes > 0 && waited >= Double(maxMinutes) * 60
     }
 
-    /// Eksik soru cümlesi: "15 ve 22 eksik. İlgili sayfayı kameraya tutun."
-    static func missingText(_ numbers: [Int]) -> String {
-        guard !numbers.isEmpty else { return "" }
-        return numbers.count == 1
-            ? "\(numbers[0]). soru eksik. İlgili sayfayı kameraya tutun."
-            : "\(TurkishNumbers.spokenList(numbers)) eksik. İlgili sayfaları kameraya tutun."
+    private static func sayfa(_ number: Int) -> String {
+        return TurkishNumbers.capitalised(TurkishNumbers.ordinal(number)) + " sayfa"
     }
 
-    /// Alınan sorular cümlesi: "12 alındı." / "12, 13 ve 14 alındı."
-    static func acceptedText(_ numbers: [Int]) -> String {
-        guard !numbers.isEmpty else { return "" }
-        return "\(TurkishNumbers.spokenList(numbers)) alındı."
+    /// "Birinci sayfa alındı."
+    static func pageTakenText(_ number: Int) -> String {
+        return "\(sayfa(number)) alındı."
     }
 
-    /// "On ikinci sorunun devamını kameraya tutun."
-    static func continueText(_ number: Int) -> String {
-        return "\(TurkishNumbers.capitalised(TurkishNumbers.ordinal(number))) sorunun devamını kameraya tutun."
-    }
-
-    /// Sorunun alt kısmı başından önce çekildi (karışık sıra): başı istenir
-    static func headText(_ number: Int) -> String {
-        return "\(TurkishNumbers.capitalised(TurkishNumbers.ordinal(number))) sorunun alt kısmı alındı. Üst kısmını da kameraya tutun."
-    }
-}
-
-/// Aynı cümlenin kısa sürede yeniden söylenmesini engeller ("aynı uyarı en az 10 sn arayla")
-struct RepeatGate {
-    private var last: [String: TimeInterval] = [:]
-
-    /// Söylenebilirse true döner ve söylenmiş sayar
-    mutating func allow(_ text: String, now: TimeInterval, gap: TimeInterval = ScanRules.sameWarningGap) -> Bool {
-        if let t = last[text], now - t < gap { return false }
-        last[text] = now
-        return true
-    }
-
-    mutating func reset() { last = [:] }
-}
-
-/// Soru PDF'lerinin gruplanması ve adları
-enum QuestionGroups {
-    /// Numaralar küçükten büyüğe `size`'lık gruplara bölünür: [1,2,3,4,5] ve 2 → [[1,2],[3,4],[5]]
-    static func split(_ numbers: [Int], size: Int) -> [[Int]] {
-        let sorted = Array(Set(numbers)).sorted()
-        let n = max(size, 1)
-        var out: [[Int]] = []
-        var i = 0
-        while i < sorted.count {
-            out.append(Array(sorted[i..<min(i + n, sorted.count)]))
-            i += n
+    /// Kenar adları cümlede: "alt", "üst ve alt", "üst, alt ve sağ"
+    static func sideList(_ sides: [PageEdges.Side]) -> String {
+        let words = sides.map { $0.word }
+        switch words.count {
+        case 0: return ""
+        case 1: return words[0]
+        default: return words.dropLast().joined(separator: ", ") + " ve " + words[words.count - 1]
         }
-        return out
     }
 
-    /// S12.pdf ; grup için S12-14.pdf
-    static func pdfName(_ numbers: [Int]) -> String {
-        guard let first = numbers.min(), let last = numbers.max() else { return "S0.pdf" }
-        return first == last ? "S\(first).pdf" : "S\(first)-\(last).pdf"
+    /// Videoda sayfanın bazı kenarları görülmedi, sayfa yeniden isteniyor
+    static func coverageRetryText(_ missing: [PageEdges.Side]) -> String {
+        let one = missing.count == 1
+        return "Sayfanın \(sideList(missing)) \(one ? "kenarı" : "kenarları") görünmedi. Sayfayı yeniden gezdirin."
+    }
+
+    /// Deneme sınırı doldu, sayfa eksik görünüyor ama olduğu gibi alındı
+    static func pageTakenIncompleteText(_ number: Int, missing: [PageEdges.Side]) -> String {
+        let one = missing.count == 1
+        return "\(sayfa(number)) alındı; sayfanın \(sideList(missing)) \(one ? "kenarı" : "kenarları") görünmemiş olabilir."
     }
 }
 

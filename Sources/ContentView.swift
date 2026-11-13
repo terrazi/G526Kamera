@@ -102,14 +102,9 @@ struct ContentView: View {
             Text(model.statusText)
                 .font(.subheadline)
                 .foregroundColor(.secondary)
-            if settings.questionTotal > 0 || !model.acceptedNumbers.isEmpty {
+            if settings.pageTotal > 0 || model.pageCount > 0 {
                 Text(progressText)
                     .font(.subheadline)
-            }
-            if !model.waitingQuestions.isEmpty {
-                Text("Yarım kalan sorular: " + model.waitingQuestions.map { String($0) }.joined(separator: ", "))
-                    .font(.footnote)
-                    .foregroundColor(.orange)
             }
             if !model.lastSaid.isEmpty {
                 Text("Son söylenen: \(model.lastSaid)")
@@ -124,11 +119,9 @@ struct ContentView: View {
     }
 
     private var progressText: String {
-        let count = model.acceptedNumbers.count
-        let total = settings.questionTotal
-        let head = total > 0 ? "Alınan soru: \(count)/\(total)" : "Alınan soru: \(count)"
-        guard !model.acceptedNumbers.isEmpty else { return head }
-        return head + " (" + model.acceptedNumbers.map { String($0) }.joined(separator: ", ") + ")"
+        let count = model.pageCount
+        let total = settings.pageTotal
+        return total > 0 ? "Alınan sayfa: \(count)/\(total)" : "Alınan sayfa: \(count)"
     }
 
     private var startStopButton: some View {

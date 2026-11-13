@@ -2,16 +2,16 @@ import XCTest
 @testable import G526CameraDrive
 
 final class ScanVerdictTests: XCTestCase {
-    private func verdict(total: Int = 40, accepted: Int = 5, complete: Bool = false, elapsed: TimeInterval = 100,
-                         maxSeconds: TimeInterval = 900, emptyFor: TimeInterval = 0, sinceProgress: TimeInterval = 0,
-                         asked: Bool = false, deadlinePassed: Bool = false) -> ScanRules.Verdict {
-        return ScanRules.verdict(total: total, accepted: accepted, complete: complete, elapsed: elapsed, maxSeconds: maxSeconds,
-                                 emptyFor: emptyFor, sinceProgress: sinceProgress, asked: asked, deadlinePassed: deadlinePassed)
+    private func verdict(pageTotal: Int = 5, pages: Int = 2, elapsed: TimeInterval = 100, maxSeconds: TimeInterval = 900,
+                         emptyFor: TimeInterval = 0, sinceProgress: TimeInterval = 0) -> ScanRules.Verdict {
+        return ScanRules.verdict(pageTotal: pageTotal, pages: pages, elapsed: elapsed, maxSeconds: maxSeconds,
+                                 emptyFor: emptyFor, sinceProgress: sinceProgress)
     }
 
-    func testCompleteAlwaysFinishes() {
-        XCTAssertEqual(verdict(complete: true), .finish(.complete))
-        XCTAssertEqual(verdict(complete: true, elapsed: 5000), .finish(.complete), "süre dolmuş olsa bile tamam öncelikli")
+    func testFinishesWhenAllPagesAreTaken() {
+        XCTAssertEqual(verdict(pages: 4), .keepGoing)
+        XCTAssertEqual(verdict(pages: 5), .finish(.complete))
+        XCTAssertEqual(verdict(pages: 6, elapsed: 5000), .finish(.complete), "süre dolmuş olsa bile tamam öncelikli")
     }
 
     func testTimeLimitFinishesButZeroMeansNoLimit() {
@@ -19,27 +19,20 @@ final class ScanVerdictTests: XCTestCase {
         XCTAssertEqual(verdict(elapsed: 5000, maxSeconds: 0), .keepGoing)
     }
 
-    func testKnownTotalAsksForMissingAfterTenEmptySeconds() {
-        XCTAssertEqual(verdict(emptyFor: 9.9), .keepGoing)
-        XCTAssertEqual(verdict(emptyFor: 10), .askMissing)
-        XCTAssertEqual(verdict(emptyFor: 30, asked: true), .keepGoing, "bir kez sorulduktan sonra tekrar askMissing dönmez")
+    func testEndsOnEmptyFrameOrNoProgressOnceAPageIsTaken() {
+        XCTAssertEqual(verdict(emptyFor: 19.9), .keepGoing)
+        XCTAssertEqual(verdict(emptyFor: 20), .finish(.noMorePages))
+        XCTAssertEqual(verdict(sinceProgress: 89), .keepGoing)
+        XCTAssertEqual(verdict(sinceProgress: 90), .finish(.noMorePages))
     }
 
-    func testNothingAcceptedNeverAsksForMissing() {
-        XCTAssertEqual(verdict(accepted: 0, emptyFor: 60), .keepGoing)
+    func testUnknownPageTotalEndsTheSameWay() {
+        XCTAssertEqual(verdict(pageTotal: 0, pages: 7), .keepGoing, "sayfa sayısı bilinmiyorsa tamam diye bitmez")
+        XCTAssertEqual(verdict(pageTotal: 0, pages: 7, emptyFor: 20), .finish(.noMorePages))
     }
 
-    func testGivesUpAfterTheMissingDeadline() {
-        XCTAssertEqual(verdict(emptyFor: 5, asked: true, deadlinePassed: true), .finish(.missingGaveUp))
-        XCTAssertEqual(verdict(asked: true, deadlinePassed: false), .keepGoing)
-    }
-
-    func testUnknownTotalEndsOnEmptyFrameOrNoProgress() {
-        XCTAssertEqual(verdict(total: 0, emptyFor: 19), .keepGoing)
-        XCTAssertEqual(verdict(total: 0, emptyFor: 20), .finish(.noMoreQuestions))
-        XCTAssertEqual(verdict(total: 0, sinceProgress: 89), .keepGoing)
-        XCTAssertEqual(verdict(total: 0, sinceProgress: 90), .finish(.noMoreQuestions))
-        XCTAssertEqual(verdict(total: 0, accepted: 0, emptyFor: 500, sinceProgress: 500), .keepGoing, "hiç soru yokken bitirilmez")
+    func testNothingTakenNeverEndsOnEmptyFrame() {
+        XCTAssertEqual(verdict(pages: 0, emptyFor: 500, sinceProgress: 500), .keepGoing, "hiç sayfa yokken bitirilmez")
     }
 }
 
@@ -75,60 +68,30 @@ final class ScanTimingTests: XCTestCase {
 
     func testDefaultsMatchTheAgreedDesign() {
         XCTAssertEqual(ScanRules.settleSeconds, 2)
-        XCTAssertEqual(ScanRules.windowSeconds, 5)
-        XCTAssertEqual(ScanRules.emptyForMissing, 10)
-        XCTAssertEqual(ScanRules.sameWarningGap, 10)
+        XCTAssertEqual(ScanRules.emptyForEnd, 20)
+        XCTAssertEqual(ScanRules.noProgressForEnd, 90)
+        XCTAssertEqual(ScanRules.maxStills, 8)
     }
 }
 
 final class ScanTextTests: XCTestCase {
-    func testMissingText() {
-        XCTAssertEqual(ScanRules.missingText([]), "")
-        XCTAssertEqual(ScanRules.missingText([15]), "15. soru eksik. İlgili sayfayı kameraya tutun.")
-        XCTAssertEqual(ScanRules.missingText([15, 22]), "15 ve 22 eksik. İlgili sayfaları kameraya tutun.")
+    func testPageTakenText() {
+        XCTAssertEqual(ScanRules.pageTakenText(1), "Birinci sayfa alındı.")
+        XCTAssertEqual(ScanRules.pageTakenText(12), "On ikinci sayfa alındı.")
     }
 
-    func testAcceptedAndContinueText() {
-        XCTAssertEqual(ScanRules.acceptedText([]), "")
-        XCTAssertEqual(ScanRules.acceptedText([12]), "12 alındı.")
-        XCTAssertEqual(ScanRules.acceptedText([12, 13, 14]), "12, 13 ve 14 alındı.")
-        XCTAssertEqual(ScanRules.continueText(12), "On ikinci sorunun devamını kameraya tutun.")
-        XCTAssertEqual(ScanRules.continueText(2), "İkinci sorunun devamını kameraya tutun.")
-    }
-}
-
-final class RepeatGateTests: XCTestCase {
-    func testSameWarningIsHeldBackForTenSeconds() {
-        var gate = RepeatGate()
-        XCTAssertTrue(gate.allow("Yazı bulanık.", now: 0))
-        XCTAssertFalse(gate.allow("Yazı bulanık.", now: 9.9))
-        XCTAssertTrue(gate.allow("Yazı bulanık.", now: 10))
+    func testSideList() {
+        XCTAssertEqual(ScanRules.sideList([]), "")
+        XCTAssertEqual(ScanRules.sideList([.bottom]), "alt")
+        XCTAssertEqual(ScanRules.sideList([.top, .bottom]), "üst ve alt")
+        XCTAssertEqual(ScanRules.sideList([.top, .bottom, .left]), "üst, alt ve sol")
     }
 
-    func testDifferentWarningsDoNotBlockEachOther() {
-        var gate = RepeatGate()
-        XCTAssertTrue(gate.allow("a", now: 0))
-        XCTAssertTrue(gate.allow("b", now: 1))
-        XCTAssertFalse(gate.allow("a", now: 2))
-        gate.reset()
-        XCTAssertTrue(gate.allow("a", now: 3))
-    }
-}
-
-final class QuestionGroupsTests: XCTestCase {
-    func testSplit() {
-        XCTAssertEqual(QuestionGroups.split([1, 2, 3, 4, 5], size: 2), [[1, 2], [3, 4], [5]])
-        XCTAssertEqual(QuestionGroups.split([5, 3, 1, 2, 4, 4], size: 3), [[1, 2, 3], [4, 5]])
-        XCTAssertEqual(QuestionGroups.split([7, 8], size: 1), [[7], [8]])
-        XCTAssertEqual(QuestionGroups.split([7, 8], size: 0), [[7], [8]], "0 → 1")
-        XCTAssertEqual(QuestionGroups.split([], size: 2), [])
-    }
-
-    func testPdfName() {
-        XCTAssertEqual(QuestionGroups.pdfName([12]), "S12.pdf")
-        XCTAssertEqual(QuestionGroups.pdfName([12, 13, 14]), "S12-14.pdf")
-        XCTAssertEqual(QuestionGroups.pdfName([14, 12]), "S12-14.pdf")
-        XCTAssertEqual(QuestionGroups.pdfName([]), "S0.pdf")
+    func testCoverageTexts() {
+        XCTAssertEqual(ScanRules.coverageRetryText([.bottom]), "Sayfanın alt kenarı görünmedi. Sayfayı yeniden gezdirin.")
+        XCTAssertEqual(ScanRules.coverageRetryText([.top, .bottom]), "Sayfanın üst ve alt kenarları görünmedi. Sayfayı yeniden gezdirin.")
+        XCTAssertEqual(ScanRules.pageTakenIncompleteText(2, missing: [.bottom]),
+                       "İkinci sayfa alındı; sayfanın alt kenarı görünmemiş olabilir.")
     }
 }
 
@@ -172,23 +135,3 @@ final class RunNameTests: XCTestCase {
 }
 
 /// Çekimden önce kadraj denetimi: yazı kadraja tam sığmadan (yarım soru kalmasın) çekim başlamaz
-final class FramingGateTests: XCTestCase {
-    func testCaptureWaitsUntilTheTextFitsTheFrame() {
-        XCTAssertTrue(ScanRules.framingReady(docFor: 3, advice: .ok, adviceAge: 0.5))
-        for advice in [GuidanceAdvice.moveDown, .moveUp, .moveLeft, .moveRight, .closer, .farther, .noText] {
-            XCTAssertFalse(ScanRules.framingReady(docFor: 3, advice: advice, adviceAge: 0.5), "\(advice) iken çekilmez")
-        }
-    }
-
-    func testCaptureWaitsWhileTheCameraIsMovingOrTheAdviceIsStale() {
-        XCTAssertFalse(ScanRules.framingReady(docFor: 3, advice: nil, adviceAge: 0.5), "kamera hareket ediyorsa öneri yoktur")
-        XCTAssertFalse(ScanRules.framingReady(docFor: 3, advice: .ok, adviceAge: 2.5), "eski ölçüme güvenilmez")
-    }
-
-    func testCaptureHappensAnywayAfterTheWaitingLimit() {
-        let limit = ScanRules.settleSeconds + ScanRules.framingWaitSeconds
-        XCTAssertFalse(ScanRules.framingReady(docFor: limit - 0.5, advice: .moveDown, adviceAge: 0.5))
-        XCTAssertTrue(ScanRules.framingReady(docFor: limit, advice: .moveDown, adviceAge: 0.5), "sığmasa da süre dolunca çekilir")
-        XCTAssertTrue(ScanRules.framingReady(docFor: limit, advice: nil, adviceAge: 99))
-    }
-}

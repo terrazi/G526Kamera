@@ -49,20 +49,21 @@ struct SettingsView: View {
     private var scanSection: some View {
         Section(header: Text("Tarama")) {
             NumberRow(title: "Soru sayısı", value: $settings.questionTotal, range: AppSettings.questionTotalRange, unit: "soru")
+            NumberRow(title: "Sayfa sayısı", value: $settings.pageTotal, range: AppSettings.pageTotalRange, unit: "sayfa")
             Picker("Şık sayısı", selection: $settings.optionCount) {
                 Text("4 (A–D)").tag(4)
                 Text("5 (A–E)").tag(5)
             }
-            Stepper(value: $settings.groupSize, in: 1...3) {
-                Text(settings.groupSize == 1 ? "Her soru ayrı PDF" : "\(settings.groupSize) soru tek PDF")
+            Stepper(value: $settings.sweepSeconds, in: AppSettings.sweepRange) {
+                Text("Sayfa çekimi: \(settings.sweepSeconds) sn")
             }
-            Stepper(value: $settings.maxAttempts, in: 0...50) {
-                Text(settings.maxAttempts == 0 ? "Soru başına deneme: sınırsız" : "Soru başına en çok deneme: \(settings.maxAttempts)")
+            Picker("Sayfa kenarı denetimi", selection: $settings.coverageMode) {
+                Text("Kapalı").tag(0)
+                Text("Üst ve alt kenar").tag(1)
+                Text("Dört kenar").tag(2)
             }
-            Picker("Kalite sıkılığı", selection: $settings.guidanceSharpness) {
-                Text("Gevşek").tag(0)
-                Text("Normal").tag(1)
-                Text("Sıkı").tag(2)
+            Stepper(value: $settings.pageAttempts, in: 1...5) {
+                Text("Sayfa başına en çok çekim: \(settings.pageAttempts)")
             }
             Stepper(value: $settings.readyRepeatSeconds, in: 10...300, step: 5) {
                 Text("“Kamera hazır” uyarısı: \(settings.readyRepeatSeconds) sn arayla")
@@ -73,10 +74,7 @@ struct SettingsView: View {
             Stepper(value: $settings.scanMaxMinutes, in: 2...240) {
                 Text("Toplam tarama süresi: \(settings.scanMaxMinutes) dk")
             }
-            Stepper(value: $settings.missingWaitSeconds, in: 10...600, step: 10) {
-                Text("Eksik soru bekleme: \(settings.missingWaitSeconds) sn")
-            }
-            HelpRow("Soru sayısı kadar soru taranır; hepsi alınınca tarama biter. 0 bırakılırsa tarama boş kadraja (20 sn) ya da 90 sn yeni soru gelmemesine göre biter. Evrak kameraya tutulunca konum tarifi yazının kadraja tam sığmasını bekler (en çok 15 sn; “kamerayı aşağı kaydırın” gibi), sonra 5 sn’lik çekim yapılır (≈10 kare + video); her soru için en iyi iki kare PDF olur (S12.pdf). Birden çok soru tek PDF seçilirse bu PDF’ler ayrıca birleştirilip (S12-14.pdf) Gemini’ye o halde gönderilir. Kalite kapısı: soru numarası ve tüm şıklar görünmeli, yazı net, parlamasız ve yeterince büyük olmalı; olmazsa o soru gönderilmez, sebebi kulaklıkta söylenir ve düzelene kadar uyarılır. Soru alttan kesik görünürse yarım soru alınmaz: önce sesle uyarılır; 2 uyarıya rağmen sığmazsa (sayfa sonunda gerçekten bölünen soru) üst kısım alınır ve “N. sorunun devamını kameraya tutun” denir. Soru başına deneme dolunca soru “alınamadı” sayılır ve sıradakine geçilir. Tarama bitince eksik varsa “15 ve 22 eksik” denir ve belirtilen sürece beklenir.")
+            HelpRow("Sayfa sayısı girilirse o kadar sayfa alınınca tarama biter; 0 bırakılırsa kadraj 20 sn boş kalınca (ya da 90 sn yeni sayfa gelmezse) biter. Evrak kameraya tutulunca 2 sn sonra sayfa çekimi başlar: kamerayı sayfanın üstünde yakından, yavaşça gezdirin (üstten alta; iki sütunluysa sütun sütun). Sayfa tek kareye sığmak zorunda değildir; videonun bütünü Gemini’ye gider. Soru numaralarını telefon okumaz, Gemini sayfadan kendisi okur. Sayfa kenarı denetimi: videoda sayfanın üst ve alt kenarı (ya da dört kenarı) bir kez olsun görünmediyse sayfa yeniden istenir; en çok çekim sayısı dolunca sayfa olduğu gibi alınır. Telefon kenarı bulamazsa denetim sessizce atlanır. Sesle yalnız “Kamera hazır”, “N. sayfa alındı”, bu yeniden istek ve cevaplar söylenir; konum tarifi yoktur.")
         }
     }
 
@@ -109,7 +107,7 @@ struct SettingsView: View {
                 Text("Olduğu gibi bırak").tag(TimestampMode.keep)
             }
             Toggle("Fotoğrafı keskinleştir", isOn: $settings.sharpenImages)
-            HelpRow("Kadraj yönü önizleme kutusunu ve konum tarifini belirler; “Dikey”de kamera görüntüsü 90° çevrilir. Kamera adı hazır yazılı gelir; IP boşsa kamera kendiliğinden bulunur. Telefon kameranın Wi-Fi ağına bağlı olmalıdır (bunu kamera kestirmesi yapar). Tarih/saat yazısı kameranın üst köşesindedir; bulanıklaştırmak soru metnine zarar vermez.")
+            HelpRow("Kadraj yönü önizleme kutusunu ve görüntünün yönünü belirler; “Dikey”de kamera görüntüsü 90° çevrilir. Kamera adı hazır yazılı gelir; IP boşsa kamera kendiliğinden bulunur. Telefon kameranın Wi-Fi ağına bağlı olmalıdır (bunu kamera kestirmesi yapar). Tarih/saat yazısı kameranın üst köşesindedir; bulanıklaştırmak soru metnine zarar vermez.")
         }
     }
 
@@ -166,12 +164,12 @@ struct SettingsView: View {
 
     private var geminiSection: some View {
         Section(header: Text("Gemini (4 model profili)")) {
-            Picker("Gemini'ye gönderilen", selection: $settings.geminiInput) {
-                Text("Akıllı").tag(0)
-                Text("Hep PDF").tag(1)
-                Text("Yalnız metin").tag(2)
+            Picker("Gemini'ye gönderilen", selection: $settings.pageInput) {
+                Text("Video + net kareler").tag(0)
+                Text("Yalnız net kareler").tag(1)
+                Text("Yalnız video").tag(2)
             }
-            HelpRow("Metin birkaç KB’dir: PDF’den çok daha küçük olduğu için daha hızlı gider. Akıllı: telefon soruyu temiz okuduysa (bütün şıklar var, okuma güveni yüksek, şekil / tablo / formül izi yok) yalnız metin gider; şüpheli sorular PDF olarak gider. Hep PDF: her soru görüntü olarak gider (en güvenli, en yavaş). Yalnız metin: şekil, tablo ve formüller kaybolur, okuma hatası cevabı bozabilir; yalnız düz metin sorularda önerilir.")
+            HelpRow("Her sayfa için gezdirme videosu gider. Gemini videoyu saniyede yaklaşık 1 kare, düşük çözünürlükle işler; küçük yazı videoda zor okunabilir. Bu yüzden varsayılan olarak videodan seçilen 8 kadar net kare de (PDF) yanında gider. Yalnız net kareler: video gönderilmez (en küçük istek). Yalnız video: kareler gönderilmez. Hangisinin daha iyi okuduğunu deneyerek görün.")
             Picker("İlk denenen model", selection: $settings.geminiActive) {
                 ForEach(0..<GeminiProfiles.slotCount, id: \.self) { i in
                     Text(settings.geminiProfiles[i].name.trimmed.isEmpty ? "Model \(i + 1)" : settings.geminiProfiles[i].name).tag(i + 1)
@@ -220,7 +218,7 @@ struct SettingsView: View {
             if !modelListText.isEmpty {
                 Text(modelListText).font(.footnote).foregroundColor(.secondary).textSelection(.enabled)
             }
-            HelpRow("Sorular PDF olarak, standart bir talimatla Gemini’ye gönderilir; cevaplar soru numarasına göre sıralanır, eksik ya da okunamayan sorular bir kez daha sorulur. Model zinciri: ilk model kotası dolarsa, sunucu hata verirse ya da cevap bekleme sınırında yanıt gelmezse sıradaki profile (kendi anahtarıyla) geçilir; son modele sınır konmaz. Her profilin kendi API anahtarı vardır (aistudio.google.com); anahtarlar yalnız bu telefonun Keychain’inde saklanır. Ücretsiz katmanda içeriğiniz Google tarafından ürün geliştirmede kullanılabilir. Şık kodları: cevap sesli okunurken şık harfi yerine bu kelime söylenir (A=ADANA ise “ADANA”).")
+            HelpRow("Sayfalar (video ve net kareler), standart bir talimatla Gemini’ye gönderilir; soru numaralarını Gemini sayfadan okur, cevaplar numaraya göre sıralanır; gönderilemeyen sayfalar bir kez daha denenir. Model zinciri: ilk model kotası dolarsa, sunucu hata verirse ya da cevap bekleme sınırında yanıt gelmezse sıradaki profile (kendi anahtarıyla) geçilir; son modele sınır konmaz. Her profilin kendi API anahtarı vardır (aistudio.google.com); anahtarlar yalnız bu telefonun Keychain’inde saklanır. Ücretsiz katmanda içeriğiniz Google tarafından ürün geliştirmede kullanılabilir. Şık kodları: cevap sesli okunurken şık harfi yerine bu kelime söylenir (A=ADANA ise “ADANA”).")
         }
     }
 

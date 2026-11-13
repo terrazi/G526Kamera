@@ -84,9 +84,8 @@ final class AppModel: ObservableObject {
     @Published var banner = ""
     /// Kırmızı kutudaki uyarılar
     @Published var notes: [ProblemNote] = []
-    @Published var acceptedNumbers: [Int] = []
-    /// Yarım kalan (üst ya da alt kısmı alınmış, tamamlanmayı bekleyen) sorular
-    @Published var waitingQuestions: [Int] = []
+    /// Alınan sayfa sayısı
+    @Published var pageCount = 0
     @Published var answers: [AnswerRecord] = []
     @Published var lastSaid = ""
 
@@ -95,32 +94,19 @@ final class AppModel: ObservableObject {
     let pipeline = FramePipeline()
     let recorder = VideoRecorder()
     let collector = FrameCollector()
-    let guidance = GuidanceEngine()
     let decodeClock = DecodeClock()
     var cancellables = Set<AnyCancellable>()
 
     /// Çalışan tarama görevi
     var runTask: Task<Void, Never>?
-    /// Bu taramanın kayıt defteri, geçici dosyaları ve klasör adı
-    var ledger = ScanLedger(total: 0)
+    /// Bu taramanın alınan sayfaları, geçici dosyaları ve klasör adı
+    var pages: [ScannedPage] = []
+    /// Üst üste kenar denetiminden geçemeyen çekim sayısı (sayfa alınınca sıfırlanır)
+    var coverageStreak = 0
     var files: ScanFiles?
     var runName = ""
     var latestSample: PageSample?
-    /// Konum tarifi şu an söylensin mi (yalnız yeni çekim beklenirken)
-    var guidanceActive = false {
-        didSet {
-            liveOCR.setEnabled(guidanceActive, orientation: settings.imageOrientation)
-            liveFraming = nil
-        }
-    }
-    /// Canlı okuma (çekim öncesi kadraj denetimi) ve son sonucu
-    let liveOCR = LiveOCR()
-    var liveFraming: (result: LiveFramingResult, takenAt: TimeInterval)?
     var lastDocAt: TimeInterval?
-    /// Konum tarifi motorunun kamera durgunken verdiği son öneri ve zamanı: çekim, yazı kadraja tam sığınca başlar
-    var lastAdvice: GuidanceAdvice?
-    var lastAdviceAt: TimeInterval = 0
-    var repeatGate = RepeatGate()
     /// Kestirmeden dönüş sayacı (g526kamera://kestirme gelince artar)
     var shortcutReturns = 0
     var jpegSerial = 0
@@ -137,7 +123,6 @@ final class AppModel: ObservableObject {
         let clock = self.decodeClock
         let recorder = self.recorder
         let collector = self.collector
-        let liveOCR = self.liveOCR
         decoder.onDecoded = { buffer, time in
             clock.mark()
             pipeline.handle(buffer, time: time)
@@ -146,10 +131,6 @@ final class AppModel: ObservableObject {
         pipeline.onAnalyzed = { buffer, time, sharpness in
             recorder.offer(buffer, time: time, sharpness: sharpness)
             collector.offer(buffer, time: time, sharpness: sharpness)
-            liveOCR.offer(buffer)
-        }
-        liveOCR.onResult = { [weak self] lines, takenAt in
-            Task { @MainActor in self?.liveResult(lines, takenAt: takenAt) }
         }
         decoder.onResolution = { [weak self] width, height in
             Task { @MainActor in self?.resolutionText = "\(width)×\(height)" }
@@ -265,51 +246,20 @@ final class AppModel: ObservableObject {
         cameraState = .stopped
     }
 
-    // MARK: - Konum tarifi
+    // MARK: - Belge ölçümü
 
-    /// Analiz kuyruğundan gelen ölçüm: son ölçüm saklanır; yeni çekim beklenirken yönlendirme cümlesi söylenir
+    /// Analiz kuyruğundan gelen ölçüm: son ölçüm saklanır; kadrajda belge var mı, sahne durgun mu buradan bilinir (sesli tarif yoktur)
     func guidanceSample(_ sample: FramePipeline.GuidanceSample) {
         let now = ProcessInfo.processInfo.systemUptime
         latestSample = PageSample(metrics: sample.metrics, stillFor: sample.stillFor, diffToCapture: sample.diffToCapture, arrived: now)
-        let isDoc = DocumentGate.isDocument(sample.metrics)
-        if isDoc { lastDocAt = now }
-        liveOCR.setDocPresent(isDoc)
-        guard guidanceActive, phase == .scanning || phase == .waitingForPage else { return }
-        let out = guidance.videoStep(sample.metrics, time: sample.time, stillFor: sample.stillFor)
-        lastAdvice = out.advice
-        lastAdviceAt = now
-        // Kadraj boşken ("Yazı görünmüyor") konuşulmaz: evrak bekleme ve eksik soru uyarıları zaten bunu söyler; sayfa çevrilirken susulur
-        if out.advice == .noText { return }
-        if let text = out.speak, voice.sayIfIdle(text) { lastSaid = text }
+        if DocumentGate.isDocument(sample.metrics) { lastDocAt = now }
     }
 
-    /// Canlı okuma geldi: görünen sorular kadraja tam sığıyor mu. Sığmayan soru varsa (aynı uyarı 12 sn'de bir) sesle söylenir.
-    func liveResult(_ lines: [OCRLine], takenAt: TimeInterval) {
-        guard guidanceActive, phase == .scanning || phase == .waitingForPage else { return }
-        let r = LiveFraming.evaluate(lines: lines, total: ledger.total, optionCount: ledger.optionCount, config: qualityConfig())
-        liveFraming = (r, takenAt)
-        guard let problem = r.problem, r.number > 0, let s = latestSample,
-              ScanRules.liveVerdictValid(takenAt: takenAt, now: now(), sampleArrived: s.arrived, stillFor: s.stillFor) else { return }
-        let text = QualityGate.spoken([problem], number: r.number)
-        if repeatGate.allow(text, now: now(), gap: 12), voice.sayIfIdle(text) { lastSaid = text }
-    }
-
-    /// Geçerli canlı okumanın kararı (nil: canlı karar yok, konum tarifi bakılır)
-    func liveVerdict(at t: TimeInterval) -> Bool? {
-        guard let l = liveFraming, l.result.questions > 0, let s = latestSample,
-              ScanRules.liveVerdictValid(takenAt: l.takenAt, now: t, sampleArrived: s.arrived, stillFor: s.stillFor) else { return nil }
-        return l.result.ready
-    }
-
-    /// Konum tarifi motorunu ayarlardan kurar
+    /// Belge ölçümünü kurar
     func configureGuidance() {
         pipeline.guidanceOrientation = settings.imageOrientation
         pipeline.guidanceOn = true
         pipeline.pageEdgesOn = false
-        guidance.config.topBand = settings.imageOrientation == .normal ? GuidanceAnalyzer.skipTop : 0
-        guidance.describeScene = false
-        guidance.config.autoPick = false
-        guidance.resetVideo()
     }
 
     // MARK: - Uyarılar ve duyurular

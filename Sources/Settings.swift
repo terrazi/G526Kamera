@@ -32,22 +32,22 @@ final class AppSettings: ObservableObject {
     @Published var questionTotal: Int { didSet { d.set(questionTotal, forKey: "questionTotal") } }
     /// Soru başına şık sayısı: 4 (A–D) ya da 5 (A–E)
     @Published var optionCount: Int { didSet { d.set(optionCount, forKey: "optionCount") } }
-    /// Gemini'ye giden PDF kaç sorudan oluşsun (1 = her soru ayrı PDF)
-    @Published var groupSize: Int { didSet { d.set(groupSize, forKey: "groupSize") } }
-    /// Gemini'ye ne gitsin: 0 = akıllı (telefonda temiz okunan soru metin, şüpheli soru PDF), 1 = hep PDF (görüntü), 2 = yalnız metin
-    @Published var geminiInput: Int { didSet { d.set(geminiInput, forKey: "geminiInput") } }
+    /// Taranacak sayfa sayısı (0 = bilinmiyor: tarama kadraj boşalınca biter); girilmişse bu kadar sayfa alınınca tarama biter
+    @Published var pageTotal: Int { didSet { d.set(pageTotal, forKey: "pageTotal") } }
+    /// Her sayfa için çekim (gezdirme) süresi, saniye
+    @Published var sweepSeconds: Int { didSet { d.set(sweepSeconds, forKey: "sweepSeconds") } }
+    /// Gemini'ye ne gitsin: 0 = video + videodan seçilen net kareler (PDF), 1 = yalnız kareler (PDF), 2 = yalnız video
+    @Published var pageInput: Int { didSet { d.set(pageInput, forKey: "pageInput") } }
+    /// Sayfa kenarı denetimi: 0 = kapalı, 1 = üst ve alt kenar videoda görülmeli, 2 = dört kenar
+    @Published var coverageMode: Int { didSet { d.set(coverageMode, forKey: "coverageMode") } }
+    /// Bir sayfa için en çok çekim: kenar denetimi geçmezse sayfa bu kadar kez yeniden istenir, sonra olduğu gibi alınır
+    @Published var pageAttempts: Int { didSet { d.set(pageAttempts, forKey: "pageAttempts") } }
     /// Kamera hazırken "evrakı kameraya tutun" uyarısı bu kadar saniyede bir tekrarlanır
     @Published var readyRepeatSeconds: Int { didSet { d.set(readyRepeatSeconds, forKey: "readyRepeatSeconds") } }
     /// Evrak bu kadar dakikada tutulmazsa taramadan vazgeçilir
     @Published var readyMaxMinutes: Int { didSet { d.set(readyMaxMinutes, forKey: "readyMaxMinutes") } }
-    /// Bir soru için en çok deneme; dolunca soru "okunamadı" sayılır, tarama sürer (0 = sınırsız)
-    @Published var maxAttempts: Int { didSet { d.set(maxAttempts, forKey: "maxAttempts") } }
     /// Taramanın toplam süre sınırı (dakika): dolunca eksikler "okunamadı" sayılıp tarama biter
     @Published var scanMaxMinutes: Int { didSet { d.set(scanMaxMinutes, forKey: "scanMaxMinutes") } }
-    /// Sayfa boşalınca eksik sorular varsa bu kadar saniye beklenir (eksik sayfayı tutmanız istenir), sonra tarama biter
-    @Published var missingWaitSeconds: Int { didSet { d.set(missingWaitSeconds, forKey: "missingWaitSeconds") } }
-    /// Netlik isteği: 0 = gevşek, 1 = normal, 2 = sıkı
-    @Published var guidanceSharpness: Int { didSet { d.set(guidanceSharpness, forKey: "guidanceSharpness") } }
 
     // MARK: Kestirmeler ve internet
     /// Kamera Wi-Fi'sini açan kestirmenin adı (Kestirmeler uygulamasındaki ad); boşsa kamera ağına elle bağlanılmış varsayılır
@@ -58,6 +58,8 @@ final class AppSettings: ObservableObject {
     @Published var shortcutTries: Int { didSet { d.set(shortcutTries, forKey: "shortcutTries") } }
     @Published var shortcutWaitSeconds: Int { didSet { d.set(shortcutWaitSeconds, forKey: "shortcutWaitSeconds") } }
     static let questionTotalRange = 0...300
+    static let pageTotalRange = 0...100
+    static let sweepRange = 3...30
     static let shortcutTriesRange = 1...1000
     static let shortcutWaitRange = 10...3600
 
@@ -124,14 +126,14 @@ final class AppSettings: ObservableObject {
 
         questionTotal = AppSettings.clamp(d.object(forKey: "questionTotal") as? Int, range: AppSettings.questionTotalRange, fallback: 0)
         optionCount = d.object(forKey: "optionCount") as? Int == 4 ? 4 : 5
-        groupSize = AppSettings.clamp(d.object(forKey: "groupSize") as? Int, range: 1...3, fallback: 1)
-        geminiInput = AppSettings.clamp(d.object(forKey: "geminiInput") as? Int, range: 0...2, fallback: 0)
+        pageTotal = AppSettings.clamp(d.object(forKey: "pageTotal") as? Int, range: AppSettings.pageTotalRange, fallback: 0)
+        sweepSeconds = AppSettings.clamp(d.object(forKey: "sweepSeconds") as? Int, range: AppSettings.sweepRange, fallback: 8)
+        pageInput = AppSettings.clamp(d.object(forKey: "pageInput") as? Int, range: 0...2, fallback: 0)
+        coverageMode = AppSettings.clamp(d.object(forKey: "coverageMode") as? Int, range: 0...2, fallback: 1)
+        pageAttempts = AppSettings.clamp(d.object(forKey: "pageAttempts") as? Int, range: 1...5, fallback: 2)
         readyRepeatSeconds = AppSettings.clamp(d.object(forKey: "readyRepeatSeconds") as? Int, range: 10...300, fallback: 30)
         readyMaxMinutes = AppSettings.clamp(d.object(forKey: "readyMaxMinutes") as? Int, range: 1...120, fallback: 10)
-        maxAttempts = AppSettings.clamp(d.object(forKey: "maxAttempts") as? Int, range: 0...50, fallback: 5)
         scanMaxMinutes = AppSettings.clamp(d.object(forKey: "scanMaxMinutes") as? Int, range: 2...240, fallback: 15)
-        missingWaitSeconds = AppSettings.clamp(d.object(forKey: "missingWaitSeconds") as? Int, range: 10...600, fallback: 60)
-        guidanceSharpness = AppSettings.clamp(d.object(forKey: "guidanceSharpness") as? Int, range: 0...2, fallback: 1)
 
         cameraShortcutName = d.string(forKey: "cameraShortcutName") ?? ""
         connectionShortcutName = d.string(forKey: "connectionShortcutName") ?? ""

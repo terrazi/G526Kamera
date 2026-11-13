@@ -3,8 +3,8 @@ import XCTest
 
 /// Yeni sürümün ayar varsayılanları ve sınırları (kullanıcının kararlarıyla uyumlu olmalı)
 final class AppSettingsTests: XCTestCase {
-    private let keys = ["questionTotal", "optionCount", "groupSize", "geminiInput", "readyRepeatSeconds", "readyMaxMinutes", "maxAttempts",
-                        "scanMaxMinutes", "missingWaitSeconds", "guidanceSharpness", "shortcutTries", "shortcutWaitSeconds",
+    private let keys = ["questionTotal", "optionCount", "pageTotal", "sweepSeconds", "pageInput", "coverageMode", "pageAttempts",
+                        "readyRepeatSeconds", "readyMaxMinutes", "scanMaxMinutes", "shortcutTries", "shortcutWaitSeconds",
                         "geminiWaitLimit", "answerPauseSeconds", "repeatPauseSeconds", "timestampMode", "previewOff", "dimScreen",
                         "jpegQuality", "sharpenImages", "cameraShortcutName", "connectionShortcutName", "geminiOptionCodes"]
 
@@ -35,14 +35,14 @@ final class AppSettingsTests: XCTestCase {
         let s = AppSettings()
         XCTAssertEqual(s.questionTotal, 0, "soru sayısı her sınavdan önce girilir")
         XCTAssertEqual(s.optionCount, 5)
-        XCTAssertEqual(s.groupSize, 1)
-        XCTAssertEqual(s.geminiInput, 0, "varsayılan: akıllı (temiz sorular metin, şüpheliler PDF)")
+        XCTAssertEqual(s.pageTotal, 0, "sayfa sayısı bilinmiyor: tarama kadraj boşalınca biter")
+        XCTAssertEqual(s.sweepSeconds, 8)
+        XCTAssertEqual(s.pageInput, 0, "varsayılan: video + videodan seçilen net kareler")
+        XCTAssertEqual(s.coverageMode, 1, "varsayılan: üst ve alt kenar denetimi")
+        XCTAssertEqual(s.pageAttempts, 2)
         XCTAssertEqual(s.readyRepeatSeconds, 30)
         XCTAssertEqual(s.readyMaxMinutes, 10)
-        XCTAssertEqual(s.maxAttempts, 5)
         XCTAssertEqual(s.scanMaxMinutes, 15)
-        XCTAssertEqual(s.missingWaitSeconds, 60)
-        XCTAssertEqual(s.guidanceSharpness, 1)
         XCTAssertEqual(s.shortcutTries, 30)
         XCTAssertEqual(s.shortcutWaitSeconds, 60, "bekleme 1 dakika (2 dakika değil)")
         XCTAssertEqual(s.geminiWaitLimit, 30)
@@ -63,22 +63,26 @@ final class AppSettingsTests: XCTestCase {
     func testStoredValuesAreClamped() {
         let d = UserDefaults.standard
         d.set(9999, forKey: "questionTotal")
-        d.set(9, forKey: "groupSize")
+        d.set(9999, forKey: "pageTotal")
+        d.set(1, forKey: "sweepSeconds")
         d.set(7, forKey: "optionCount")
-        d.set(-4, forKey: "maxAttempts")
+        d.set(-4, forKey: "pageAttempts")
+        d.set(9, forKey: "pageInput")
+        d.set(5, forKey: "coverageMode")
         d.set(1, forKey: "readyRepeatSeconds")
         d.set(0, forKey: "shortcutTries")
         d.set(5000, forKey: "shortcutWaitSeconds")
-        d.set(5, forKey: "guidanceSharpness")
         let s = AppSettings()
         XCTAssertEqual(s.questionTotal, 300)
-        XCTAssertEqual(s.groupSize, 3)
+        XCTAssertEqual(s.pageTotal, 100)
+        XCTAssertEqual(s.sweepSeconds, 3)
         XCTAssertEqual(s.optionCount, 5)
-        XCTAssertEqual(s.maxAttempts, 0)
+        XCTAssertEqual(s.pageAttempts, 1)
+        XCTAssertEqual(s.pageInput, 2)
+        XCTAssertEqual(s.coverageMode, 2)
         XCTAssertEqual(s.readyRepeatSeconds, 10)
         XCTAssertEqual(s.shortcutTries, 1)
         XCTAssertEqual(s.shortcutWaitSeconds, 3600)
-        XCTAssertEqual(s.guidanceSharpness, 2)
     }
 
     func testFourOptionsIsKept() {
