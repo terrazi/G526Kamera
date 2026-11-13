@@ -299,7 +299,8 @@ extension SessionViewModel {
     func resumeAfterRecovery() async {
         try? deps.route.configure()
         deps.route.preferExternalInput()
-        let verdict = AudioRouting.verdict(deps.route.snapshot())
+        let verdict = await settledRoute().verdict
+        guard !Task.isCancelled else { return }
         guard verdict.isSafe else {
             enterHardwarePause(verdict)
             return

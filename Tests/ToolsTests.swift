@@ -486,3 +486,61 @@ final class EnglishDictationTests: XCTestCase {
         XCTAssertFalse(AppSettings(defaults: defaults).englishDictation)
     }
 }
+
+// MARK: - Ses yolunun oturması
+
+@MainActor
+final class RouteSettlingTests: XCTestCase {
+    /// Kulaklık yolda, mikrofon alıcısı takılı ama yola henüz girmemiş (kulaklık seçildikten hemen sonraki an)
+    private func unsettled() -> RouteSnapshot {
+        var snapshot = FakeRoute.good
+        snapshot.inputs = []
+        return snapshot
+    }
+
+    func testStartupWaitsForTheRouteInsteadOfPausingAtTheFirstLook() async {
+        let h = SessionHarness()
+        h.route.current = unsettled()
+        h.route.settlesAfterPrefers = 3
+        let ok = await h.startListening()
+        XCTAssertTrue(ok, "Yol birkaç yüz ms sonra oturunca test kendiliğinden başlar")
+        XCTAssertFalse(h.isHardwarePause)
+        XCTAssertGreaterThanOrEqual(h.route.preferCalls, 3, "Mikrofon tercihi yeniden verildi")
+    }
+
+    func testStartupStillPausesWhenTheReceiverNeverJoinsTheRoute() async {
+        let h = SessionHarness()
+        h.route.current = unsettled()
+        h.vm.start()
+        let paused = await waitUntil { h.isHardwarePause }
+        XCTAssertTrue(paused, "Gerçek eksikte duraklatılır")
+        XCTAssertTrue(h.speaker.spoken.isEmpty, "Güvensiz yolda hiçbir şey çalınmaz")
+    }
+
+    func testSoundTestWaitsForTheRouteToo() async {
+        let h = SessionHarness()
+        h.route.current = unsettled()
+        h.route.settlesAfterPrefers = 2
+        h.vm.testSound()
+        let done = await waitUntil { !h.vm.testingSound && h.vm.soundTest.contains("duydunuz mu") }
+        XCTAssertTrue(done, h.vm.soundTest)
+        XCTAssertEqual(h.speaker.spoken, [Say.soundTest])
+    }
+
+    func testMainScreenExplainsAReceiverThatIsPluggedButNotInTheRoute() {
+        let h = SessionHarness()
+        h.route.current = unsettled()
+        h.vm.refreshInputs()
+        XCTAssertTrue(h.vm.routeText.hasPrefix("Çıkış: Bluetooth kulaklık. Giriş: yok."), h.vm.routeText)
+        XCTAssertTrue(h.vm.routeText.contains("Boya Mikrofon"), "Takılı alıcının adı yazılır")
+        XCTAssertTrue(h.vm.routeText.contains("Sesi dene"), "Hareketsizken nasıl açılacağı söylenir")
+    }
+
+    func testNoReceiverMeansNoExtraExplanation() {
+        let h = SessionHarness()
+        h.route.inputs = []
+        h.route.current = unsettled()
+        h.vm.refreshInputs()
+        XCTAssertEqual(h.vm.routeText, "Çıkış: Bluetooth kulaklık. Giriş: yok.")
+    }
+}

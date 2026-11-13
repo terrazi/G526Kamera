@@ -40,8 +40,10 @@ extension SessionViewModel {
             return
         }
         deps.route.preferExternalInput()
-        let verdict = AudioRouting.verdict(deps.route.snapshot())
+        let verdict = await settledRoute().verdict
+        guard !Task.isCancelled else { return }
         routeVerdict = verdict
+        refreshInputs()
         setCheck("kulaklik", "Bluetooth kulaklık", ok: verdict.headphonesOK, detail: verdict.headphonesOK ? "bağlı" : verdict.hint)
         setCheck("mikrofon", "Yaka mikrofonu", ok: verdict.micOK, detail: verdict.micOK ? "bağlı" : "Lightning girişindeki mikrofon alıcısı görünmüyor")
         guard verdict.isSafe else {

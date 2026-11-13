@@ -121,6 +121,8 @@ final class AudioSessionGuard: AudioRouteProviding {
     private let session: AVAudioSession
     private let defaults: UserDefaults
     private var chosenInputUID: String?
+    /// Harici mikrofon yola girmediği için tercihin art arda kaç kez yeniden verildiği (sınırsız yol bildirimi döngüsü olmasın)
+    private var reassertCount = 0
     private var observer: NSObjectProtocol?
     private var interruptionObserver: NSObjectProtocol?
 
@@ -147,6 +149,7 @@ final class AudioSessionGuard: AudioRouteProviding {
     }
 
     func configure() throws {
+        reassertCount = 0
         try session.setCategory(AudioSessionGuard.category, mode: .default, options: AudioSessionGuard.options)
         try session.setActive(true)
     }
@@ -160,8 +163,20 @@ final class AudioSessionGuard: AudioRouteProviding {
         let externals = (session.availableInputs ?? []).filter { AudioRouting.externalMicPorts.contains($0.portType) }
         // Kullanıcının seçtiği mikrofon takılıysa o, değilse ilk harici mikrofon
         let external = externals.first(where: { $0.uid == chosenInputUID }) ?? externals.first
-        // Zaten seçiliyse dokunma: gereksiz yönlendirme değişikliği yeni bir yol bildirimi doğurur
-        if session.preferredInput?.uid == external?.uid { return }
+        if session.preferredInput?.uid == external?.uid {
+            // Tercih verilmiş. Mikrofon gerçekten yoldaysa dokunma (gereksiz yönlendirme yeni bir yol bildirimi doğurur).
+            // Yolda değilse (kulaklık seçilince yol yeniden kurulur ve tercih düşebilir) birkaç kez yeniden ver.
+            guard let external = external else { return }
+            if session.currentRoute.inputs.contains(where: { $0.uid == external.uid }) {
+                reassertCount = 0
+                return
+            }
+            guard reassertCount < 3 else { return }
+            reassertCount += 1
+            try? session.setPreferredInput(nil)
+            try? session.setPreferredInput(external)
+            return
+        }
         try? session.setPreferredInput(external)
     }
 

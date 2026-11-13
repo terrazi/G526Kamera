@@ -59,7 +59,15 @@ final class FakeRoute: AudioRouteProviding {
     }
 
     func snapshot() -> RouteSnapshot { return current }
-    func preferExternalInput() { preferCalls += 1 }
+    /// Yol ilk bakışta oturmamış olsun: bu kadar `preferExternalInput` çağrısından sonra güvenli yola geçer (nil = hiç)
+    var settlesAfterPrefers: Int?
+    func preferExternalInput() {
+        preferCalls += 1
+        if let n = settlesAfterPrefers, preferCalls >= n {
+            current = FakeRoute.good
+            settlesAfterPrefers = nil
+        }
+    }
 
     /// Bağlı mikrofonlar (varsayılan: Lightning alıcı) ve seçim denemeleri
     var inputs: [InputChoice] = [InputChoice(uid: "lightning", name: "Boya Mikrofon", port: .usbAudio, isCurrent: true)]

@@ -114,7 +114,15 @@ final class SessionViewModel: ObservableObject {
     /// Ana ekrandaki mikrofon listesi: yalnız harici (Lightning/USB/kablolu) mikrofonlar seçilebilir
     func refreshInputs() {
         inputs = deps.route.availableInputs().filter { $0.isExternal }
-        routeText = AudioRouting.describe(deps.route.snapshot())
+        let snapshot = deps.route.snapshot()
+        var text = AudioRouting.describe(snapshot)
+        // Mikrofon alıcısı takılı ama ses yoluna girmediyse nedeni yazılır ("giriş yok" tek başına yanıltıcıdır)
+        if !snapshot.inputs.contains(where: { AudioRouting.externalMicPorts.contains($0) }), let receiver = inputs.first {
+            text += phase.isAtRest
+                ? " Mikrofon alıcısı (\(receiver.name)) takılı; “Sesi dene” ya da “Başlat” ile devreye girer."
+                : " Mikrofon alıcısı (\(receiver.name)) takılı ama ses yoluna girmedi."
+        }
+        routeText = text
     }
 
     /// Kullanıcı listeden bir mikrofon seçti

@@ -54,7 +54,8 @@ extension SessionViewModel {
             guard let self = self else { return }
             try? self.deps.route.configure()
             self.deps.route.preferExternalInput()
-            let verdict = AudioRouting.verdict(self.deps.route.snapshot())
+            let verdict = await self.settledRoute().verdict
+            guard !Task.isCancelled else { return }
             self.routeVerdict = verdict
             guard verdict.isSafe else {
                 self.enterHardwarePause(verdict)
@@ -67,6 +68,24 @@ extension SessionViewModel {
             guard !Task.isCancelled else { return }
             self.beginListening()
         }
+    }
+
+    // MARK: Ses yolunun oturması
+
+    /// Ses yolunu okur. Güvenli görünmüyorsa yol henüz oturmamış olabilir (kulaklık seçimi ve mikrofon tercihi anında değil, yarım saniye
+    /// kadar sonra yansır): kısa aralıklarla mikrofon tercihi yeniden verilip birkaç kez daha bakılır. Gerçek bir eksikte en çok ~1,6 sn gecikir.
+    func settledRoute() async -> (snapshot: RouteSnapshot, verdict: RouteVerdict) {
+        var snapshot = deps.route.snapshot()
+        var verdict = AudioRouting.verdict(snapshot)
+        var tries = 0
+        while !verdict.isSafe, tries < 4, !Task.isCancelled {
+            tries += 1
+            await deps.sleep(0.4)
+            deps.route.preferExternalInput()
+            snapshot = deps.route.snapshot()
+            verdict = AudioRouting.verdict(snapshot)
+        }
+        return (snapshot, verdict)
     }
 
     // MARK: Sesi dene
@@ -87,8 +106,8 @@ extension SessionViewModel {
                 return
             }
             self.deps.route.preferExternalInput()
-            let snapshot = self.deps.route.snapshot()
-            let verdict = AudioRouting.verdict(snapshot)
+            let (snapshot, verdict) = await self.settledRoute()
+            guard !Task.isCancelled else { return }
             self.routeVerdict = verdict
             self.refreshInputs()
             let route = AudioRouting.describe(snapshot)
