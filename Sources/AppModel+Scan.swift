@@ -257,7 +257,7 @@ extension AppModel {
             }
             // Belge sabit görünüyor: 2 sn sonra, yazı kadraja tam sığınca (yarım soru kalmasın) çekim; sığmazsa yönlendirme sürer
             if doc, let since = docSince, t - since >= ScanRules.settleSeconds, let s = latestSample, t - s.arrived < 2,
-               ScanRules.framingReady(docFor: t - since, advice: lastAdvice, adviceAge: t - lastAdviceAt),
+               ScanRules.framingReady(docFor: t - since, advice: lastAdvice, adviceAge: t - lastAdviceAt, live: liveVerdict(at: t)),
                ScanRules.canRearm(firstCapture: captures == 0, diffToCapture: s.diffToCapture, stillFor: s.stillFor,
                                   sinceLastWindow: lastWindowEnd.map { t - $0 } ?? Double.infinity) {
                 phase = .scanning

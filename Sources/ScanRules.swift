@@ -73,10 +73,22 @@ enum ScanRules {
         return sinceLastWindow >= retrySameSceneSeconds
     }
 
-    /// Çekimden önce kadraj denetimi (yarım soru kalmasın): konum tarifi "tamam" diyorsa (yazı kadraja tam sığıyor) hemen çekilir;
-    /// aksi halde yönlendirme sürer ve `framingWaitSeconds` dolunca yine de çekilir. `advice`: kamera durgunken ölçülen son öneri.
-    static func framingReady(docFor: TimeInterval, advice: GuidanceAdvice?, adviceAge: TimeInterval) -> Bool {
+    /// Canlı okumanın sonucu bu kadar saniyeden eskiyse kullanılmaz
+    static let liveMaxAge = 8.0
+
+    /// Canlı okuma sonucu hâlâ geçerli mi: yeterince yeni ve okunan kareden beri sahne değişmemiş (kamera / sayfa oynamamış)
+    static func liveVerdictValid(takenAt: TimeInterval, now: TimeInterval, sampleArrived: TimeInterval, stillFor: TimeInterval) -> Bool {
+        let age = now - takenAt
+        guard age >= 0, age <= liveMaxAge else { return false }
+        return takenAt >= sampleArrived - stillFor - 0.3
+    }
+
+    /// Çekimden önce kadraj denetimi (yarım soru kalmasın). `live`: geçerli canlı okuma varsa "görünen sorular tam sığıyor mu" kararı;
+    /// o yoksa konum tarifinin (kamera durgunken ölçülen) son önerisi "tamam" ise hazırdır. Sığmıyorsa yönlendirme sürer;
+    /// `framingWaitSeconds` dolunca yine de çekilir.
+    static func framingReady(docFor: TimeInterval, advice: GuidanceAdvice?, adviceAge: TimeInterval, live: Bool? = nil) -> Bool {
         if docFor >= settleSeconds + framingWaitSeconds { return true }
+        if let l = live { return l }
         guard let a = advice, adviceAge < 2 else { return false }
         return a == .ok
     }
