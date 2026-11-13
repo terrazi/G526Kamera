@@ -16,7 +16,7 @@ final class LiveFramingTests: XCTestCase {
 
     func testQuestionCutAtTheBottomIsReportedAsCut() {
         // 13. sorunun son şıkları kadrajın altında kaldı
-        let r = evaluate(OCRFixtures.question(12, y0: 0.2) + OCRFixtures.question(13, y0: 0.62, options: "ABC"))
+        let r = evaluate(OCRFixtures.question(12, y0: 0.2) + OCRFixtures.question(13, y0: 0.72, options: "ABC"))
         XCTAssertFalse(r.ready)
         XCTAssertEqual(r.problem, .cutBottom)
         XCTAssertEqual(r.number, 13)
@@ -38,7 +38,7 @@ final class LiveFramingTests: XCTestCase {
 
     func testMostImportantProblemWins() {
         // 12. soru üstten, 13. soru alttan kesik: alttan kesik önce söylenir (öncelik 0)
-        let r = evaluate(OCRFixtures.question(12, y0: 0.001) + OCRFixtures.question(13, y0: 0.7, options: "ABC"))
+        let r = evaluate(OCRFixtures.question(12, y0: 0.001) + OCRFixtures.question(13, y0: 0.72, options: "ABC"))
         XCTAssertEqual(r.problem, .cutBottom)
         XCTAssertEqual(r.number, 13)
     }
