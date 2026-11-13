@@ -185,7 +185,7 @@ final class SessionViewModel: ObservableObject {
         } catch let error as ListenerError {
             if error.isHardware {
                 warn("mikrofon", error.localizedDescription)
-                work = Task { [weak self] in await self?.runRecovery(.hardware) }
+                work = Task { [weak self] in await self?.runRecovery(.hardware, force: true) }
             } else {
                 stopForGood(error.localizedDescription)
             }
@@ -213,7 +213,7 @@ final class SessionViewModel: ObservableObject {
             accumulator.commitCurrent()
         case .failure(let message):
             warn("mikrofon", message)
-            work = Task { [weak self] in await self?.runRecovery(.hardware) }
+            work = Task { [weak self] in await self?.runRecovery(.hardware, force: true) }
         }
     }
 

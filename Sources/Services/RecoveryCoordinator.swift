@@ -47,13 +47,16 @@ final class RecoveryCoordinator {
         self.sleep = sleep
     }
 
-    /// `verify`: nedene göre "sorun bitti mi" sınaması (ağ için internet+Gemini ping, donanım için ses yolu)
+    /// `verify`: nedene göre "sorun bitti mi" sınaması (ağ için internet+Gemini ping, donanım için ses yolu).
+    /// `force`: sorun `verify` ile görülemiyorsa (ör. ses yolu güvenli ama mikrofon ses vermiyor) ilk sınama atlanır ve
+    /// adımlar en az bir kez çalıştırılır.
     func recover(reason: RecoveryReason,
+                 force: Bool = false,
                  verify: @escaping (RecoveryReason) async -> Bool,
                  update: @escaping (Update) -> Void) async -> Result {
         update(.checking)
         // Kendiliğinden düzelmiş olabilir: boşuna kestirme çalıştırma
-        if await verify(reason) { return .recovered(by: nil) }
+        if !force, await verify(reason) { return .recovered(by: nil) }
 
         let steps = reason.steps.filter { !name($0).trimmed.isEmpty }
         guard !steps.isEmpty else { return .notConfigured }

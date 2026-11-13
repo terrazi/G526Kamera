@@ -74,7 +74,7 @@ extension SessionViewModel {
         do {
             try deps.listener.start()
         } catch {
-            await runRecovery(.hardware)
+            await runRecovery(.hardware, force: true)
             return
         }
         await deps.sleep(Timing.silenceProbe)
@@ -84,7 +84,7 @@ extension SessionViewModel {
             watchdog.kick()
             return
         }
-        await runRecovery(.hardware)
+        await runRecovery(.hardware, force: true)
     }
 
     // MARK: Ağ (Modül 4)
@@ -132,7 +132,7 @@ extension SessionViewModel {
     }
 
     /// Mikrofon kapanır, Kestirmeler sırayla çalışır (Wi-Fi → hücresel → sıfırlama). Sonucu çağıran işler.
-    func performRecovery(_ reason: RecoveryReason) async -> RecoveryCoordinator.Result {
+    func performRecovery(_ reason: RecoveryReason, force: Bool = false) async -> RecoveryCoordinator.Result {
         deps.listener.pause()
         watchdog.disarm()
         cancelTimers()
@@ -140,6 +140,7 @@ extension SessionViewModel {
         statusNote = "Sorun giderilmeye çalışılıyor…"
         let key = settings.apiKey
         return await recovery.recover(reason: reason,
+                                      force: force,
                                       verify: { [weak self] reason in await self?.verify(reason, key: key) ?? false },
                                       update: { [weak self] update in self?.recoveryUpdated(update) })
     }
@@ -160,9 +161,10 @@ extension SessionViewModel {
         }
     }
 
-    func runRecovery(_ reason: RecoveryReason) async {
+    /// `force`: sorun ses yoluna bakarak görülemiyorsa (mikrofon donmuş) Kestirmeler yine de çalıştırılır
+    func runRecovery(_ reason: RecoveryReason, force: Bool = false) async {
         guard canRecover else { return }
-        let result = await performRecovery(reason)
+        let result = await performRecovery(reason, force: force)
         guard !Task.isCancelled, case .recovering = phase else { return }
         switch result {
         case .recovered:

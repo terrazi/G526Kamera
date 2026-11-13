@@ -42,8 +42,8 @@ final class GeminiAnswerService: Answering {
     Türkçe okunuşa benzeyen anlamsız sözcükler olarak yazar (ör. "kompleks ayşın" gibi). Bu yüzden metni harfi harfine \
     değil, kullanıcıya empati kurarak oku: kimin, hangi sınavda, ne söylemeye çalıştığını düşün. Bozuk görünen her \
     sözcük için olası İngilizce (ya da Türkçe) karşılıkları ses benzerliğiyle çıkar, soru kalıbını, şıkları, konunun \
-    terimlerini ve gramer yapısını birlikte değerlendir; birden çok açıdan (anlam, ses, bağlam, şıkların birbirine \
-    benzerliği) düşünüp en tutarlı yorumu seç. Şıkların hangi harfe ya da sözcüğe denk geldiğini de aynı şekilde karıştırma.
+    terimlerini ve gramer yapısını birlikte değerlendir. Çok boyutlu düşün: birden çok açıdan (anlam, ses, bağlam, \
+    şıkların birbirine benzerliği) bakıp en tutarlı yorumu seç. Şıkların hangi harfe ya da sözcüğe denk geldiğini de aynı şekilde karıştırma.
 
     Soru numarası okunmadıysa ya da anlaşılmadıysa kullanıcı mesajındaki ipucunu kullan. Cevap metnini şıktan kısaca yaz. \
     Giriş, açıklama, markdown, tırnak ve ek cümle yazma. Emin değilsen en olası şıkkı yaz.
