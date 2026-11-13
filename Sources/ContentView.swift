@@ -13,6 +13,7 @@ struct ContentView: View {
                     preview
                     powerToggles
                     captureButton
+                    pauseButton
                     videoButton
                     if !model.videoRecording { pageVideoButton }
                     if model.queuedVideos > 0 || model.sendingVideos { sendVideosButton }
@@ -177,6 +178,25 @@ struct ContentView: View {
             .cornerRadius(12)
         }
         .disabled(model.capturing || !model.isLive)
+    }
+
+    /// Duraklat / Devam et ("duraklat" ve "devam et" komutlarıyla aynı): duraklatılmışken çekim, konuşma, sınav akışı ve gönderim durur
+    private var pauseButton: some View {
+        Button {
+            model.togglePause()
+        } label: {
+            HStack {
+                Image(systemName: model.paused ? "play.fill" : "pause.fill")
+                Text(model.paused ? "Devam et (işlemler duraklatıldı)" : "Duraklat")
+                    .fontWeight(.semibold)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .background(model.paused ? Color.green : Color.orange)
+            .foregroundColor(.white)
+            .cornerRadius(12)
+        }
+        .accessibilityIdentifier("duraklat")
     }
 
     /// Video kaydı: açıkken kırmızı; en çok ayardaki süre (varsayılan 90 sn) sürer, "kapat" denince ya da süre dolunca biter ve belge klasörüne kaydedilir

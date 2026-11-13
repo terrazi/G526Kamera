@@ -254,6 +254,7 @@ struct SettingsView: View {
             Stepper(value: $settings.cooldown, in: 2...20, step: 1) {
                 Text("İki çekim arası bekleme: \(Int(settings.cooldown)) sn")
             }
+            HelpRow("“Durum bilgisi ver”: program o an ne yaptığını (sınav aşaması, video, gönderim…) ve telefonun durumunu (ısı, bellek, ekran takılması, pil, boş yer) kısaca söyler; sınav sürerken de çalışır. “Duraklat”: konuşma, çekim, sesli konumlandırma, sınav akışı, klasöre gönderme ve yeni Gemini istekleri durur; açık video kaydı duraklar. “Devam et” hepsini kaldığı yerden sürdürür (ana ekrandaki Duraklat / Devam et düğmesi de aynı işi yapar). Duraklatılmışken yalnız “devam et”, “durum bilgisi ver” ve sınavı sonlandırma / kapatma çalışır; “durum bilgisi ver” denirse program duraklatıldığını ve nasıl devam edileceğini söyler. Mikrofon dinlemesi ve kamera bağlantısı açık kalır; yoksa “devam et” duyulamaz. İnternete gitmiş bir Gemini isteği kesilemez, cevabı devam edilince okunur.")
         }
     }
 

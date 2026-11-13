@@ -212,6 +212,17 @@ final class AppModel: ObservableObject {
         let now = ProcessInfo.processInfo.systemUptime
         return thermalHot || now < stallShedUntil || now < safeModeUntil
     }
+    /// Son sağlık örneğindeki "son dakikadaki takılma sayısı" ("durum bilgisi ver" okur)
+    private var lastStalls = 0
+    /// "Duraklat" komutu verildi: konuşma, çekim, rehberlik, sınav akışı, gönderim ve yeni Gemini istekleri "devam et" gelene kadar tutulur
+    @Published private(set) var paused = false
+    /// Duraklatılmışken gelen Gemini cevapları devam edilince okunur
+    private var heldSpeech: [String] = []
+    /// Duraklatma açık video kaydını da duraklattı (devam edince aynı dosyaya sürer)
+    private var videoHeldByPause = false
+    /// Sayfa videosunda bir sayfa kaydedilirken duraklatıldı: kalan süre (sn)
+    private var pageSegmentHeld: TimeInterval?
+    private var pageSegmentEnd: Date?
     // Sınavın video aşaması (normal video kaydından ayrı: kayıt düğmesi / "kapat" komutu bunu etkilemez)
     private var examVideoState: ExamVideoPhase = .idle
     private var examVideoOutput: VideoRecorder.Output?
@@ -520,6 +531,7 @@ final class AppModel: ObservableObject {
         client.stop()
         decoder.reset()
         gemini.cancel()
+        clearPause()
         examStore?.stop()
         modelChooser.end()
         speech.stop()
@@ -598,6 +610,9 @@ final class AppModel: ObservableObject {
         commands.append(SpeechTrigger.Command(id: "finish", phrases: finish, intent: GuidanceVocabulary.finishIntent))
         commands.append(SpeechTrigger.Command(id: "report", phrases: GuidanceVocabulary.report, intent: GuidanceVocabulary.reportIntent))
         commands.append(SpeechTrigger.Command(id: "battery", phrases: GuidanceVocabulary.battery, intent: GuidanceVocabulary.batteryIntent))
+        commands.append(SpeechTrigger.Command(id: "status", phrases: GuidanceVocabulary.status, intent: GuidanceVocabulary.statusIntent))
+        commands.append(SpeechTrigger.Command(id: "pause", phrases: GuidanceVocabulary.pause))
+        commands.append(SpeechTrigger.Command(id: "resume", phrases: GuidanceVocabulary.resume))
         commands.append(SpeechTrigger.Command(id: "deleteLast", phrases: GuidanceVocabulary.deleteLast,
                                               intent: GuidanceVocabulary.deleteLastIntent))
         commands.append(SpeechTrigger.Command(id: "retake", phrases: GuidanceVocabulary.retake,
@@ -678,7 +693,7 @@ final class AppModel: ObservableObject {
             case .ready, .restored: notify(message.text, .status, group: "kamera")
             }
         }
-        if let text = notices.next(now: now, speaking: speaker.isSpeaking, lastSpeechAt: lastSpeechAt) {
+        if !paused, let text = notices.next(now: now, speaking: speaker.isSpeaking, lastSpeechAt: lastSpeechAt) {
             say(text)
         }
     }
@@ -723,6 +738,10 @@ final class AppModel: ObservableObject {
 
     @discardableResult
     func capture(reason: String) -> Bool {
+        if paused {
+            if reason == "Elle" { flash("Duraklatıldı: devam et deyin ya da Devam et düğmesine basın", seconds: 3) }
+            return false
+        }
         // Sayfa sayfa videoda her çekim tetiği (konum uygun, çekim sözcüğü, düğme) o sayfayı videoya yazar
         if pageVideoActive { return startPageSegment() }
         guard isLive else {
@@ -905,7 +924,9 @@ final class AppModel: ObservableObject {
     }
 
     /// Ekranda göster, istenirse (ya da zorunluysa) sesli söyle. Konuşurken mikrofon bastırılır.
-    private func say(_ text: String, interrupt: Bool = false, force: Bool = false) {
+    private func say(_ text: String, interrupt: Bool = false, force: Bool = false, whilePaused: Bool = false) {
+        // Duraklatılmışken yalnız duraklatma / devam / durum cümleleri söylenir
+        if paused && !whilePaused { return }
         // Gemini sorusu / cevabı sürerken kendiliğinden yönlendirme cümleleri araya girmez
         if gemini.isActive && !force { return }
         // Sınav kendi cümlelerini okur; yalnız tarama adımında (sesli konumlandırma zorla açıkken) yönlendirme cümleleri de söylenir
@@ -924,6 +945,11 @@ final class AppModel: ObservableObject {
     /// Gemini cevabını (ya da hata mesajını) seçili okuma sesiyle söyler
     private func speakGemini(_ text: String) -> Bool {
         guard !text.trimmed.isEmpty else { return false }
+        // Duraklatılmışken cevap tutulur, devam edilince okunur
+        if paused {
+            heldSpeech.append(text)
+            return true
+        }
         lastSpeechAt = ProcessInfo.processInfo.systemUptime
         // Dinleme motoru çalışırken ses oturumunun türü değiştirilmez: her konuşmada çalma türüne geçip dönmek, USB mikrofon
         // alıcısında yönlendirmeyi durmadan değiştirir ve motoru yeniden başlatma döngüsüne sokar
@@ -956,6 +982,8 @@ final class AppModel: ObservableObject {
     private func examEnabledChanged(_ on: Bool) {
         let e = exam
         guard e.enabled != on else { return }
+        // Mod kapanırken sınav sonlanır: kapanış cümlesi söylenebilsin diye duraklatma kalkar
+        if !on && paused { resumeAll(announce: false) }
         e.setEnabled(on)
         // Sınav sözcükleri yalnız mod açıkken ses tanımaya ipucu olarak verilir
         if started && !examActive { restartSpeech() }
@@ -1008,6 +1036,9 @@ final class AppModel: ObservableObject {
         // Ayar ilk haliyle uygulanır (açılışta bilgi cümlesi söylenmez); sesle "sınavı kapat" anahtarı da kapatır
         e.setEnabled(s.examEnabled, announce: false)
         e.onCloseMode = { [weak self] in self?.settings.examEnabled = false }
+        // Duraklatılmışken "sınavı sonlandır / kapat" denirse duraklatma kalkar (kapanış cümlesi söylenebilsin)
+        e.onResumeRequest = { [weak self] in self?.resumeAll(announce: false) }
+        e.setPaused(paused)
         return e
     }
 
@@ -1030,7 +1061,7 @@ final class AppModel: ObservableObject {
 
     /// Sınav cümlesini okutur ve okuma bitene kadar bekler
     private func speakExam(_ text: String) async {
-        guard !text.trimmed.isEmpty else { return }
+        guard !text.trimmed.isEmpty, !paused else { return }
         if let old = examSpeechWaiter {
             examSpeechWaiter = nil
             old.resume()
@@ -1121,7 +1152,7 @@ final class AppModel: ObservableObject {
     }
 
     private func guidanceSample(_ sample: FramePipeline.GuidanceSample) {
-        guard started, isLive else { return }
+        guard started, isLive, !paused else { return }
         // Video kaydı sürerken yalnız konum tarifi: fotoğraf çekilmez, bölüm sorusu sorulmaz
         if videoGuideActive {
             videoGuidanceSample(sample)
@@ -1161,6 +1192,21 @@ final class AppModel: ObservableObject {
     }
 
     private func voiceCommand(_ id: String, heard: String) {
+        // Duraklat / devam et / durum bilgisi: her durumda (sınav sürerken de) çalışır; duraklatılmışken başka komut işlenmez
+        switch id {
+        case "pause":
+            pauseAll()
+            return
+        case "resume":
+            resumeAll()
+            return
+        case "status":
+            giveStatus()
+            return
+        default:
+            break
+        }
+        if paused { return }
         // Sınav sürerken de "dinle": her an Gemini ile serbest konuşma (sınavın konuşması kesilir)
         if id == "gemini" && examActive {
             guard settings.geminiEnabled else { return }
@@ -1307,6 +1353,7 @@ final class AppModel: ObservableObject {
 
     /// Bekleyen bütün fotoğrafları şimdi gönder (toplu modda tek PDF)
     func finishAll() {
+        guard !paused else { flash("Duraklatıldı: önce devam et deyin", seconds: 3); return }
         if capturing {
             finishRequested = true
             say("Son fotoğraf işleniyor, bitince göndereceğim.", interrupt: true, force: true)
@@ -1417,6 +1464,7 @@ final class AppModel: ObservableObject {
     /// Sayfa sayfa video (elle): program sesle konumlandırır; konum uygun olunca (ya da çekim sözcüğüyle) sayfa `pageVideoSeconds` sn
     /// aynı videoya yazılır, sonra kayıt duraklar; sayfa çevrilince yeniden hazırlanır. "Hepsi tamamlandı" / "kapat" tek dosyayı bitirir.
     func startPageVideo() {
+        guard !paused else { flash("Duraklatıldı: önce devam et deyin", seconds: 3); return }
         guard !videoRecording, !pageVideoActive else { return }
         guard !examActive, !gemini.isActive else {
             flash("Şu an video kaydı açılamaz (Gemini / sınav sürüyor)", seconds: 4)
@@ -1470,6 +1518,7 @@ final class AppModel: ObservableObject {
         }
         let seconds = min(TimeInterval(settings.pageVideoSeconds), remaining)
         pageSegmentRunning = true
+        pageSegmentEnd = Date().addingTimeInterval(seconds)
         capturePart = nil
         videoRecorder.resume()
         flash("● Sayfa \(pageVideoPages + 1) kaydediliyor (\(Int(seconds.rounded())) sn)", seconds: seconds)
@@ -1509,6 +1558,7 @@ final class AppModel: ObservableObject {
 
     /// Video kaydını açar: en çok ayardaki süre (`videoMaxSeconds`, varsayılan 90 sn) sürer, "kapat" denince ya da süre dolunca biter.
     func startVideo() {
+        guard !paused else { flash("Duraklatıldı: önce devam et deyin", seconds: 3); return }
         guard !videoRecording else { return }
         guard !examActive, !gemini.isActive else {
             flash("Şu an video kaydı açılamaz (Gemini / sınav sürüyor)", seconds: 4)
@@ -1542,6 +1592,8 @@ final class AppModel: ObservableObject {
     func stopVideo(reason: String) {
         guard videoRecording else { return }
         videoRecording = false
+        videoHeldByPause = false
+        pageSegmentHeld = nil
         let pages = pageVideoPages
         let pageMode = pageVideoActive
         setPageVideo(false, exam: false)
@@ -1609,6 +1661,7 @@ final class AppModel: ObservableObject {
     /// Sıradaki videoları eskiden yeniye, tek tek Gemini'ye gönderir; her cevap sırayla sesle okunur ve ekranda birikir.
     /// Bir video başarısız olursa durur; kalanlar sırada bekler (yeniden "videoları gönder" denir).
     func sendQueuedVideos() {
+        guard !paused else { flash("Duraklatıldı: önce devam et deyin", seconds: 3); return }
         guard !sendingVideos else {
             say("Videolar zaten gönderiliyor.", interrupt: false, force: true)
             return
@@ -1817,6 +1870,7 @@ final class AppModel: ObservableObject {
     /// 10 saniyede bir gelen sağlık örneği: bellek şişerse kare belleği boşaltılır, ekran sık takılırsa yük azaltılır
     private func healthSample(_ sample: HealthSample, stalls: Int) {
         guard started else { return }
+        lastStalls = stalls
         let now = ProcessInfo.processInfo.systemUptime
         if LoadGuard.shedForStalls(count: stalls) {
             if !loadShed {
@@ -2107,7 +2161,7 @@ final class AppModel: ObservableObject {
 
     /// Bekleme sırasında en son kareyi (arka planda) "belge mi" diye ölçer; ekranda evrak yokken kayıt başlamaz.
     private func examVideoTick() {
-        guard examVideoState == .waiting, isLive, !examVideoChecking,
+        guard examVideoState == .waiting, isLive, !paused, !examVideoChecking,
               let frame = pipeline.store.latest, frame.id != examVideoLastFrame else { return }
         examVideoLastFrame = frame.id
         examVideoChecking = true
@@ -2284,6 +2338,195 @@ final class AppModel: ObservableObject {
         let text = SpokenReport.battery(phone: phone.percent, charging: phone.charging, camera: cameraBatteryMonitor.current(now: ProcessInfo.processInfo.systemUptime))
         flash(text, seconds: 8)
         say(text, interrupt: true, force: true)
+    }
+
+    // MARK: - Duraklat / devam et / durum bilgisi
+
+    /// "Duraklat" ya da ekrandaki düğme: konuşma kesilir; çekim, sesli konumlandırma, sınav akışı, klasöre gönderme ve yeni Gemini
+    /// istekleri "devam et" gelene kadar tutulur. Açık video kaydı duraklar (aynı dosyaya devam eder). Mikrofon dinlemesi ve kamera
+    /// bağlantısı açık kalır; yoksa "devam et" duyulamaz. Uçuştaki bir Gemini isteği kesilemez, cevabı devam edilince okunur.
+    func pauseAll() {
+        guard started else { return }
+        if paused {
+            flash(StatusReport.pausedNotice, seconds: 6)
+            say(StatusReport.pausedNotice, interrupt: true, force: true, whilePaused: true)
+            return
+        }
+        paused = true
+        examHeardWork?.cancel()
+        examHeardText = ""
+        examStore?.setPaused(true)
+        queue.setUserPaused(true)
+        VideoOutbox.shared.setUserPaused(true)
+        holdVideoForPause()
+        speaker.stop()
+        tlog("[duraklat] işlemler duraklatıldı")
+        HealthMonitor.shared.event("duraklatıldı")
+        flash("Duraklatıldı: devam etmek için “devam et” deyin", seconds: 6)
+        say(StatusReport.pausing, interrupt: true, force: true, whilePaused: true)
+    }
+
+    /// "Devam et": her şey kaldığı yerden sürer. `announce`: "Devam ediyorum" denir (sınavı sonlandırma ile kalkınca söylenmez).
+    func resumeAll(announce: Bool = true) {
+        guard paused else { return }
+        paused = false
+        examHeardWork?.cancel()
+        examHeardText = ""
+        examStore?.setPaused(false)
+        queue.setUserPaused(false)
+        VideoOutbox.shared.setUserPaused(false)
+        releaseVideoAfterPause()
+        tlog("[duraklat] devam ediliyor")
+        HealthMonitor.shared.event("devam edildi")
+        flash("Devam ediliyor", seconds: 3)
+        let held = heldSpeech.joined(separator: " ")
+        heldSpeech = []
+        if announce {
+            if held.isEmpty {
+                say(StatusReport.resuming, interrupt: true, force: true)
+            } else {
+                _ = speakGemini(StatusReport.resuming + " " + held)
+            }
+        } else if !held.isEmpty {
+            _ = speakGemini(held)
+        }
+    }
+
+    /// Ekrandaki Duraklat / Devam et düğmesi
+    func togglePause() {
+        if paused { resumeAll() } else { pauseAll() }
+    }
+
+    /// Program durunca duraklatma kalkar (açık video kaydı sürsün diye kayıt da devam ettirilir)
+    private func clearPause() {
+        guard paused || videoHeldByPause || pageSegmentHeld != nil else { return }
+        paused = false
+        heldSpeech = []
+        examStore?.setPaused(false)
+        queue.setUserPaused(false)
+        VideoOutbox.shared.setUserPaused(false)
+        releaseVideoAfterPause()
+    }
+
+    /// Duraklatırken açık video kaydı da duraklar: dosya açık kalır, kareler yazılmaz, süre sınırı yalnız yazılan saniyeleri sayar
+    private func holdVideoForPause() {
+        // Sayfa videosunda bir sayfa kaydedilirken: kayıt durur, sayfanın kalan süresi saklanır
+        if pageVideoActive && pageSegmentRunning {
+            let left = max(0.5, pageSegmentEnd?.timeIntervalSinceNow ?? 1)
+            pageSegmentWork?.cancel()
+            pageSegmentWork = nil
+            videoRecorder.pause()
+            pageSegmentHeld = left
+            return
+        }
+        guard !videoHeldByPause, !pageVideoActive else { return }
+        if videoRecording {
+            videoRecorder.pause()
+            videoStopWork?.cancel()
+            videoStopWork = nil
+            videoHeldByPause = true
+        } else if examVideoState == .recording && !examVideoFinishing {
+            videoRecorder.pause()
+            examVideoWork?.cancel()
+            examVideoWork = nil
+            videoHeldByPause = true
+        }
+    }
+
+    private func releaseVideoAfterPause() {
+        if let left = pageSegmentHeld {
+            pageSegmentHeld = nil
+            guard pageVideoActive, pageSegmentRunning else { return }
+            videoRecorder.resume()
+            pageSegmentEnd = Date().addingTimeInterval(left)
+            let work = DispatchWorkItem { [weak self] in
+                Task { @MainActor in self?.endPageSegment() }
+            }
+            pageSegmentWork = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + left, execute: work)
+            return
+        }
+        guard videoHeldByPause else { return }
+        videoHeldByPause = false
+        if videoRecording && !pageVideoActive {
+            videoRecorder.resume()
+            let remaining = max(1, TimeInterval(settings.videoMaxSeconds) - videoRecorder.recordedSeconds)
+            let work = DispatchWorkItem { [weak self] in
+                Task { @MainActor in self?.stopVideo(reason: "süre") }
+            }
+            videoStopWork = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + remaining, execute: work)
+        } else if examVideoState == .recording && !examVideoFinishing {
+            videoRecorder.resume()
+            let remaining = max(1, TimeInterval(settings.examVideoMaxSeconds) - videoRecorder.recordedSeconds)
+            let token = examVideoToken
+            let work = DispatchWorkItem { [weak self] in
+                Task { @MainActor in self?.examVideoFinish(token: token) }
+            }
+            examVideoWork = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + remaining, execute: work)
+        }
+    }
+
+    /// "Durum bilgisi ver": programın o an ne yaptığını ve telefonun durumunu kısaca söyler (sınav sürerken de çalışır).
+    /// Duraklatılmışken yalnız duraklatıldığını ve nasıl devam edileceğini söyler.
+    func giveStatus() {
+        guard started else { return }
+        if paused {
+            flash(StatusReport.pausedNotice, seconds: 8)
+            say(StatusReport.pausedNotice, interrupt: true, force: true, whilePaused: true)
+            return
+        }
+        let work = workStatus()
+        let phone = phoneStatus()
+        if examActive {
+            let extra = StatusReport.system(work: work, phone: phone)
+            flash([exam.activityText(), extra].filter { !$0.isEmpty }.joined(separator: " "), seconds: 10)
+            exam.speakStatus(extra: extra)
+            return
+        }
+        let text = StatusReport.make(work: work, phone: phone, paused: false)
+        flash(text, seconds: 10)
+        say(text, interrupt: true, force: true)
+    }
+
+    private func phoneStatus() -> StatusReport.Phone {
+        let battery = phoneBattery()
+        return StatusReport.Phone(thermal: HealthMath.thermalLevel(ProcessInfo.processInfo.thermalState),
+                                  memoryMB: HealthMonitor.footprintMB(),
+                                  freeMB: DiskGuard.freeMB(),
+                                  battery: battery.percent,
+                                  charging: battery.charging,
+                                  lowPower: ProcessInfo.processInfo.isLowPowerModeEnabled,
+                                  stalls: lastStalls,
+                                  lightMode: loadShed || memoryCriticalNow)
+    }
+
+    private func workStatus() -> StatusReport.Work {
+        var w = StatusReport.Work()
+        switch cameraState {
+        case .stopped: w.camera = .off
+        case .connecting: w.camera = .connecting
+        case .reconnecting: w.camera = .reconnecting
+        case .connected: w.camera = .noPicture
+        case .streaming: w.camera = decoding ? .live : .noPicture
+        }
+        w.internetDown = internetDown
+        w.examLine = settings.examEnabled ? exam.activityText() : ""
+        // Sınav sürerken sayfaların akışını sınav anlatır; sınav dışında program kendi işlerini sayar
+        guard !examActive else { return w }
+        w.recording = videoRecording && !pageVideoActive
+        w.pageVideoPages = pageVideoActive ? pageVideoPages : nil
+        w.capturing = capturing
+        w.guided = guidanceWanted
+        w.gemini = gemini.isActive
+        w.sendingVideos = sendingVideos
+        w.queuedVideos = queuedVideos
+        w.waitingPages = queue.pending
+        w.saving = queue.isSaving
+        w.folderReady = folderReady
+        w.uploadError = !queue.lastError.isEmpty
+        return w
     }
 
     /// Kameradan gelen kararlı pil değeri değişti: ekranı güncelle, düşükse (bir kez) uyar

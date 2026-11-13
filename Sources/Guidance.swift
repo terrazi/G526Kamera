@@ -800,6 +800,21 @@ enum GuidanceVocabulary {
     /// Telefonun ve kameranın şarjını söyle
     static let battery = "batarya kontrol, batarya durumu, batarya nedir, batarya ne kadar, şarj durumu, şarj durumu nedir, "
         + "şarj ne kadar, şarj kaç, şarjım ne kadar, pil durumu, pil kontrol, pil ne kadar, telefonun şarjı, kameranın şarjı"
+    /// "Durum bilgisi ver": programın o an ne yaptığını ve telefonun durumunu söyle. "Durum nedir / durum ver / rapor ver" sayfa
+    /// raporudur (kaç sayfa çekildi); "bilgi" sözcüğü ya da "sistem / telefon / performans" bu komuta aittir.
+    static let status = "durum bilgisi, durum bilgisini, durum bilgi, sistem durumu, sistem durumunu, sistemin durumu, sistemin durumunu, "
+        + "telefon durumu, telefon durumunu, telefonun durumu, telefonun durumunu, performans durumu, performans bilgisi"
+    static let statusIntent: SpeechIntent = {
+        let strong: [String] = ["performans", "performansi", "performansim", "performansini"]
+        let none: [String] = []
+        return SpeechIntent(strong: Set(strong), scope: Set(none), weak: Set(none))
+    }()
+    /// "Duraklat": o an yapılan her şeyi "devam et" gelene kadar tutar
+    static let pause = "duraklat, duraklatın, duraklatalım, duraklatır mısın, duraklatsana, her şeyi duraklat, işlemleri duraklat, "
+        + "tüm işlemleri duraklat, mola ver"
+    /// "Devam et": duraklatılmışsa kaldığı yerden sürer (duraklatılmamışken yok sayılır)
+    static let resume = "devam et, devam edin, devam edelim, devam edebilirsin, devam edebiliriz, devam, "
+        + "kaldığımız yerden devam, kaldığın yerden devam, kaldığımız yerden devam et"
     /// Son fotoğrafı sil (kalıplar; "al" tek başına silme sayılmasın diye "geri al" burada)
     static let deleteLast = "son fotoğrafı sil, sonuncuyu sil, son çekimi sil, son sayfayı sil, bunu sil, geri al, "
         + "son fotoğrafı geri al, sonuncuyu geri al, son çekimi geri al, yanlış çektim, yanlış oldu, hatalı çekim, çekimi iptal et"

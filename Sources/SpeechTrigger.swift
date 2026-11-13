@@ -599,6 +599,37 @@ final class SpeechTrigger {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.8, execute: work)
     }
 
+    /// Aynı duyumda birden çok komut yakalandıysa hangilerinin geçeceğine karar verir (saf fonksiyon; birim testle denenir).
+    /// `ids`: çalışacak komutlar (sol / sağ seçimi dahil), `choiceIDs`: duyulan seçim sözcükleri.
+    static func resolve(_ firedIDs: [String]) -> (ids: [String], choiceIDs: [String]) {
+        let choiceIDs = firedIDs.filter { $0.hasPrefix("choice.") }
+        var ids = firedIDs.filter { !$0.hasPrefix("choice.") }
+        // Silme / yeniden çekme komutları kendi başına geçer: "son fotoğrafı sil" ne gönder, ne rapor, ne sol/sağ seçimi sayılır
+        let editing = ids.contains("deleteLast") || ids.contains("retake")
+        if editing {
+            ids = ids.filter { $0 != "finish" && $0 != "report" && $0 != "rechoose" }
+            if ids.contains("retake") { ids = ids.filter { $0 != "deleteLast" } }
+        }
+        // "Birinci alternatif model seç" içindeki "model seç" ve "birinci model" ana model komutu ya da model seçimi sayılmasın
+        if ids.contains(where: { ModelChoice.isAlternativeID($0) }) {
+            ids = ids.filter { $0 != "model" && !$0.hasPrefix("pick.") }
+        }
+        // "Durum bilgisi ver" içindeki "durum" sayfa raporu, "telefon durumu" batarya sayılmasın: durum bilgisi kendi başına geçer
+        if ids.contains("status") && !editing {
+            ids = ids.filter { $0 == "status" }
+        }
+        // "Şarj durumu nedir" içindeki "durum" rapor sayılmasın: batarya sorusu kendi başına geçer
+        if ids.contains("battery") && !editing {
+            ids = ids.filter { $0 == "battery" }
+        }
+        // "Duraklat" ve "devam et" birlikte duyulursa ("duraklat, sonra devam et") hiçbiri çalışmaz: ne istendiği belli değil
+        if ids.contains("pause") && ids.contains("resume") {
+            ids = ids.filter { $0 != "pause" && $0 != "resume" }
+        }
+        if choiceIDs.count == 1 && !editing && !ids.contains("finish") && !ids.contains("rechoose") { ids += choiceIDs }
+        return (ids, choiceIDs)
+    }
+
     private func handle(text: String?, alternatives: [String], isFinal: Bool,
                         hasResult: Bool, error: Error?, token t: Int) {
         guard running, t == token else { return }
@@ -637,23 +668,9 @@ final class SpeechTrigger {
                 }
             }
             // Aynı duyum hem "sol" hem "sağ"a benziyorsa ("sal") karar verilemez: seçim yok sayılır
-            let choiceIDs = firedIDs.filter { $0.hasPrefix("choice.") }
-            var ids = firedIDs.filter { !$0.hasPrefix("choice.") }
-            // Silme / yeniden çekme komutları kendi başına geçer: "son fotoğrafı sil" ne gönder, ne rapor, ne sol/sağ seçimi sayılır
-            let editing = ids.contains("deleteLast") || ids.contains("retake")
-            if editing {
-                ids = ids.filter { $0 != "finish" && $0 != "report" && $0 != "rechoose" }
-                if ids.contains("retake") { ids = ids.filter { $0 != "deleteLast" } }
-            }
-            // "Birinci alternatif model seç" içindeki "model seç" ve "birinci model" ana model komutu ya da model seçimi sayılmasın
-            if ids.contains(where: { ModelChoice.isAlternativeID($0) }) {
-                ids = ids.filter { $0 != "model" && !$0.hasPrefix("pick.") }
-            }
-            // "Şarj durumu nedir" içindeki "durum" rapor sayılmasın: batarya sorusu kendi başına geçer
-            if ids.contains("battery") && !editing {
-                ids = ids.filter { $0 == "battery" }
-            }
-            if choiceIDs.count == 1 && !editing && !ids.contains("finish") && !ids.contains("rechoose") { ids += choiceIDs }
+            let resolved = SpeechTrigger.resolve(firedIDs)
+            let choiceIDs = resolved.choiceIDs
+            let ids = resolved.ids
             if firedMain || !firedIDs.isEmpty {
                 unrecognizedWork?.cancel()
                 if ids.isEmpty && !firedMain && choiceIDs.count > 1 { onUnrecognized?(text) }

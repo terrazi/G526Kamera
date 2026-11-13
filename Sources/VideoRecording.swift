@@ -405,15 +405,24 @@ final class VideoOutbox {
         try? fm.removeItem(at: url)
     }
 
+    /// "Duraklat" komutu: yeni video gönderimi başlamaz (yüklenmekte olan bitirilir); "devam et" ile sürer
+    private(set) var userPaused = false
+
+    func setUserPaused(_ on: Bool) {
+        guard on != userPaused else { return }
+        userPaused = on
+        if !on { flush() }
+    }
+
     /// Bekleyen tüm videoları sırayla yüklemeyi dener.
     func flush() {
-        guard !busy else { return }
+        guard !busy, !userPaused else { return }
         guard !pendingFiles().isEmpty else { return }
         busy = true
         Task { [weak self] in
             // Her turda klasör yeniden taranır: yükleme sürerken gelen yeni video da aynı turda gönderilir
             var tried = Set<String>()
-            while let self = self {
+            while let self = self, !self.userPaused {
                 guard let file = self.pendingFiles().first(where: { !tried.contains($0.lastPathComponent) }) else { break }
                 tried.insert(file.lastPathComponent)
                 await self.send(file)

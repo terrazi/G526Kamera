@@ -1977,6 +1977,159 @@ final class ExamModeTests: XCTestCase {
         XCTAssertEqual(calls, 0)
     }
 
+    // MARK: Duraklat / devam et / durum bilgisi
+
+    func testPausedExamHoldsTheFlowUntilResumed() async {
+        let p = FakePorts()
+        let exam = make(p)
+        XCTAssertTrue(exam.start())
+        await scanPages(exam, p, ["a.jpg"])
+        XCTAssertTrue(exam.command("scan_done", source: "ui"))
+        exam.setPaused(true)
+        XCTAssertTrue(exam.paused)
+        XCTAssertEqual(exam.status, "Duraklatıldı")
+        let before = p.spoken.count
+        try? await Task.sleep(nanoseconds: 400_000_000)
+        XCTAssertEqual(p.spoken.count, before, "duraklatılmışken sınav konuşmaz: \(p.spoken)")
+        XCTAssertTrue(exam.active, "duraklatma sınavı bitirmez")
+        exam.setPaused(false)
+        let went = await until { self.spoke(p, "klasöre kaydediliyor") }
+        XCTAssertTrue(went, "devam edince sınav kaldığı yerden sürer: \(p.spoken)")
+        XCTAssertNotEqual(exam.status, "Duraklatıldı")
+        await finish(exam)
+    }
+
+    func testResumingRestoresTheStatusLine() async {
+        let p = FakePorts()
+        let exam = make(p)
+        XCTAssertTrue(exam.start())
+        await scanPages(exam, p, ["a.jpg", "b.jpg"])
+        XCTAssertEqual(exam.status, "Tarama: 2 sayfa")
+        exam.setPaused(true)
+        XCTAssertEqual(exam.status, "Duraklatıldı")
+        exam.setPaused(false)
+        XCTAssertEqual(exam.status, "Tarama: 2 sayfa")
+        await finish(exam)
+    }
+
+    func testPausedExamIgnoresEverythingButEndAndClose() async {
+        let p = FakePorts()
+        let exam = make(p)
+        XCTAssertTrue(exam.start())
+        await scanPages(exam, p, ["a.jpg"])
+        exam.setPaused(true)
+        XCTAssertFalse(exam.hear("devam et"))
+        XCTAssertFalse(exam.hear("evet"))
+        XCTAssertFalse(exam.hear("hepsini bitirdim gönder"), "genel sözler duraklatmada sınavı bitirmez")
+        XCTAssertFalse(exam.hear("tamamla"))
+        XCTAssertFalse(exam.command("scan_done", source: "ui"))
+        XCTAssertFalse(exam.command("undo", source: "ui"))
+        XCTAssertFalse(exam.start())
+        XCTAssertTrue(exam.active)
+        exam.setPaused(false)
+        await finish(exam)
+    }
+
+    func testEndingWhilePausedStopsTheExamAndLiftsThePause() async {
+        let p = FakePorts()
+        let exam = make(p)
+        XCTAssertTrue(exam.start())
+        await scanPages(exam, p, ["a.jpg"])
+        exam.setPaused(true)
+        var lifted = 0
+        exam.onResumeRequest = { [unowned exam] in
+            lifted += 1
+            exam.setPaused(false)
+        }
+        XCTAssertTrue(exam.hear("sınavı sonlandır"))
+        XCTAssertEqual(lifted, 1)
+        let done = await exam.waitDone(timeout: 8)
+        XCTAssertTrue(done)
+        XCTAssertFalse(exam.paused)
+        XCTAssertTrue(spoke(p, "Deneme sınavı sonlandırıldı"), "\(p.spoken)")
+        XCTAssertTrue(exam.enabled, "sonlandırma modu kapatmaz")
+    }
+
+    func testEndingWhilePausedWorksEvenWithoutTheCallback() async {
+        let p = FakePorts()
+        let exam = make(p)
+        XCTAssertTrue(exam.start())
+        await scanPages(exam, p, ["a.jpg"])
+        exam.setPaused(true)
+        XCTAssertTrue(exam.hear("sınav tamam"))
+        let done = await exam.waitDone(timeout: 8)
+        XCTAssertTrue(done, "duraklatılmış sınav sonlandırılabilir")
+    }
+
+    func testClosingTheModeWhilePausedDuringAnExam() async {
+        let p = FakePorts()
+        let exam = make(p)
+        XCTAssertTrue(exam.start())
+        await scanPages(exam, p, ["a.jpg"])
+        exam.setPaused(true)
+        exam.onResumeRequest = { [unowned exam] in exam.setPaused(false) }
+        XCTAssertTrue(exam.hear("sınavı kapat"))
+        let done = await exam.waitDone(timeout: 8)
+        XCTAssertTrue(done)
+        let left = await until { !exam.enabled }
+        XCTAssertTrue(left, "mod kapandı")
+    }
+
+    func testClosingTheModeWhilePausedAndIdle() {
+        let p = FakePorts()
+        let exam = make(p)
+        exam.setPaused(true)
+        XCTAssertFalse(exam.hear("devam et"))
+        XCTAssertFalse(exam.hear("sınavı başlat"), "duraklatılmışken sınav başlamaz")
+        XCTAssertTrue(exam.hear("normal moda geç"))
+        XCTAssertFalse(exam.enabled)
+    }
+
+    func testPausedCannotStartAnExamAndResumeAllowsIt() async {
+        let p = FakePorts()
+        let exam = make(p)
+        exam.setPaused(true)
+        XCTAssertFalse(exam.start())
+        XCTAssertFalse(exam.active)
+        exam.setPaused(false)
+        XCTAssertTrue(exam.start())
+        await finish(exam)
+    }
+
+    func testSettingPausedTwiceChangesNothing() {
+        let p = FakePorts()
+        let exam = make(p)
+        exam.setPaused(true)
+        exam.setPaused(true)
+        XCTAssertTrue(exam.paused)
+        exam.setPaused(false)
+        exam.setPaused(false)
+        XCTAssertFalse(exam.paused)
+    }
+
+    func testActivityTextDescribesTheExam() async {
+        let p = FakePorts()
+        let exam = make(p)
+        XCTAssertEqual(exam.activityText(), "Deneme sınavı modu açık, sınav başlamadı.")
+        XCTAssertTrue(exam.start())
+        await scanPages(exam, p, ["a.jpg", "b.jpg"])
+        XCTAssertEqual(exam.activityText(), "Sınav taraması sürüyor, 2 sayfa tarandı.")
+        p.lost = [.internet]
+        XCTAssertEqual(exam.activityText(), "Sınav taraması sürüyor, 2 sayfa tarandı.", "taramada internet gerekmez")
+        p.lost = []
+        exam.speakStatus(extra: "Kamera bağlı.")
+        let said = await until { p.spoken.contains("Sınav taraması sürüyor, 2 sayfa tarandı. Kamera bağlı.") }
+        XCTAssertTrue(said, "\(p.spoken)")
+        await finish(exam)
+    }
+
+    func testActivityTextIsEmptyInNormalMode() {
+        let p = FakePorts()
+        let exam = make(p)
+        exam.setEnabled(false, announce: false)
+        XCTAssertEqual(exam.activityText(), "")
+    }
+
     func testCloseCallsTheModeCallbackInsteadOfClosingByItself() async {
         let p = FakePorts()
         let exam = make(p)

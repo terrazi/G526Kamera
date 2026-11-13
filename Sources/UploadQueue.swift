@@ -31,6 +31,8 @@ final class UploadQueue: ObservableObject {
     private(set) var examHold = false
     /// Deneme sınavı: dosyalar ayardan bağımsız olarak PDF'e çevrilip toplu gönderilir
     private(set) var examMode = false
+    /// "Duraklat" komutu: yeni dosya gönderimi başlamaz (yüklenmekte olan bitirilir); "devam et" ile sürer
+    private(set) var userPaused = false
     /// Klasöre kaydedilen PDF'ler (eskiden yeniye; diskte tutulur, en çok 200)
     private(set) var sentLog: [ExamSentFile] = []
     private let sentLogURL: URL
@@ -133,6 +135,21 @@ final class UploadQueue: ObservableObject {
         examMode = exam
         if !hold { kick() }
     }
+
+    /// "Duraklat" / "devam et": duraklatılmışken yeni gönderim başlamaz; devam edince kuyruk kaldığı yerden sürer
+    func setUserPaused(_ on: Bool) {
+        guard on != userPaused else { return }
+        userPaused = on
+        if on {
+            let waiting = pendingFiles().count
+            if waiting > 0 { status = "Duraklatıldı: \(waiting) fotoğraf bekliyor" }
+        } else {
+            kick()
+        }
+    }
+
+    /// Bir dosya şu an klasöre kaydediliyor mu
+    var isSaving: Bool { return !inFlight.isEmpty }
 
     /// Gönderilmeyi bekleyen fotoğraf adları (eskiden yeniye)
     func pendingNames() -> [String] {
@@ -259,6 +276,10 @@ final class UploadQueue: ObservableObject {
                 draining = false
                 flush = false
                 status = uploaded > 0 ? "Tüm fotoğraflar klasöre kaydedildi" : ""
+                return
+            }
+            if userPaused {
+                status = "Duraklatıldı: \(files.count) fotoğraf bekliyor"
                 return
             }
             if examHold {

@@ -314,6 +314,13 @@ final class ExamMode: ObservableObject {
     @Published private(set) var status = ""
     @Published private(set) var said: [String] = []
     @Published private(set) var info = ExamInfo()
+    /// "Duraklat" komutu: sınav akışı bir sonraki adımda durur ("devam et" gelene kadar bekler); yalnız sınavı sonlandırma / kapatma çalışır
+    @Published private(set) var paused = false
+    /// Duraklatılmışken "sınavı sonlandır / kapat" denirse çağrılır: program duraklatmayı kaldırır (kapanış cümlesi söylenebilsin)
+    var onResumeRequest: (() -> Void)?
+    private var statusBeforePause = ""
+    /// "Durum bilgisi ver" cümlesi okunurken sınavın sonraki cümleleri bekler
+    private var statusBusy = 0
     /// Cevap anahtarı (kayıtlı cevaplardan; sınav sırasıyla)
     @Published private(set) var key: [ExamKeyRow] = []
     /// Cevap anahtarı klasöre yüklendiyse bağlantısı
@@ -517,6 +524,8 @@ final class ExamMode: ObservableObject {
             tlog("[sinav] komut yok sayıldı (kendi sesimizin yankısı olabilir): \(name)")
             return false
         }
+        // Duraklatılmışken yalnız sonlandırma / kapatma geçer
+        if paused && name != "end" && name != "close" { return false }
         if !running { return outside(name, text) }
         // "Sınavı kapat": açık sınav sonlandırılır, bitince mod da kapanır
         if name == "close" { closeAfter = true }
@@ -533,6 +542,15 @@ final class ExamMode: ObservableObject {
     /// Serbest söylenen metin (ses tanımadan). Anlam olarak komuta çevrilir; yorumlandıysa true.
     @discardableResult
     func hear(_ text: String) -> Bool {
+        if paused {
+            // Duraklatılmışken yalnız "sınavı sonlandır / kapat" işlenir ("sınav" ya da "normal mod" sözüyle; "bitirdim" gibi genel sözler
+            // duraklatmada sınavı bitirmesin); duraklatma kalkar ki kapanış cümlesi söylenebilsin
+            let toks = ExamText.tokens(text)
+            let aboutExam = toks.contains(where: { $0.hasPrefix("sinav") || $0.hasPrefix("deneme") || $0.hasPrefix("normal") })
+            guard aboutExam, let name = ExamText.match(text, running ? ["end", "close"] : ["close"]) else { return false }
+            onResumeRequest?()
+            return command(name, text: text, source: "ui")
+        }
         if !running && !enabled {
             // Normal mod: sınav sözleri işlenmez; yalnız "sınavı başlat" denirse neden başlamadığı söylenir
             if ExamText.match(text, ["start"]) == "start" { return command("start", text: text) }
@@ -679,7 +697,7 @@ final class ExamMode: ObservableObject {
 
     /// Dinle akışı sürerken sınav akışının sonraki cümleleri bekler
     private func waitFloor() async {
-        while freeActive && !aborted && !Task.isCancelled {
+        while (freeActive || statusBusy > 0) && !aborted && !Task.isCancelled {
             try? await Task.sleep(nanoseconds: 100_000_000)
         }
     }
@@ -804,6 +822,7 @@ final class ExamMode: ObservableObject {
 
     @discardableResult
     func start() -> Bool {
+        guard !paused else { return false }       // duraklatılmışken başlamaz ("devam et" gerekir)
         guard enabled else { return false }       // kapalıyken başlatılamaz (sesli komutta "etkin değil" cevabı `outside`'ta verilir)
         if startupRunning {
             bg { await self.sayNow("Önce hazırlık sınamasını tamamlayalım.") }
@@ -1022,10 +1041,102 @@ final class ExamMode: ObservableObject {
 
     private func say(_ text: String) async throws {
         try check()
+        try await holdIfPaused()
         // Ses (kulaklık / mikrofon) kesikse söylenecek cümle bağlantı gelene kadar bekler
         try await linksOK(network: false, repeatLast: false)
         await sayNow(text)
         try check()
+    }
+
+    // MARK: Duraklatma
+
+    /// "Duraklat" / "devam et": sınav akışı bir sonraki söz, bekleme ya da Gemini isteğinde durur; devam edince kaldığı yerden sürer.
+    /// Uçuştaki bir Gemini isteği kesilemez; cevabı devam edilince işlenir.
+    func setPaused(_ on: Bool) {
+        guard on != paused else { return }
+        paused = on
+        if on {
+            statusBeforePause = status
+            if running { setStatus("Duraklatıldı") }
+            // Sürmekte olan "dinle" konuşması bırakılır
+            if freeActive {
+                freeRestart = false
+                ports.stopListening()
+                ports.stopSpeaking()
+            }
+        } else if running && status == "Duraklatıldı" {
+            setStatus(statusBeforePause)
+        }
+    }
+
+    /// Duraklatılmışken sınav akışı burada bekler. Sonlandırma gelirse durur. Bekleme süresini (sn) döndürür.
+    @discardableResult
+    private func holdIfPaused() async throws -> Double {
+        guard paused else { return 0 }
+        let begin = uptime()
+        while paused {
+            try check()
+            if cmds.contains(where: { $0.name == "end" }) { throw ExamStop() }
+            try await nap()
+        }
+        return uptime() - begin
+    }
+
+    // MARK: Durum bilgisi
+
+    /// "Durum bilgisi ver": sınav modu / sınav o an ne yapıyor (kısa cümle). Mod kapalıysa boş.
+    func activityText() -> String {
+        guard enabled else { return "" }
+        if !running {
+            if startupRunning { return "Açılış sınaması yapılıyor: ses, internet ve Gemini kontrol ediliyor." }
+            var t = "Deneme sınavı modu açık, sınav başlamadı."
+            if info.saved { t += " Yarım kalan bir sınav kayıtlı." }
+            return t
+        }
+        if checking || stage == "check" { return "Sınav öncesi sınama yapılıyor: ses, internet ve Gemini kontrol ediliyor." }
+        let needsNetwork = ["send", "prepare", "verify", "answer"].contains(stage)
+        if let link = lostLinks(network: needsNetwork).first { return link.statusText + "." }
+        if freeActive { return "Deneme sınavı sürüyor, Gemini ile serbest konuşma yapılıyor." }
+        switch stage {
+        case "video":
+            var detail = status
+            if detail.hasPrefix("Video: ") { detail.removeFirst("Video: ".count) }
+            while detail.hasSuffix(".") { detail.removeLast() }
+            let lowered = detail.isEmpty ? "" : String(detail.prefix(1)).lowercased() + String(detail.dropFirst())
+            return lowered.isEmpty ? "Sınav video aşamasında." : "Sınav video aşamasında: \(lowered)."
+        case "scan":
+            let n = hasState ? st.photos.count : 0
+            return n > 0 ? "Sınav taraması sürüyor, \(n) sayfa tarandı." : "Sınav taraması sürüyor, henüz sayfa taranmadı."
+        case "send":
+            return "Taranan sayfalar klasöre gönderiliyor."
+        case "prepare":
+            return "Belgeler Gemini için hazırlanıyor."
+        case "verify":
+            return "Gemini belgeleri okuyup soruları sayıyor."
+        case "answer":
+            if let r = status.range(of: "Cevaplar okunuyor: ") {
+                return "Cevaplar okunuyor, \(status[r.upperBound...])."
+            }
+            return "Gemini cevapları hazırlıyor."
+        case "review":
+            return "Cevaplar okundu, sizden soru numarası ya da sınav tamamlandı sözünü bekliyorum."
+        default:
+            return "Deneme sınavı sürüyor."
+        }
+    }
+
+    /// "Durum bilgisi ver" sınav sürerken: sınavın durumu + `extra` (kamera, internet, telefon) okunur.
+    /// Sınavın sonraki cümleleri bu okuma bitene kadar bekler.
+    func speakStatus(extra: String) {
+        let text = [activityText(), extra].filter { !$0.isEmpty }.joined(separator: " ")
+        guard !text.isEmpty else { return }
+        statusBusy += 1
+        bg { [weak self] in
+            guard let self = self else { return }
+            await self.ports.say(text)
+            self.saidAt = self.uptime()
+            self.statusBusy -= 1
+        }
     }
 
     // MARK: Bağlantı kesintisi
@@ -1118,12 +1229,18 @@ final class ExamMode: ObservableObject {
         var deadline = timeout.map { uptime() + $0 }
         while true {
             try check()
+            // Duraklatılmışken beklemeler de durur; süre zaman aşımına sayılmaz
+            if paused {
+                let held = try await holdIfPaused()
+                if let d = deadline { deadline = d + held }
+                continue
+            }
             // Kullanıcının cevabı beklenirken ses (kulaklık / mikrofon) kesilirse sınav bekletilir; bekleme süresi zaman aşımına sayılmaz.
             // Kısa yoklamalarda (kayıt döngüsü, açılış sınaması) bakılmaz.
             if timeout == nil && !checking && uptime() >= nextLinkCheck {
                 nextLinkCheck = uptime() + 0.25
-                let paused = try await linksOK(network: false, repeatLast: true)
-                if paused > 0, let d = deadline { deadline = d + paused }
+                let linkWait = try await linksOK(network: false, repeatLast: true)
+                if linkWait > 0, let d = deadline { deadline = d + linkWait }
             }
             if !cmds.isEmpty {
                 let c = cmds.removeFirst()
@@ -1164,6 +1281,7 @@ final class ExamMode: ObservableObject {
                 let current = st.stage
                 stage = current
                 refreshInfo()
+                try await holdIfPaused()
                 // İnternet gerektiren aşamalar (klasöre gönderme, Gemini) internet gelene kadar beklenir; ses her aşamada gerekir
                 try await linksOK(network: ["send", "prepare", "verify", "answer"].contains(current), repeatLast: false)
                 let next: String?
@@ -1568,9 +1686,11 @@ final class ExamMode: ObservableObject {
         ports.hold(false)
         var told = false
         while true {
+            try await holdIfPaused()
             setStatus("Klasöre kaydediliyor...")
-            let left = await ports.flush(aborted: { self.aborted })
+            let left = await ports.flush(aborted: { self.aborted || self.paused })
             try check()
+            if paused { continue }         // gönderim duraklatıldı: devam edilince yeniden denenir
             collectSent()
             let pend = Set(ports.pending())
             st.photos = st.photos.filter { pend.contains($0) }
@@ -1607,6 +1727,7 @@ final class ExamMode: ObservableObject {
 
     private func ensureDocs() async throws {
         while docs == nil {
+            try await holdIfPaused()
             do {
                 setStatus("Belgeler hazırlanıyor...")
                 let r = try await ports.docs(for: st.sent)
@@ -1647,6 +1768,7 @@ final class ExamMode: ObservableObject {
     private func askJSON(_ task: ExamTask, key: String) async throws -> [String: Any] {
         for attempt in 0..<2 {
             try check()
+            try await holdIfPaused()
             let text = try await ports.ask(task, docs: docs ?? [])
             if let data = ExamMode.loads(text), data[key] is [Any] { return data }
             tlog("[sinav] cevap beklenen JSON değil (deneme \(attempt + 1))")
