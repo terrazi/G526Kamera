@@ -84,6 +84,19 @@ enum GeminiProfiles {
         return nil
     }
 
+    /// Panodan yapıştırılan metinden anahtarı ayıklar: metinde bir "AIza…" anahtarı varsa o alınır (başında "API key:" gibi
+    /// sözcükler ya da tırnak olsa da); yoksa baştaki/sondaki boşluk ve tırnaklar atılır. Boşsa nil.
+    static func cleanedKey(fromClipboard text: String?) -> String? {
+        guard let text = text else { return nil }
+        if let range = text.range(of: "AIza[0-9A-Za-z_\\-]{35}", options: .regularExpression) {
+            return String(text[range])
+        }
+        let quotes = CharacterSet(charactersIn: "\"'“”‘’`")
+        let cleaned = text.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: quotes)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return cleaned.isEmpty ? nil : cleaned
+    }
+
     /// "Anahtarı dene" sonucu: anahtarın model listesini alabilmesi Google'ın anahtarı kabul ettiğini gösterir (belirteç harcamaz);
     /// ardından profildeki modelin bu anahtarda görünüp görünmediği söylenir.
     static func keyTestText(model: String, result: Result<[String], GeminiError>) -> (ok: Bool, text: String) {

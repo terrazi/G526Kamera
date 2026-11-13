@@ -271,6 +271,17 @@ struct SettingsView: View {
         return Binding(get: { settings.geminiKeys[i] }, set: { settings.geminiKeys[i] = $0 })
     }
 
+    /// Panodaki anahtarı ilgili alana yazar (eskisinin yerine geçer); eski deneme sonucu silinir
+    private func pasteGeminiKey(slot: Int) {
+        guard let key = GeminiProfiles.cleanedKey(fromClipboard: UIPasteboard.general.string) else {
+            keyTestResults[slot] = (false, "Panoda metin yok. Önce anahtarı kopyalayın.")
+            return
+        }
+        settings.geminiKeys[slot - 1] = key
+        keyTestResults[slot] = nil
+        tlog("[gemini] \(slot). profile anahtar yapıştırıldı (\(GeminiProfiles.keyHint(key)))")
+    }
+
     /// Profilin anahtarını Google'a denetir: model listesi istenir (ücretsizdir, belirteç harcamaz)
     private func testGeminiKey(slot: Int) {
         guard let profile = settings.geminiProfileInfos().first(where: { $0.slot == slot }) else { return }
@@ -420,13 +431,18 @@ struct SettingsView: View {
                     } else if !settings.geminiKeys[i].trimmed.isEmpty {
                         Text("\(settings.geminiKeys[i].trimmed.count) karakter").font(.caption).foregroundColor(.secondary)
                     }
-                    if !settings.geminiKeys[i].trimmed.isEmpty {
-                        Button(testingKeySlot == i + 1 ? "Deneniyor…" : "Anahtarı dene") { testGeminiKey(slot: i + 1) }
-                            .disabled(testingKeySlot != 0)
-                            .accessibilityIdentifier("gemini-anahtar-dene-\(i + 1)")
-                        if let result = keyTestResults[i + 1] {
-                            Text(result.text).font(.caption).foregroundColor(result.ok ? .green : .red).textSelection(.enabled)
+                    HStack(spacing: 24) {
+                        Button("Yapıştır") { pasteGeminiKey(slot: i + 1) }
+                            .accessibilityIdentifier("gemini-anahtar-yapistir-\(i + 1)")
+                        if !settings.geminiKeys[i].trimmed.isEmpty {
+                            Button(testingKeySlot == i + 1 ? "Deneniyor…" : "Anahtarı dene") { testGeminiKey(slot: i + 1) }
+                                .disabled(testingKeySlot != 0)
+                                .accessibilityIdentifier("gemini-anahtar-dene-\(i + 1)")
                         }
+                    }
+                    .buttonStyle(BorderlessButtonStyle())
+                    if let result = keyTestResults[i + 1] {
+                        Text(result.text).font(.caption).foregroundColor(result.ok ? .green : .red).textSelection(.enabled)
                     }
                     Toggle("Ücretsiz anahtar", isOn: profileFree(i))
                 }

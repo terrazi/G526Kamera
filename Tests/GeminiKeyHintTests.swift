@@ -68,4 +68,20 @@ final class GeminiKeyHintTests: XCTestCase {
         let r = GeminiProfiles.keyTestText(model: "  ", result: .success([]))
         XCTAssertTrue(r.ok)
     }
+
+    func testClipboardKeyIsExtractedFromSurroundingText() {
+        XCTAssertEqual(GeminiProfiles.cleanedKey(fromClipboard: "  \(good)\n"), good)
+        XCTAssertEqual(GeminiProfiles.cleanedKey(fromClipboard: "API key: \(good) (ücretsiz)"), good)
+        XCTAssertEqual(GeminiProfiles.cleanedKey(fromClipboard: "\"\(good)\""), good)
+    }
+
+    func testClipboardNonStandardKeyIsTrimmedButKept() {
+        XCTAssertEqual(GeminiProfiles.cleanedKey(fromClipboard: " “abc-123” \n"), "abc-123")
+    }
+
+    func testEmptyClipboardGivesNothing() {
+        XCTAssertNil(GeminiProfiles.cleanedKey(fromClipboard: nil))
+        XCTAssertNil(GeminiProfiles.cleanedKey(fromClipboard: " \n\t"))
+        XCTAssertNil(GeminiProfiles.cleanedKey(fromClipboard: "\"\""))
+    }
 }
