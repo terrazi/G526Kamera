@@ -33,9 +33,12 @@ final class PowerSavingTests: XCTestCase {
         pipeline.saving = saving
         for i in 0..<10 {
             pipeline.handle(planarBuffer(), time: Double(i))
-            usleep(80_000)      // analiz kuyruğu boşalsın (birikme sınırına takılmasın)
+            // Analiz kuyruğu boşalana kadar beklenir (yoğun makinede birikme sınırına takılıp kare atlanmasın)
+            let expected = saving ? (i + 2) / 2 : i + 1
+            let limit = Date().addingTimeInterval(5)
+            while counter.count < expected && Date() < limit { usleep(10_000) }
         }
-        usleep(300_000)
+        usleep(200_000)
         return counter.count
     }
 
