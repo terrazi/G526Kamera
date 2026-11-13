@@ -87,6 +87,49 @@ enum FrameAnalysis {
         return (variance, signature)
     }
 
+    /// Kareden 2x2 ortalamalı parlaklık düzlemi (NV12'de Y düzlemi; BGRA'da hesaplanır).
+    static func binnedLuma(_ pixelBuffer: CVPixelBuffer) -> (w: Int, h: Int, px: [Float])? {
+        CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
+        if CVPixelBufferGetPlaneCount(pixelBuffer) >= 1 {
+            guard let base = CVPixelBufferGetBaseAddressOfPlane(pixelBuffer, 0) else { return nil }
+            let width = CVPixelBufferGetWidthOfPlane(pixelBuffer, 0)
+            let height = CVPixelBufferGetHeightOfPlane(pixelBuffer, 0)
+            let stride = CVPixelBufferGetBytesPerRowOfPlane(pixelBuffer, 0)
+            let luma = base.assumingMemoryBound(to: UInt8.self)
+            let w2 = width / 2, h2 = height / 2
+            if w2 < 8 || h2 < 8 { return nil }
+            var out = [Float](repeating: 0, count: w2 * h2)
+            for y in 0..<h2 {
+                let r0 = luma + 2 * y * stride, r1 = r0 + stride
+                for x in 0..<w2 {
+                    out[y * w2 + x] = Float(Int(r0[2 * x]) + Int(r0[2 * x + 1]) + Int(r1[2 * x]) + Int(r1[2 * x + 1])) * 0.25
+                }
+            }
+            return (w2, h2, out)
+        }
+        guard CVPixelBufferGetPixelFormatType(pixelBuffer) == kCVPixelFormatType_32BGRA,
+              let base = CVPixelBufferGetBaseAddress(pixelBuffer) else { return nil }
+        let width = CVPixelBufferGetWidth(pixelBuffer)
+        let height = CVPixelBufferGetHeight(pixelBuffer)
+        let stride = CVPixelBufferGetBytesPerRow(pixelBuffer)
+        let bytes = base.assumingMemoryBound(to: UInt8.self)
+        let w2 = width / 2, h2 = height / 2
+        if w2 < 8 || h2 < 8 { return nil }
+        var out = [Float](repeating: 0, count: w2 * h2)
+        for y in 0..<h2 {
+            for x in 0..<w2 {
+                var acc: Float = 0
+                for dy in 0..<2 { for dx in 0..<2 {
+                    let p = bytes + (2 * y + dy) * stride + (2 * x + dx) * 4
+                    acc += 0.114 * Float(p[0]) + 0.587 * Float(p[1]) + 0.299 * Float(p[2])
+                } }
+                out[y * w2 + x] = acc * 0.25
+            }
+        }
+        return (w2, h2, out)
+    }
+
     /// İki imza arasındaki ortalama mutlak fark (0–255).
     static func difference(_ a: [UInt8], _ b: [UInt8]) -> Double {
         if a.count != b.count || a.isEmpty { return 255 }
