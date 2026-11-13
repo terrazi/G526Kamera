@@ -1,18 +1,38 @@
 import Foundation
 
 /// Modül 5 ve 6: cevap sesleri cihazın içinde, o güne ait bir klasöre kaydedilir (soru_1, soru_2, …).
-/// Klasör uygulamanın Belgeler dizinindedir; Dosyalar uygulamasında "Bu iPhone > Sesli Kontrol" altında görünür.
+/// Kök klasör, kullanıcının Dosyalar uygulamasında seçtiği kayıt klasörüdür (uygulama silinse de kalır, `FolderStore`).
+/// Seçilmemişse ya da erişilemiyorsa uygulamanın kendi Belgeler dizini kullanılır ve ekranda uyarı çıkar.
 struct AnswerLibrary {
     static let transcriptName = "cevaplar.txt"
     static let audioExtensions: Set<String> = ["m4a", "caf", "mp3", "wav", "aac"]
 
-    let root: URL
+    /// Şu an kullanılacak kök ve (varsa) kayıt klasörüyle ilgili uyarı
+    typealias Resolution = (url: URL, warning: String?)
+
+    private let resolver: () -> Resolution
+    private let refresher: () -> Void
     private let fileManager: FileManager
 
+    /// Köklerin kullanılacağı klasör
+    var root: URL { return resolver().url }
+    /// Kayıt klasörü seçilmemiş / erişilemiyorsa Türkçe uyarı, sorun yoksa nil
+    var warning: String? { return resolver().warning }
+
     init(root: URL = AnswerLibrary.documentsDirectory, fileManager: FileManager = .default) {
-        self.root = root
+        self.resolver = { (url: root, warning: nil) }
+        self.refresher = {}
         self.fileManager = fileManager
     }
+
+    init(resolver: @escaping () -> Resolution, refresh: @escaping () -> Void, fileManager: FileManager = .default) {
+        self.resolver = resolver
+        self.refresher = refresh
+        self.fileManager = fileManager
+    }
+
+    /// Oturum başında seçilen klasörün hâlâ yazılabilir olduğunu yeniden denetler
+    func prepare() { refresher() }
 
     static var documentsDirectory: URL {
         return FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]

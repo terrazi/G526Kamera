@@ -9,13 +9,14 @@ final class AppSettings: ObservableObject {
         static let startMinutes = "v3.startMinutes"
         static let shortcutWifi = "v3.shortcut.wifi"
         static let shortcutCellular = "v3.shortcut.cellular"
+        static let shortcutBluetooth = "v3.shortcut.bluetooth"
         static let shortcutReset = "v3.shortcut.reset"
         static let replayGap = "v3.replayGap"
         static let sendAudio = "v3.sendAudio"
         static let geminiVoice = "v3.geminiVoice"
+        static let geminiProfiles = "v3.geminiProfiles"
     }
 
-    static let apiKeyName = "geminiKeyV3"
     /// Tekrar modunda iki cevap arasındaki boşluk (sn): Ayarlar'daki kaydırıcının aralığı
     static let replayGapRange: ClosedRange<Double> = 0...10
     static let defaultReplayGap: Double = 3
@@ -45,6 +46,10 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(cellularShortcut, forKey: Key.shortcutCellular) }
     }
 
+    @Published var bluetoothShortcut: String {
+        didSet { defaults.set(bluetoothShortcut, forKey: Key.shortcutBluetooth) }
+    }
+
     @Published var resetShortcut: String {
         didSet { defaults.set(resetShortcut, forKey: Key.shortcutReset) }
     }
@@ -68,8 +73,18 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(geminiVoice, forKey: Key.geminiVoice) }
     }
 
-    @Published var apiKey: String {
-        didSet { Keychain.set(apiKey.trimmed, for: AppSettings.apiKeyName) }
+    /// Gemini model profilleri (ad, model, ücretsiz mi); anahtarları `geminiKeys` içinde, Keychain'de
+    @Published var geminiProfiles: [GeminiProfile] {
+        didSet { defaults.set(try? JSONEncoder().encode(geminiProfiles), forKey: Key.geminiProfiles) }
+    }
+
+    /// Profillerin API anahtarları (Keychain: geminiKeyV3, geminiKeyV3_2 … _4); yalnız bu telefonda saklanır
+    @Published var geminiKeys: [String] {
+        didSet {
+            for (i, key) in geminiKeys.enumerated() {
+                Keychain.set(key.trimmed, for: GeminiProfiles.keychainName(slot: i + 1))
+            }
+        }
     }
 
     init(defaults: UserDefaults = .standard) {
@@ -78,11 +93,14 @@ final class AppSettings: ObservableObject {
         startMinutes = AppSettings.clampMinutes(defaults.object(forKey: Key.startMinutes) as? Int ?? AppSettings.defaultStartMinutes)
         wifiShortcut = defaults.string(forKey: Key.shortcutWifi) ?? ""
         cellularShortcut = defaults.string(forKey: Key.shortcutCellular) ?? ""
+        bluetoothShortcut = defaults.string(forKey: Key.shortcutBluetooth) ?? ""
         resetShortcut = defaults.string(forKey: Key.shortcutReset) ?? ""
         replayGap = AppSettings.clampGap(defaults.object(forKey: Key.replayGap) as? Double ?? AppSettings.defaultReplayGap)
         sendAudio = defaults.object(forKey: Key.sendAudio) as? Bool ?? true
         geminiVoice = defaults.object(forKey: Key.geminiVoice) as? Bool ?? true
-        apiKey = Keychain.get(AppSettings.apiKeyName) ?? ""
+        let saved = defaults.data(forKey: Key.geminiProfiles).flatMap { try? JSONDecoder().decode([GeminiProfile].self, from: $0) }
+        geminiProfiles = GeminiProfiles.migrated(saved ?? [])
+        geminiKeys = (1...GeminiProfiles.slotCount).map { Keychain.get(GeminiProfiles.keychainName(slot: $0)) ?? "" }
     }
 
     // MARK: Yardımcılar
@@ -111,11 +129,30 @@ final class AppSettings: ObservableObject {
         }
     }
 
+    /// Zincirin gördüğü 4 profil (anahtarlarıyla, yuva sırasıyla)
+    func geminiProfileInfos() -> [GeminiProfileInfo] {
+        return geminiProfiles.enumerated().map { i, p in
+            GeminiProfileInfo(slot: i + 1, name: GeminiProfiles.displayName(p, slot: i + 1), model: p.model.trimmed,
+                              key: i < geminiKeys.count ? geminiKeys[i].trimmed : "", free: p.free)
+        }
+    }
+
+    /// Anahtarı ve modeli dolu profiller; soru bunların sırasıyla sorulur
+    var usableGeminiProfiles: [GeminiProfileInfo] {
+        return GeminiProfiles.usable(geminiProfileInfos())
+    }
+
+    /// Bağlantı yoklamaları için anahtar: ilk kullanılabilir profilinki (yoksa boş)
+    var primaryKey: String {
+        return usableGeminiProfiles.first?.key ?? ""
+    }
+
     /// Adımın kestirme adı (boşluklar kırpılmış; boşsa o adım kapalıdır)
     func shortcutName(for step: RecoveryStep) -> String {
         switch step {
         case .wifi: return wifiShortcut.trimmed
         case .cellular: return cellularShortcut.trimmed
+        case .bluetooth: return bluetoothShortcut.trimmed
         case .reset: return resetShortcut.trimmed
         }
     }

@@ -15,6 +15,7 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertTrue(s.geminiVoice)
         XCTAssertEqual(s.wifiShortcut, "")
         XCTAssertEqual(s.cellularShortcut, "")
+        XCTAssertEqual(s.bluetoothShortcut, "")
         XCTAssertEqual(s.resetShortcut, "")
     }
 
@@ -25,6 +26,7 @@ final class AppSettingsTests: XCTestCase {
         s.startMinutes = 6 * 60 + 45
         s.wifiShortcut = "WiFi_Ac"
         s.cellularShortcut = "Hücresel_Ac"
+        s.bluetoothShortcut = "Bluetooth_Yenile"
         s.resetShortcut = "Sistemi_Sifirla"
         s.replayGap = 5
         s.sendAudio = false
@@ -35,6 +37,7 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(again.startMinutes, 405)
         XCTAssertEqual(again.wifiShortcut, "WiFi_Ac")
         XCTAssertEqual(again.cellularShortcut, "Hücresel_Ac")
+        XCTAssertEqual(again.bluetoothShortcut, "Bluetooth_Yenile")
         XCTAssertEqual(again.resetShortcut, "Sistemi_Sifirla")
         XCTAssertEqual(again.replayGap, 5)
         XCTAssertFalse(again.sendAudio)
@@ -79,10 +82,10 @@ final class AppSettingsTests: XCTestCase {
         let s = AppSettings(defaults: makeDefaults())
         s.wifiShortcut = "  WiFi_Ac \n"
         XCTAssertEqual(s.shortcutName(for: .wifi), "WiFi_Ac")
-        XCTAssertEqual(s.missingShortcuts, [.cellular, .reset])
+        XCTAssertEqual(s.missingShortcuts, [.cellular, .bluetooth, .reset])
         s.cellularShortcut = "Hücresel_Ac"
         s.resetShortcut = "   "
-        XCTAssertEqual(s.missingShortcuts, [.reset], "Yalnız boşluktan oluşan ad boş sayılır")
+        XCTAssertEqual(s.missingShortcuts, [.bluetooth, .reset], "Yalnız boşluktan oluşan ad boş sayılır")
     }
 }
 
@@ -124,9 +127,9 @@ final class ShortcutLinkTests: XCTestCase {
         let text = url.absoluteString
         XCTAssertTrue(text.hasPrefix("shortcuts://x-callback-url/run-shortcut?"))
         XCTAssertTrue(text.contains("name=H%C3%BCcresel_Ac"))
-        XCTAssertTrue(text.contains("x-success=g526kamera%3A%2F%2Fkestirme%2Fok"))
-        XCTAssertTrue(text.contains("x-cancel=g526kamera%3A%2F%2Fkestirme%2Fiptal"))
-        XCTAssertTrue(text.contains("x-error=g526kamera%3A%2F%2Fkestirme%2Fhata"))
+        XCTAssertTrue(text.contains("x-success=seslikontrol%3A%2F%2Fkestirme%2Fok"))
+        XCTAssertTrue(text.contains("x-cancel=seslikontrol%3A%2F%2Fkestirme%2Fiptal"))
+        XCTAssertTrue(text.contains("x-error=seslikontrol%3A%2F%2Fkestirme%2Fhata"))
     }
 
     func testRunURLEncodesSpaces() throws {
@@ -140,21 +143,27 @@ final class ShortcutLinkTests: XCTestCase {
     }
 
     func testCallbackParsing() {
-        XCTAssertEqual(ShortcutLink.callback(from: URL(string: "g526kamera://kestirme/ok")!), .success)
-        XCTAssertEqual(ShortcutLink.callback(from: URL(string: "g526kamera://kestirme/iptal")!), .cancelled)
-        XCTAssertEqual(ShortcutLink.callback(from: URL(string: "g526kamera://kestirme/hata?errorMessage=Boom")!), .failed("Boom"))
-        XCTAssertEqual(ShortcutLink.callback(from: URL(string: "g526kamera://kestirme/hata")!), .failed(""))
+        XCTAssertEqual(ShortcutLink.callback(from: URL(string: "seslikontrol://kestirme/ok")!), .success)
+        XCTAssertEqual(ShortcutLink.callback(from: URL(string: "seslikontrol://kestirme/iptal")!), .cancelled)
+        XCTAssertEqual(ShortcutLink.callback(from: URL(string: "seslikontrol://kestirme/hata?errorMessage=Boom")!), .failed("Boom"))
+        XCTAssertEqual(ShortcutLink.callback(from: URL(string: "seslikontrol://kestirme/hata")!), .failed(""))
     }
 
     func testForeignURLsAreNotCallbacks() {
-        XCTAssertNil(ShortcutLink.callback(from: URL(string: "g526kamera://basla")!))
+        XCTAssertNil(ShortcutLink.callback(from: URL(string: "seslikontrol://basla")!))
         XCTAssertNil(ShortcutLink.callback(from: URL(string: "baska://kestirme/ok")!))
-        XCTAssertNil(ShortcutLink.callback(from: URL(string: "g526kamera://kestirme/bilinmeyen")!))
+        XCTAssertNil(ShortcutLink.callback(from: URL(string: "seslikontrol://kestirme/bilinmeyen")!))
+    }
+
+    func testOldSchemeStillWorksForExistingAutomations() {
+        XCTAssertEqual(ShortcutLink.scheme, "seslikontrol")
+        XCTAssertTrue(ShortcutLink.isStartURL(URL(string: "g526kamera://basla")!), "Eski adla kurulmuş otomasyon bozulmasın")
+        XCTAssertEqual(ShortcutLink.callback(from: URL(string: "g526kamera://kestirme/ok")!), .success)
     }
 
     func testStartURL() {
-        XCTAssertTrue(ShortcutLink.isStartURL(URL(string: "g526kamera://basla")!))
-        XCTAssertFalse(ShortcutLink.isStartURL(URL(string: "g526kamera://kestirme/ok")!))
+        XCTAssertTrue(ShortcutLink.isStartURL(URL(string: "seslikontrol://basla")!))
+        XCTAssertFalse(ShortcutLink.isStartURL(URL(string: "seslikontrol://kestirme/ok")!))
         XCTAssertFalse(ShortcutLink.isStartURL(URL(string: "baska://basla")!))
     }
 }
@@ -176,7 +185,9 @@ final class SessionPhaseTests: XCTestCase {
 
     func testRecoveryStepsOrder() {
         XCTAssertEqual(RecoveryReason.network.steps, [.wifi, .cellular, .reset], "Önce Wi-Fi, sonra hücresel, sonra sıfırlama")
-        XCTAssertEqual(RecoveryReason.hardware.steps, [.reset])
+        XCTAssertEqual(RecoveryReason.hardware.steps, [.bluetooth, .reset], "Önce hafif Bluetooth yenileme, olmazsa sıfırlama")
+        XCTAssertEqual(RecoveryReason.hardware.steps(force: true), [.reset], "Ses yolu sağlam görünürken yalnız sıfırlama")
+        XCTAssertEqual(RecoveryReason.network.steps(force: true), RecoveryReason.network.steps)
     }
 }
 

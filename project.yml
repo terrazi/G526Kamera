@@ -43,6 +43,7 @@ targets:
         CFBundleURLTypes:
           - CFBundleURLName: com.huseyinozer.g526
             CFBundleURLSchemes:
+              - seslikontrol
               - g526kamera
 
     settings:

@@ -9,6 +9,20 @@ func fakeGeminiClient(_ model: String) -> GeminiClient {
                         key: { "AIza-TEST" }, model: { model }, sleep: { _ in })
 }
 
+/// Sınama için profiller (varsayılan ad ve modeller), hepsi aynı anahtarla; boş anahtarda kullanılabilir profil yoktur
+func testProfiles(_ key: String = "AIza-TEST", count: Int = 3) -> () -> [GeminiProfileInfo] {
+    return {
+        (1...count).map {
+            GeminiProfileInfo(slot: $0, name: GeminiProfiles.defaultNames[$0 - 1], model: GeminiProfiles.defaultModels[$0 - 1],
+                              key: key.trimmed, free: GeminiProfiles.defaultFree[$0 - 1])
+        }
+    }
+}
+
+func fakeProfileClient(_ profile: GeminiProfileInfo) -> GeminiClient {
+    return fakeGeminiClient(profile.model)
+}
+
 private func queueReplies(_ replies: [FakeGeminiProtocol.Reply]) {
     FakeGeminiProtocol.lock.lock()
     FakeGeminiProtocol.replies = replies
@@ -99,21 +113,21 @@ final class GeminiAnswerServiceTests: XCTestCase {
     func testAnswerParsesTheReplyAndUsesFirstModel() async throws {
         FakeGeminiProtocol.reset()
         queueReplies([textReply("**Soru 2, Denizli, Örgütsel Davranış**")])
-        let service = GeminiAnswerService(key: { " AIza-TEST " }, makeClient: fakeGeminiClient)
+        let service = GeminiAnswerService(profiles: testProfiles(" AIza-TEST "), makeClient: fakeProfileClient)
         let reply = try await service.answer(question: "bir soru", expectedNumber: 2, audio: nil)
         XCTAssertEqual(reply.number, 2)
         XCTAssertEqual(reply.option, "Denizli")
         XCTAssertEqual(reply.text, "Örgütsel Davranış")
         XCTAssertEqual(reply.spoken, "Soru 2, Denizli, Örgütsel Davranış")
-        XCTAssertEqual(reply.model, GeminiAnswerService.models[0])
+        XCTAssertEqual(reply.model, GeminiProfiles.defaultModels[0])
         XCTAssertEqual(FakeGeminiProtocol.urls.count, 1)
-        XCTAssertTrue(FakeGeminiProtocol.urls[0].absoluteString.contains(GeminiAnswerService.models[0]))
+        XCTAssertTrue(FakeGeminiProtocol.urls[0].absoluteString.contains(GeminiProfiles.defaultModels[0]))
     }
 
     func testAudioReachesTheRequestBody() async throws {
         FakeGeminiProtocol.reset()
         queueReplies([textReply("Soru 1, Adana, A")])
-        let service = GeminiAnswerService(key: { "AIza-TEST" }, makeClient: fakeGeminiClient)
+        let service = GeminiAnswerService(profiles: testProfiles("AIza-TEST"), makeClient: fakeProfileClient)
         _ = try await service.answer(question: "x", expectedNumber: 1, audio: Data([1, 2, 3]))
         let body = try dictionary(FakeGeminiProtocol.bodies[0])
         let parts = try XCTUnwrap((body["contents"] as? [[String: Any]])?[0]["parts"] as? [[String: Any]])
@@ -123,23 +137,23 @@ final class GeminiAnswerServiceTests: XCTestCase {
     func testModelNotFoundFallsBackToNextModel() async throws {
         FakeGeminiProtocol.reset()
         queueReplies([errorReply(404, "model yok"), textReply("Soru 5, Bursa, Pazarlama")])
-        let service = GeminiAnswerService(key: { "AIza-TEST" }, makeClient: fakeGeminiClient)
+        let service = GeminiAnswerService(profiles: testProfiles("AIza-TEST"), makeClient: fakeProfileClient)
         let reply = try await service.answer(question: "x", expectedNumber: 5, audio: nil)
-        XCTAssertEqual(reply.model, GeminiAnswerService.models[1])
+        XCTAssertEqual(reply.model, GeminiProfiles.defaultModels[1])
         XCTAssertEqual(FakeGeminiProtocol.urls.count, 2)
-        XCTAssertTrue(FakeGeminiProtocol.urls[1].absoluteString.contains(GeminiAnswerService.models[1]))
+        XCTAssertTrue(FakeGeminiProtocol.urls[1].absoluteString.contains(GeminiProfiles.defaultModels[1]))
     }
 
     func testEveryModelFailingMergesTheTrail() async {
         FakeGeminiProtocol.reset()
         queueReplies([errorReply(404), errorReply(404), errorReply(404)])
-        let service = GeminiAnswerService(key: { "AIza-TEST" }, makeClient: fakeGeminiClient)
+        let service = GeminiAnswerService(profiles: testProfiles("AIza-TEST"), makeClient: fakeProfileClient)
         do {
             _ = try await service.answer(question: "x", expectedNumber: 1, audio: nil)
             XCTFail("Hata bekleniyordu")
         } catch let error as GeminiError {
             XCTAssertEqual(error.kind, .model)
-            GeminiAnswerService.models.forEach { XCTAssertTrue(error.message.contains($0), $0) }
+            GeminiProfiles.defaultModels.forEach { XCTAssertTrue(error.message.contains($0), $0) }
         } catch {
             XCTFail("\(error)")
         }
@@ -150,7 +164,7 @@ final class GeminiAnswerServiceTests: XCTestCase {
         FakeGeminiProtocol.reset()
         let blocked = FakeGeminiProtocol.Reply(status: 200, body: json(["promptFeedback": ["blockReason": "SAFETY"]]), error: nil)
         queueReplies([blocked, textReply("Soru 1, Adana, A")])
-        let service = GeminiAnswerService(key: { "AIza-TEST" }, makeClient: fakeGeminiClient)
+        let service = GeminiAnswerService(profiles: testProfiles("AIza-TEST"), makeClient: fakeProfileClient)
         do {
             _ = try await service.answer(question: "x", expectedNumber: 1, audio: nil)
             XCTFail("Hata bekleniyordu")
@@ -164,7 +178,7 @@ final class GeminiAnswerServiceTests: XCTestCase {
 
     func testMissingKeyFailsBeforeAnyRequest() async {
         FakeGeminiProtocol.reset()
-        let service = GeminiAnswerService(key: { "  " }, makeClient: fakeGeminiClient)
+        let service = GeminiAnswerService(profiles: testProfiles("  "), makeClient: fakeProfileClient)
         do {
             _ = try await service.answer(question: "x", expectedNumber: 1, audio: nil)
             XCTFail("Hata bekleniyordu")
@@ -414,5 +428,139 @@ final class HeadphoneSpeakerTests: XCTestCase {
         XCTAssertEqual(error as? SpeakError, .stopped)
         XCTAssertGreaterThanOrEqual(engine.cancelCalls, 1)
         XCTAssertFalse(FileManager.default.fileExists(atPath: base.appendingPathExtension("m4a").path))
+    }
+}
+
+// MARK: - 4 yedekli Gemini profili
+
+@MainActor
+final class GeminiProfileChainTests: XCTestCase {
+    /// Verilen anahtarlarla varsayılan ad ve modellerden profil listesi (boş anahtar = boş profil)
+    private func profiles(_ keys: [String]) -> () -> [GeminiProfileInfo] {
+        return {
+            keys.enumerated().map { i, key in
+                GeminiProfileInfo(slot: i + 1, name: GeminiProfiles.defaultNames[i], model: GeminiProfiles.defaultModels[i],
+                                  key: key, free: GeminiProfiles.defaultFree[i])
+            }
+        }
+    }
+
+    private func sentKey(_ index: Int) -> String? {
+        return FakeGeminiProtocol.headers[index].first(where: { $0.key.lowercased() == "x-goog-api-key" })?.value
+    }
+
+    func testEachProfileAsksWithItsOwnKeyAndModel() async throws {
+        FakeGeminiProtocol.reset()
+        queueReplies([errorReply(429, "quota"), textReply("Soru 3, Ceyhan, Maliyet")])
+        let service = GeminiAnswerService(profiles: profiles(["K1", "K2", "K3"]), makeClient: fakeProfileClient)
+        let reply = try await service.answer(question: "x", expectedNumber: 3, audio: nil)
+        XCTAssertEqual(reply.model, GeminiProfiles.defaultModels[1])
+        XCTAssertEqual(FakeGeminiProtocol.urls.count, 2)
+        XCTAssertEqual(sentKey(0), "K1", "İlk soru 1. profilin kendi anahtarıyla gider")
+        XCTAssertEqual(sentKey(1), "K2", "Kotası dolunca 2. profilin kendi anahtarına geçilir")
+        XCTAssertTrue(FakeGeminiProtocol.urls[1].absoluteString.contains(GeminiProfiles.defaultModels[1]))
+    }
+
+    func testBlankProfilesAreSkipped() async throws {
+        FakeGeminiProtocol.reset()
+        queueReplies([textReply("Soru 1, Adana, A")])
+        let service = GeminiAnswerService(profiles: profiles(["", "K2", "K3"]), makeClient: fakeProfileClient)
+        let reply = try await service.answer(question: "x", expectedNumber: 1, audio: nil)
+        XCTAssertEqual(reply.model, GeminiProfiles.defaultModels[1])
+        XCTAssertEqual(FakeGeminiProtocol.urls.count, 1)
+        XCTAssertEqual(sentKey(0), "K2", "Anahtarı boş profil atlanır")
+    }
+
+    func testNoteNamesTheProfileThatAnsweredAndWhyTheOthersFailed() async throws {
+        FakeGeminiProtocol.reset()
+        queueReplies([errorReply(503, "yoğun"), errorReply(404), textReply("Soru 1, Adana, A")])
+        let service = GeminiAnswerService(profiles: profiles(["K1", "K2", "K3"]), makeClient: fakeProfileClient)
+        let reply = try await service.answer(question: "x", expectedNumber: 1, audio: nil)
+        XCTAssertTrue(reply.note.contains("Cevap \(GeminiProfiles.defaultNames[2]) modelinden geldi"), reply.note)
+        XCTAssertTrue(reply.note.contains(GeminiProfiles.defaultNames[0]), reply.note)
+        XCTAssertTrue(reply.note.contains(GeminiProfiles.defaultNames[1]), reply.note)
+    }
+
+    func testFirstProfileAnsweringLeavesNoNote() async throws {
+        FakeGeminiProtocol.reset()
+        queueReplies([textReply("Soru 1, Adana, A")])
+        let service = GeminiAnswerService(profiles: profiles(["K1", "K2", "K3"]), makeClient: fakeProfileClient)
+        let reply = try await service.answer(question: "x", expectedNumber: 1, audio: nil)
+        XCTAssertEqual(reply.note, "")
+    }
+
+    func testBadKeyMovesToTheNextProfile() async throws {
+        FakeGeminiProtocol.reset()
+        queueReplies([errorReply(403, "izin yok"), textReply("Soru 1, Adana, A")])
+        let service = GeminiAnswerService(profiles: profiles(["K1", "K2", "K3"]), makeClient: fakeProfileClient)
+        let reply = try await service.answer(question: "x", expectedNumber: 1, audio: nil)
+        XCTAssertEqual(reply.model, GeminiProfiles.defaultModels[1])
+        XCTAssertEqual(sentKey(1), "K2")
+    }
+
+    func testAProfileThatFailedRestsAndGoesLastUntilTheRestEnds() async throws {
+        FakeGeminiProtocol.reset()
+        var clock = Date(timeIntervalSince1970: 1_800_000_000)
+        let service = GeminiAnswerService(profiles: profiles(["K1", "K2", "K3"]), now: { clock }, makeClient: fakeProfileClient)
+        queueReplies([errorReply(429, "quota"), textReply("Soru 1, Adana, A")])
+        _ = try await service.answer(question: "x", expectedNumber: 1, audio: nil)
+        XCTAssertEqual(FakeGeminiProtocol.urls.count, 2)
+
+        // Hemen ardından: kotası dolan 1. profil boşuna beklenmez, doğrudan 2. profil sorulur
+        queueReplies([textReply("Soru 2, Bursa, B")])
+        let again = try await service.answer(question: "y", expectedNumber: 2, audio: nil)
+        XCTAssertEqual(again.model, GeminiProfiles.defaultModels[1])
+        XCTAssertEqual(FakeGeminiProtocol.urls.count, 3, "Dinlenen profil bu soruda denenmedi")
+        XCTAssertEqual(sentKey(2), "K2")
+
+        // Dinlenme süresi dolunca 1. profil yeniden başa geçer
+        clock = clock.addingTimeInterval(4000)
+        queueReplies([textReply("Soru 3, Ceyhan, C")])
+        let later = try await service.answer(question: "z", expectedNumber: 3, audio: nil)
+        XCTAssertEqual(later.model, GeminiProfiles.defaultModels[0])
+        XCTAssertEqual(sentKey(3), "K1")
+    }
+
+    func testEveryProfileFailingKeepsEachProfilesReason() async {
+        FakeGeminiProtocol.reset()
+        queueReplies([errorReply(429, "quota"), errorReply(403, "izin yok"), errorReply(404)])
+        let service = GeminiAnswerService(profiles: profiles(["K1", "K2", "K3"]), makeClient: fakeProfileClient)
+        do {
+            _ = try await service.answer(question: "x", expectedNumber: 1, audio: nil)
+            XCTFail("Hata bekleniyordu")
+        } catch let error as GeminiError {
+            GeminiProfiles.defaultNames.prefix(3).forEach { XCTAssertTrue(error.message.contains($0), $0) }
+        } catch {
+            XCTFail("\(error)")
+        }
+        XCTAssertEqual(FakeGeminiProtocol.urls.count, 3)
+    }
+
+    func testBlockedContentStopsTheChainEvenWithManyProfiles() async {
+        FakeGeminiProtocol.reset()
+        let blocked = FakeGeminiProtocol.Reply(status: 200, body: json(["promptFeedback": ["blockReason": "SAFETY"]]), error: nil)
+        queueReplies([blocked, textReply("Soru 1, Adana, A")])
+        let service = GeminiAnswerService(profiles: profiles(["K1", "K2", "K3"]), makeClient: fakeProfileClient)
+        do {
+            _ = try await service.answer(question: "x", expectedNumber: 1, audio: nil)
+            XCTFail("Hata bekleniyordu")
+        } catch let error as GeminiError {
+            XCTAssertEqual(error.kind, .blocked)
+        } catch {
+            XCTFail("\(error)")
+        }
+        XCTAssertEqual(FakeGeminiProtocol.urls.count, 1)
+    }
+
+    func testVoiceTriesTheSecondKeyWhenTheFirstIsRejected() async throws {
+        FakeGeminiProtocol.reset()
+        queueReplies([errorReply(403, "izin yok"), audioReply(Data([1, 0, 2, 0]))])
+        let voice = GeminiVoice(keys: { ["K1", "", "K2", "K1"] }, makeClient: fakeGeminiClient)
+        let base = makeTempFolder().appendingPathComponent("soru_1")
+        let url = try await voice.synthesize("Soru 1, Adana, A", to: base)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
+        XCTAssertEqual(FakeGeminiProtocol.urls.count, 2)
+        XCTAssertEqual(sentKey(0), "K1")
+        XCTAssertEqual(sentKey(1), "K2", "Boş ve yinelenen anahtarlar atlanır, sıradaki anahtar denenir")
     }
 }

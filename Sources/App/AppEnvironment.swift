@@ -8,6 +8,7 @@ final class AppEnvironment: ObservableObject {
     let settings: AppSettings
     let session: SessionViewModel
     let settingsModel: SettingsViewModel
+    private let folderStore: FolderStore
 
     private let starter = StartScheduler()
     private let notificationRouter = StartNotificationRouter()
@@ -15,11 +16,12 @@ final class AppEnvironment: ObservableObject {
 
     init() {
         let settings = AppSettings()
+        let folderStore = FolderStore()
         let recorder = PCMRecorder()
         let route = AudioSessionGuard()
         let listener = OnDeviceSpeechListener(recorder: recorder)
         let phoneVoice = SpeechRenderer()
-        let geminiVoice = GeminiVoice(key: { settings.apiKey })
+        let geminiVoice = GeminiVoice(keys: { settings.usableGeminiProfiles.map { $0.key } })
         let speaker = HeadphoneSpeaker(
             // Çıkış yalnız Bluetooth kulaklıksa çalınır (KURAL 1)
             isRouteSafe: { AudioRouting.verdict(route.snapshot()).headphonesOK },
@@ -33,15 +35,18 @@ final class AppEnvironment: ObservableObject {
                                        network: NetworkWatcher(),
                                        health: NetworkHealth(),
                                        shortcuts: shortcuts,
-                                       answering: GeminiAnswerService(key: { settings.apiKey }),
+                                       answering: GeminiAnswerService(profiles: { settings.geminiProfileInfos() }),
                                        permissions: SystemPermissions(),
                                        replayPlayer: speaker.filePlayer,
                                        screen: SystemScreen(),
                                        scheduler: DispatchScheduler(),
-                                       library: AnswerLibrary())
+                                       library: AnswerLibrary(resolver: { folderStore.resolution() }, refresh: { folderStore.refresh() }))
+        let session = SessionViewModel(settings: settings, deps: deps)
         self.settings = settings
-        self.session = SessionViewModel(settings: settings, deps: deps)
-        self.settingsModel = SettingsViewModel(settings: settings, shortcuts: shortcuts)
+        self.session = session
+        self.folderStore = folderStore
+        self.settingsModel = SettingsViewModel(settings: settings, shortcuts: shortcuts, folder: folderStore,
+                                               sessionActive: { [weak session] in session?.phase.isRunning ?? false })
         wireStartTriggers()
     }
 
@@ -62,5 +67,7 @@ final class AppEnvironment: ObservableObject {
     func appBecameActive() {
         starter.apply(enabled: settings.startEnabled, minutes: settings.startMinutes)
         session.recheckHardware()
+        session.refreshInputs()
+        settingsModel.refreshFolderStatus()
     }
 }

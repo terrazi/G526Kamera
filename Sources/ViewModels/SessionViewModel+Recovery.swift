@@ -33,6 +33,7 @@ extension SessionViewModel {
     func routeChanged(_ snapshot: RouteSnapshot) {
         let verdict = AudioRouting.verdict(snapshot)
         routeVerdict = verdict
+        refreshInputs()
         switch phase {
         case .listening, .answering, .speaking:
             if !verdict.isSafe { enterHardwarePause(verdict) }
@@ -163,7 +164,7 @@ extension SessionViewModel {
             return
         }
         // İnternet "var" görünüp takılmış olabilir: soru gelmeden önce bağlantıyı da yokla
-        let healthy = await deps.health.connectionHealthy(key: settings.apiKey)
+        let healthy = await deps.health.connectionHealthy(key: settings.primaryKey)
         guard !Task.isCancelled, phase == .listening else { return }
         guard healthy else {
             await runRecovery(.network)
@@ -199,7 +200,7 @@ extension SessionViewModel {
     }
 
     private func reconnectIfHealthy() async {
-        guard await verify(.network, key: settings.apiKey) else { return }
+        guard await verify(.network, key: settings.primaryKey) else { return }
         guard !Task.isCancelled, case .paused(.noConnection) = phase else { return }
         retryTask?.cancel()
         retryTask = nil
@@ -223,7 +224,7 @@ extension SessionViewModel {
         cancelTimers()
         phase = .recovering(reason)
         statusNote = "Sorun giderilmeye çalışılıyor…"
-        let key = settings.apiKey
+        let key = settings.primaryKey
         return await recovery.recover(reason: reason,
                                       force: force,
                                       verify: { [weak self] reason in await self?.verify(reason, key: key) ?? false },

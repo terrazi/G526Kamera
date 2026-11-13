@@ -9,6 +9,7 @@ final class RecoveryCoordinatorTests: XCTestCase {
         switch step {
         case .wifi: return "WiFi_Ac"
         case .cellular: return "Hücresel_Ac"
+        case .bluetooth: return "Bluetooth_Yenile"
         case .reset: return "Sistemi_Sifirla"
         }
     }
@@ -42,10 +43,26 @@ final class RecoveryCoordinatorTests: XCTestCase {
         XCTAssertEqual(shortcuts.runs, ["WiFi_Ac", "Hücresel_Ac"], "Düzelince sıradaki kestirme çalıştırılmaz")
     }
 
-    func testHardwareOnlyRunsReset() async {
+    func testHardwareRunsBluetoothRefreshThenReset() async {
         let shortcuts = FakeShortcuts()
         _ = await make(shortcuts).recover(reason: .hardware, verify: { _ in false }, update: { _ in })
-        XCTAssertEqual(shortcuts.runs, ["Sistemi_Sifirla"])
+        XCTAssertEqual(shortcuts.runs, ["Bluetooth_Yenile", "Sistemi_Sifirla"], "İnternet kestirmeleri donanımda çalışmaz")
+    }
+
+    func testBluetoothRefreshFixingTheRouteSkipsTheReset() async {
+        let shortcuts = FakeShortcuts()
+        var fixed = false
+        shortcuts.onRun = { _ in fixed = true }
+        let result = await make(shortcuts).recover(reason: .hardware, verify: { _ in fixed }, update: { _ in })
+        XCTAssertEqual(result, .recovered(by: .bluetooth))
+        XCTAssertEqual(shortcuts.runs, ["Bluetooth_Yenile"], "Hafif adım işe yaradıysa uçak modu kestirmesi çalışmaz")
+    }
+
+    func testEmptyBluetoothNameGoesStraightToReset() async {
+        let shortcuts = FakeShortcuts()
+        _ = await make(shortcuts, name: { $0 == .bluetooth ? "" : "X_\($0.rawValue)" })
+            .recover(reason: .hardware, verify: { _ in false }, update: { _ in })
+        XCTAssertEqual(shortcuts.runs, ["X_reset"])
     }
 
     func testEmptyNamesAreSkippedAndAllEmptyIsNotConfigured() async {
@@ -82,7 +99,7 @@ final class RecoveryCoordinatorTests: XCTestCase {
         let shortcuts = FakeShortcuts()
         var updates: [RecoveryCoordinator.Update] = []
         _ = await make(shortcuts).recover(reason: .hardware, verify: { _ in false }, update: { updates.append($0) })
-        XCTAssertEqual(updates, [.checking, .running(.reset), .verifying(.reset)])
+        XCTAssertEqual(updates, [.checking, .running(.bluetooth), .verifying(.bluetooth), .running(.reset), .verifying(.reset)])
     }
 
     func testVerificationWindowPollsRepeatedly() async {
@@ -94,7 +111,7 @@ final class RecoveryCoordinatorTests: XCTestCase {
             checks += 1
             return checks >= 4   // ilk sınama ve kestirmeden sonraki iki yoklama başarısız, sonra düzelir
         }, update: { _ in })
-        XCTAssertEqual(result, .recovered(by: .reset))
+        XCTAssertEqual(result, .recovered(by: .bluetooth))
         XCTAssertEqual(shortcuts.runs.count, 1)
         XCTAssertEqual(checks, 4)
     }

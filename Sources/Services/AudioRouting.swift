@@ -6,6 +6,18 @@ struct RouteSnapshot: Equatable {
     var inputs: [AVAudioSession.Port]
 }
 
+/// Seçilebilir bir ses girişi (mikrofon)
+struct InputChoice: Equatable, Identifiable {
+    let uid: String
+    let name: String
+    let port: AVAudioSession.Port
+    var isCurrent: Bool
+
+    var id: String { return uid }
+    /// Yalnız harici (Lightning/USB/kablolu) mikrofonlar güvenli sayılır ve seçilebilir
+    var isExternal: Bool { return AudioRouting.externalMicPorts.contains(port) }
+}
+
 /// Ses yolunun değerlendirmesi. Güvenli = çıkış yalnız Bluetooth kulaklık VE giriş yalnız harici (Lightning) yaka mikrofonu.
 struct RouteVerdict: Equatable {
     var headphonesOK: Bool
@@ -62,6 +74,10 @@ protocol AudioRouteProviding: AnyObject {
     func snapshot() -> RouteSnapshot
     /// Harici mikrofon varsa girişi ona sabitler (Bluetooth kulaklığın kendi mikrofonuna düşmesin)
     func preferExternalInput()
+    /// Bağlı girişler (mikrofonlar)
+    func availableInputs() -> [InputChoice]
+    /// Kullanıcı bir mikrofon seçti: yalnız harici mikrofon seçilebilir; seçim hatırlanır ve sonraki yol değişikliklerinde de tercih edilir
+    @discardableResult func selectInput(uid: String) -> Bool
 }
 
 /// Modül 2 (Kalkan): AVAudioSession .playAndRecord, seçenekler yalnız [.allowBluetooth, .allowBluetoothA2DP].
@@ -74,12 +90,18 @@ final class AudioSessionGuard: AudioRouteProviding {
     var onChange: (@MainActor (RouteSnapshot) -> Void)?
     var onInterruption: (@MainActor (Bool) -> Void)?
 
+    private static let chosenInputKey = "v3.chosenInputUID"
+
     private let session: AVAudioSession
+    private let defaults: UserDefaults
+    private var chosenInputUID: String?
     private var observer: NSObjectProtocol?
     private var interruptionObserver: NSObjectProtocol?
 
-    init(session: AVAudioSession = .sharedInstance()) {
+    init(session: AVAudioSession = .sharedInstance(), defaults: UserDefaults = .standard) {
         self.session = session
+        self.defaults = defaults
+        self.chosenInputUID = defaults.string(forKey: AudioSessionGuard.chosenInputKey)
         observer = NotificationCenter.default.addObserver(forName: AVAudioSession.routeChangeNotification,
                                                           object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.routeDidChange() }
@@ -109,10 +131,33 @@ final class AudioSessionGuard: AudioRouteProviding {
     }
 
     func preferExternalInput() {
-        let external = (session.availableInputs ?? []).first(where: { AudioRouting.externalMicPorts.contains($0.portType) })
+        let externals = (session.availableInputs ?? []).filter { AudioRouting.externalMicPorts.contains($0.portType) }
+        // Kullanıcının seçtiği mikrofon takılıysa o, değilse ilk harici mikrofon
+        let external = externals.first(where: { $0.uid == chosenInputUID }) ?? externals.first
         // Zaten seçiliyse dokunma: gereksiz yönlendirme değişikliği yeni bir yol bildirimi doğurur
         if session.preferredInput?.uid == external?.uid { return }
         try? session.setPreferredInput(external)
+    }
+
+    func availableInputs() -> [InputChoice] {
+        let current = Set(session.currentRoute.inputs.map { $0.uid })
+        return (session.availableInputs ?? []).map {
+            InputChoice(uid: $0.uid, name: $0.portName, port: $0.portType, isCurrent: current.contains($0.uid))
+        }
+    }
+
+    @discardableResult
+    func selectInput(uid: String) -> Bool {
+        guard let input = (session.availableInputs ?? []).first(where: { $0.uid == uid }),
+              AudioRouting.externalMicPorts.contains(input.portType) else { return false }
+        do {
+            try session.setPreferredInput(input)
+        } catch {
+            return false
+        }
+        chosenInputUID = uid
+        defaults.set(uid, forKey: AudioSessionGuard.chosenInputKey)
+        return true
     }
 
     private func routeDidChange() {

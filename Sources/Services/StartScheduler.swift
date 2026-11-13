@@ -2,7 +2,7 @@ import Foundation
 import UserNotifications
 
 /// Modül 1: zamanlı başlatma. iOS bir uygulamanın kendi kendine tam saatinde uyanmasına izin vermez; bu yüzden üç yol birlikte kullanılır:
-/// 1) Kestirmeler'deki "Günün saati" otomasyonu g526kamera://basla adresini açar (asıl yol; KURULUM.md anlatır),
+/// 1) Kestirmeler'deki "Günün saati" otomasyonu seslikontrol://basla adresini açar (asıl yol; KURULUM.md anlatır),
 /// 2) uygulama açıksa bu sınıftaki zamanlayıcı saati bekler,
 /// 3) sessiz bir bildirim saat gelince çıkar, dokununca uygulama açılıp başlar (yedek).
 enum StartSchedule {

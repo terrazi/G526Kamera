@@ -170,15 +170,15 @@ final class SessionAuditTests: XCTestCase {
         _ = await h.startListening()
         h.route.change(to: FakeRoute.noHeadphones)
         h.scheduler.advance(by: SessionViewModel.Timing.hardwareGrace + 0.1)   // sıfırlama çalışır ama işe yaramaz
-        let paused = await waitUntil { h.shortcuts.runs.count == 1 }
+        let paused = await waitUntil { h.shortcuts.runs.count == 2 }   // Bluetooth yenileme + sıfırlama, ikisi de işe yaramaz
         XCTAssertTrue(paused)
         await settle()
         XCTAssertTrue(h.isHardwarePause)
         h.scheduler.advance(by: SessionViewModel.Timing.hardwareGrace + 0.1)
         await settle()
-        XCTAssertEqual(h.shortcuts.runs.count, 1, "İkinci sıfırlama 20 sn sonra değil, daha seyrek denenir")
+        XCTAssertEqual(h.shortcuts.runs.count, 2, "İkinci onarım 20 sn sonra değil, daha seyrek denenir")
         h.scheduler.advance(by: SessionViewModel.Timing.connectionRetry)
-        let again = await waitUntil { h.shortcuts.runs.count == 2 }
+        let again = await waitUntil { h.shortcuts.runs.count == 4 }
         XCTAssertTrue(again)
     }
 

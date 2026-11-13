@@ -9,6 +9,8 @@ struct GeminiReply: Equatable {
     let spoken: String
     /// Cevabı veren model
     let model: String
+    /// Cevap ilk sıradaki profilden gelmediyse nedenini anlatan kısa not ("1. profil kotası doldu; cevap … modelinden geldi"); aksi hâlde boş
+    var note: String = ""
 }
 
 @MainActor
@@ -18,12 +20,11 @@ protocol Answering: AnyObject {
     func answer(question: String, expectedNumber: Int, audio: Data?) async throws -> GeminiReply
 }
 
-/// Modül 5: soruyu Gemini'ye gönderir, kısa cevabı çözer. Model kota/yoğunluk/gecikme verirse sıradaki modele geçer.
+/// Modül 5: soruyu Gemini'ye gönderir, kısa cevabı çözer. 4 profil (her birinin kendi anahtarı ve modeli) sırayla denenir:
+/// kota dolarsa, sunucu hata verirse, cevap gecikirse ya da anahtar/model sorunluysa sıradaki profile geçilir.
 @MainActor
 final class GeminiAnswerService: Answering {
-    /// Sırayla denenecek modeller (aynı anahtarla)
-    static let models = ["gemini-3.6-flash", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite"]
-    /// Son model dışındakilerde cevap için beklenecek süre (sn); dolunca sıradaki model denenir
+    /// Son profil dışındakilerde cevap için beklenecek süre (sn); dolunca sıradaki profil denenir
     static let perModelLimit: TimeInterval = 40
     static let optionCodes = "A=Adana, B=Bursa, C=Ceyhan, D=Denizli, E=Erzurum"
 
@@ -49,19 +50,21 @@ final class GeminiAnswerService: Answering {
     Giriş, açıklama, markdown, tırnak ve ek cümle yazma. Emin değilsen en olası şıkkı yaz.
     """
 
-    private let keyProvider: () -> String
-    private let modelNames: [String]
-    private let makeClient: (String) -> GeminiClient
+    private let profilesProvider: () -> [GeminiProfileInfo]
+    private let makeClient: (GeminiProfileInfo) -> GeminiClient
     private let limit: TimeInterval
+    private let now: () -> Date
+    /// Bu profiller bu zamana kadar sona bırakılır (kotası doldu / cevap vermedi): her soruda boşuna beklenmesin
+    private var restingUntil: [Int: Date] = [:]
 
-    init(key: @escaping () -> String,
-         models: [String] = GeminiAnswerService.models,
+    init(profiles: @escaping () -> [GeminiProfileInfo],
          limit: TimeInterval = GeminiAnswerService.perModelLimit,
-         makeClient: ((String) -> GeminiClient)? = nil) {
-        self.keyProvider = key
-        self.modelNames = models
+         now: @escaping () -> Date = { Date() },
+         makeClient: ((GeminiProfileInfo) -> GeminiClient)? = nil) {
+        self.profilesProvider = profiles
         self.limit = limit
-        self.makeClient = makeClient ?? { model in GeminiClient(key: key, model: { model }) }
+        self.now = now
+        self.makeClient = makeClient ?? { profile in GeminiClient(key: { profile.key }, model: { profile.model }) }
     }
 
     // MARK: İstek ve cevap (saf yardımcılar)
@@ -124,27 +127,50 @@ final class GeminiAnswerService: Answering {
 
     // MARK: Answering
 
+    /// Sıra: dinlenmiş profiller yuva sırasıyla, ardından sona bırakılanlar (hepsi sondaysa yine hepsi denenir)
+    func order(_ usable: [GeminiProfileInfo]) -> [GeminiProfileInfo] {
+        let t = now()
+        let ready = usable.filter { (restingUntil[$0.slot] ?? .distantPast) <= t }
+        let resting = usable.filter { (restingUntil[$0.slot] ?? .distantPast) > t }
+        return ready + resting
+    }
+
+    private func rest(_ profile: GeminiProfileInfo, after error: GeminiError) {
+        let seconds: TimeInterval
+        switch error.kind {
+        case .quota: seconds = error.message.contains("günlük") ? 3600 : 300
+        case .key, .model, .cap: seconds = 900
+        default: seconds = 120
+        }
+        restingUntil[profile.slot] = now().addingTimeInterval(seconds)
+    }
+
     func answer(question: String, expectedNumber: Int, audio: Data?) async throws -> GeminiReply {
-        let key = keyProvider().trimmed
-        guard !key.isEmpty, !modelNames.isEmpty else { throw GeminiError(Say.noKeyShort, .key) }
+        let usable = GeminiProfiles.usable(profilesProvider())
+        guard !usable.isEmpty else { throw GeminiError(Say.noKeyShort, .key) }
         let body = try GeminiAnswerService.requestBody(question: question, expectedNumber: expectedNumber, audio: audio)
+        let sequence = order(usable)
         var lastError = GeminiError("Gemini cevap vermedi.", .error)
         var trail: [String] = []
-        for (index, model) in modelNames.enumerated() {
-            let isLast = index == modelNames.count - 1
+        for (index, profile) in sequence.enumerated() {
+            let isLast = index == sequence.count - 1
             do {
-                let client = makeClient(model)
-                let object = try await client.generate(model: model, key: key, body: body,
-                                                       serverRetries: GeminiClient.askServerRetries,
+                let client = makeClient(profile)
+                // Son profil dışındakilerde sunucu hatasında yeniden deneme ve uzun bekleme yok: hemen sıradakine geçilir
+                let object = try await client.generate(model: profile.model, key: profile.key, body: body,
+                                                       serverRetries: isLast ? GeminiClient.askServerRetries : 0,
                                                        timeout: isLast ? nil : limit)
                 let parsed = AnswerParser.parse(try GeminiAnswerService.replyText(from: object))
                 if parsed.spoken.isEmpty { throw GeminiError("Gemini cevap satırı vermedi.", .empty) }
+                restingUntil[profile.slot] = nil
+                let note = trail.isEmpty ? "" : "Cevap \(profile.name) modelinden geldi: " + trail.joined(separator: " ")
                 return GeminiReply(number: parsed.number, option: parsed.option, text: parsed.text,
-                                   spoken: parsed.spoken, model: model)
+                                   spoken: parsed.spoken, model: profile.model, note: note)
             } catch let error as GeminiError {
-                trail.append("\(model): \(error.message)")
+                trail.append("\(profile.name) (\(profile.model)): \(error.message)")
                 lastError = error
                 guard !isLast, GeminiAnswerService.fallbackWorthy(error) else { break }
+                rest(profile, after: error)
             }
         }
         var merged = GeminiError(trail.joined(separator: " "), lastError.kind, status: lastError.status)

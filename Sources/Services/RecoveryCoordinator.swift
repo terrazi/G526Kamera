@@ -1,7 +1,7 @@
 import Foundation
 
-/// Modül 4: Kestirmelerle kendi kendini onarma. Sırayla Wi-Fi, hücresel, sistem sıfırlama kestirmesini çalıştırır;
-/// her birinden sonra bağlantı düzeldi mi diye bakar. Düzelirse durur.
+/// Modül 4: Kestirmelerle kendi kendini onarma. İnternet için sırayla Wi-Fi, hücresel, sistem sıfırlama; ses yolu için önce Bluetooth
+/// yenileme, sonra sistem sıfırlama kestirmesini çalıştırır. Her birinden sonra sorun bitti mi diye bakar. Düzelirse durur.
 @MainActor
 final class RecoveryCoordinator {
     struct Config: Equatable {
@@ -58,7 +58,7 @@ final class RecoveryCoordinator {
         // Kendiliğinden düzelmiş olabilir: boşuna kestirme çalıştırma
         if !force, await verify(reason) { return .recovered(by: nil) }
 
-        let steps = reason.steps.filter { !name($0).trimmed.isEmpty }
+        let steps = reason.steps(force: force).filter { !name($0).trimmed.isEmpty }
         guard !steps.isEmpty else { return .notConfigured }
 
         for cycle in 1...max(1, config.maxCycles) {

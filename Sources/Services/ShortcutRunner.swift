@@ -13,7 +13,13 @@ enum ShortcutOutcome: Equatable {
 
 /// Kestirmeler uygulamasının x-callback-url bağlantıları (Modül 4)
 enum ShortcutLink {
-    static let scheme = "g526kamera"
+    static let scheme = "seslikontrol"
+    /// Uygulamanın eski adından kalan adres: önceden kurulmuş bir otomasyon çalışmaya devam etsin diye hâlâ tanınır
+    static let legacyScheme = "g526kamera"
+
+    private static func isOurs(_ url: URL) -> Bool {
+        return url.scheme == scheme || url.scheme == legacyScheme
+    }
     /// Kestirme bitince Kestirmeler'in uygulamaya dönmek için açtığı adresler
     static let successURL = "\(scheme)://kestirme/ok"
     static let cancelURL = "\(scheme)://kestirme/iptal"
@@ -41,9 +47,9 @@ enum ShortcutLink {
         case failed(String)
     }
 
-    /// g526kamera://kestirme/ok | /iptal | /hata?errorMessage=… → geri dönüş türü (başka adres nil)
+    /// seslikontrol://kestirme/ok | /iptal | /hata?errorMessage=… → geri dönüş türü (başka adres nil)
     static func callback(from url: URL) -> Callback? {
-        guard url.scheme == scheme, url.host == "kestirme" else { return nil }
+        guard isOurs(url), url.host == "kestirme" else { return nil }
         switch url.lastPathComponent {
         case "ok": return .success
         case "iptal": return .cancelled
@@ -55,9 +61,9 @@ enum ShortcutLink {
         }
     }
 
-    /// g526kamera://basla: zamanlı başlatma (Kestirmeler'deki "Günün saati" otomasyonu bu adresi açar)
+    /// seslikontrol://basla: zamanlı başlatma (Kestirmeler'deki "Günün saati" otomasyonu bu adresi açar)
     static func isStartURL(_ url: URL) -> Bool {
-        return url.scheme == scheme && url.host == "basla"
+        return isOurs(url) && url.host == "basla"
     }
 }
 

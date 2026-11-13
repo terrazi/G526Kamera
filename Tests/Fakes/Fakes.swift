@@ -61,6 +61,17 @@ final class FakeRoute: AudioRouteProviding {
     func snapshot() -> RouteSnapshot { return current }
     func preferExternalInput() { preferCalls += 1 }
 
+    /// Bağlı mikrofonlar (varsayılan: Lightning alıcı) ve seçim denemeleri
+    var inputs: [InputChoice] = [InputChoice(uid: "lightning", name: "Boya Mikrofon", port: .usbAudio, isCurrent: true)]
+    private(set) var selectedUIDs: [String] = []
+    func availableInputs() -> [InputChoice] { return inputs }
+    func selectInput(uid: String) -> Bool {
+        selectedUIDs.append(uid)
+        guard let input = inputs.first(where: { $0.uid == uid }), input.isExternal else { return false }
+        inputs = inputs.map { var c = $0; c.isCurrent = c.uid == uid; return c }
+        return true
+    }
+
     /// Arama/alarm/Siri sesi böldü (began) ya da bitti
     func interrupt(began: Bool) { onInterruption?(began) }
 
@@ -165,6 +176,9 @@ final class FakeNetwork: NetworkWatching {
 final class FakeHealth: HealthChecking {
     var internet = true
     var geminiResult: GeminiHealth = .ok
+    /// Anahtara göre ayrı sonuç (yoksa geminiResult)
+    var geminiResults: [String: GeminiHealth] = [:]
+    private(set) var geminiKeysAsked: [String] = []
     private(set) var internetCalls = 0
     private(set) var geminiCalls = 0
 
@@ -175,7 +189,8 @@ final class FakeHealth: HealthChecking {
 
     func gemini(key: String) async -> GeminiHealth {
         geminiCalls += 1
-        return geminiResult
+        geminiKeysAsked.append(key)
+        return geminiResults[key] ?? geminiResult
     }
 }
 

@@ -6,7 +6,7 @@ Hiçbir şey telefonda denenmedi: yalnız GitHub Actions'ta derlendi ve birim te
 ## Temel ilke
 - Mikrofon, sesli komut, konuşma tanıma ve sınav sırasında ekrana dokunma YOK. Ekrana yalnız sınavdan önce ayar için dokunulur.
 - Ses yalnız kulaklığa verilir; çıkış telefon hoparlörüyse program konuşmaz (bekler).
-- Program belli saatte kendiliğinden açılır: iOS Kestirmeler > Otomasyon > "Günün Saati" > "Uygulamayı Aç"/URL aç `g526kamera://basla`
+- Program belli saatte kendiliğinden açılır: iOS Kestirmeler > Otomasyon > "Günün Saati" > "Uygulamayı Aç"/URL aç `seslikontrol://basla`
   (Hemen Çalıştır). Açılışta tarama kendiliğinden başlar.
 - Telefon açık, ekran açık ve şarjda olmalı (kilitliyken kamera akışı ve ses sürmez). Telefon yeniden başlarsa ya da uygulama kapanırsa
   program kendini toparlamaz (kullanıcı kararı).
@@ -61,7 +61,7 @@ Odak'ı açın; arama/mesaj tamamen susmayabilir, bunu garanti etmiyoruz.
 ## Kullanıcının kuracağı kestirmeler
 - Kamera Wi-Fi'sini açan kestirme (örn. "Kamera Wi-Fi") — adı Ayarlar > Kestirmeler'e yazılır.
 - İnternet kestirmesi: Wi-Fi'yi kapat → 2 sn bekle → hücresel veriyi aç — adı aynı yere yazılır.
-- Günün Saati otomasyonu: `g526kamera://basla` adresini aç (Hemen Çalıştır).
+- Günün Saati otomasyonu: `seslikontrol://basla` adresini aç (Hemen Çalıştır).
 - İsteğe bağlı "G526 Kestirme Seç": ayarlarda adı yazmak yerine listeden seçmek için (Ayarlar'daki yardım metni anlatır).
 
 ## Kod haritası

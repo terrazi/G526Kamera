@@ -35,10 +35,14 @@ final class SessionViewModel: ObservableObject {
     /// Dikte edilen (ve kırpılmış) soru metni
     @Published var liveText = ""
     @Published var answers: [AnswerRecord] = []
+    /// Yüklenen sorular ve her birinin Gemini'ye gidiş durumu (ana ekrandaki tek liste; yükleme sırasıyla)
+    @Published var questions: [QuestionEntry] = []
     @Published var warnings: [SessionWarning] = []
     @Published var checkup: [CheckItem] = []
     @Published var statusNote = ""
     @Published var canReplay = false
+    /// Seçilebilir harici mikrofonlar (ana ekrandaki mikrofon listesi)
+    @Published var inputs: [InputChoice] = []
     @Published var routeVerdict: RouteVerdict?
 
     // MARK: Bağımlılıklar
@@ -57,6 +61,9 @@ final class SessionViewModel: ObservableObject {
     var pendingStart = false
     /// Alındığı ve kaydedildiği hâlde kulaklıktan duyulamamış cevap (okunurken ses yolu koptu); yol dönünce yeniden okunur
     var unheard: AnswerRecord?
+    /// Şu an Gemini'ye giden sorunun satırı (yoksa nil) ve satır sayacı
+    var currentEntry: Int?
+    var entrySeq = 0
     /// Arada tek kelime tanınmadan art arda yapılan donanım onarımı sayısı
     var hardwareRecoveries = 0
     var work: Task<Void, Never>?
@@ -87,11 +94,28 @@ final class SessionViewModel: ObservableObject {
         watchdog.onExpire = { [weak self] in self?.silenceExpired() }
         replay.onState = { [weak self] state in self?.replayChanged(state) }
         refreshReplayAvailability()
+        refreshInputs()
+    }
+
+    /// Ana ekrandaki mikrofon listesi: yalnız harici (Lightning/USB/kablolu) mikrofonlar seçilebilir
+    func refreshInputs() {
+        inputs = deps.route.availableInputs().filter { $0.isExternal }
+    }
+
+    /// Kullanıcı listeden bir mikrofon seçti
+    func chooseInput(_ uid: String) {
+        if deps.route.selectInput(uid: uid) {
+            clearWarning("giris")
+        } else {
+            warn("giris", "Mikrofon seçilemedi. Alıcının takılı ve mikrofonun açık olduğundan emin olun.")
+        }
+        refreshInputs()
+        routeVerdict = AudioRouting.verdict(deps.route.snapshot())
     }
 
     // MARK: Başlat / bitir
 
-    /// Oturumu başlatır: donanım kontrolü, sonra dinleme. El ile düğme, g526kamera://basla, saat ya da bildirim çağırır.
+    /// Oturumu başlatır: donanım kontrolü, sonra dinleme. El ile düğme, seslikontrol://basla, saat ya da bildirim çağırır.
     func start() {
         guard phase.isAtRest else { return }
         resetSession()
@@ -115,7 +139,7 @@ final class SessionViewModel: ObservableObject {
         refreshReplayAvailability()
     }
 
-    /// g526kamera://basla ve Kestirmeler dönüşleri
+    /// seslikontrol://basla ve Kestirmeler dönüşleri
     func handleURL(_ url: URL) {
         if ShortcutLink.isStartURL(url) {
             start()
@@ -129,6 +153,9 @@ final class SessionViewModel: ObservableObject {
         accumulator.clear()
         liveText = ""
         answers = []
+        questions = []
+        currentEntry = nil
+        entrySeq = 0
         warnings = []
         checkup = []
         statusNote = ""
@@ -141,6 +168,7 @@ final class SessionViewModel: ObservableObject {
     }
 
     func cancelWork() {
+        abandonEntry("Kesildi: cevap gelmeden iş durdu. Soruyu yeniden okuyun.")
         work?.cancel()
         work = nil
         cancelTimers()
@@ -201,6 +229,7 @@ final class SessionViewModel: ObservableObject {
     /// Mikrofonu açar ve yeni soruyu bekler. Eldeki yarım metin ve ses silinir.
     func beginListening() {
         cancelTimers()
+        abandonEntry("Cevap alınamadı. Soruyu yeniden okuyun.")
         unheard = nil
         accumulator.clear()
         liveText = ""
@@ -270,6 +299,7 @@ final class SessionViewModel: ObservableObject {
         phase = .answering
         statusNote = ""
         let question = match.question
+        beginEntry(text: question, withAudio: audio != nil)
         work = Task { [weak self] in await self?.answer(question: question, audio: audio) }
     }
 
@@ -282,6 +312,9 @@ final class SessionViewModel: ObservableObject {
             let number = reply.number ?? nextNumber
             nextNumber = number + 1
             let record = AnswerRecord(number: number, option: reply.option, text: reply.text, spoken: reply.spoken)
+            finishEntry(.answered(record.spoken), number: number, model: reply.model)
+            // Cevap yedek profilden geldiyse sebebi kırmızı kutuda yazılır; ilk profilden gelince silinir
+            if reply.note.isEmpty { clearWarning("yedek") } else { warn("yedek", reply.note) }
             store(record)
             phase = .speaking
             unheard = record
@@ -304,9 +337,34 @@ final class SessionViewModel: ObservableObject {
         } catch let error as GeminiError {
             await handleGeminiError(error)
         } catch {
+            finishEntry(.failed(error.localizedDescription))
             warn("cevap", error.localizedDescription)
             if phase == .answering || phase == .speaking { beginListening() }
         }
+    }
+
+    // MARK: Soru listesi (ana ekran)
+
+    /// Tetikleyiciyle yüklenen soru listeye "gönderiliyor" işaretiyle girer
+    func beginEntry(text: String, withAudio: Bool) {
+        abandonEntry("Cevap alınamadı. Soruyu yeniden okuyun.")
+        entrySeq += 1
+        currentEntry = entrySeq
+        questions.append(QuestionEntry(id: entrySeq, text: text, withAudio: withAudio, number: nextNumber))
+    }
+
+    /// Giden sorunun işaretini günceller (cevap geldi / gitmedi)
+    func finishEntry(_ state: QuestionEntry.State, number: Int? = nil, model: String = "") {
+        guard let id = currentEntry, let index = questions.firstIndex(where: { $0.id == id }) else { return }
+        questions[index].state = state
+        if let number = number { questions[index].number = number }
+        if !model.isEmpty { questions[index].model = model }
+        currentEntry = nil
+    }
+
+    /// Cevabı gelmeden iş kesildiyse satır "gitmedi" olur
+    func abandonEntry(_ reason: String) {
+        if currentEntry != nil { finishEntry(.failed(reason)) }
     }
 
     private func store(_ record: AnswerRecord) {
@@ -334,6 +392,7 @@ final class SessionViewModel: ObservableObject {
     /// Ağ hatasında (istek düştü) Kestirmelerle onarım; diğer hatalarda kısa sesli bilgi ve yeniden dinleme
     private func handleGeminiError(_ error: GeminiError) async {
         guard phase == .answering else { return }
+        finishEntry(.failed(error.kind == .network ? "Gemini'ye ulaşılamadı; bağlantı gelince soruyu yeniden okuyun." : error.message))
         if error.kind == .network {
             warn("cevap", "Gemini'ye ulaşılamadı: \(error.message)")
             await runRecovery(.network)

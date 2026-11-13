@@ -3,12 +3,17 @@ import Foundation
 /// Modül 1: açılış donanım kontrolü (izinler, kulaklık, mikrofon, internet, Gemini) ve "Ben hazırım" anonsu
 extension SessionViewModel {
     func runStartup() async {
+        deps.library.prepare()
         do {
             sessionFolder = try deps.library.newSessionFolder(for: deps.now())
         } catch {
             await failStart("Cevap klasörü açılamadı: \(error.localizedDescription)")
             return
         }
+        // Kayıt klasörü seçilmemiş / erişilemiyorsa oturum yine başlar (cevaplar uygulamanın kendi klasörüne gider) ama kırmızı kutuda uyarılır
+        let folderWarning = deps.library.warning
+        setCheck("klasor", "Kayıt klasörü", ok: folderWarning == nil, detail: folderWarning == nil ? "seçili, yazılabiliyor" : "seçilmemiş ya da erişilemiyor")
+        if let text = folderWarning { warn("klasor", text) } else { clearWarning("klasor") }
 
         // 1) İzinler ve çevrimdışı dikte
         let permission = await deps.permissions.request()
@@ -57,7 +62,7 @@ extension SessionViewModel {
         setCheck("internet", "İnternet", ok: internetOK, detail: "var")
 
         // 4) Gemini: ulaşılıyor mu, anahtar kabul ediliyor mu
-        let gemini = await deps.health.gemini(key: settings.apiKey)
+        let gemini = await checkGemini()
         guard !Task.isCancelled else { return }
         switch gemini {
         case .ok:
@@ -81,6 +86,30 @@ extension SessionViewModel {
     }
 
     /// Açılış kontrolü başarısız: sebep kırmızı kutuya yazılır, kulaklık varsa söylenir, oturum başlamaz
+    /// Anahtarı dolu profilleri sırayla yoklar; biri kabul edilirse Gemini hazırdır. Ondan önceki profillerin sorunu kırmızı kutuda yazılır
+    /// (soru yine de ilk sağlam profile gider). Hiç anahtar yoksa tek anahtarsız yoklama "anahtar girilmemiş" sonucunu verir.
+    func checkGemini() async -> GeminiHealth {
+        let profiles = settings.usableGeminiProfiles
+        guard !profiles.isEmpty else { return await deps.health.gemini(key: "") }
+        var problems: [String] = []
+        var first: GeminiHealth?
+        for profile in profiles {
+            if Task.isCancelled { break }
+            let result = await deps.health.gemini(key: profile.key)
+            switch result {
+            case .ok:
+                if problems.isEmpty { clearWarning("anahtar") } else { warn("anahtar", problems.joined(separator: " ")) }
+                return .ok
+            case .keyRejected(let message):
+                problems.append("\(profile.name): anahtar kabul edilmedi (\(message)).")
+            case .unreachable(let message):
+                problems.append("\(profile.name): Gemini'ye ulaşılamadı (\(message)).")
+            }
+            if first == nil { first = result }
+        }
+        return first ?? .unreachable("yanıt yok")
+    }
+
     func failStart(_ message: String) async {
         warn("start", message)
         if AudioRouting.verdict(deps.route.snapshot()).headphonesOK {

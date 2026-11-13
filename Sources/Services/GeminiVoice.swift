@@ -5,16 +5,20 @@ import Foundation
 /// Başarısız olursa (kota, internet, model) sıradaki motor olan telefonun sesi devreye girer.
 @MainActor
 final class GeminiVoice: SpeechSynthesizing {
-    /// Denenecek TTS modelleri (aynı anahtarla)
+    /// Denenecek TTS modelleri (her anahtarla sırayla)
     static let models = ["gemini-3.8-flash-tts", "gemini-3.8-flash-lite-tts"]
     static let voiceName = "Kore"
     /// Sınavda beklemeyi uzatmamak için her model için en çok bekleme (sn)
     static let perModelLimit: TimeInterval = 8
     /// Tüm modeller başarısız olunca Gemini sesi bu kadar süre denenmez: her cevapta boşuna bekleme olmasın, telefonun sesi hemen devreye girer
     static let cooldown: TimeInterval = 300
+    /// Birkaç anahtar denenirken toplam bekleme bütçesi (sn): yavaş başarısızlıktan sonra sıradaki anahtara geçilmez,
+    /// cevap telefonun sesiyle gecikmeden okunur. Hızlı hatalarda (kota, anahtar, model yok) sıradaki anahtar denenir.
+    static let budget: TimeInterval = 12
     static let sampleRate = 24_000
 
-    private let keyProvider: () -> String
+    private let keysProvider: () -> [String]
+    private let budget: TimeInterval
     private let modelNames: [String]
     private let limit: TimeInterval
     private let makeClient: (String) -> GeminiClient
@@ -23,18 +27,33 @@ final class GeminiVoice: SpeechSynthesizing {
     private var cancelled = false
     private var disabledUntil: Date?
 
-    init(key: @escaping () -> String,
+    /// `keys`: dolu API anahtarları, öncelik sırasıyla (aynı anahtar bir kez denenir)
+    init(keys: @escaping () -> [String],
          models: [String] = GeminiVoice.models,
          limit: TimeInterval = GeminiVoice.perModelLimit,
+         budget: TimeInterval = GeminiVoice.budget,
          cooldown: TimeInterval = GeminiVoice.cooldown,
          now: @escaping () -> Date = { Date() },
          makeClient: ((String) -> GeminiClient)? = nil) {
-        self.keyProvider = key
+        self.keysProvider = keys
         self.modelNames = models
         self.limit = limit
+        self.budget = budget
         self.cooldown = cooldown
         self.now = now
-        self.makeClient = makeClient ?? { model in GeminiClient(key: key, model: { model }) }
+        self.makeClient = makeClient ?? { model in GeminiClient(key: { keys().first ?? "" }, model: { model }) }
+    }
+
+    /// Tek anahtarlı kısa yol
+    convenience init(key: @escaping () -> String,
+                     models: [String] = GeminiVoice.models,
+                     limit: TimeInterval = GeminiVoice.perModelLimit,
+                     budget: TimeInterval = GeminiVoice.budget,
+                     cooldown: TimeInterval = GeminiVoice.cooldown,
+                     now: @escaping () -> Date = { Date() },
+                     makeClient: ((String) -> GeminiClient)? = nil) {
+        self.init(keys: { [key()] }, models: models, limit: limit, budget: budget, cooldown: cooldown, now: now,
+                  makeClient: makeClient)
     }
 
     // MARK: İstek ve cevap (saf yardımcılar)
@@ -75,27 +94,41 @@ final class GeminiVoice: SpeechSynthesizing {
     // MARK: SpeechSynthesizing
 
     func synthesize(_ text: String, to base: URL) async throws -> URL {
-        let key = keyProvider().trimmed
-        guard !key.isEmpty, !modelNames.isEmpty else { throw GeminiError(Say.noKeyShort, .key) }
+        var keys: [String] = []
+        for raw in keysProvider() {
+            let key = raw.trimmed
+            if !key.isEmpty, !keys.contains(key) { keys.append(key) }
+        }
+        guard !keys.isEmpty, !modelNames.isEmpty else { throw GeminiError(Say.noKeyShort, .key) }
         if let until = disabledUntil, now() < until {
             throw GeminiError("Gemini sesi az önce çalışmadı; bir süre telefonun sesi kullanılıyor.", .error)
         }
         cancelled = false
         let body = try GeminiVoice.requestBody(text: text)
         var lastError = GeminiError("Gemini sesi üretilemedi.", .error)
-        for model in modelNames {
-            do {
-                // Sunucu hatasında yeniden deneme yok: sınavda beklemek yerine hemen sıradaki motora geçilir
-                let object = try await makeClient(model).generate(model: model, key: key, body: body, serverRetries: 0, timeout: limit)
-                if cancelled { throw CancellationError() }
-                let wav = GeminiVoice.wavFile(from: try GeminiVoice.audioBytes(from: object))
-                let url = base.appendingPathExtension("wav")
-                try wav.write(to: url, options: .atomic)
-                disabledUntil = nil
-                return url
-            } catch let error as GeminiError {
-                lastError = error
-                if cancelled { throw CancellationError() }
+        let started = now()
+        var attempts = 0
+        keyLoop: for key in keys {
+            for model in modelNames {
+                if attempts > 0, now().timeIntervalSince(started) >= budget { break keyLoop }
+                attempts += 1
+                do {
+                    // Sunucu hatasında yeniden deneme yok: sınavda beklemek yerine hemen sıradaki motora / anahtara geçilir
+                    let object = try await makeClient(model).generate(model: model, key: key, body: body, serverRetries: 0, timeout: limit)
+                    if cancelled { throw CancellationError() }
+                    let wav = GeminiVoice.wavFile(from: try GeminiVoice.audioBytes(from: object))
+                    let url = base.appendingPathExtension("wav")
+                    try wav.write(to: url, options: .atomic)
+                    disabledUntil = nil
+                    return url
+                } catch let error as GeminiError {
+                    lastError = error
+                    if cancelled { throw CancellationError() }
+                    // Anahtar geçersizse bu anahtarla başka model denemenin anlamı yok
+                    if error.kind == .key { continue keyLoop }
+                    // İnternet hiç yoksa başka anahtar da çalışmaz
+                    if error.kind == .network, !error.timedOut { break keyLoop }
+                }
             }
         }
         // İnternet sorunuysa (onarım zaten ilgilenir) süre tutulmaz; modelin/kotanın çalışmaması ise bir süre atlanır

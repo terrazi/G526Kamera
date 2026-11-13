@@ -93,10 +93,10 @@ final class SessionFlowTests: XCTestCase {
 
     func testHandleURLStartsSessionAndRoutesShortcutCallbacks() async {
         let h = SessionHarness()
-        h.vm.handleURL(URL(string: "g526kamera://basla")!)
+        h.vm.handleURL(URL(string: "seslikontrol://basla")!)
         let listening = await waitUntil { h.vm.phase == .listening }
         XCTAssertTrue(listening)
-        h.vm.handleURL(URL(string: "g526kamera://kestirme/ok")!)
+        h.vm.handleURL(URL(string: "seslikontrol://kestirme/ok")!)
         XCTAssertEqual(h.shortcuts.callbacks.count, 1)
     }
 
@@ -280,7 +280,7 @@ final class SessionFlowTests: XCTestCase {
         h.scheduler.advance(by: SessionViewModel.Timing.hardwareGrace + 0.1)
         let listening = await waitUntil { h.vm.phase == .listening && h.speaker.spoken.last == Say.recovered }
         XCTAssertTrue(listening)
-        XCTAssertEqual(h.shortcuts.runs, ["Sistemi_Sifirla"], "Donanım sorununda yalnız sıfırlama kestirmesi çalışır")
+        XCTAssertEqual(h.shortcuts.runs, ["Bluetooth_Yenile"], "Kulaklık koptuysa önce hafif Bluetooth yenileme; işe yararsa sıfırlama çalışmaz")
     }
 
     func testSpeakerRefusingUnsafeRoutePausesInsteadOfPlaying() async {

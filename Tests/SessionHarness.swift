@@ -20,13 +20,14 @@ final class SessionHarness {
     let settings: AppSettings
     let vm: SessionViewModel
 
-    init(shortcutNames: Bool = true) {
+    init(shortcutNames: Bool = true, library: AnswerLibrary? = nil) {
         root = makeTempFolder("g526-oturum")
         let defaults = UserDefaults(suiteName: "g526.testler.\(UUID().uuidString)")!
         settings = AppSettings(defaults: defaults)
         if shortcutNames {
             settings.wifiShortcut = "WiFi_Ac"
             settings.cellularShortcut = "Hücresel_Ac"
+            settings.bluetoothShortcut = "Bluetooth_Yenile"
             settings.resetShortcut = "Sistemi_Sifirla"
         }
         let deps = SessionDependencies(route: route,
@@ -41,7 +42,7 @@ final class SessionHarness {
                                        replayPlayer: player,
                                        screen: screen,
                                        scheduler: scheduler,
-                                       library: AnswerLibrary(root: root),
+                                       library: library ?? AnswerLibrary(root: root),
                                        now: { Date(timeIntervalSince1970: 1_800_000_000) },
                                        sleep: { _ in },
                                        recoveryConfig: RecoveryCoordinator.Config(settle: 0, verifyWindow: 0, verifyInterval: 1,

@@ -8,16 +8,38 @@ gerçek kurulum `App/AppEnvironment`, testler sahtelerle (`Tests/Fakes`) kurar.
 
 | Modül | Ne yapar | Dosyalar |
 |---|---|---|
-| 1 Ayarlar ve açılış | başlama saati, API anahtarı, 3 kestirme adı; açılışta donanım denetimi ve "hazırım" anonsu | `AppSettings`, `StartScheduler`, `SessionViewModel+Checkup`, `HealthCheck`, `Permissions` |
+| 1 Ayarlar ve açılış | başlama saati, 4 Gemini profili ve anahtarı, kayıt klasörü, 4 kestirme adı; açılışta donanım denetimi (kayıt klasörü, anahtarlar dahil) ve "hazırım" anonsu | `AppSettings`, `GeminiProfiles`, `FolderStore`, `StartScheduler`, `SessionViewModel+Checkup`, `HealthCheck`, `Permissions` |
 | 2 Ses kalkanı | `.playAndRecord`, seçenekler yalnız `[.allowBluetooth, .allowBluetoothA2DP]`; yol değişince kontrol, kopunca anında sus ve duraklat | `AudioRouting`, `SessionViewModel+Recovery` (fail-safe) |
 | 3 Dikte | çevrimdışı `SFSpeechRecognizer` (tr-TR, `requiresOnDeviceRecognition`), sürekli; "Cevapla"/"Gönder" son sözcükse mikrofon durur, tetikleyici kırpılır | `SpeechListener`, `Transcript`, `QuestionAudio` |
-| 4 Kendini onarma | 30 sn sessizlik ya da düşen istek; `NWPathMonitor` + Kestirmeler: Wi-Fi → hücresel → sıfırlama; düzelince Google/Gemini'ye ping, anons, mikrofon | `SilenceWatchdog`, `NetworkWatcher`, `ShortcutRunner`, `RecoveryCoordinator`, `SessionViewModel+Recovery` |
+| 4 Kendini onarma | 30 sn sessizlik ya da düşen istek; `NWPathMonitor` + Kestirmeler: internet için Wi-Fi → hücresel → sıfırlama, donanım için Bluetooth yenileme → sıfırlama; düzelince Google/Gemini'ye ping ya da ses yolu denetimi, anons, mikrofon | `SilenceWatchdog`, `NetworkWatcher`, `ShortcutRunner`, `RecoveryCoordinator`, `SessionViewModel+Recovery` |
 | 5 Cevap | Gemini'ye soru (dikte metni + isteğe bağlı ses), tek satır cevap, kulaklıktan okuma ve `soru_N` olarak kaydetme, sonra yeni soruyu dinleme | `AnswerService`, `AnswerRecord`, `SpeechOutput`, `GeminiVoice`, `AnswerLibrary` |
 | 6 Tekrar | test sonu çevrimdışı; dosyalar sırayla, aralarında `DispatchQueue.main.asyncAfter` ile ayarlanan boşluk | `ReplayController`, `Scheduling`, `SessionViewModel+Replay` |
 
 ## Kararlar ve varsayımlar
 
 - **"Şık şehri":** şıklar A=Adana, B=Bursa, C=Ceyhan, D=Denizli, E=Erzurum kod sözcükleridir; cevap bu sözcükle söylenir.
+- **4 yedekli Gemini profili:** her profilin adı, modeli, anahtarı ve "ücretsiz/ücretli anahtar" işareti vardır (ilk sürümdeki düzen).
+  Anahtarlar Keychain'de (`geminiKeyV3`, `geminiKeyV3_2…4`), adlar ve modeller UserDefaults'ta saklanır; tek anahtarlı sürümün anahtarı
+  1. profile gelir. `GeminiAnswerService` soruyu 1→2→3→4 sırasıyla kendi anahtarlarıyla sorar: kota, sunucu hatası, 40 sn zaman aşımı,
+  boş cevap, anahtar ya da model hatasında sıradakine geçer; hata veren profil bir süre sona bırakılır (kota 5 dk, günlük kota 1 saat,
+  anahtar/model 15 dk, diğer 2 dk). İçerik engeli, çok büyük istek, harcama sınırı ve internetin hiç olmaması zinciri durdurur.
+  Son profile zaman aşımı konmaz. Cevap yedekten geldiyse sebep kırmızı kutuda yazılır. Gemini sesi de aynı anahtarları sırayla dener.
+  Açılışta ilk sağlam anahtar bulunana kadar profiller yoklanır; öncekilerin sorunu kırmızı kutuda yazılır.
+- **Kayıt klasörü:** kullanıcı Dosyalar uygulamasından bir klasör seçer; `UIDocumentPickerViewController` + güvenlik kapsamlı yer imi
+  (bookmark) ile hatırlanır ve oturum boyunca erişim açık tutulur. Cevaplar (`soru_N`, `cevaplar.txt`) gün klasörleriyle buraya yazılır,
+  uygulama silinse de kalır. Seçilmemişse ya da erişilemiyorsa uygulamanın kendi klasörü kullanılır, kırmızı uyarı çıkar ve açılış
+  kontrolünde ✗ görünür (test yine başlar). Oturum sürerken klasör değiştirilemez.
+- **Mikrofon seçimi:** ana ekranda yalnız harici girişler (Lightning/USB, kulaklık mikrofonu, hat girişi) listelenir;
+  `AVAudioSession.setPreferredInput` ile seçilir, seçim saklanır ve açılış / yol değişiminde yeniden uygulanır. Sistemin ses yolu seçicisi
+  yalnız çıkış içindir, bu yüzden giriş listesi uygulamadadır.
+- **Bluetooth yenileme adımı:** donanım sorununda önce hafif `Bluetooth_Yenile` kestirmesi, olmazsa `Sistemi_Sifirla`. Donanım doğrulaması
+  yalnız ses yolunun güvenli görünmesine bakar; bu yüzden mikrofon sessiz kaldığı için zorla başlatılan onarımda (`force`) yalnız sıfırlama
+  çalışır, yoksa yol sağlam göründüğü için Bluetooth adımı sorunu çözmüş gibi görünürdü.
+- **Ana ekran soru listesi:** tek liste, "Yüklenen sorular". Okunmakta olan soru canlı görünür; "Cevapla" denince `QuestionEntry` olarak
+  listeye girer ve yanındaki işaret durumu gösterir: saat = okunuyor, "Cevapla" bekleniyor (canlı satır), mektup = Gemini'ye gitti,
+  cevap bekleniyor, gülen yüz = cevaplandı (cevap ve model), kırmızı çarpı = gitmedi (neden). Uçak modu kestirmesiyle karışmasın diye
+  uçak yerine mektup seçildi.
+  Yeni soru en üsttedir. Cevabı gelmeden iş kesilirse (duraklatma, test bitişi) satır "gitmedi" olur; soru yeniden okunur.
 - **Bir soru, bir istek:** her soru ayrı gönderilir, ayrı cevaplanır. Cevap hemen okunur (Modül 5) ve dosyaya kaydedilir; test sonunda
   hepsi Modül 6 ile yeniden çalınır. Ses: Gemini ses modeli (ayar açıksa), başarısız olursa telefonun sesi.
 - **Dikte + ses:** dikte tetikleyici ve ekran metni için kalır; ayrıca soru sesi (16 kHz, tek kanal WAV, en çok 180 sn) dikteye ek
@@ -40,7 +62,7 @@ gerçek kurulum `App/AppEnvironment`, testler sahtelerle (`Tests/Fakes`) kurar.
 - **Gemini sesi çalışmazsa** (kota, model) 5 dk boyunca denenmez; cevaplar hemen telefonun sesiyle okunur. Her model için bekleme 8 sn.
 - **Okunamayan duyuru** oturumu durdurmaz; sebep ekranda yazılır, dinleme sürer.
 - **Telefon yeniden başlatma / uygulamayı yeniden açma** yoktur (istenmedi).
-- **Zamanlı başlatma:** iOS tam saatinde uyanmaya izin vermez; Kestirmeler otomasyonu `g526kamera://basla` açar. Yedek: uygulama
+- **Zamanlı başlatma:** iOS tam saatinde uyanmaya izin vermez; Kestirmeler otomasyonu `seslikontrol://basla` açar. Yedek: uygulama
   açıkken zamanlayıcı, sessiz bildirim.
 
 ## Sınırlar (denenmedi)
