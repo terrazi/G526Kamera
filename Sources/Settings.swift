@@ -169,7 +169,7 @@ final class AppSettings: ObservableObject {
     @Published var examVideoFirst: Bool { didSet { d.set(examVideoFirst, forKey: "examVideoFirst") } }
     /// Sınav açılırken ses, mikrofon, internet ve Gemini sınanır
     @Published var examSelfCheck: Bool { didSet { d.set(examSelfCheck, forKey: "examSelfCheck") } }
-    /// Ana sayfadaki "Deneme sınavını etkinleştir" anahtarı: açıkken uygulama deneme sınavı modunda, kapalıyken normal çalışır
+    /// Ana sayfadaki "Deneme sınav modunu etkinleştir" anahtarı: açıkken uygulama deneme sınavı modunda, kapalıyken normal çalışır
     @Published var examEnabled: Bool { didSet { d.set(examEnabled, forKey: "examEnabled") } }
     /// Bağlantı kestirmesinin adı (Kestirmeler uygulamasındaki kestirme: hücresel veriyi kapat-aç). İnternet gidince çalışır; boşsa kapalı
     @Published var connectionShortcutName: String { didSet { d.set(connectionShortcutName, forKey: "connectionShortcutName") } }

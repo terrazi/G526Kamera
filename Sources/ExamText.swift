@@ -391,5 +391,5 @@ enum ExamText {
         "sınav tamamlandı", "son sayfayı sil", "tüm cevapları oku", "devam", "iptal", "duraklat", "yeni sınav",
         "durdur", "sil", "atla", "evet", "hayır", "videoya devam",
         "sınavı başlat", "sınavı sonlandır", "sınavı bitir", "sınavı kapat", "sınav modunu kapat", "normal moda geç",
-        "deneme sınavını etkinleştir"]
+        "deneme sınavını etkinleştir", "deneme sınav modunu etkinleştir"]
 }

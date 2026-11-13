@@ -32,6 +32,17 @@ struct DocumentFolderError: LocalizedError {
     var errorDescription: String? { return message }
 }
 
+/// Klasör seçimi değişince ekranlar (ana sayfadaki "Belge klasörü seçildi" satırı, ayar listesi) kendiliğinden yenilensin diye
+/// değişiklik haberi veren sayaç: seçim UserDefaults'ta durduğu için SwiftUI kendiliğinden bilemezdi
+final class DocumentFolderChanges: ObservableObject {
+    static let shared = DocumentFolderChanges()
+    @Published private(set) var count = 0
+
+    func announce() {
+        DispatchQueue.main.async { self.count += 1 }
+    }
+}
+
 /// Programın silinmesinden etkilenmeyen, kullanıcının seçtiği tek belge klasörü ("G526 Belgeler").
 /// iOS bir programa kendi klasörü dışında yazma izni ancak kullanıcı klasörü seçerse verir;
 /// seçim bir yer imi (bookmark) olarak saklanır.
@@ -55,10 +66,12 @@ final class DocumentFolder {
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         let data = try url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil)
         defaults.set(data, forKey: key)
+        DocumentFolderChanges.shared.announce()
     }
 
     func forget() {
         defaults.removeObject(forKey: key)
+        DocumentFolderChanges.shared.announce()
     }
 
     private func resolved() throws -> URL {

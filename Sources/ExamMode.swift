@@ -372,7 +372,7 @@ final class ExamMode: ObservableObject {
     /// Açılış sınaması bu açılışta yapıldı (geçti ya da kaldı); yeniden denenmez
     var startupFinished: Bool { return startupDone }
 
-    static let disabledNotice = "Deneme sınavı etkin değil. Ana sayfadaki “Deneme sınavını etkinleştir” anahtarını açın."
+    static let disabledNotice = "Deneme sınavı etkin değil. Ana sayfadaki “Deneme sınav modunu etkinleştir” anahtarını açın."
     static let enabledNotice = "Deneme sınavı modu açık. Başlamak için “sınavı başlat” deyin."
     static let leftNotice = "Deneme sınavı modu kapandı. Normal mod."
     /// "Dinle": sınav sırasında her an Gemini ile serbest sesli konuşma
@@ -957,8 +957,22 @@ final class ExamMode: ObservableObject {
         if enabled {
             leaveMode()            // ayar kapanır, `setEnabled(false)` "Normal mod" der
         } else {
-            await sayNow(ExamMode.leftNotice)   // anahtardan kapatıldı: sınav sonlandı, şimdi mod bilgisi
+            await sayLeftNotice()   // anahtardan kapatıldı: sınav sonlandı, şimdi mod bilgisi
         }
+    }
+
+    /// "Mod kapandı" cümlesi: söylenmeye sıra gelene kadar anahtar geri açıldıysa söylenmez (ekranda "kapandı" yazıp mod açıkken konuşmasın)
+    private func sayLeftNotice() async {
+        await waitFloor()
+        guard !enabled else { return }
+        await sayNow(ExamMode.leftNotice)
+    }
+
+    /// "Mod açık" cümlesi: sırası gelene kadar anahtar yine kapandıysa söylenmez
+    private func sayEnabledNotice() async {
+        await waitFloor()
+        guard enabled else { return }
+        await sayNow(ExamMode.enabledNotice)
     }
 
     /// Ekran düğmesi: açık sınavı sonlandırır (kayıtlar saklanır; deneme sınavı modu açık kalır)
@@ -966,7 +980,7 @@ final class ExamMode: ObservableObject {
         if running { command("end", text: "", source: "ui") }
     }
 
-    /// Ana sayfadaki "Deneme sınavını etkinleştir" anahtarı. Açılınca açılış sınaması bu açılışta yeniden yapılabilir (kulaklık, mikrofon,
+    /// Ana sayfadaki "Deneme sınav modunu etkinleştir" anahtarı. Açılınca açılış sınaması bu açılışta yeniden yapılabilir (kulaklık, mikrofon,
     /// internet değişmiş olabilir) ve kısa bir bilgi verilir; kapanınca açık sınav (ya da sınama) durdurulur, kayıtlar saklanır ve sonra
     /// yeniden açılınca "yarım kalan sınav" olarak sürdürülür. Kapalıyken sınav özellikleri çalışmaz: uygulama normaldir.
     func setEnabled(_ on: Bool, announce: Bool = true) {
@@ -974,12 +988,13 @@ final class ExamMode: ObservableObject {
         if on {
             enabled = true
             closeAfter = false      // kapanmakta olan sınav varken anahtar geri açıldı: mod kapanmasın
+            said.removeAll()        // kartın altında eski "Deneme sınavı modu kapandı. Normal mod." gibi geçmiş cümle kalmasın
             startupDone = false
             startupReady = false
             checkProblem = ""
             setStatus("")
             refreshInfo()
-            if announce && !ports.selfCheckOn() { bg { await self.sayNow(ExamMode.enabledNotice) } }
+            if announce && !ports.selfCheckOn() { bg { await self.sayEnabledNotice() } }
         } else {
             let wasRunning = running
             if wasRunning {
@@ -993,7 +1008,7 @@ final class ExamMode: ObservableObject {
                 setStatus("")
             }
             refreshInfo()
-            if announce && !wasRunning { bg { await self.sayNow(ExamMode.leftNotice) } }
+            if announce && !wasRunning { bg { await self.sayLeftNotice() } }
         }
     }
 

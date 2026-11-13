@@ -5,6 +5,8 @@ struct SettingsView: View {
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var settings: AppSettings
     @Environment(\.presentationMode) private var presentation
+    /// Klasör seçilince listedeki "klasör seçildi" durumu kendiliğinden yenilenir
+    @ObservedObject private var folderChanges = DocumentFolderChanges.shared
     @State private var voiceTestResult = ""
     @State private var modelListText = ""
     @State private var listingModels = false
@@ -473,9 +475,14 @@ struct SettingsView: View {
                 Text("Gruplar arası duraklama: \(settings.examGap) sn")
             }
             Toggle("Sınav sayfa sayfa videoyla yapılsın", isOn: $settings.examPageVideo)
-            Toggle("Sınav önce video çeksin (eski yöntem)", isOn: $settings.examVideoFirst)
+            // Sayfa sayfa video açıkken eski yöntem kullanılmaz: anahtar kapalı ve basılamaz görünür
+            Toggle("Sınav önce video çeksin (eski yöntem)", isOn: settings.examPageVideo ? Binding<Bool>.constant(false) : $settings.examVideoFirst)
+                .disabled(settings.examPageVideo)
+            if settings.examPageVideo {
+                Text("Sayfa sayfa video açıkken kullanılmaz.").font(.caption).foregroundColor(.secondary)
+            }
             Toggle("Sınav başlarken ses, internet ve Gemini'yi sına", isOn: $settings.examSelfCheck)
-            HelpRow("Ana sayfadaki “Deneme sınavını etkinleştir” anahtarı açıkken uygulama deneme sınavı modunda çalışır (açılışta ses, internet ve Gemini sınanır); kapalıyken normal çalışır ve sınav sesli komutları devre dışıdır. Anahtar açıkken “sınavı başlat” sınavı başlatır; “sınavı sonlandır” yalnız yapılan sınavı bitirir (mod açık kalır); “sınavı kapat” sınavı bitirir ve deneme sınavı modunu kapatır (normal moda döner). Sınav başlayınca soru sayfaları sesli yönlendirmeyle taranır (fotoğraflar gönderilmeden birikir); “tarama tamamlandı” deyince PDF’ler belge klasörüne kaydedilir, Gemini yalnız bu sınavın PDF’lerini okur ve “N belge, M sayfa, K soru görüyorum” der. Cevaplar gruplar hâlinde okunur, her grup bir kez tekrarlanır; sonra soru numarasını söyleyerek ya da “tüm cevapları oku” diyerek istediğiniz cevabı yeniden dinlersiniz (tekrarlar Gemini’ye gitmez, kayıttan okunur). “Sınav tamamlandı” sınavı sonlandırır. Program konuşurken mikrofon kapalıdır; komutlar cümle bitince söylenmelidir. Okunamayan sorular uydurulmaz, “okunamadı” denir. “Sınav sayfa sayfa videoyla yapılsın” açıkken (varsayılan) sınav şöyle yürür: kitabı kameranın altına koyarsınız, program sesle konumlandırır, sayfa uygun olunca o sayfayı ayardaki süre kadar aynı videoya yazar; sayfayı çevirirsiniz; bitince “bitti” dersiniz. Video belge klasörüne kaydedilir ve tek başına (her video ayrı istekle) Gemini’ye gönderilir, cevabı hemen okunur; sonra “Videoya devam edeyim mi?” diye sorar: “evet” yeni video, “hayır” sınavı bitirir; “atla” fotoğraf taramasına geçer. Bu seçenek kapalıysa eski yöntem çalışır: fotoğraf taraması ve PDF. Eski yöntemde “Sınav önce video çeksin” açıksa sınav önce video aşamasıyla başlar: evrak kadraja girince “Kaydı başlatayım mı?” diye sorar, “evet” deyince kayıt başlar (en çok ayardaki süre, varsayılan 30 sn), “durdur” kaydı bitirip belge klasörüne kaydeder, “sil” kaydetmeden siler, “atla” video aşamasını geçer; her videodan sonra “videoya devam edeyim mi?” diye sorar: “evet” yeni video, “hayır” fotoğraf taraması. Eski yöntemde sınav videosu yalnız belge klasörüne kaydedilir (Gemini’ye sorulmaz).")
+            HelpRow("Ana sayfadaki “Deneme sınav modunu etkinleştir” anahtarı açıkken uygulama deneme sınavı modunda çalışır (açılışta ses, internet ve Gemini sınanır); kapalıyken normal çalışır ve sınav sesli komutları devre dışıdır. Anahtar açıkken “sınavı başlat” sınavı başlatır; “sınavı sonlandır” yalnız yapılan sınavı bitirir (mod açık kalır); “sınavı kapat” sınavı bitirir ve deneme sınavı modunu kapatır (normal moda döner). Sınav başlayınca soru sayfaları sesli yönlendirmeyle taranır (fotoğraflar gönderilmeden birikir); “tarama tamamlandı” deyince PDF’ler belge klasörüne kaydedilir, Gemini yalnız bu sınavın PDF’lerini okur ve “N belge, M sayfa, K soru görüyorum” der. Cevaplar gruplar hâlinde okunur, her grup bir kez tekrarlanır; sonra soru numarasını söyleyerek ya da “tüm cevapları oku” diyerek istediğiniz cevabı yeniden dinlersiniz (tekrarlar Gemini’ye gitmez, kayıttan okunur). “Sınav tamamlandı” sınavı sonlandırır. Program konuşurken mikrofon kapalıdır; komutlar cümle bitince söylenmelidir. Okunamayan sorular uydurulmaz, “okunamadı” denir. “Sınav sayfa sayfa videoyla yapılsın” açıkken (varsayılan) sınav şöyle yürür: kitabı kameranın altına koyarsınız, program sesle konumlandırır, sayfa uygun olunca o sayfayı ayardaki süre kadar aynı videoya yazar; sayfayı çevirirsiniz; bitince “bitti” dersiniz. Video belge klasörüne kaydedilir ve tek başına (her video ayrı istekle) Gemini’ye gönderilir, cevabı hemen okunur; sonra “Videoya devam edeyim mi?” diye sorar: “evet” yeni video, “hayır” sınavı bitirir; “atla” fotoğraf taramasına geçer. Bu seçenek kapalıysa eski yöntem çalışır: fotoğraf taraması ve PDF. Eski yöntemde “Sınav önce video çeksin” açıksa sınav önce video aşamasıyla başlar: evrak kadraja girince “Kaydı başlatayım mı?” diye sorar, “evet” deyince kayıt başlar (en çok ayardaki süre, varsayılan 30 sn), “durdur” kaydı bitirip belge klasörüne kaydeder, “sil” kaydetmeden siler, “atla” video aşamasını geçer; her videodan sonra “videoya devam edeyim mi?” diye sorar: “evet” yeni video, “hayır” fotoğraf taraması. Eski yöntemde sınav videosu yalnız belge klasörüne kaydedilir (Gemini’ye sorulmaz).")
         }
     }
 
@@ -525,7 +532,12 @@ struct SettingsView: View {
 
     private var motionSection: some View {
         Section(header: Text("Otomatik çekim")) {
-            Toggle("Görüntü değişince çek", isOn: $settings.motionEnabled)
+            // Sesli konumlandırma açıkken otomatik çekim çalışmaz: anahtar kapalı ve basılamaz görünür
+            Toggle("Görüntü değişince çek", isOn: settings.guidanceEnabled ? Binding<Bool>.constant(false) : $settings.motionEnabled)
+                .disabled(settings.guidanceEnabled)
+            if settings.guidanceEnabled {
+                Text("Sesli konumlandırma açıkken kullanılamaz.").font(.caption).foregroundColor(.secondary)
+            }
             Picker("Duyarlılık", selection: $settings.motionSensitivity) {
                 Text("Düşük").tag(0)
                 Text("Orta").tag(1)

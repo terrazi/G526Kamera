@@ -31,9 +31,20 @@ struct ContentView: View {
                              enabled: settings.voiceEnabled || settings.guidanceEnabled)
                     if settings.geminiEnabled { GeminiRow(chat: model.gemini, exam: model.exam) }
                     ExamRow(exam: model.exam, enabled: $settings.examEnabled)
-                    Toggle(isOn: $settings.motionEnabled) {
-                        Label("Görüntü değişince otomatik çek", systemImage: "wand.and.rays")
+                    VStack(alignment: .leading, spacing: 6) {
+                        // Sesli konumlandırma açıkken otomatik çekim çalışmaz: anahtar kapalı ve basılamaz görünür (açık görünüp işe yaramasın)
+                        Toggle(isOn: settings.guidanceEnabled ? Binding<Bool>.constant(false) : $settings.motionEnabled) {
+                            Label("Görüntü değişince otomatik çek", systemImage: "wand.and.rays")
+                        }
+                        .disabled(settings.guidanceEnabled)
+                        .accessibilityIdentifier("otomatik-cekim")
+                        if settings.guidanceEnabled {
+                            Text("Sesli konumlandırma açıkken kullanılamaz.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(12)
                     .background(Color(UIColor.secondarySystemBackground))
                     .cornerRadius(12)
@@ -331,6 +342,8 @@ struct VoiceRow: View {
 struct FolderStatusRow: View {
     @ObservedObject var queue: UploadQueue
     @EnvironmentObject var settings: AppSettings
+    /// Klasör seçilince bu satır kendiliğinden yenilenir
+    @ObservedObject private var folderChanges = DocumentFolderChanges.shared
 
     var body: some View {
         let ready = DocumentFolder.shared.hasChoice
@@ -488,7 +501,7 @@ struct GeminiRow: View {
 /// Deneme sınavı kartı: etkinleştirme anahtarı; açıkken adım, sayaçlar, son söylenen cümle ve başlat / sonlandır düğmeleri
 struct ExamRow: View {
     @ObservedObject var exam: ExamMode
-    /// Ana sayfadaki "Deneme sınavını etkinleştir" anahtarı: açıkken uygulama deneme sınavı modunda, kapalıyken normal çalışır
+    /// Ana sayfadaki "Deneme sınav modunu etkinleştir" anahtarı: açıkken uygulama deneme sınavı modunda, kapalıyken normal çalışır
     @Binding var enabled: Bool
 
     private var headline: String {
@@ -529,7 +542,7 @@ struct ExamRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Toggle(isOn: $enabled) {
-                Label("Deneme sınavını etkinleştir", systemImage: "list.number")
+                Label("Deneme sınav modunu etkinleştir", systemImage: "list.number")
                     .font(.subheadline.weight(.semibold))
             }
             .accessibilityIdentifier("sinav-etkin")

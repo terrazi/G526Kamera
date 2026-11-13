@@ -545,6 +545,8 @@ final class AppModel: ObservableObject {
         pipeline.guidanceOn = false
         guidanceWasOn = false
         guidanceStatus = ""
+        guidanceSaid = ""
+        guidanceNotice = ""
         guidanceAwaiting = false
         cameraState = .stopped
         speechStatus = ""
@@ -886,6 +888,7 @@ final class AppModel: ObservableObject {
             guidanceStatus = on ? "Sesli konumlandırma açık — sayfayı kadraja alın" : ""
             guidanceAwaiting = false
             guidanceNotice = ""
+            guidanceSaid = ""      // önceki oturumdan kalan "son söylenen" cümle açılışta / kapanışta ekranda kalmasın
             speech.choiceMode = false
             if on && examGuide != true && !pageVideoActive { say(SpokenReport.startup(folderReady: folderReady, waiting: queue.pending)) }
         }
@@ -980,11 +983,16 @@ final class AppModel: ObservableObject {
     /// Sesli konumlandırma açık mı: sınav zorlamışsa o, değilse ayar
     private var guidanceWanted: Bool { return pageVideoActive || (examGuide ?? settings.guidanceEnabled) }
 
-    /// Ana sayfadaki "Deneme sınavını etkinleştir" anahtarı değişti (açılışta da bir kez): sınav modu ayara uydurulur.
+    /// Ana sayfadaki "Deneme sınav modunu etkinleştir" anahtarı değişti (açılışta da bir kez): sınav modu ayara uydurulur.
     /// Açılınca açılış sınaması (ses, mikrofon, internet, Gemini) bu kez yeniden yapılır; kapanınca açık sınav durur, uygulama normal çalışır.
     private func examEnabledChanged(_ on: Bool) {
         let e = exam
         guard e.enabled != on else { return }
+        // Kapat-aç yapıldı: eski "Deneme sınavı modu kapandı. Normal mod." cümlesi ne ekranda kalır ne de sonuna kadar okunur
+        if on && guidanceSaid == ExamMode.leftNotice {
+            speaker.stop()
+            guidanceSaid = ""
+        }
         // Mod kapanırken sınav sonlanır: kapanış cümlesi söylenebilsin diye duraklatma kalkar
         if !on && paused { resumeAll(announce: false) }
         e.setEnabled(on)

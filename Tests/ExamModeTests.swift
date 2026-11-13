@@ -1870,6 +1870,44 @@ final class ExamModeTests: XCTestCase {
         XCTAssertEqual(p.spoken, [ExamMode.leftNotice])
     }
 
+    func testSwitchOffThenQuicklyOnNeverSaysNormalMode() async {
+        let p = FakePorts()
+        let exam = make(p)
+        exam.setEnabled(false)
+        exam.setEnabled(true)
+        let told = await until { p.spoken.contains(ExamMode.enabledNotice) }
+        XCTAssertTrue(told, "\(p.spoken)")
+        await settle()
+        XCTAssertFalse(spoke(p, ExamMode.leftNotice), "mod açıkken \"mod kapandı\" denmemeli: \(p.spoken)")
+        XCTAssertTrue(exam.enabled)
+    }
+
+    func testSwitchingBackOnDropsTheOldModeClosedLineFromTheCard() async {
+        let p = FakePorts()
+        p.checkOn = true            // açılış sınaması açık: anahtar açılınca ayrı bir bilgi cümlesi söylenmez
+        let exam = make(p)
+        exam.setEnabled(false)
+        let told = await until { exam.said.last == ExamMode.leftNotice }
+        XCTAssertTrue(told, "\(exam.said)")
+        exam.setEnabled(true)
+        await settle()
+        XCTAssertNotEqual(exam.said.last, ExamMode.leftNotice, "kart mod açıkken \"mod kapandı\" göstermemeli: \(exam.said)")
+        XCTAssertTrue(exam.said.isEmpty, "\(exam.said)")
+    }
+
+    func testSwitchOnThenQuicklyOffNeverSaysModeIsOn() async {
+        let p = FakePorts()
+        let exam = make(p)
+        exam.setEnabled(false, announce: false)
+        exam.setEnabled(true)
+        exam.setEnabled(false)
+        let told = await until { p.spoken.contains(ExamMode.leftNotice) }
+        XCTAssertTrue(told, "\(p.spoken)")
+        await settle()
+        XCTAssertFalse(spoke(p, ExamMode.enabledNotice), "mod kapalıyken \"mod açık\" denmemeli: \(p.spoken)")
+        XCTAssertFalse(exam.enabled)
+    }
+
     // "Sınavı sonlandır" yalnız yapılan sınavı bitirir; "sınavı kapat" modu da kapatır
 
     func testSpokenEndKeepsTheModeOn() async {
