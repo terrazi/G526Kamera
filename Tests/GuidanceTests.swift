@@ -414,13 +414,11 @@ final class GuidanceTests: XCTestCase {
         XCTAssertEqual(spoken[1], "Biraz daha sağa kaydırın.", "tekrarda ilerleme beklenir")
     }
 
-    func testBlurAdviceDependsOnFill() {
-        // yazı kadrajı dolduruyor: büyük olasılıkla fazla yakın → önce uzaklaş
-        XCTAssertEqual(firstSpeech(GuidanceEngine(), metrics(x0: 0.10, x1: 0.90, sharp: 0.2)),
-                       "Görüntü net değil. Biraz uzaklaşın.")
-        // küçük blok: önce kamerayı sabit tutup bekle
-        XCTAssertEqual(firstSpeech(GuidanceEngine(), metrics(x0: 0.30, x1: 0.70, y0: 0.30, y1: 0.70, cells: 60, sharp: 0.2)),
-                       "Görüntü net değil. Kamerayı sabit tutup bekleyin.")
+    func testBlurIsNeverSpokenInVideoGuidance() {
+        // Video akarken yalnız konum tarifi verilir; netlik çekimde kalite kapısında denetlenir
+        XCTAssertNil(firstSpeech(GuidanceEngine(), metrics(x0: 0.10, x1: 0.90, sharp: 0.2)))
+        XCTAssertNil(firstSpeech(GuidanceEngine(), metrics(x0: 0.30, x1: 0.70, y0: 0.30, y1: 0.70, cells: 60, sharp: 0.2)))
+        XCTAssertNil(firstSpeech(GuidanceEngine(), metrics(x0: 0.04, x1: 0.96, sharp: 0.2)))
     }
 
     func testNonTextLikePatternIsTreatedAsNoText() {
@@ -521,15 +519,15 @@ final class GuidanceTests: XCTestCase {
         XCTAssertEqual(feed(b, wide, at: [3.0, 3.3, 3.6]), ["Fazla yaklaştınız. Biraz uzaklaşın."])
     }
 
-    func testStuckAdviceEscalatesThenOffersTheTriggerWord() {
+    func testStuckAdviceEscalatesThenGoesQuiet() {
         let e = GuidanceEngine()
         let spoken = feed(e, metrics(x0: 0.4, x1: 0.995), at: (0..<200).map { Double($0) * 0.3 })
-        XCTAssertEqual(spoken.count, 5, "\(spoken)")
+        XCTAssertEqual(spoken.count, 4, "dördüncü tekrardan sonra aynı öneri susar: \(spoken)")
         XCTAssertEqual(spoken[0], "Kamerayı epey sağa kaydırın.")
         XCTAssertEqual(spoken[1], "Biraz daha sağa kaydırın.")
         XCTAssertTrue(spoken[2].hasPrefix("Hâlâ aynı yönde."), spoken[2])
         XCTAssertTrue(spoken[3].hasPrefix("Hâlâ aynı yönde."), spoken[3])
-        XCTAssertTrue(spoken[4].contains("okey diyerek yine de çekebilirsiniz"), spoken[4])
+        XCTAssertFalse(spoken.contains(where: { $0.contains("okey") }), "sesli komut yok")
     }
 
     func testTrendTrackerWindowSlowDriftAndReset() {
@@ -577,11 +575,6 @@ final class GuidanceTests: XCTestCase {
         for i in 0..<3 { if let t = vstep(e, cut, t: 3 + Double(i) * 0.3).speak { spoken.append(t) } }
         XCTAssertFalse(spoken.contains("Tamam, böyle."), "tek ölçümlük uygun kare onay sayılmaz: \(spoken)")
         XCTAssertEqual(spoken.first, "Kamerayı epey sağa kaydırın.")
-    }
-
-    func testBlurWhenFrameIsFullSaysTooClose() {
-        XCTAssertEqual(firstSpeech(GuidanceEngine(), metrics(x0: 0.04, x1: 0.96, sharp: 0.2)),
-                       "Görüntü net değil, çok yakınsınız. Biraz uzaklaşın.")
     }
 
     // MARK: - Kadrajın tarifi (kaç sayfa, hangisi sığıyor)
@@ -659,7 +652,7 @@ final class GuidanceTests: XCTestCase {
         var spoken = feed(e, metrics(x0: 0.4, x1: 0.995), at: [0, 0.3])
         spoken += feed(e, metrics(x0: 0.2, x1: 0.8), at: [3.0, 3.3])
         XCTAssertEqual(spoken, ["Tek sayfa görünüyor, sağ tarafı kesik. Kamerayı epey sağa kaydırın.",
-                                "Tamam. Tek sayfa görünüyor, tam sığıyor."])
+                                "Tamam, böyle. Tek sayfa görünüyor, tam sığıyor."])
     }
 
     func testVideoDescribesTheFrameWithTheAdviceAndTheConfirmation() {
