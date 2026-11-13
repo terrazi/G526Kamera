@@ -27,12 +27,23 @@ final class SessionViewModel: ObservableObject {
         static let hardwareCapRetry: TimeInterval = 300
         /// Kesinti sürerken (arama vb.) ses oturumunun yeniden açılıp açılamadığına bakma aralığı; bitiş bildirimi gelmezse yedek
         static let interruptionPoll: TimeInterval = 15
+        /// Aynı uyarı cümlesi bu süre içinde kulaklıktan yeniden söylenmez (yol dalgalanınca konuşma yağmuru olmasın)
+        static let announceRepeat: TimeInterval = 300
+        /// Bu kadar saniyedir bekleyen uyarı eskimiştir, söylenmez
+        static let announceMaxAge: TimeInterval = 180
+        /// Aynı anda bekleyebilecek sesli uyarı sayısı
+        static let maxQueuedAnnouncements = 6
     }
 
     // MARK: Ekranın gördüğü durum
 
     @Published var phase: SessionPhase = .idle {
-        didSet { if phase != oldValue { tlog("[oturum] \(phase.title)") } }
+        didSet {
+            if phase != oldValue {
+                tlog("[oturum] \(phase.title)")
+                drainAnnouncementsIfQuiet()
+            }
+        }
     }
     /// Dikte edilen (ve kırpılmış) soru metni
     @Published var liveText = ""
@@ -69,6 +80,11 @@ final class SessionViewModel: ObservableObject {
     var englishAccumulator = TranscriptAccumulator()
     var sessionFolder: URL?
     var nextNumber = 1
+    /// Kulaklıktan söylenmeyi bekleyen uyarılar, şu an çalan söyleme görevi, her cümlenin son söylenme zamanı ve söylenenlerin kaydı
+    var voiceQueue: [PendingAnnouncement] = []
+    var voiceTask: Task<Void, Never>?
+    var lastVoiced: [String: Date] = [:]
+    var announced: [String] = []
     var pendingStart = false
     /// Alındığı ve kaydedildiği hâlde kulaklıktan duyulamamış cevap (okunurken ses yolu koptu); yol dönünce yeniden okunur
     var unheard: AnswerRecord?
@@ -191,6 +207,8 @@ final class SessionViewModel: ObservableObject {
         hardwareRecoveries = 0
         interruptionActive = false
         sessionFolder = nil
+        voiceQueue = []
+        lastVoiced = [:]
     }
 
     func cancelWork() {
@@ -219,14 +237,22 @@ final class SessionViewModel: ObservableObject {
 
     // MARK: Uyarılar ve kontrol maddeleri
 
+    /// Kulaklıktan zaten başka yerde söylenen ("start": Kontrol başarısız, "cevap": Gemini hatası) ya da kulaklıktan söylenemeyen
+    /// ("ses": okuma hatası) uyarılar ayrıca söylenmez
+    private static let silentWarnings: Set<String> = ["start", "cevap", "ses"]
+
+    /// Uyarıyı ekrana yazar; yeni ya da değişmişse kulaklıktan da söyler (`announce`)
     func warn(_ id: String, _ text: String) {
+        var changed = true
         if let index = warnings.firstIndex(where: { $0.id == id }) {
-            if warnings[index].text != text { tlog("[uyarı] \(id): \(text)") }
+            changed = warnings[index].text != text
+            if changed { tlog("[uyarı] \(id): \(text)") }
             warnings[index].text = text
         } else {
             tlog("[uyarı] \(id): \(text)")
             warnings.append(SessionWarning(id: id, text: text))
         }
+        if changed, !SessionViewModel.silentWarnings.contains(id) { announce(text) }
     }
 
     func clearWarning(_ id: String) {
@@ -371,6 +397,8 @@ final class SessionViewModel: ObservableObject {
                 deps.library.removeExisting(question: number, in: folder)
                 base = deps.library.fileBase(question: number, in: folder)
             }
+            if let task = voiceTask { await task.value }   // çalan bir uyarı varsa bitsin, üst üste konuşulmasın
+            guard !Task.isCancelled, phase == .speaking else { return }
             try await deps.speaker.speak(record.spoken, saveAs: base)
             // Okuma durdurulduysa (duraklatma, kulaklık kopması) cevap duyulmamış sayılır; devam edince yeniden okunur
             guard !Task.isCancelled else { return }
@@ -378,6 +406,7 @@ final class SessionViewModel: ObservableObject {
             clearWarning("cevap")
             clearWarning("ses")
             refreshReplayAvailability()
+            await settleAnnouncements()   // cevap duyulduktan sonra bekleyen uyarılar (şarj, yedek model…) söylenir
             guard !Task.isCancelled, phase == .speaking else { return }
             beginListening()
         } catch is CancellationError {
@@ -389,7 +418,7 @@ final class SessionViewModel: ObservableObject {
         } catch {
             finishEntry(.failed(error.localizedDescription))
             warn("cevap", error.localizedDescription)
-            if phase == .answering || phase == .speaking { beginListening() }
+            if phase == .answering || phase == .speaking, await speakNotice(Say.answerFailed) { beginListening() }
         }
     }
 
@@ -462,6 +491,8 @@ final class SessionViewModel: ObservableObject {
     @discardableResult
     func speakNotice(_ text: String) async -> Bool {
         phase = .speaking
+        await settleAnnouncements()   // önce bekleyen uyarılar, sonra bu anons
+        guard !Task.isCancelled, phase == .speaking else { return false }
         do {
             try await deps.speaker.speak(text, saveAs: nil)
         } catch SpeakError.routeUnsafe {

@@ -17,6 +17,7 @@ final class AppSettings: ObservableObject {
         static let geminiVoice = "v3.geminiVoice"
         static let geminiProfiles = "v3.geminiProfiles"
         static let dimScreen = "v3.dimScreen"
+        static let spokenWarnings = "v3.spokenWarnings"
         static let phoneVoice = "v3.phoneVoice"
     }
 
@@ -81,6 +82,11 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(geminiVoice, forKey: Key.geminiVoice) }
     }
 
+    /// Ekrana yazılan uyarılar kulaklıktan da söylensin mi (internet koptu, mikrofon yok, şarj azaldı…)
+    @Published var spokenWarnings: Bool {
+        didSet { defaults.set(spokenWarnings, forKey: Key.spokenWarnings) }
+    }
+
     /// Test sürerken (kırmızı uyarı yokken) ekran pil için kısılsın mı
     @Published var dimScreen: Bool {
         didSet { defaults.set(dimScreen, forKey: Key.dimScreen) }
@@ -118,6 +124,7 @@ final class AppSettings: ObservableObject {
         englishDictation = defaults.object(forKey: Key.englishDictation) as? Bool ?? true
         geminiVoice = defaults.object(forKey: Key.geminiVoice) as? Bool ?? true
         dimScreen = defaults.object(forKey: Key.dimScreen) as? Bool ?? false
+        spokenWarnings = defaults.object(forKey: Key.spokenWarnings) as? Bool ?? true
         phoneVoiceID = defaults.string(forKey: Key.phoneVoice) ?? ""
         let saved = defaults.data(forKey: Key.geminiProfiles).flatMap { try? JSONDecoder().decode([GeminiProfile].self, from: $0) }
         geminiProfiles = GeminiProfiles.migrated(saved ?? [])

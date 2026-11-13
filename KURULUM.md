@@ -56,6 +56,7 @@ Ayrıntılı işleyiş: `docs/SURUM3.md`.
   profile yazılır (model adını elle yazmak gerekmez). Gemma modellerinde "düşünme" otomatik açılır (soru çözümünde doğruluk için).
 - **Telefon sesi:** "Otomatik" en kaliteli kurulu Türkçe sesi seçer; isterseniz listeden başka ses seçin. Ana ekrandaki **Sesi dene**
   seçtiğiniz sesi kulaklıktan dinletir.
+- **Uyarıları sesli söyle:** (açık gelir) ekrana yazılan her uyarı kulaklıktan da kısaca söylenir: internet koptu, mikrofon yok, onarım başarısız, şarj azaldı, yedek modelden cevap geldi… Yalnız Bluetooth kulaklıktan çalar (kulaklık yoksa hiçbir şey çalınmaz; ses telefondan çıkmaz). Soru okunurken ya da cevap beklenirken araya girmez: duraklama ve onarım anlarında hemen, aksi hâlde cevap duyulduktan sonra söylenir. Aynı cümle 5 dakika içinde tekrar etmez.
 - **Test sürerken ekranı kıs:** (kapalı gelir) test sürerken parlaklığı en aza indirir, pil daha yavaş biter. Ekran açık kalır
   (Kestirmeler için gerekir). Kırmızı uyarı çıkınca ya da uygulamadan çıkınca/test bitince parlaklık geri verilir.
 - **Tanı ve günlük:** ayarların en altında; cihaz özeti (şarj, ısı, boş yer) ve olay günlüğü. Bir sorun olursa **Günlüğü kopyala** ile

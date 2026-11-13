@@ -65,6 +65,7 @@ gerçek kurulum `App/AppEnvironment`, testler sahtelerle (`Tests/Fakes`) kurar.
   yalnız `englishAccumulator`'a yazılır). Soru gönderilirken Gemini'ye ses kaydı + Türkçe metin + İngilizce metin gider; komut ikisini
   nasıl yorumlayacağını söyler. İngilizce görev hata verirse sessizce vazgeçilir (Türkçe dinleme etkilenmez). Ayar: "İngilizce dikteyi
   de çalıştır" (açık). Maliyet: iki tanıyıcı → daha çok ısı ve pil.
+- **Uyarılar sesli de verilir** (`SessionViewModel+Voice`): `warn()` ile ekrana yazılan her uyarı ("start", "cevap", "ses" hariç; onlar zaten başka yerde söyleniyor ya da söylenemez) `announce` ile kuyruğa girer. Sessiz anlarda (duraklatma, onarım, test bitti, boşta) hemen, diğer zamanlarda sıradaki anons ya da cevap duyulduktan sonra söylenir; kulaklık yoksa KURAL 1 gereği hiçbir şey çalınmaz ve kuyruk atılır. Aynı cümle 5 dk içinde tekrarlanmaz, 3 dk'dan eski haber söylenmez, arama/Siri kesintisinde susar. Ayar: "Uyarıları sesli söyle" (açık).
 - **Soru numarası okunana göre verilir** (`SpokenNumber`): numara dikte metninin başından ("soru 7", "7. soru", "yedinci soru", "soru yirmi beş")
   uygulamanın kendisi tarafından çözülür; öncelik okunan numara > Gemini'nin metinden/sesten duyduğu > sıradaki. Cevap cümlesi,
   dosya adı (`soru_N`), liste ve `cevaplar.txt` hep kaydedilen numarayı taşır; Gemini yanlış numara yazsa da düzeltilir. "Bir soru" gibi

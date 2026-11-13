@@ -130,7 +130,11 @@ final class FakeSpeaker: AnswerSpeaking {
         let saveAs: URL?
     }
 
-    private(set) var calls: [Call] = []
+    /// Uyarı anonsları (oturumun `announced` listesindeki cümleler) ayrı tutulur: cevap ve anons akışını sınayan testler onlardan etkilenmez
+    var isAnnouncement: (String) -> Bool = { _ in false }
+    private(set) var allCalls: [Call] = []
+    var calls: [Call] { return allCalls.filter { !isAnnouncement($0.text) } }
+    var announcements: [String] { return allCalls.filter { isAnnouncement($0.text) }.map { $0.text } }
     private(set) var stopCalls = 0
     /// Çağrı sırasına göre sonuç: nil = başarılı, hata = fırlatır (liste bitince başarılı)
     var script: [Error?] = []
@@ -144,7 +148,8 @@ final class FakeSpeaker: AnswerSpeaking {
 
     @discardableResult
     func speak(_ text: String, saveAs fileBase: URL?) async throws -> URL? {
-        calls.append(Call(text: text, saveAs: fileBase))
+        allCalls.append(Call(text: text, saveAs: fileBase))
+        if isAnnouncement(text) { return nil }   // uyarı anonsu: bekletme ve hata senaryosu yalnız cevap/anons akışı içindir
         if hold { await withCheckedContinuation { continuation = $0 } }
         if !script.isEmpty, let error = script.removeFirst() { throw error }
         guard let base = fileBase else { return nil }

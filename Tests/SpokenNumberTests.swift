@@ -79,7 +79,7 @@ final class SpokenNumberSessionTests: XCTestCase {
         XCTAssertTrue(done)
 
         XCTAssertEqual(h.answering.calls.map { $0.expectedNumber }, [7, 3])
-        XCTAssertEqual(h.vm.answers.map { $0.number }, [7, 3])
+        XCTAssertEqual(h.vm.answers.map { $0.number }, [3, 7], "Cevap listesi numara sırasındadır")
         XCTAssertEqual(Array(h.speaker.spoken.suffix(2)), ["Soru 7, Denizli, Örgütsel Davranış", "Soru 3, Bursa, Pazarlama"])
         XCTAssertEqual(h.speaker.calls.compactMap { $0.saveAs?.lastPathComponent }, ["soru_7", "soru_3"])
         XCTAssertEqual(h.vm.questions.map { $0.number }, [7, 3])

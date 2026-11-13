@@ -50,6 +50,8 @@ final class SessionHarness {
                                                                                   cycleGap: 0, maxCycles: 1),
                                        battery: battery)
         vm = SessionViewModel(settings: settings, deps: deps)
+        let announcedBy = vm
+        speaker.isAnnouncement = { text in announcedBy.announced.contains(text) }
     }
 
     /// Oturumu başlatır ve "Ben hazırım" anonsundan sonra dinleme açılana kadar bekler

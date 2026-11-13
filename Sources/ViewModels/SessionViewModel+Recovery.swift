@@ -240,6 +240,7 @@ extension SessionViewModel {
         cancelTimers()
         phase = .recovering(reason)
         statusNote = "Sorun giderilmeye çalışılıyor…"
+        announce(reason == .network ? Say.networkLost : Say.hardwareRepairing)
         let key = settings.primaryKey
         return await recovery.recover(reason: reason,
                                       force: force,

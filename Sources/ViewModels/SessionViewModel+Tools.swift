@@ -121,6 +121,7 @@ extension SessionViewModel {
             }
             self.soundTest = "\(route) Kulaklıktan bir cümle çalınıyor…"
             do {
+                if let task = self.voiceTask { await task.value }   // çalan bir uyarı varsa bitsin
                 try await self.deps.speaker.speak(Say.soundTest, saveAs: nil)
                 self.soundTest = verdict.micOK
                     ? "\(route) Cümleyi kulaklıkta duydunuz mu? Mikrofon da görünüyor."
