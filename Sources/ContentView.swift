@@ -1,5 +1,6 @@
 import SwiftUI
 
+/// Ana ekran: kamera önizlemesi, tarama durumu, kırmızı uyarı kutusu ve cevaplar. Sınav sırasında dokunulmaz; yalnız elle başlatma / durdurma için düğme vardır.
 struct ContentView: View {
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var settings: AppSettings
@@ -9,48 +10,11 @@ struct ContentView: View {
         NavigationView {
             ScrollView {
                 VStack(spacing: 14) {
-                    NoticeRow(messages: [model.crashNotice, model.diskNotice, model.thermalNotice, model.networkNotice, model.micNotice, model.routeNotice,
-                                         model.saveNotice, model.videoSendNote])
+                    ProblemBox(notes: model.notes)
                     preview
-                    powerToggles
-                    captureButton
-                    pauseButton
-                    lockButton
-                    videoButton
-                    if !model.videoRecording { pageVideoButton }
-                    if model.queuedVideos > 0 || model.sendingVideos { sendVideosButton }
-                    if !model.videoAnswer.isEmpty {
-                        Text(model.videoAnswer)
-                            .font(.footnote)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(12)
-                            .background(Color(UIColor.secondarySystemBackground))
-                            .cornerRadius(12)
-                    }
-                    if settings.guidanceEnabled || model.pageVideoActive || (settings.videoGuidance && model.videoRecording) { GuidanceRow() }
-                    VoiceRow(status: model.speechStatus, heard: model.heardText,
-                             enabled: settings.voiceEnabled || settings.guidanceEnabled)
-                    if settings.geminiEnabled { GeminiRow(chat: model.gemini, exam: model.exam) }
-                    ExamRow(exam: model.exam, enabled: $settings.examEnabled)
-                    VStack(alignment: .leading, spacing: 6) {
-                        // Sesli konumlandırma açıkken otomatik çekim çalışmaz: anahtar kapalı ve basılamaz görünür (açık görünüp işe yaramasın)
-                        Toggle(isOn: settings.guidanceEnabled ? Binding<Bool>.constant(false) : $settings.motionEnabled) {
-                            Label("Görüntü değişince otomatik çek", systemImage: "wand.and.rays")
-                        }
-                        .disabled(settings.guidanceEnabled)
-                        .accessibilityIdentifier("otomatik-cekim")
-                        if settings.guidanceEnabled {
-                            Text("Sesli konumlandırma açıkken kullanılamaz.")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(12)
-                    .background(Color(UIColor.secondarySystemBackground))
-                    .cornerRadius(12)
-                    FolderStatusRow(queue: model.queue)
-                    lastPhoto
+                    statusCard
+                    startStopButton
+                    if !model.answers.isEmpty { answersCard }
                 }
                 .padding(16)
             }
@@ -67,7 +31,7 @@ struct ContentView: View {
                     .accessibilityIdentifier("ayarlar")
                 }
             }
-            .sheet(isPresented: $showSettings, onDismiss: { model.applySettings() }) {
+            .sheet(isPresented: $showSettings) {
                 SettingsView()
                     .environmentObject(model)
                     .environmentObject(settings)
@@ -76,40 +40,37 @@ struct ContentView: View {
         .navigationViewStyle(.stack)
     }
 
-    /// Önizleme kutusu "Kadraj yönü" ayarını izler: Dikey seçiliyse dikey (9:16), Yatay seçiliyse yatay (16:9).
-    /// Kamera karesi kırpılmaz: ekranda kameranın gördüğünün tamamı vardır; oran uymazsa kenarlar boş kalır.
+    /// Önizleme kutusu "Kadraj yönü" ayarını izler (Dikey: 9:16, Yatay: 16:9); kamera karesi kırpılmaz
     private var previewSize: CGSize {
         return PreviewLayout.box(screen: UIScreen.main.bounds.size, portrait: settings.guidanceFrame == 1)
-    }
-
-    private var previewVideo: some View {
-        VideoLayerView(renderer: model.renderer, orientation: settings.imageOrientation)
-            .frame(width: previewSize.width, height: previewSize.height)
-            .background(Color.black)
-            .cornerRadius(12)
     }
 
     private var preview: some View {
         ZStack(alignment: .topLeading) {
             if settings.previewOff {
-                previewOffBox
+                VStack(spacing: 6) {
+                    Image(systemName: "eye.slash")
+                    Text("Önizleme kapalı").font(.footnote)
+                }
+                .foregroundColor(.secondary)
+                .frame(width: previewSize.width, height: previewSize.height)
+                .background(Color(UIColor.secondarySystemBackground))
+                .cornerRadius(12)
             } else {
-                previewVideo
+                VideoLayerView(renderer: model.renderer, orientation: settings.imageOrientation)
+                    .frame(width: previewSize.width, height: previewSize.height)
+                    .background(Color.black)
+                    .cornerRadius(12)
             }
             HStack(spacing: 6) {
                 Circle()
-                    .fill(model.isLive ? Color.green : Color.orange)
+                    .fill(model.decoding ? Color.green : Color.orange)
                     .frame(width: 9, height: 9)
-                Text(model.statusText)
+                Text(model.decoding ? "Kamera canlı" : model.cameraState.text)
                     .font(.caption)
                     .lineLimit(2)
-                if model.isLive && !model.resolutionText.isEmpty {
+                if model.decoding && !model.resolutionText.isEmpty {
                     Text(model.resolutionText).font(.caption2).foregroundColor(.secondary)
-                }
-                if model.isLive, let battery = model.cameraBattery {
-                    Text(battery.shortText)
-                        .font(.caption2)
-                        .foregroundColor(battery.isLow ? .red : .secondary)
                 }
             }
             .padding(.horizontal, 10)
@@ -133,515 +94,90 @@ struct ContentView: View {
         }
     }
 
-    /// Isınmayı azaltmak için iki tik: önizlemeyi kapat, ekran parlaklığını azalt
-    private var powerToggles: some View {
-        VStack(spacing: 0) {
-            Toggle(isOn: $settings.previewOff) {
-                Label("Önizlemeyi kapat", systemImage: "eye.slash")
+    private var statusCard: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(model.phase.title)
+                .font(.headline)
+                .accessibilityIdentifier("asama")
+            Text(model.statusText)
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+            if settings.questionTotal > 0 || !model.acceptedNumbers.isEmpty {
+                Text(progressText)
+                    .font(.subheadline)
             }
-            .accessibilityIdentifier("onizlemeyiKapat")
-            Divider().padding(.vertical, 8)
-            Toggle(isOn: $settings.dimScreen) {
-                Label("Ekran parlaklığını azalt", systemImage: "sun.min")
+            if let open = model.openQuestion {
+                Text("\(open). sorunun devamı bekleniyor")
+                    .font(.footnote)
+                    .foregroundColor(.orange)
             }
-            .accessibilityIdentifier("parlakligiAzalt")
+            if !model.lastSaid.isEmpty {
+                Text("Son söylenen: \(model.lastSaid)")
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+            }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
         .background(Color(UIColor.secondarySystemBackground))
         .cornerRadius(12)
     }
 
-    /// Önizleme kapalıyken: video çizilmez (pil/ısınma), çekim ve diğer her şey çalışmaya devam eder.
-    private var previewOffBox: some View {
-        VStack(spacing: 8) {
-            Spacer(minLength: 34)
-            Image(systemName: "eye.slash").font(.title3)
-            Text("Önizleme kapalı (pil tasarrufu)")
-                .font(.footnote.weight(.semibold))
-            Text("Çekim ve sesli komut çalışıyor. Çekilen fotoğrafı aşağıda görürsünüz.")
-                .font(.caption2)
-                .multilineTextAlignment(.center)
-                .foregroundColor(.white.opacity(0.7))
-            Button("Önizlemeyi aç") { settings.previewOff = false }
-                .font(.footnote)
-                .accessibilityIdentifier("onizlemeyi-ac")
-            Spacer(minLength: 6)
+    private var progressText: String {
+        let count = model.acceptedNumbers.count
+        let total = settings.questionTotal
+        let head = total > 0 ? "Alınan soru: \(count)/\(total)" : "Alınan soru: \(count)"
+        guard !model.acceptedNumbers.isEmpty else { return head }
+        return head + " (" + model.acceptedNumbers.map { String($0) }.joined(separator: ", ") + ")"
+    }
+
+    private var startStopButton: some View {
+        Button {
+            if model.phase.isRunning { model.stopScan() } else { model.beginScan(auto: false) }
+        } label: {
+            Label(model.phase.isRunning ? "Taramayı durdur" : "Taramayı başlat",
+                  systemImage: model.phase.isRunning ? "stop.circle" : "play.circle")
+                .frame(maxWidth: .infinity)
         }
-        .frame(maxWidth: .infinity)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .foregroundColor(.white)
-        .background(Color.black)
+        .buttonStyle(.borderedProminent)
+        .tint(model.phase.isRunning ? .red : .accentColor)
+        .accessibilityIdentifier("baslat-durdur")
+    }
+
+    private var answersCard: some View {
+        let codes = GeminiSupport.parseOptionCodes(settings.geminiOptionCodes)
+        return VStack(alignment: .leading, spacing: 6) {
+            Text("Cevaplar").font(.headline)
+            ForEach(model.answers, id: \.number) { record in
+                Text(AnswerService.spokenLine(record, codes: codes))
+                    .font(.footnote)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(Color(UIColor.secondarySystemBackground))
         .cornerRadius(12)
     }
+}
 
-    private var captureButton: some View {
-        Button {
-            model.capture(reason: "Elle")
-        } label: {
-            HStack {
-                Image(systemName: "camera.fill")
-                Text(model.capturing ? "İşleniyor…" : (model.pageVideoActive ? "Bu sayfayı kaydet" : "Fotoğraf Çek"))
-                    .fontWeight(.semibold)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 14)
-            .background(model.isLive ? Color.accentColor : Color.gray)
-            .foregroundColor(.white)
-            .cornerRadius(12)
-        }
-        .disabled(model.capturing || !model.isLive)
-    }
+/// Kırmızı uyarı kutusu: sorun varsa görünür, yoksa hiç yer kaplamaz
+struct ProblemBox: View {
+    let notes: [ProblemNote]
 
-    /// Duraklat / Devam et ("duraklat" ve "devam et" komutlarıyla aynı): duraklatılmışken çekim, konuşma, sınav akışı ve gönderim durur
-    private var pauseButton: some View {
-        Button {
-            model.togglePause()
-        } label: {
-            HStack {
-                Image(systemName: model.paused ? "play.fill" : "pause.fill")
-                Text(model.paused ? "Devam et (işlemler duraklatıldı)" : "Duraklat")
-                    .fontWeight(.semibold)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
-            .background(model.paused ? Color.green : Color.orange)
-            .foregroundColor(.white)
-            .cornerRadius(12)
-        }
-        .accessibilityIdentifier("duraklat")
-    }
-
-    /// Dokunmatik ekran kilidi: kilitliyken ekrana dokunmak bir şey yaptırmaz (program ve sesli komutlar çalışır); açmak için
-    /// kilit penceresindeki düğmeye 3 saniye basılı tutulur
-    private var lockButton: some View {
-        Button {
-            model.lockScreen()
-        } label: {
-            HStack {
-                Image(systemName: "lock.fill")
-                Text("Ekranı kilitle")
-                    .fontWeight(.semibold)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
-            .background(Color.gray)
-            .foregroundColor(.white)
-            .cornerRadius(12)
-        }
-        .accessibilityIdentifier("ekraniKilitle")
-    }
-
-    /// Video kaydı: açıkken kırmızı; en çok ayardaki süre (varsayılan 90 sn) sürer, "kapat" denince ya da süre dolunca biter ve belge klasörüne kaydedilir
-    private var videoButton: some View {
-        Button {
-            model.toggleVideo()
-        } label: {
-            HStack {
-                Image(systemName: model.videoRecording ? "stop.circle.fill" : "video.fill")
-                Text(model.videoRecording ? (model.pageVideoActive ? "Videoyu bitir (\(model.pageVideoPages) sayfa)" : "Kaydı kapat")
-                                          : "Video kaydı (en çok \(settings.videoMaxSeconds) sn)")
-                    .fontWeight(.semibold)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
-            .background(model.videoRecording ? Color.red : (model.isLive ? Color.accentColor : Color.gray))
-            .foregroundColor(.white)
-            .cornerRadius(12)
-        }
-        .disabled(!model.isLive && !model.videoRecording)
-        .accessibilityIdentifier("videoKaydi")
-    }
-
-    /// Sayfa sayfa video: sayfa konumlanınca her sayfa birkaç saniye aynı videoya yazılır ("sayfa videosu" demekle aynı)
-    private var pageVideoButton: some View {
-        Button {
-            model.startPageVideo()
-        } label: {
-            HStack {
-                Image(systemName: "book.fill")
-                Text("Sayfa sayfa video (sayfa başına \(settings.pageVideoSeconds) sn)")
-                    .fontWeight(.semibold)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
-            .background(model.isLive ? Color.indigo : Color.gray)
-            .foregroundColor(.white)
-            .cornerRadius(12)
-        }
-        .disabled(!model.isLive)
-        .accessibilityIdentifier("sayfaVideosu")
-    }
-
-    /// Sıradaki videoları tek tek Gemini'ye gönderir ("videoları gönder" demekle aynı)
-    private var sendVideosButton: some View {
-        Button {
-            // Gönderim sürerken düğme "durdur" olur: takılırsa kullanıcı kesebilir
-            if model.sendingVideos { model.cancelVideoSend() } else { model.sendQueuedVideos() }
-        } label: {
-            VStack(spacing: 3) {
-                HStack {
-                    Image(systemName: model.sendingVideos ? "xmark.circle.fill" : "paperplane.fill")
-                    Text(model.sendingVideos ? "Gemini'ye gönderiliyor… (\(model.queuedVideos) kaldı)"
-                                             : "Videoları gönder (\(model.queuedVideos))")
-                        .fontWeight(.semibold)
-                }
-                if model.sendingVideos {
-                    Text(model.videoSendProgress.isEmpty ? "Durdurmak için dokunun" : model.videoSendProgress + " · durdurmak için dokunun")
-                        .font(.caption)
-                }
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
-            .background(model.sendingVideos ? Color.gray : Color.orange)
-            .foregroundColor(.white)
-            .cornerRadius(12)
-        }
-        // Kayıt açıkken de basılabilir: neden gönderilemediği ekranda ve sesle söylenir (sessizce hiçbir şey olmasın)
-        .accessibilityIdentifier("videolariGonder")
-    }
-
-    @ViewBuilder
-    private var lastPhoto: some View {
-        if let image = model.lastPhoto {
+    var body: some View {
+        if !notes.isEmpty {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Son fotoğraf").font(.footnote).foregroundColor(.secondary)
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFit()
-                    .cornerRadius(10)
-                Text(model.lastPhotoInfo).font(.caption).foregroundColor(.secondary)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-}
-
-struct VoiceRow: View {
-    let status: String
-    let heard: String
-    let enabled: Bool
-
-    var body: some View {
-        HStack(alignment: .center, spacing: 8) {
-            VStack(alignment: .leading, spacing: 4) {
-                Label(enabled ? (status.isEmpty ? "Sesli komut başlatılıyor…" : status) : "Sesli komut kapalı",
-                      systemImage: enabled ? "mic.fill" : "mic.slash")
-                    .font(.subheadline)
-                if enabled && !heard.isEmpty {
-                    Text("Duyulan: “\(heard)”")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .lineLimit(2)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            // Ses çıkışı (kulaklık) seçimi: iOS'un kendi listesi açılır
-            RoutePickerButton()
-                .frame(width: 36, height: 36)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .background(Color(UIColor.secondarySystemBackground))
-        .cornerRadius(12)
-    }
-}
-
-struct FolderStatusRow: View {
-    @ObservedObject var queue: UploadQueue
-    @EnvironmentObject var settings: AppSettings
-    /// Klasör seçilince bu satır kendiliğinden yenilenir
-    @ObservedObject private var folderChanges = DocumentFolderChanges.shared
-
-    var body: some View {
-        let ready = DocumentFolder.shared.hasChoice
-        VStack(alignment: .leading, spacing: 4) {
-            if ready {
-                Label("Belge klasörü seçildi", systemImage: "folder.fill")
-                    .font(.subheadline)
-            } else {
-                Label("Belge klasörü seçilmedi (Ayarlar > Belge klasörü)", systemImage: "folder.badge.questionmark")
-                    .font(.subheadline)
-                    .foregroundColor(.orange)
-            }
-            if !queue.status.isEmpty {
-                Text(queue.status).font(.caption).foregroundColor(.secondary)
-            }
-            if queue.uploaded > 0 {
-                Text("Bu oturumda kaydedilen: \(queue.uploaded)").font(.caption).foregroundColor(.secondary)
-            }
-            if queue.pending > 0 && ready && settings.sendMode == "batch" {
-                Button("Şimdi kaydet (\(queue.pending))") { queue.retry() }
-                    .font(.subheadline)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .background(Color(UIColor.secondarySystemBackground))
-        .cornerRadius(12)
-    }
-}
-
-
-/// Sesli konumlandırma durumu: ne söylendiği, hangi bölümün seçildiği, bölüm sorusu ve (yedek) düğmeler.
-struct GuidanceRow: View {
-    @EnvironmentObject var model: AppModel
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label(model.guidanceStatus.isEmpty ? "Sesli konumlandırma hazır" : model.guidanceStatus,
-                  systemImage: "viewfinder")
-                .font(.subheadline.weight(.semibold))
-                .accessibilityIdentifier("konumlandirma-durum")
-            if !model.guidanceSaid.isEmpty {
-                Label(model.guidanceSaid, systemImage: "speaker.wave.2")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .accessibilityIdentifier("konumlandirma-soylenen")
-            }
-            if !model.guidanceNotice.isEmpty {
-                Label(model.guidanceNotice, systemImage: "questionmark.circle")
-                    .font(.caption)
-                    .foregroundColor(.orange)
-                    .accessibilityIdentifier("konumlandirma-uyari")
-            }
-            if model.guidanceAwaiting {
-                HStack(spacing: 8) {
-                    ForEach(model.guidanceOptions, id: \.self) { choice in
-                        Button(choice == .all ? "Hepsi" : choice.title) { model.chooseColumn(choice) }
-                            .buttonStyle(.bordered)
-                            .accessibilityIdentifier("bolum-\(choice.rawValue)")
-                    }
-                }
-                Text("Sesle de söyleyebilirsiniz: “sol”, “sağ”…")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .background(Color(UIColor.secondarySystemBackground))
-        .cornerRadius(12)
-    }
-}
-
-
-/// Gemini ile belge sohbeti: durum, son soru ve cevap, "Gemini'ye sor" düğmesi.
-struct GeminiRow: View {
-    @ObservedObject var chat: GeminiChat
-    /// Deneme sınavı açıkken düğme sınavın "dinle" akışını (her an Gemini ile serbest konuşma) başlatır / keser
-    @ObservedObject var exam: ExamMode
-
-    private var headline: String {
-        switch chat.phase {
-        case .idle: return "Gemini hazır"
-        case .listening: return "Dinliyorum…"
-        case .thinking: return "Gemini düşünüyor…"
-        case .speaking: return "Cevap okunuyor"
-        }
-    }
-
-    private var icon: String {
-        switch chat.phase {
-        case .idle: return "sparkles"
-        case .listening: return "mic.fill"
-        case .thinking: return "hourglass"
-        case .speaking: return "speaker.wave.2.fill"
-        }
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label(headline, systemImage: icon)
-                .font(.subheadline.weight(.semibold))
-                .accessibilityIdentifier("gemini-durum")
-            if !chat.status.isEmpty {
-                Text(chat.status).font(.caption).foregroundColor(.secondary)
-            }
-            if !chat.docNames.isEmpty {
-                Text("Belgeler: " + chat.docNames.joined(separator: ", "))
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-                    .lineLimit(2)
-            }
-            if !chat.question.isEmpty {
-                Text("Soru: \(chat.question)").font(.footnote).foregroundColor(.secondary)
-            }
-            if !chat.answer.isEmpty {
-                Text(chat.answer).font(.callout)
-            }
-            if !chat.error.isEmpty {
-                Label(chat.error, systemImage: "exclamationmark.triangle")
-                    .font(.caption)
-                    .foregroundColor(.orange)
-            }
-            HStack(spacing: 12) {
-                Button(chat.isActive ? "Durdur" : (exam.info.active ? "Dinle (Gemini)" : "Gemini’ye sor")) {
-                    if exam.info.active {
-                        _ = exam.listenRequest(source: "ui")
-                    } else if chat.isActive {
-                        chat.cancel()
-                    } else {
-                        chat.ask()
-                    }
-                }
-                .buttonStyle(.borderedProminent)
-                .accessibilityIdentifier("gemini-sor")
-                if chat.turns > 0 && !chat.isActive {
-                    Button("Yeni sohbet") { chat.newConversation() }
-                        .buttonStyle(.bordered)
-                }
-            }
-            if chat.turns > 0 {
-                Text("Sohbette \(chat.turns) soru · son cevap \(chat.tokens) jeton")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .background(Color(UIColor.secondarySystemBackground))
-        .cornerRadius(12)
-    }
-}
-
-
-/// Deneme sınavı kartı: etkinleştirme anahtarı; açıkken adım, sayaçlar, son söylenen cümle ve başlat / sonlandır düğmeleri
-struct ExamRow: View {
-    @ObservedObject var exam: ExamMode
-    /// Ana sayfadaki "Deneme sınav modunu etkinleştir" anahtarı: açıkken uygulama deneme sınavı modunda, kapalıyken normal çalışır
-    @Binding var enabled: Bool
-
-    private var headline: String {
-        switch exam.stage {
-        case "check": return "Deneme sınavı: hazırlık sınaması"
-        case "video": return "Deneme sınavı: video"
-        case "scan": return "Deneme sınavı: tarama"
-        case "send": return "Deneme sınavı: klasöre kaydetme"
-        case "prepare", "verify": return "Deneme sınavı: belgeler okunuyor"
-        case "answer": return "Deneme sınavı: cevaplar"
-        case "review": return "Deneme sınavı: soru numarası bekleniyor"
-        default:
-            if exam.info.saved { return "Deneme sınavı: yarım kalan sınav var" }
-            return exam.startupReady ? "Deneme sınavı: hazır, başlatabilirsiniz" : "Deneme sınavı"
-        }
-    }
-
-    /// Cevap anahtarı satırının yazısı
-    static func keyText(_ r: ExamKeyRow) -> String {
-        let head = r.bolum.isEmpty ? "\(r.no). soru" : "\(r.bolum), \(r.no). soru"
-        if r.durum == ExamStatus.unread { return "\(head): okunamadı" }
-        if r.durum == ExamStatus.missing { return "\(head): alınamadı" }
-        func part(_ sik: String, _ word: String, _ deger: String) -> String {
-            var out = [sik, word].filter { !$0.isEmpty }.joined(separator: " - ")
-            if !deger.isEmpty { out = out.isEmpty ? deger : "\(out), \(deger)" }
-            return out
-        }
-        let main = part(r.sik, r.word, r.deger)
-        var text = "\(head): \(main.isEmpty ? "-" : main)"
-        if r.durum == ExamStatus.unsure {
-            text += " (emin değil"
-            if !r.altSik.isEmpty || !r.altDeger.isEmpty { text += "; ikinci çözüm: \(part(r.altSik, r.altWord, r.altDeger))" }
-            text += ")"
-        }
-        return text
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Toggle(isOn: $enabled) {
-                Label("Deneme sınav modunu etkinleştir", systemImage: "list.number")
-                    .font(.subheadline.weight(.semibold))
-            }
-            .accessibilityIdentifier("sinav-etkin")
-            if !enabled {
-                Text("Kapalı: uygulama normal çalışır.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .accessibilityIdentifier("sinav-kapali")
-            } else {
-                examContent
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .background(Color(UIColor.secondarySystemBackground))
-        .cornerRadius(12)
-    }
-
-    /// Mod açıkken: adım, sayaçlar, son söylenen cümle, cevap anahtarı ve başlat / sonlandır düğmeleri
-    @ViewBuilder
-    private var examContent: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label(headline, systemImage: "list.bullet.rectangle")
-                .font(.footnote.weight(.semibold))
-                .accessibilityIdentifier("sinav-durum")
-            if !exam.status.isEmpty {
-                Text(exam.status).font(.caption).foregroundColor(.secondary)
-            }
-            if exam.info.active || exam.info.questions > 0 {
-                Text("\(exam.info.scanned) sayfa · \(exam.info.files) PDF · \(exam.info.questions) soru · \(exam.info.answered) cevap")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-            }
-            if let last = exam.said.last {
-                Text(last).font(.footnote)
-            }
-            if !exam.key.isEmpty {
-                DisclosureGroup("Cevap anahtarı (\(exam.key.count) soru)") {
-                    VStack(alignment: .leading, spacing: 4) {
-                        ForEach(exam.key) { row in
-                            Text(ExamRow.keyText(row))
-                                .font(.footnote)
-                                .foregroundColor(row.durum == ExamStatus.ok ? .primary : .orange)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                    }
-                    .padding(.top, 4)
-                }
-                .font(.footnote)
-                .accessibilityIdentifier("sinav-anahtar")
-            }
-            HStack(spacing: 12) {
-                Button(exam.info.active ? "Sınavı sonlandır" : "Sınavı başlat") {
-                    if exam.info.active {
-                        exam.stop()
-                    } else {
-                        _ = exam.start()
-                    }
-                }
-                .buttonStyle(.borderedProminent)
-                .accessibilityIdentifier("sinav-dugme")
-                if exam.info.active && exam.stage == "scan" {
-                    Button("Tarama tamamlandı") { _ = exam.command("scan_done", source: "ui") }
-                        .buttonStyle(.bordered)
-                        .accessibilityIdentifier("sinav-tarama-tamam")
-                }
-            }
-        }
-    }
-}
-
-/// Kendi kendini denetlemenin bulduğu sorunlar (internet yok, mikrofon sessiz, ses yanlış çıkışa gidiyor): kırmızı kutu.
-/// Ses çalışmıyor olabileceği için sorun ekranda da görünür.
-struct NoticeRow: View {
-    let messages: [String]
-
-    var body: some View {
-        let active = messages.filter { !$0.isEmpty }
-        if !active.isEmpty {
-            VStack(alignment: .leading, spacing: 6) {
-                ForEach(active, id: \.self) { text in
-                    Label(text, systemImage: "exclamationmark.triangle.fill")
+                ForEach(notes, id: \.key) { note in
+                    Label(note.text, systemImage: "exclamationmark.triangle.fill")
                         .font(.footnote)
                         .foregroundColor(.white)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(12)
             .background(Color.red)
             .cornerRadius(12)
-            .accessibilityIdentifier("uyari-kutusu")
+            .accessibilityIdentifier("kirmizi-kutu")
         }
     }
 }

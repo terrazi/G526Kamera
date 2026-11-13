@@ -68,26 +68,5 @@ final class PDFWrapTests: XCTestCase {
         XCTAssertThrowsError(try PDFWrap.write(jpegs: [], title: "x", to: handle))
     }
 
-    /// Karar M: PDF parçaları mümkün olduğunca eşit sayıda sayfa içerir (sınır 20 sayfa / 15 MB)
-    func testPartsSplitPagesEvenly() {
-        func plan(_ pages: Int, bytes: Int = 0, maxPages: Int = 20) -> [Int] {
-            var left = pages
-            var out: [Int] = []
-            while left > 0 {
-                let n = UploadQueue.nextPartCount(pages: left, totalBytes: bytes * left / max(pages, 1), maxPages: maxPages)
-                out.append(n)
-                left -= n
-            }
-            return out
-        }
-        XCTAssertEqual(plan(70), [18, 18, 17, 17], "70 sayfa → 4 parça")
-        XCTAssertEqual(plan(20), [20])
-        XCTAssertEqual(plan(21), [11, 10])
-        XCTAssertEqual(plan(1), [1])
-        XCTAssertEqual(plan(41), [14, 14, 13], "41 sayfa → 3 parça")
-        XCTAssertEqual(UploadQueue.nextPartCount(pages: 0, totalBytes: 0), 0)
-        // Bayt sınırı sayfa sınırından önce dolarsa parça sayısı baytla belirlenir: 12 sayfa, 40 MB, sınır 15 MB → 3 parça
-        XCTAssertEqual(UploadQueue.nextPartCount(pages: 12, totalBytes: 40 * 1024 * 1024), 4)
-        XCTAssertEqual(plan(70, maxPages: 30), [24, 23, 23], "ayarda sayfa sınırı verilmişse o kullanılır")
-    }
+
 }

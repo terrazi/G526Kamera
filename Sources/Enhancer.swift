@@ -102,6 +102,32 @@ enum Enhancer {
         return (data, Int(extent.width), Int(extent.height), merged.count)
     }
 
+    /// Tek kareden bir bölgeyi (0–1, üst-sol başlangıçlı; görüntü yönü uygulanmış görüntüye göre) kırpıp JPEG üretir.
+    /// Soru PDF'lerinin sayfaları bununla yapılır. Tarih/saat yazısı bulanıklaştırılır ("kes" modu kırpmayı kaydıracağından bulanıklaştırmaya çevrilir).
+    static func renderCrop(buffer: CVPixelBuffer, crop: CGRect, orientation: ImageOrientation, timestamp: TimestampMode,
+                           quality: Double, sharpen: Bool) -> (data: Data, width: Int, height: Int)? {
+        var image = normalizeOrigin(CIImage(cvPixelBuffer: buffer))
+        image = normalizeOrigin(hideTimestamp(image, mode: timestamp == .crop ? .blur : timestamp))
+        if orientation != .normal {
+            image = normalizeOrigin(image.oriented(orientation.cgOrientation))
+        }
+        let e = image.extent
+        let wanted = CGRect(x: e.minX + crop.minX * e.width, y: e.minY + (1 - crop.maxY) * e.height,
+                            width: crop.width * e.width, height: crop.height * e.height).integral
+        let rect = wanted.intersection(e)
+        guard !rect.isNull, rect.width > 8, rect.height > 8 else { return nil }
+        image = normalizeOrigin(image.cropped(to: rect))
+        if sharpen {
+            image = image.applyingFilter("CISharpenLuminance", parameters: [kCIInputSharpnessKey: 0.25, "inputRadius": 0.9])
+        }
+        let extent = image.extent.integral
+        guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
+        let key = CIImageRepresentationOption(rawValue: kCGImageDestinationLossyCompressionQuality as String)
+        guard let data = context.jpegRepresentation(of: image.cropped(to: extent), colorSpace: colorSpace,
+                                                    options: [key: max(0.5, min(1.0, quality))]) else { return nil }
+        return (data, Int(extent.width), Int(extent.height))
+    }
+
     /// "Kes" modu: karenin üstten bu kadarı atılır (1080p'de 81 satır; yazı 39–64. satırlarda). Windows sürümüyle aynı.
     static let timestampBand = 0.075
 

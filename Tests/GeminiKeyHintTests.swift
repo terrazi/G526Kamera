@@ -25,23 +25,9 @@ final class GeminiKeyHintTests: XCTestCase {
         XCTAssertTrue(GeminiProfiles.keyShapeProblem(String(good.dropLast(3)))?.contains("36") == true)
     }
 
-    func testFailureLineNamesModelAndKeyOnlyForKeyErrors() {
-        let p = GeminiProfileInfo(slot: 6, name: "Ücretli", model: "m", key: good, free: false)
-        let keyLine = GeminiVideo.failureLine(profile: p, error: GeminiError("API anahtarı geçersiz.", .key))
-        XCTAssertTrue(keyLine.hasPrefix("Ücretli: API anahtarı geçersiz."))
-        XCTAssertTrue(keyLine.contains("AIza…Q7dZ, 39 karakter"))
-        let quotaLine = GeminiVideo.failureLine(profile: p, error: GeminiError("Kota doldu.", .quota))
-        XCTAssertEqual(quotaLine, "Ücretli: Kota doldu.")
-    }
 
-    func testCombinedErrorListsEveryTriedModelAndKeepsLastKind() {
-        let last = GeminiError("son", .key, status: 400)
-        let merged = GeminiVideo.combined(last, trail: ["A: kota doldu.", "B: anahtar geçersiz."])
-        XCTAssertEqual(merged.message, "A: kota doldu. B: anahtar geçersiz.")
-        XCTAssertEqual(merged.kind, .key)
-        XCTAssertEqual(merged.status, 400)
-        XCTAssertEqual(GeminiVideo.combined(last, trail: []).message, "son")
-    }
+
+
 
     func testClipboardKeyIsExtractedFromSurroundingText() {
         XCTAssertEqual(GeminiProfiles.cleanedKey(fromClipboard: "  \(good)\n"), good)
@@ -141,11 +127,5 @@ final class GeminiKeyHintTests: XCTestCase {
         XCTAssertTrue(GeminiProfiles.isKeyRejection(KeyProbe(status: 400, message: "API key expired.")))
     }
 
-    func testFailureLineGetsFormatNoteOnlyForAQKeys() {
-        let err = GeminiError("API anahtarı geçersiz.", .key, status: 400)
-        let aqLine = GeminiVideo.failureLine(profile: GeminiProfileInfo(slot: 6, name: "Ücretli", model: "m", key: aq, free: false), error: err)
-        XCTAssertTrue(aqLine.contains("Cloud Console"))
-        let line = GeminiVideo.failureLine(profile: GeminiProfileInfo(slot: 1, name: "Bir", model: "m", key: good, free: true), error: err)
-        XCTAssertFalse(line.contains("Cloud Console"))
-    }
+
 }

@@ -158,25 +158,11 @@ final class AssemblyTests: XCTestCase {
 }
 
 final class SpeechAndMotionTests: XCTestCase {
-    func testTriggerMatching() {
-        XCTAssertEqual(SpeechMatcher.occurrences(in: "Okey", trigger: "okey"), 1)
-        XCTAssertEqual(SpeechMatcher.occurrences(in: "tamam okay çek", trigger: "okey"), 1)
-        XCTAssertEqual(SpeechMatcher.occurrences(in: "OK", trigger: "okey"), 1)
-        XCTAssertEqual(SpeechMatcher.occurrences(in: "okey okey", trigger: "okey"), 2)
-        XCTAssertEqual(SpeechMatcher.occurrences(in: "merhaba nasılsın", trigger: "okey"), 0)
-        XCTAssertEqual(SpeechMatcher.occurrences(in: "", trigger: "okey"), 0)
-    }
 
-    func testCustomTriggerAndTurkishLetters() {
-        XCTAssertEqual(SpeechMatcher.occurrences(in: "ÇEK", trigger: "çek"), 1)
-        XCTAssertEqual(SpeechMatcher.occurrences(in: "şimdi çek", trigger: "çek, tamam"), 1)
-        XCTAssertEqual(SpeechMatcher.occurrences(in: "tamam kamera", trigger: "tamam kamera"), 1)
-        XCTAssertEqual(SpeechMatcher.occurrences(in: "tamam", trigger: "tamam kamera"), 0)
-    }
 
-    func testWordNormalization() {
-        XCTAssertEqual(SpeechMatcher.words("Işık, ÖĞÜT!"), ["isik", "ogut"])
-    }
+
+
+
 
     func testMotionTriggersOnceAndIgnoresRemoval() {
         let desk = [UInt8](repeating: 40, count: FrameAnalysis.signatureColumns * FrameAnalysis.signatureRows)

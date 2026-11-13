@@ -54,55 +54,14 @@ final class VideoRecorderTests: XCTestCase {
         XCTAssertGreaterThan(full, 1_000_000)
         XCTAssertLessThanOrEqual(full, 1_500_000)
         XCTAssertEqual(VideoRecorder.bitrate(width: 640, height: 360), 250_000, "küçük çözünürlükte alt sınır")
-        XCTAssertEqual(VideoRecorder.maxSeconds, 90, "elle başlatılan kayıt 90 sn (1,5 dk)")
-        XCTAssertEqual(VideoRecorder.examMaxSeconds, 90, "sınav videosu (sayfa sayfa) 90 sn")
-        XCTAssertEqual(VideoRecorder.pageSegmentSeconds, 5, "sayfa başına 5 sn (kullanıcı kararı)")
+        XCTAssertEqual(VideoRecorder.maxSeconds, 90, "üst sınır 90 sn; otomatik taramada her çekim 5 sn")
     }
 
-    func testVideoSecondsAreSettingsWithDefaultsAndLimits() {
-        let keys = ["videoMaxSeconds", "examVideoMaxSeconds", "pageVideoSeconds", "examPageVideo"]
-        keys.forEach { UserDefaults.standard.removeObject(forKey: $0) }
-        defer { keys.forEach { UserDefaults.standard.removeObject(forKey: $0) } }
-        let s = AppSettings()
-        XCTAssertEqual(s.videoMaxSeconds, 90)
-        XCTAssertEqual(s.examVideoMaxSeconds, 90)
-        s.videoMaxSeconds = 120
-        s.examVideoMaxSeconds = 45
-        let t = AppSettings()
-        XCTAssertEqual(t.videoMaxSeconds, 120, "seçim kaydedilir")
-        XCTAssertEqual(t.examVideoMaxSeconds, 45)
-        UserDefaults.standard.set(5000, forKey: "videoMaxSeconds")
-        UserDefaults.standard.set(1, forKey: "examVideoMaxSeconds")
-        let u = AppSettings()
-        XCTAssertEqual(u.videoMaxSeconds, 300, "üst sınır")
-        XCTAssertEqual(u.examVideoMaxSeconds, 10, "alt sınır")
-    }
 
-    func testPageVideoSettingsDefaults() {
-        let keys = ["pageVideoSeconds", "examPageVideo"]
-        keys.forEach { UserDefaults.standard.removeObject(forKey: $0) }
-        defer { keys.forEach { UserDefaults.standard.removeObject(forKey: $0) } }
-        let s = AppSettings()
-        XCTAssertEqual(s.pageVideoSeconds, 5, "sayfa başına 5 sn")
-        XCTAssertTrue(s.examPageVideo, "sınav varsayılan olarak sayfa sayfa video")
-        s.pageVideoSeconds = 8
-        s.examPageVideo = false
-        let t = AppSettings()
-        XCTAssertEqual(t.pageVideoSeconds, 8)
-        XCTAssertFalse(t.examPageVideo)
-        UserDefaults.standard.set(99, forKey: "pageVideoSeconds")
-        XCTAssertEqual(AppSettings().pageVideoSeconds, 15, "üst sınır")
-        UserDefaults.standard.set(0, forKey: "pageVideoSeconds")
-        XCTAssertEqual(AppSettings().pageVideoSeconds, 2, "alt sınır")
-    }
 
-    func testPageVideoVocabulary() {
-        XCTAssertGreaterThan(SpeechMatcher.occurrences(in: "sayfa videosu çek", trigger: VideoVocabulary.pageStart), 0)
-        XCTAssertGreaterThan(SpeechMatcher.occurrences(in: "sayfa sayfa video", trigger: VideoVocabulary.pageStart), 0)
-        XCTAssertEqual(SpeechMatcher.occurrences(in: "video kaydını aç", trigger: VideoVocabulary.pageStart), 0)
-        XCTAssertEqual(SpeechMatcher.occurrences(in: "sayfa videosu", trigger: VideoVocabulary.start), 0, "iki komut karışmasın")
-        XCTAssertEqual(SpeechMatcher.occurrences(in: "hepsi tamamlandı", trigger: VideoVocabulary.pageStart), 0)
-    }
+
+
+
 
     /// Duraklat / devam: aradaki süre videoya girmez, dosya aralıksız tek parça olur; süre sınırı yalnız yazılan saniyeleri sayar
     func testPauseAndResumeKeepsOneContinuousFile() {
@@ -309,14 +268,5 @@ final class VideoRecorderTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
     }
 
-    func testVoiceCommandsMatchStartAndStopButNotFinishPhrases() {
-        XCTAssertGreaterThan(SpeechMatcher.occurrences(in: "video kaydını aç", trigger: VideoVocabulary.start), 0)
-        XCTAssertGreaterThan(SpeechMatcher.occurrences(in: "Video kaydı başlat", trigger: VideoVocabulary.start), 0)
-        XCTAssertGreaterThan(SpeechMatcher.occurrences(in: "kapat", trigger: VideoVocabulary.stop), 0)
-        XCTAssertGreaterThan(SpeechMatcher.occurrences(in: "kaydı kapat", trigger: VideoVocabulary.stop), 0)
-        XCTAssertEqual(SpeechMatcher.occurrences(in: "hepsini gönder", trigger: VideoVocabulary.start), 0)
-        XCTAssertEqual(SpeechMatcher.occurrences(in: "hepsini gönder", trigger: VideoVocabulary.stop), 0)
-        XCTAssertFalse(VideoVocabulary.stop.contains("bitir"), "\"bitir\" PDF gönderme komutuyla karışır")
-        XCTAssertFalse(VideoVocabulary.start.contains("bitir"))
-    }
+
 }

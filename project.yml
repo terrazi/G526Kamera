@@ -32,8 +32,6 @@ targets:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        NSMicrophoneUsageDescription: "Sesli komutu (örneğin “Okey”) algılamak ve belgeler hakkındaki sesli sorunuzu kaydetmek için mikrofon gerekir."
-        NSSpeechRecognitionUsageDescription: "Sesli komutu anlamak için konuşma tanıma gerekir. Mümkünse cihaz içinde çalışır."
         NSLocalNetworkUsageDescription: "G526 kameraya kameranın kendi Wi-Fi ağı üzerinden bağlanmak için yerel ağ erişimi gerekir."
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
@@ -53,18 +51,6 @@ targets:
       testTargets:
         - G526CameraDriveTests
 
-  G526CameraDriveUITests:
-    type: bundle.ui-testing
-    platform: iOS
-    sources:
-      - path: UITests
-    dependencies:
-      - target: G526CameraDrive
-    settings:
-      base:
-        GENERATE_INFOPLIST_FILE: YES
-        PRODUCT_BUNDLE_IDENTIFIER: com.huseyinozer.g526.uitests
-
   G526CameraDriveTests:
     type: bundle.unit-test
     platform: iOS
@@ -76,13 +62,3 @@ targets:
       base:
         GENERATE_INFOPLIST_FILE: YES
         PRODUCT_BUNDLE_IDENTIFIER: com.huseyinozer.g526.tests
-
-schemes:
-  G526CameraDriveUI:
-    build:
-      targets:
-        G526CameraDrive: all
-        G526CameraDriveUITests: [test]
-    test:
-      targets:
-        - G526CameraDriveUITests

@@ -127,6 +127,38 @@ final class DocumentFolder {
         }
     }
 
+    /// Dosya adında klasör ayracı vb. olmasın
+    static func safeName(_ name: String) -> String {
+        let bad = CharacterSet(charactersIn: "/\\:*?\"<>|\n\r\t")
+        let cleaned = name.components(separatedBy: bad).joined(separator: "-").trimmed
+        return cleaned.isEmpty ? "dosya" : cleaned
+    }
+
+    /// Alt klasöre (yoksa açılır) verilen adla yazar; aynı adlı dosya varsa üzerine yazılır
+    @discardableResult
+    func store(data: Data, subfolder: String, name: String) throws -> URL {
+        return try withAccess { dir in
+            let folder = dir.appendingPathComponent(Self.safeName(subfolder), isDirectory: true)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let target = folder.appendingPathComponent(Self.safeName(name))
+            try data.write(to: target, options: .atomic)
+            return target
+        }
+    }
+
+    /// Dosyanın kopyasını alt klasöre verilen adla koyar (kaynak silinmez); aynı adlı dosya varsa üzerine yazılır
+    @discardableResult
+    func store(file source: URL, subfolder: String, name: String) throws -> URL {
+        return try withAccess { dir in
+            let folder = dir.appendingPathComponent(Self.safeName(subfolder), isDirectory: true)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let target = folder.appendingPathComponent(Self.safeName(name))
+            try? FileManager.default.removeItem(at: target)
+            try FileManager.default.copyItem(at: source, to: target)
+            return target
+        }
+    }
+
     /// Klasöre gerçekten yazılabiliyor mu: nil = evet, değilse Türkçe neden
     func probe() -> String? {
         do {
@@ -166,8 +198,7 @@ final class FolderPicker: NSObject, UIDocumentPickerDelegate {
 
     static func topController() -> UIViewController? {
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-        // Ekran kilidi penceresi (dokunmatik kilit) hiçbir zaman sayfa açılacak pencere sayılmaz
-        let windows = scenes.flatMap { $0.windows }.filter { !($0.rootViewController is LockHostingController) }
+        let windows = scenes.flatMap { $0.windows }
         let window = windows.first(where: { $0.isKeyWindow }) ?? windows.first
         var top = window?.rootViewController
         while let presented = top?.presentedViewController, !presented.isBeingDismissed {
@@ -244,11 +275,6 @@ struct DocumentFolderSection: View {
             do {
                 try DocumentFolder.shared.choose(url)
                 message = ""
-                // Klasör yokken bekleyen fotoğraf ve videolar şimdi kaydedilir
-                Task { @MainActor in
-                    UploadQueue.shared.kick()
-                    VideoOutbox.shared.flush()
-                }
             } catch {
                 message = "Klasör hatırlanamadı: \(error.localizedDescription)"
             }

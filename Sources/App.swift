@@ -10,17 +10,16 @@ struct G526CameraDriveApp: App {
             ContentView()
                 .environmentObject(model)
                 .environmentObject(model.settings)
-                .onAppear { model.start() }
+                .onAppear { model.appActive() }
                 .onOpenURL { model.handleIncomingURL($0) }
                 .onChange(of: scenePhase) { phase in
                     switch phase {
                     case .active:
-                        model.start()
-                    case .background:
-                        model.stop()
+                        model.appActive()
                     case .inactive:
                         model.restoreScreen()
                     default:
+                        // Arka plana geçmek (ör. kestirme çalışırken) taramayı durdurmaz
                         break
                     }
                 }

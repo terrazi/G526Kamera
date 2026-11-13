@@ -1,13 +1,13 @@
 import SwiftUI
 import AVFoundation
 
+/// Ayarlar yalnız sınavdan ÖNCE kullanılır; sınav sırasında ekrana dokunulmaz. Varsayılanlar çoğu kullanım için yeterlidir.
 struct SettingsView: View {
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var settings: AppSettings
     @Environment(\.presentationMode) private var presentation
-    /// Klasör seçilince listedeki "klasör seçildi" durumu kendiliğinden yenilenir
+    /// Klasör seçilince durum satırı kendiliğinden yenilensin
     @ObservedObject private var folderChanges = DocumentFolderChanges.shared
-    @State private var voiceTestResult = ""
     @State private var modelListText = ""
     @State private var listingModels = false
     /// "Anahtarı dene" sonucu (profil numarası → sonuç) ve denenmekte olan profil
@@ -18,39 +18,24 @@ struct SettingsView: View {
     var body: some View {
         NavigationView {
             Form {
-                Section(header: Text("Ayarlar")) {
-                    NavigationLink(destination: cameraPage) { statusRow("Kamera", cameraStatus) }
-                        .accessibilityIdentifier("ayar-kamera")
-                    NavigationLink(destination: soundPage) { statusRow("Ses", soundStatus) }
-                        .accessibilityIdentifier("ayar-ses")
-                    NavigationLink(destination: geminiPage) { statusRow("Gemini", geminiStatus, warn: !settings.geminiPrivacyOK || settings.activeGeminiProfile.key.isEmpty) }
-                        .accessibilityIdentifier("ayar-gemini")
-                    NavigationLink(destination: filesPage) { statusRow("Dosya ve diğer", filesStatus, warn: !DocumentFolder.shared.hasChoice) }
-                        .accessibilityIdentifier("ayar-dosya")
-                    HelpRow("Ayarlar dört başlıkta toplanır; bir başlığı açınca o konudaki bütün ayarlar alt alta görünür. Varsayılan değerlerle çalışır, değiştirmeniz gerekmez. Ana ekrandaki “Ekranı kilitle” düğmesi dokunmatik ekranı kilitler (program ve sesli komutlar çalışmayı sürdürür); kilidi açmak için ekrandaki kilit düğmesine 3 saniye basılı tutun. İlk kurulumda yalnız Gemini anahtarını ve belge klasörünü girmeniz yeter.")
+                scanSection
+                cameraSection
+                shortcutSection
+                geminiSection
+                voiceSection
+                DocumentFolderSection()
+                powerSection
+                Section {
+                    HStack {
+                        Text("Sürüm")
+                        Spacer()
+                        Text(BuildInfo.version).font(.footnote).foregroundColor(.secondary)
+                    }
                 }
             }
             .navigationTitle("Ayarlar")
             .navigationBarTitleDisplayMode(.inline)
             .onAppear { voices = SpeechVoiceChooser.sortedTurkish(SpeechVoiceChooser.installed()) }
-            .onChange(of: settings.sendMode) { _ in model.queue.kick() }
-            .onChange(of: settings.batchSize) { _ in model.queue.kick() }
-            .onChange(of: settings.batchIdle) { _ in model.queue.kick() }
-            .onChange(of: settings.uploadFormat) { _ in model.queue.kick() }
-            .onChange(of: settings.geminiSessionTimeout) { value in
-                if value < 0 { settings.geminiSessionTimeout = 0 }
-                if value > 86400 { settings.geminiSessionTimeout = 86400 }
-            }
-            .onChange(of: settings.guidanceEnabled) { on in
-                // Sesli konumlandırma açılınca fotoğraflar birikip "hepsi tamamlandı" ile tek PDF gitsin
-                if on {
-                    settings.sendMode = "batch"
-                    settings.batchSize = 0
-                    settings.batchIdle = 0
-                    settings.uploadFormat = "pdf"
-                    settings.motionEnabled = false
-                }
-            }
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Bitti") { presentation.wrappedValue.dismiss() }
@@ -59,167 +44,43 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: Dört başlık (karar O): Kamera, Ses, Gemini, Dosya ve diğer
+    // MARK: Tarama
 
-    private func statusRow(_ title: String, _ status: String, warn: Bool = false) -> some View {
-        HStack {
-            Text(title)
-            Spacer()
-            Text(status)
-                .font(.footnote)
-                .foregroundColor(warn ? .orange : .secondary)
-                .multilineTextAlignment(.trailing)
+    private var scanSection: some View {
+        Section(header: Text("Tarama")) {
+            NumberRow(title: "Soru sayısı", value: $settings.questionTotal, range: AppSettings.questionTotalRange, unit: "soru")
+            Picker("Şık sayısı", selection: $settings.optionCount) {
+                Text("4 (A–D)").tag(4)
+                Text("5 (A–E)").tag(5)
+            }
+            Stepper(value: $settings.groupSize, in: 1...3) {
+                Text(settings.groupSize == 1 ? "Her soru ayrı PDF" : "\(settings.groupSize) soru tek PDF")
+            }
+            Stepper(value: $settings.maxAttempts, in: 0...50) {
+                Text(settings.maxAttempts == 0 ? "Soru başına deneme: sınırsız" : "Soru başına en çok deneme: \(settings.maxAttempts)")
+            }
+            Picker("Kalite sıkılığı", selection: $settings.guidanceSharpness) {
+                Text("Gevşek").tag(0)
+                Text("Normal").tag(1)
+                Text("Sıkı").tag(2)
+            }
+            Stepper(value: $settings.readyRepeatSeconds, in: 10...300, step: 5) {
+                Text("“Kamera hazır” uyarısı: \(settings.readyRepeatSeconds) sn arayla")
+            }
+            Stepper(value: $settings.readyMaxMinutes, in: 1...120) {
+                Text("Evrak gösterilmezse en çok bekleme: \(settings.readyMaxMinutes) dk")
+            }
+            Stepper(value: $settings.scanMaxMinutes, in: 2...240) {
+                Text("Toplam tarama süresi: \(settings.scanMaxMinutes) dk")
+            }
+            Stepper(value: $settings.missingWaitSeconds, in: 10...600, step: 10) {
+                Text("Eksik soru bekleme: \(settings.missingWaitSeconds) sn")
+            }
+            HelpRow("Soru sayısı kadar soru taranır; hepsi alınınca tarama biter. 0 bırakılırsa tarama boş kadraja (20 sn) ya da 90 sn yeni soru gelmemesine göre biter. Evrak kameraya tutulunca 2 sn sonra 5 sn’lik çekim yapılır (≈10 kare + video); her soru için en iyi iki kare PDF olur (S12.pdf). Birden çok soru tek PDF seçilirse bu PDF’ler ayrıca birleştirilip (S12-14.pdf) Gemini’ye o halde gönderilir. Kalite kapısı: soru numarası ve tüm şıklar görünmeli, yazı net, parlamasız ve yeterince büyük olmalı; olmazsa o soru gönderilmez, sebebi kulaklıkta söylenir ve düzelene kadar uyarılır. Soru başına deneme dolunca soru “alınamadı” sayılır ve sıradakine geçilir. Tarama bitince eksik varsa “15 ve 22 eksik” denir ve belirtilen sürece beklenir.")
         }
     }
 
-    private var cameraStatus: String { return model.cameraState.isLive ? "bağlı" : "bağlı değil" }
-
-    private var soundStatus: String {
-        let outputs = AVAudioSession.sharedInstance().currentRoute.outputs.map { $0.portType }
-        return AudioRoute.outputName(outputs)
-    }
-
-    private var geminiStatus: String {
-        if settings.activeGeminiProfile.key.isEmpty { return "anahtar yok" }
-        return settings.geminiPrivacyOK ? "anahtar var" : "gizlilik onayı gerekli"
-    }
-
-    private var filesStatus: String { return DocumentFolder.shared.hasChoice ? "klasör seçildi" : "klasör seçilmedi" }
-
-    /// 1) Kamera: bağlantı, görüntü yönü, video, fotoğraf, otomatik çekim, sesli konumlandırma, pil ve ısınma (hepsi tek sayfada)
-    private var cameraPage: some View {
-        Form {
-            cameraSection
-            videoSection
-            photoSection
-            motionSection
-            guidanceSection
-            powerSection
-        }
-        .navigationTitle("Kamera")
-        .navigationBarTitleDisplayMode(.inline)
-    }
-
-    /// 2) Ses: çıkış, ses düzeni, deneme, sesli komut ve okuma sesi
-    private var soundPage: some View {
-        Form {
-            soundSection
-            voiceSection
-            readingVoiceSection
-        }
-        .navigationTitle("Ses")
-        .navigationBarTitleDisplayMode(.inline)
-    }
-
-    /// 3) Gemini: gizlilik onayı, sesle soru, model profilleri ve API anahtarları, video gönderimi, deneme sınavı
-    private var geminiPage: some View {
-        Form {
-            geminiPrivacySection
-            geminiSection
-            geminiModelsSection
-            examSection
-        }
-        .navigationTitle("Gemini")
-        .navigationBarTitleDisplayMode(.inline)
-    }
-
-    /// 4) Dosya ve diğer: belge klasörü, kaydetme, kestirmeler, tanı ve günlük, sürüm
-    private var filesPage: some View {
-        Form {
-            DocumentFolderSection()
-            saveSection
-            selfHealSection
-            Section {
-                NavigationLink(destination: DiagnosticsView()) {
-                    Text("Tanı ve günlük")
-                }
-                HStack {
-                    Text("Sürüm")
-                    Spacer()
-                    Text(BuildInfo.version)
-                        .font(.footnote)
-                        .foregroundColor(.secondary)
-                        .textSelection(.enabled)
-                }
-            }
-        }
-        .navigationTitle("Dosya ve diğer")
-        .navigationBarTitleDisplayMode(.inline)
-    }
-
-    /// Kestirmeler uygulamasındaki iki kestirme: bağlantı kestirmesi (internet) ve ses kestirmesi. iOS uygulamalara kestirmelerin listesini
-    /// vermediği için ad ya yazılır / yapıştırılır ya da yardımcı kestirmeyle listeden seçilir.
-    private var selfHealSection: some View {
-        Section(header: Text("Kendi kendini onarma (kestirmeler)")) {
-            shortcutRow(kind: .connection, title: "Bağlantı kestirmesi", name: $settings.connectionShortcutName,
-                        identifier: "baglanti-kestirmesi")
-            Stepper(value: $settings.repairChecks, in: AppSettings.repairChecksRange) {
-                Text("Kestirmeden önce yoklama: \(settings.repairChecks) kez")
-            }
-            Stepper(value: $settings.repairCheckSeconds, in: AppSettings.repairCheckSecondsRange, step: 30) {
-                Text("Yoklamalar arası: \(settings.repairCheckSeconds) sn")
-            }
-            Stepper(value: $settings.repairWaitSeconds, in: AppSettings.repairWaitSecondsRange, step: 10) {
-                Text("Kestirme denemeleri arası bekleme: \(settings.repairWaitSeconds) sn")
-            }
-            HelpRow("İnternet kesilince program her \(settings.repairCheckSeconds) saniyede bir yoklar; art arda \(settings.repairChecks) yoklamada internet yoksa bağlantı kestirmesini çalıştırır, işe yaramazsa \(settings.repairWaitSeconds) saniye sonra yeniden dener (bir kesintide en çok 3 deneme). Kestirmenin adı boşsa hiçbir şey çalışmaz. Önerilen kestirme: Hücresel Veriyi Ayarla Kapalı → Bekle 3 sn → Hücresel Veriyi Ayarla Açık.")
-            shortcutRow(kind: .camera, title: "Kamera kestirmesi", name: $settings.cameraShortcutName, identifier: "kamera-kestirmesi")
-            HelpRow("Kamera (Wi-Fi) kestirmesi: kamera görüntüsü art arda \(settings.repairChecks) yoklamada (\(settings.repairCheckSeconds) sn arayla) gelmezse çalışır; aynı üç süre ayarı geçerlidir, en çok 3 deneme. Önerilen: Wi-Fi'yi Kapat → Bekle 3 sn → Wi-Fi'yi Aç (telefon kamera ağına yeniden katılır). Sınav sürerken önce sınav bekletilir ve sesli haber verilir; kestirme boşsa sınav eskisi gibi çalışır.")
-            shortcutRow(kind: .audio, title: "Ses kestirmesi", name: $settings.audioShortcutName, identifier: "ses-kestirmesi")
-            HelpRow("Ses kestirmesi: mikrofon 90 saniyedir hiç ses vermiyorsa ya da ses kulaklığa değil mikrofon alıcısına gidiyorsa çalışır (ses bağlantısını yeniden kuran kestirme). Kestirme çalışırken program birkaç saniye arka plana gider; ekran açık ve program önde olmalıdır.")
-            HelpRow("Sınav sırasında arama ve mesaj gelmesin: iOS uygulamalara aramayı reddetme / mesajı engelleme izni vermez, bunu telefonun Odak özelliği yapar. Kestirmeler → Otomasyon → Yeni → Uygulama → “G526 Kamera” → Açıldığında → “Odağı Ayarla: Rahatsız Etme, Aç” → Hemen Çalıştır. İkinci otomasyon: Kapatıldığında → Odağı Kapat. Odak ayarında “izin verilen kişiler: hiç kimse” seçin. Arayan kişi reddedilmez (arama sessiz çalar); tam engel için yalnız operatör çağrı yönlendirmesi vardır. Kestirmeye eklenen “Odağı aç” yalnız o kestirme çalışınca açar.")
-            HelpRow("iOS, uygulamaların Kestirmeler listesini görmesine izin vermez; bu yüzden ad yazılır ya da yapıştırılır. “Listeden seç” için bir kez Kestirmeler uygulamasında “\(ShortcutLink.pickerName)” adlı bir kestirme yapın: 1) “Kestirmelerimi Al” (Get My Shortcuts), 2) “Listeden Seç”, 3) “URL Kodla” (girdi: Seçilen Öğe), 4) “URL’leri Aç”: g526kamera://sec?tur=Kestirme Girdisi&ad=URL Kodlanmış Metin (Kestirme Girdisi ve URL Kodlanmış Metin değişken olarak eklenir). “Listeden seç”e basınca bu kestirme listeyi gösterir, seçtiğiniz ad kutuya kendiliğinden yazılır. Eylem adları iOS sürümünüze göre biraz değişebilir.")
-        }
-    }
-
-    /// Bir kestirmenin satırı: ad kutusu + Listeden seç / Yapıştır / Dene
-    private func shortcutRow(kind: ShortcutKind, title: String, name: Binding<String>, identifier: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            TextField("\(title)nin adı", text: name)
-                .textInputAutocapitalization(.never)
-                .disableAutocorrection(true)
-                .accessibilityIdentifier(identifier)
-            HStack(spacing: 20) {
-                Button("Listeden seç") {
-                    if let url = ShortcutLink.pickerURL(kind: kind) { UIApplication.shared.open(url) }
-                }
-                .accessibilityIdentifier("\(identifier)-sec")
-                Button("Yapıştır") {
-                    if let text = UIPasteboard.general.string?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty {
-                        name.wrappedValue = text
-                    }
-                }
-                .accessibilityIdentifier("\(identifier)-yapistir")
-                Button("Dene") { model.testShortcut(named: name.wrappedValue) }
-                    .disabled(name.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    .accessibilityIdentifier("\(identifier)-dene")
-            }
-            .buttonStyle(BorderlessButtonStyle())
-        }
-    }
-
-    /// Ses çıkışı (kulaklık) seçimi ve ses denemesi
-    private var soundSection: some View {
-        Section(header: Text("Ses")) {
-            HStack {
-                Text("Ses çıkışını seç (kulaklık)")
-                Spacer()
-                RoutePickerButton()
-                    .frame(width: 36, height: 36)
-            }
-            Picker("Ses düzeni", selection: $settings.audioLayout) {
-                Text("Kulaklık çıkış + harici mikrofon").tag(0)
-                Text("Kulaklığın kendi mikrofonu").tag(1)
-            }
-            Button("Sesi dene") { voiceTestResult = model.testVoice() }
-                .accessibilityIdentifier("sesi-dene")
-            if !voiceTestResult.isEmpty {
-                Text(voiceTestResult).font(.footnote).foregroundColor(.secondary)
-            }
-            HelpRow("Program telefonun hoparlöründen hiç ses vermez: kulaklık bağlı değilse konuşmalar söylenmez, ekrana yazılır ve deneme sınavı başlamaz. Deneme sınavı sürerken kulaklık, mikrofon ya da internet kesilirse sınav bekler, kesilen bağlantının kestirmesi çalışır, bağlantı gelince kaldığı yerden sürer (kulaklık kopmuşsa sesli haber verilemez, ekrana yazılır).")
-            HelpRow("Kulaklıktan dinlemek için ses çıkışı düğmesine basıp kulaklığınızı seçin. “Sesi dene” sesin hangi çıkışa ve hangi mikrofona gittiğini yazar. Ses düzeni: “Kulaklık çıkış + harici mikrofon” (varsayılan) sesi Bluetooth kulaklıktan verir, soruyu telefona takılı harici mikrofondan alır; “Kulaklığın kendi mikrofonu” soruyu kulaklığın mikrofonundan alır (kulaklık bu durumda daha düşük ses kalitesine geçer). Değişiklik sesli komut dinleyicisi yeniden kurulunca geçerli olur.")
-        }
-    }
+    // MARK: Kamera
 
     private var cameraSection: some View {
         Section(header: Text("Kamera")) {
@@ -243,53 +104,49 @@ struct SettingsView: View {
                     Text(o.title).tag(o)
                 }
             }
-            HelpRow("Kadraj yönü: ana ekrandaki önizleme kutusu ve sesli yönlendirme bu seçime uyar. “Dikey”: kutu dikeydir (9:16) ve kamera görüntüsü 90° çevrilir, böylece kameranın gördüğünün tamamı kırpılmadan kutuya oturur; oran değişmez (16:9 → 9:16). “Yatay”: kutu yataydır (16:9) ve görüntü olduğu gibi kullanılır (ters takılıysa 180°). Sesli yönlendirme, ekranda gördüğünüz yöne göre bütün kareyle çalışır. Görüntü yönü: Dikey kadrajda “90° sağa” ya da “90° sola” (sayfa yan yatıyorsa öbürünü seçin), Yatay kadrajda “Normal” ya da “180°”. Seçtiğiniz yön önizlemeye, çekilen fotoğraf ve PDF'e, kaydedilen videoya ve sesli yönlendirmedeki sağ/sol/yukarı/aşağıya uygulanır. Fotoğraf kırpılmaz. Sesli yönlendirme de çevrilmiş görüntüyü ölçer: sayfa ekranda dik görünüyorsa sütunlar yan yana sayılır, “sol mu, sağ mı” diye sorulur ve yön tarifleri ekrandaki yöne göredir.")
-            HelpRow("Kamera adı (UID) hazır yazılı gelir; başka bir kamera için silip yenisini yazabilirsiniz. IP boş bırakılırsa kamera kendiliğinden bulunur. Telefon kameranın Wi-Fi ağına bağlı olmalıdır.")
+            Picker("Tarih / saat yazısı", selection: $settings.timestampMode) {
+                Text("Bulanıklaştır").tag(TimestampMode.blur)
+                Text("Olduğu gibi bırak").tag(TimestampMode.keep)
+            }
+            Toggle("Fotoğrafı keskinleştir", isOn: $settings.sharpenImages)
+            HelpRow("Kadraj yönü önizleme kutusunu ve konum tarifini belirler; “Dikey”de kamera görüntüsü 90° çevrilir. Kamera adı hazır yazılı gelir; IP boşsa kamera kendiliğinden bulunur. Telefon kameranın Wi-Fi ağına bağlı olmalıdır (bunu kamera kestirmesi yapar). Tarih/saat yazısı kameranın üst köşesindedir; bulanıklaştırmak soru metnine zarar vermez.")
         }
     }
 
-    private var voiceSection: some View {
-        Section(header: Text("Sesli komut"),
-                footer: Text("Birden fazla sözcüğü virgülle ayırabilirsiniz. Uygulama açıkken ve ekran açıkken dinler.")) {
-            Toggle("Sesli komutla çek", isOn: $settings.voiceEnabled)
-            TextField("Tetikleme sözcüğü", text: $settings.triggerWord)
+    // MARK: Kestirmeler
+
+    private var shortcutSection: some View {
+        Section(header: Text("Kestirmeler (Otomatik başlatma)")) {
+            shortcutRow(kind: .camera, title: "Kamera Wi-Fi kestirmesi", name: $settings.cameraShortcutName, identifier: "kamera-kestirmesi")
+            shortcutRow(kind: .connection, title: "İnternet kestirmesi", name: $settings.connectionShortcutName, identifier: "baglanti-kestirmesi")
+            NumberRow(title: "Deneme sayısı", value: $settings.shortcutTries, range: AppSettings.shortcutTriesRange, unit: "kez")
+            NumberRow(title: "Denemeler arası", value: $settings.shortcutWaitSeconds, range: AppSettings.shortcutWaitRange, unit: "sn")
+            HelpRow("1) Kamera Wi-Fi kestirmesi: Kestirmeler uygulamasında telefonu kameranın Wi-Fi ağına bağlayan bir kestirme yapın. 2) İnternet kestirmesi: tek kestirmede Wi-Fi’ı kapatın, 2 saniye bekleyin, hücresel veriyi açın. Kameranın Wi-Fi ağındayken telefon hücresel veriyi keser; bu yüzden internet taramadan sonra, kamera kapanınca bu kestirmeyle geri getirilir. 3) Otomatik başlatma: Kestirmeler > Otomasyon > Kişisel otomasyon > Günün Saati; eylem olarak “URL’yi Aç” ve adres olarak g526kamera://basla yazın, “Hemen Çalıştır” seçin. Saat gelince program açılır, kamera kestirmesini çalıştırır ve kamerayı bekler. Deneme sayısı ve aralığı iki kestirme için de geçerlidir (kamera görüntüsü ya da internet gelene kadar tekrar). Telefonun sınav boyunca kilitsiz, ekranı açık ve şarjda olması gerekir. Arama ve mesajların sınav boyunca gelmemesi için iPhone’un Odak (Rahatsız Etme) özelliğini kullanın: bunu uygulama yapamaz, iOS yalnız Odak’a izin verir; Odak’ı da bir otomasyonla sınav saatinde açtırabilirsiniz.")
+        }
+    }
+
+    /// Bir kestirmenin satırı: ad kutusu + Listeden seç / Yapıştır / Dene
+    private func shortcutRow(kind: ShortcutKind, title: String, name: Binding<String>, identifier: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            TextField(title, text: name)
+                .textInputAutocapitalization(.never)
                 .disableAutocorrection(true)
-            Stepper(value: $settings.cooldown, in: 2...20, step: 1) {
-                Text("İki çekim arası bekleme: \(Int(settings.cooldown)) sn")
-            }
-            HelpRow("“Durum bilgisi ver”: program o an ne yaptığını (sınav aşaması, video, gönderim…) ve telefonun durumunu (ısı, bellek, ekran takılması, pil, boş yer) kısaca söyler; sınav sürerken de çalışır. “Duraklat”: konuşma, çekim, sesli konumlandırma, sınav akışı, klasöre gönderme ve yeni Gemini istekleri durur; açık video kaydı duraklar. “Devam et” hepsini kaldığı yerden sürdürür (ana ekrandaki Duraklat / Devam et düğmesi de aynı işi yapar). Duraklatılmışken yalnız “devam et”, “durum bilgisi ver” ve sınavı sonlandırma / kapatma çalışır; “durum bilgisi ver” denirse program duraklatıldığını ve nasıl devam edileceğini söyler. Mikrofon dinlemesi ve kamera bağlantısı açık kalır; yoksa “devam et” duyulamaz. İnternete gitmiş bir Gemini isteği kesilemez, cevabı devam edilince okunur.")
-        }
-    }
-
-    private var readingVoiceSection: some View {
-        Section(header: Text("Okuma sesi")) {
-            HStack {
-                Text("Şu an")
-                Spacer()
-                Text(SpeechVoiceChooser.currentDescription(preferredID: settings.speechVoiceID))
-                    .font(.footnote)
-                    .foregroundColor(.secondary)
-            }
-            Picker("Ses", selection: $settings.speechVoiceID) {
-                Text("Otomatik (en kaliteli)").tag("")
-                ForEach(voices, id: \.id) { voice in
-                    Text(voice.title).tag(voice.id)
+                .accessibilityIdentifier(identifier)
+            HStack(spacing: 20) {
+                Button("Listeden seç") {
+                    if let url = ShortcutLink.pickerURL(kind: kind) { UIApplication.shared.open(url) }
                 }
+                Button("Yapıştır") {
+                    if let text = UIPasteboard.general.string?.trimmed, !text.isEmpty { name.wrappedValue = text }
+                }
+                Button("Dene") { model.testShortcut(named: name.wrappedValue) }
+                    .disabled(name.wrappedValue.trimmed.isEmpty)
             }
-            Stepper(value: $settings.speechRate, in: 0.7...1.3, step: 0.05) {
-                Text(verbatim: "Okuma hızı: %\(Int((settings.speechRate * 100).rounded()))")
-            }
-            Button("Bu sesi dene") { model.previewVoice() }
-                .accessibilityIdentifier("okuma-sesi-dene")
-            HelpRow("“Otomatik”, telefonda kurulu en kaliteli Türkçe sesi seçer. Daha doğal bir ses için iPhone Ayarlar > Erişilebilirlik > Konuşulan İçerik > Sesler > Türkçe bölümünden “Gelişmiş” ya da “Premium” bir ses indirin, sonra bu ekrana dönün. Siri’nin kendi sesi uygulamalara açık değildir; yalnız bu listedeki sesler kullanılabilir.")
+            .buttonStyle(BorderlessButtonStyle())
         }
     }
 
-    /// Gemini çağrı sözcüğü fotoğraf çekme / gönderme sözcükleriyle çakışıyorsa uyarı için
-    private var callWordClashes: [String] {
-        let others = [settings.triggerWord, settings.finishWord, GuidanceVocabulary.finish]
-        return GeminiText.clashes(settings.geminiCallWord, with: others)
-    }
+    // MARK: Gemini
 
     private func profileName(_ i: Int) -> Binding<String> {
         return Binding(get: { settings.geminiProfiles[i].name }, set: { settings.geminiProfiles[i].name = $0 })
@@ -307,6 +164,60 @@ struct SettingsView: View {
         return Binding(get: { settings.geminiKeys[i] }, set: { settings.geminiKeys[i] = $0 })
     }
 
+    private var geminiSection: some View {
+        Section(header: Text("Gemini (4 model profili)")) {
+            Picker("İlk denenen model", selection: $settings.geminiActive) {
+                ForEach(0..<GeminiProfiles.slotCount, id: \.self) { i in
+                    Text(settings.geminiProfiles[i].name.trimmed.isEmpty ? "Model \(i + 1)" : settings.geminiProfiles[i].name).tag(i + 1)
+                }
+            }
+            ForEach(0..<GeminiProfiles.slotCount, id: \.self) { i in
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("\(i + 1). model").font(.footnote).foregroundColor(.secondary)
+                    TextField("Ad (ör. \(GeminiProfiles.defaultNames[i]))", text: profileName(i))
+                        .disableAutocorrection(true)
+                    TextField("Model (ör. \(GeminiConfig.defaultModel))", text: profileModel(i))
+                        .textInputAutocapitalization(.never)
+                        .disableAutocorrection(true)
+                    // anahtar açık görünür: doğru yapıştırıldığı gözle kontrol edilebilsin
+                    TextField("API anahtarı", text: profileKey(i))
+                        .font(.system(.footnote, design: .monospaced))
+                        .textInputAutocapitalization(.never)
+                        .disableAutocorrection(true)
+                    if let problem = GeminiProfiles.keyShapeProblem(settings.geminiKeys[i]) {
+                        Text(problem).font(.caption).foregroundColor(.red)
+                    } else if !settings.geminiKeys[i].trimmed.isEmpty {
+                        Text("\(settings.geminiKeys[i].trimmed.count) karakter").font(.caption).foregroundColor(.secondary)
+                    }
+                    HStack(spacing: 24) {
+                        Button("Yapıştır") { pasteGeminiKey(slot: i + 1) }
+                        if !settings.geminiKeys[i].trimmed.isEmpty {
+                            Button(testingKeySlot == i + 1 ? "Deneniyor…" : "Anahtarı dene") { testGeminiKey(slot: i + 1) }
+                                .disabled(testingKeySlot != 0)
+                        }
+                    }
+                    .buttonStyle(BorderlessButtonStyle())
+                    if let result = keyTestResults[i + 1] {
+                        Text(result.text).font(.caption).foregroundColor(result.ok ? .green : .red).textSelection(.enabled)
+                    }
+                    Toggle(GeminiProfiles.keyKindLabel(free: settings.geminiProfiles[i].free), isOn: profileFree(i))
+                }
+            }
+            Stepper(value: $settings.geminiWaitLimit, in: 0...600, step: 5) {
+                Text(settings.geminiWaitLimit == 0 ? "Cevap bekleme sınırı: yok" : "Cevap bekleme sınırı: \(settings.geminiWaitLimit) sn")
+            }
+            TextField("Şık kodları (A=ADANA, B=BURSA, …)", text: $settings.geminiOptionCodes)
+                .textInputAutocapitalization(.characters)
+                .disableAutocorrection(true)
+            Button(listingModels ? "Modeller isteniyor…" : "Modelleri listele (ilk modelin anahtarıyla)") { listGeminiModels() }
+                .disabled(listingModels)
+            if !modelListText.isEmpty {
+                Text(modelListText).font(.footnote).foregroundColor(.secondary).textSelection(.enabled)
+            }
+            HelpRow("Sorular PDF olarak, standart bir talimatla Gemini’ye gönderilir; cevaplar soru numarasına göre sıralanır, eksik ya da okunamayan sorular bir kez daha sorulur. Model zinciri: ilk model kotası dolarsa, sunucu hata verirse ya da cevap bekleme sınırında yanıt gelmezse sıradaki profile (kendi anahtarıyla) geçilir; son modele sınır konmaz. Her profilin kendi API anahtarı vardır (aistudio.google.com); anahtarlar yalnız bu telefonun Keychain’inde saklanır. Ücretsiz katmanda içeriğiniz Google tarafından ürün geliştirmede kullanılabilir. Şık kodları: cevap sesli okunurken şık harfi yerine bu kelime söylenir (A=ADANA ise “ADANA”).")
+        }
+    }
+
     /// Panodaki anahtarı ilgili alana yazar (eskisinin yerine geçer); eski deneme sonucu silinir
     private func pasteGeminiKey(slot: Int) {
         guard let key = GeminiProfiles.cleanedKey(fromClipboard: UIPasteboard.general.string) else {
@@ -318,8 +229,7 @@ struct SettingsView: View {
         tlog("[gemini] \(slot). profile anahtar yapıştırıldı (\(GeminiProfiles.keyHint(key)))")
     }
 
-    /// Profilin anahtarını Google'a denetir: profildeki modele çok kısa bir soru gider (birkaç belirteç); başlık reddedilirse
-    /// anahtar adreste de denenir, ikisinin sonucu da gösterilir
+    /// Profilin anahtarını Google'a denetir: profildeki modele çok kısa bir soru gider; başlık reddedilirse anahtar adreste de denenir
     private func testGeminiKey(slot: Int) {
         guard let profile = settings.geminiProfileInfos().first(where: { $0.slot == slot }) else { return }
         testingKeySlot = slot
@@ -338,7 +248,7 @@ struct SettingsView: View {
         }
     }
 
-    /// Seçili profilin anahtarının görebildiği modelleri yazar (doğru model adını bulmak için)
+    /// İlk modelin anahtarının görebildiği modelleri yazar (doğru model adını bulmak için)
     private func listGeminiModels() {
         let profile = settings.activeGeminiProfile
         listingModels = true
@@ -359,369 +269,77 @@ struct SettingsView: View {
         }
     }
 
-    /// Gizlilik onayı: sayfanın en üstünde; onay yoksa Gemini'ye hiçbir şey gönderilmez
-    private var geminiPrivacySection: some View {
-        Section(header: Text("Gizlilik onayı")) {
-            Toggle("Ses kaydımın ve PDF’lerimin Google’a gönderilmesini onaylıyorum", isOn: $settings.geminiPrivacyOK)
-                .accessibilityIdentifier("gemini-gizlilik")
-            HelpRow("Onay varsayılan olarak işaretli gelir; kaldırırsanız Gemini’ye hiçbir şey gönderilmez ve sesle soru sorulamaz. Onayladığınızda soru sesiniz ve belge klasörünüzdeki PDF’ler Google’ın Gemini hizmetine gönderilir.")
-        }
-    }
+    // MARK: Ses
 
-    private var geminiSection: some View {
-        Section(header: Text("Gemini ile belge sohbeti")) {
-            Toggle("Gemini’ye sesle soru sor", isOn: $settings.geminiEnabled)
-                .accessibilityIdentifier("gemini-ac")
-            Toggle("Oturum: “hazırım” de, cevaptan sonra yeni soruyu dinle", isOn: $settings.geminiSession)
-                .accessibilityIdentifier("gemini-oturum")
+    private var voiceSection: some View {
+        Section(header: Text("Ses (yalnız kulaklık)")) {
             HStack {
-                Text("Oturum sessizlik süresi (sn)")
+                Text("Şu an")
                 Spacer()
-                TextField("0", value: $settings.geminiSessionTimeout, format: .number)
-                    .keyboardType(.numberPad)
-                    .multilineTextAlignment(.trailing)
-                    .frame(maxWidth: 90)
-                    .accessibilityIdentifier("gemini-oturum-suresi")
+                Text(SpeechVoiceChooser.currentDescription(preferredID: settings.speechVoiceID))
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
             }
-            Text(settings.geminiSessionTimeout <= 0
-                 ? "0: oturum hiç kapanmaz, siz kapatana kadar soru beklenir."
-                 : "\(settings.geminiSessionTimeout) sn soru gelmezse oturum kapanır.")
-                .font(.footnote).foregroundColor(.secondary)
-            TextField("Çağrı sözcüğü (boşsa dinle ve gemini)", text: $settings.geminiCallWord)
-                .textInputAutocapitalization(.never)
-                .disableAutocorrection(true)
-                .accessibilityIdentifier("gemini-cagri-sozcugu")
-            HelpRow("“Dinle” deyince program “Dinliyorum” der ve kaydeder; “tamam” deyince kayıt Gemini’ye gider (baştaki “dinle” gönderilmez). Deneme sınavında da her an çalışır. Program konuşurken “dinle” duyulmaz: konuşmayı kesmek için “Gemini’ye sor” düğmesine basın.")
-            Picker("Dinle: kaydı ne bitirsin", selection: $settings.listenEnd) {
-                Text("“Tamam” deyince").tag("word")
-                Text("Sustuğumda").tag("silence")
-            }
-            .accessibilityIdentifier("dinle-bitirme")
-            if settings.listenEnd == "word" {
-                Stepper(value: $settings.listenSilence, in: 5...60) {
-                    Text("“Tamam” denmezse sessizlikte bitme: \(settings.listenSilence) sn")
-                }
-                .accessibilityIdentifier("dinle-sessizlik")
-            }
-            Picker("Düşünme modu (thinking)", selection: $settings.geminiThinking) {
-                Text("Otomatik (Gemma’da açık)").tag("auto")
-                Text("Hep yüksek (daha doğru, yavaş)").tag("high")
-                Text("En az (hızlı)").tag("minimal")
-            }
-            .accessibilityIdentifier("gemini-dusunme")
-            HelpRow("Gemma modellerinde (ör. gemma-4-31b-it) düşünme ancak “yüksek” ile açılır; otomatikte kendiliğinden açılır. ALES/YDS gibi soru çözümünde doğruluğu artırır, cevap birkaç sn gecikir. Gemini 2.x modelleri bu ayarı almaz.")
-            if !callWordClashes.isEmpty {
-                Text("Bu sözcük başka bir komutla aynı: \(callWordClashes.joined(separator: ", ")). Farklı bir sözcük seçin.")
-                    .font(.footnote).foregroundColor(.orange)
-            }
-            Stepper(value: $settings.geminiDocCount, in: 1...GeminiConfig.maxPages) {
-                Text(verbatim: "Gönderilecek son belge sayısı: \(settings.geminiDocCount)")
-            }
-            HelpRow("Tek tek göndermede her sayfa ayrı belgedir: taradığınız sayfa sayısı kadar yapın. Gemini’ye en çok \(GeminiConfig.maxPages) sayfa verilir; en yeni belgelerden başlanır, sığmayanlar atlanır ve bu sesli söylenir.")
-            Toggle("Büyük belge setlerini Gemini’nin hafızasına al", isOn: $settings.geminiMemory)
-                .accessibilityIdentifier("gemini-hafiza")
-            HelpRow("Açıkken (8 sayfadan büyük setlerde) PDF’ler Gemini’ye bir kez yüklenir (48 saat saklanır), oturumda belgeler Gemini’nin önbelleğinde durur: her soruda 500 sayfa yeniden gönderilmez, daha hızlı ve ucuzdur. Önbellek oturum süresince saat başı küçük bir saklama ücreti işler ve oturum bitince silinir. Bir sorun olursa belgeler eski yöntemle (en çok yaklaşık 14 MB) doğrudan gönderilir.")
-            TextField("Şık kodları (A=ADANA, B=BURSA…)", text: $settings.geminiOptionCodes)
-                .textInputAutocapitalization(.characters)
-                .disableAutocorrection(true)
-                .accessibilityIdentifier("gemini-sik-kodlari")
-            HelpRow("Cevapta şık harfi yerine bu kod sözcüğü okunur (ör. “Birinci sorunun cevabı DENİZLİ, altmış sekiz.”). Boş bırakırsanız harfin kendisi okunur. “İlk on soruyu cevapla” deyince 10’arlı gruplar hâlinde okunur; “sıradaki on soruyu cevapla” dediğinizde, ulaşan son cevaptan sonrasından devam edilir (cevap kesilirse ya da internet koparsa aynı grup yeniden verilir). Belirli soruları da isteyebilirsiniz: “üçüncü, sekizinci ve on beşinci soruların cevabını ver”; “son yanıtı tekrarla” derseniz son cevap Gemini’ye gitmeden uygulamanın hafızasından okunur.")
-            if settings.geminiBatchLast > 0 {
-                HStack {
-                    Text(verbatim: "Toplu cevapta kalınan yer: \(settings.geminiBatchLast). soru")
-                    Spacer()
-                    Button("Sıfırla") { settings.geminiBatchLast = 0 }
-                        .accessibilityIdentifier("gemini-sira-sifirla")
+            Picker("Ses", selection: $settings.speechVoiceID) {
+                Text("Otomatik (en kaliteli)").tag("")
+                ForEach(voices, id: \.id) { voice in
+                    Text(voice.title).tag(voice.id)
                 }
             }
-            HelpRow("Belge klasörüne kaydettiğiniz son PDF’leri Gemini’ye verir; çağrı sözcüğünü söyleyip (kısa bir “tık” sesinden sonra) ya da ana ekrandaki düğmeyle belgeler hakkında sesli soru sorarsınız, cevap Türkçe sesle okunur. Çağrı sözcüğünü değiştirebilirsiniz (ör. “hey dostum”; virgülle birden çok yazabilirsiniz, en az 3 harf); gündelik konuşmada sık geçen bir sözcük seçerseniz Gemini yanlışlıkla açılabilir, fotoğraf çekme ve gönder sözcüklerinden de farklı olsun. Çağrı sözcüğü için Sesli komut açık olmalıdır; düğme her zaman çalışır. Oturum açıkken uygulama “N belge hazır, sorunuzu bekliyorum” der, her cevaptan sonra “Sonraki sorunuzu bekliyorum” diyerek yeni soruyu kendiliğinden dinler. Oturum siz “oturumu kapat” diyene, Durdur’a basana ya da aşağıda yazdığınız sessizlik süresi dolana kadar açık kalır; süreyi 0 bırakırsanız hiç kapanmaz. Oturum açıkken mikrofon sürekli açıktır: duyulan her konuşma Gemini’ye gider ve ücretlendirilir, “okey” gibi diğer sesli komutlar çalışmaz. Her soruda ses kaydınız ve seçilen PDF’ler Google’a gönderilir; IBAN, vergi numarası gibi bilgiler içeren belgeler için ücretli anahtarı tercih edin. Belgelerin PDF olarak Drive’a gitmesi gerekir (Google Drive bölümünde dosya türü “PDF”).")
+            Stepper(value: $settings.speechRate, in: 0.7...1.3, step: 0.05) {
+                Text(verbatim: "Okuma hızı: %\(Int((settings.speechRate * 100).rounded()))")
+            }
+            Stepper(value: $settings.answerPauseSeconds, in: 0...60) {
+                Text("İlk okumada cevaplar arası: \(settings.answerPauseSeconds) sn")
+            }
+            Stepper(value: $settings.repeatPauseSeconds, in: 0...60) {
+                Text("Tekrar okumada cevaplar arası: \(settings.repeatPauseSeconds) sn")
+            }
+            Button("Bu sesi dene") { model.previewVoice() }
+            HelpRow("Program hiçbir şey dinlemez (mikrofon yok); yalnız kulaklığa konuşur. Ses kulaklığa ya da Bluetooth çıkışa gitmiyorsa, yani çıkış telefon hoparlörüyse, hiçbir şey okunmaz ve ana ekranda uyarı çıkar. Cevaplar önce sırayla, sonra “Cevaplar bir kez daha okunuyor” denip bir kez daha okunur. “Otomatik”, telefonda kurulu en kaliteli Türkçe sesi seçer; daha doğal ses için iPhone Ayarlar > Erişilebilirlik > Konuşulan İçerik > Sesler > Türkçe bölümünden Gelişmiş ya da Premium sesi indirin.")
         }
     }
 
-    private var geminiModelsSection: some View {
-        Section(header: Text("Gemini modelleri (4 profil)")) {
-            Picker("Kullanılan model", selection: $settings.geminiActive) {
-                ForEach(0..<GeminiProfiles.slotCount, id: \.self) { i in
-                    Text(settings.geminiProfiles[i].name.trimmed.isEmpty ? "Model \(i + 1)" : settings.geminiProfiles[i].name).tag(i + 1)
-                }
-            }
-            .accessibilityIdentifier("gemini-kullanilan-model")
-            ForEach(0..<GeminiProfiles.slotCount, id: \.self) { i in
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("\(i + 1). model").font(.footnote).foregroundColor(.secondary)
-                    TextField("Ad (ör. \(GeminiProfiles.defaultNames[i]))", text: profileName(i))
-                        .disableAutocorrection(true)
-                    TextField("Model (ör. \(GeminiConfig.defaultModel))", text: profileModel(i))
-                        .textInputAutocapitalization(.never)
-                        .disableAutocorrection(true)
-                    // anahtar açık görünür: doğru yapıştırıldığı gözle kontrol edilebilsin
-                    TextField("API anahtarı", text: profileKey(i))
-                        .font(.system(.footnote, design: .monospaced))
-                        .textInputAutocapitalization(.never)
-                        .disableAutocorrection(true)
-                        .accessibilityIdentifier("gemini-anahtar-\(i + 1)")
-                    if let problem = GeminiProfiles.keyShapeProblem(settings.geminiKeys[i]) {
-                        Text(problem).font(.caption).foregroundColor(.red)
-                    } else if !settings.geminiKeys[i].trimmed.isEmpty {
-                        Text("\(settings.geminiKeys[i].trimmed.count) karakter").font(.caption).foregroundColor(.secondary)
-                    }
-                    HStack(spacing: 24) {
-                        Button("Yapıştır") { pasteGeminiKey(slot: i + 1) }
-                            .accessibilityIdentifier("gemini-anahtar-yapistir-\(i + 1)")
-                        if !settings.geminiKeys[i].trimmed.isEmpty {
-                            Button(testingKeySlot == i + 1 ? "Deneniyor…" : "Anahtarı dene") { testGeminiKey(slot: i + 1) }
-                                .disabled(testingKeySlot != 0)
-                                .accessibilityIdentifier("gemini-anahtar-dene-\(i + 1)")
-                        }
-                    }
-                    .buttonStyle(BorderlessButtonStyle())
-                    if let result = keyTestResults[i + 1] {
-                        Text(result.text).font(.caption).foregroundColor(result.ok ? .green : .red).textSelection(.enabled)
-                    }
-                    Toggle(GeminiProfiles.keyKindLabel(free: settings.geminiProfiles[i].free), isOn: profileFree(i))
-                }
-            }
-            Toggle("Model zinciri: kota dolunca / hata olunca / geç cevap gelince sıradaki modele geç", isOn: $settings.geminiChainFallback)
-            if settings.geminiChainFallback {
-                HelpRow("Seçili modelin kotası dolarsa, sunucu hata verirse ya da cevap gecikirse aynı soru kendiliğinden 1→2→…→6 sırasındaki bir sonraki modele (kendi anahtarıyla) gönderilir; nedeni ve yeni modeli kısaca sesle söylenir. Kotası dolan model bir süre atlanır. Yalnız anahtarı girilmiş profiller kullanılır. Bağlantı hiç yoksa ya da içerik engellenirse model değişmez.")
-                Stepper(value: $settings.geminiWaitLimit, in: 0...600, step: 5) {
-                    Text(settings.geminiWaitLimit == 0 ? "Cevap bekleme sınırı: yok" : "Cevap bekleme sınırı: \(settings.geminiWaitLimit) sn")
-                }
-                HelpRow("Model bu süre içinde cevap vermezse sıradaki modele geçilir (en az 10 sn sayılır; son modele sınır konmaz). Kesilen istek Google tarafında yine de sayılabilir; düşünme modu açık modeller (ör. Gemma) uzun sürebilir, gerekirse süreyi artırın.")
-            }
-            Toggle("Video bitince Gemini'ye de sor", isOn: $settings.videoToGemini)
-            if settings.videoToGemini {
-                Picker("Videoları gönderme", selection: $settings.videoSendMode) {
-                    Text("“Videoları gönder” deyince, sırayla").tag(1)
-                    Text("Her video bitince hemen").tag(0)
-                }
-                TextField("Talimat (boşsa: oku, çöz, şehir kodlu sıralı cevap)", text: $settings.videoQuestion)
-                Toggle("Videoyu yüksek çözünürlükle oku", isOn: $settings.videoHighRes)
-                HelpRow("Video kaydı (en çok ayardaki süre, varsayılan 90 sn) bitince klasöre kaydedilir. “Videoları gönder” kipinde videolar sıraya girer; “videoları gönder” deyince (ya da ana ekrandaki düğmeye basınca) eskiden yeniye, tek tek Gemini'ye gönderilir ve her cevap sırayla sesle okunur. Her videoya aynı talimat verilir (varsayılan: “Videodaki yazıları oku ve analiz et. Soruları çöz ve cevaplarını ver.” ve cevap düzeni: her soru için soru numarası, “Şık kodları” ayarındaki şehir adıyla kodlanmış şık, ardından cevap metni; cevaplar soru numarası sırasıyla. Okuma işine başka kural eklenmez; kendi talimatınızı yazarsanız yalnız o gider). Büyük dosya önce yüklenir, birkaç dakika sürebilir; o sırada uygulama ön planda ve ekran açık olmalıdır. Bir video başarısız olursa durur, kalanlar sırada bekler. Her video bir Gemini isteğidir: ücretsiz kotadan düşer. Gemini kayıttaki bütün kareleri okur (saniyede 2 kare). Harcama bu yüzden 1 kare/sn'ye göre yaklaşık iki kat olur: 90 sn için tahminen 18.000 token, yüksek çözünürlükte tahminen 54.000 (Gemini belgeleri 1 kare/sn için saniyede yaklaşık 100 / 300 token der). Küçük yazı okuması için yüksek çözünürlük varsayılan açıktır; token tasarrufu için kapatabilirsiniz. Gemini ve gizlilik onayı açık olmalıdır.")
-            }
-            Toggle("Model yoğunsa ya da kotası dolunca yedek modele geç", isOn: $settings.geminiOverloadFallback)
-            if settings.geminiOverloadFallback {
-                HelpRow("“Bu model yoğun talep görüyor” (503) ya da kota dolu (429) derse, aynı anahtarla hesabınızdaki başka bir hızlı model (ör. bir önceki flash sürümü) denenir; cevabın hangi modelden geldiği yazılır. Ücretsiz anahtarda günlük istek sayısı düşük olabilir: aynı modele art arda yeniden deneme yapılmaz.")
-            }
-            Toggle("Harcama sınırı dolunca ücretsiz modele geç", isOn: $settings.geminiAutoFallback)
-            if settings.geminiAutoFallback {
-                Text("Ücretsiz katmanda içeriğiniz Google tarafından ürün geliştirmede kullanılabilir.")
-                    .font(.footnote).foregroundColor(.orange)
-            }
-            Button(listingModels ? "Modeller isteniyor…" : "Modelleri listele (seçili modelin anahtarıyla)") { listGeminiModels() }
-                .disabled(listingModels)
-            if !modelListText.isEmpty {
-                Text(modelListText).font(.footnote).foregroundColor(.secondary).textSelection(.enabled)
-            }
-            HelpRow("Her profilin kendi API anahtarı vardır (aistudio.google.com); anahtarlar yalnız bu telefonun Keychain’inde saklanır, kimseyle paylaşmayın. Ücretli ya da ücretsiz olmak modelin değil anahtarın özelliğidir: faturalandırma bağlı projenin anahtarı ücretli, bağlı olmayan ücretsizdir; “Ücretsiz anahtar” kutusunu buna göre işaretleyin. Varsayılanlar ücretsiz katmanda kullanılabilen modellerdir: performans sırasıyla 1. Gemini 3.6 Flash, 2. Gemini 3.5 Flash-Lite, 3. Gemini 3.1 Flash-Lite, 4. ücretli Gemini 3.1 Flash-Lite (kendi ücretli anahtarıyla; ucuzdur, yaklaşık 0,25 $ giriş / 1,50 $ çıkış milyon belirteç başına; en sonda). Model adları hesabınızda yoksa ya da ücretsiz hakkı yoksa değiştirin ya da boş bırakın: kota hatasında program sıradakine geçer. Günlük ücretsiz haklar Google’da değişebilir; en güçlü modellerde azdır (≈20). “Model değiştir” deyince uygulama hesabınızdaki modellerden en çok 7’sini sıralar; “birinci model”, “ikinci model” diye seçersiniz, “tekrarla” listeyi yineler, “vazgeç” bırakır. “Birinci alternatif model seç” 2. profil, “ikinci…” 3., “üçüncü alternatif model seç” 4. profil için aynısını yapar. Anahtarı girilmiş profil seçilince hemen kullanılır. AI Studio’da Spend sayfasından aylık harcama sınırı (ör. 20 dolar) koyabilirsiniz; sınır dolunca ücretli profilden “ücretsiz” işaretli profile kendiliğinden geçilir, yeni ayda eski profile dönülür. Google harcamayı yaklaşık 10 dakika gecikmeyle saydığı için sınır biraz aşılabilir. Dikkat: ücretsiz katmanda Google gönderdiğiniz içeriği ürünlerini geliştirmek için kullanabilir; gizli belgeleriniz varsa bu geçişi kapatın.")
-        }
-    }
-
-    private var videoSection: some View {
-        Section(header: Text("Video kaydı")) {
-            Stepper(value: $settings.videoMaxSeconds, in: VideoRecorder.manualSecondsRange, step: VideoRecorder.secondsStep) {
-                Text("Elle çekilen video: en çok \(settings.videoMaxSeconds) sn")
-            }
-            Stepper(value: $settings.examVideoMaxSeconds, in: VideoRecorder.examSecondsRange, step: VideoRecorder.secondsStep) {
-                Text("Sınav videosu: en çok \(settings.examVideoMaxSeconds) sn")
-            }
-            Stepper(value: $settings.pageVideoSeconds, in: VideoRecorder.pageSecondsRange) {
-                Text("Sayfa sayfa video: sayfa başına \(settings.pageVideoSeconds) sn")
-            }
-            HelpRow("Kayıt “kapat” ya da “durdur” denince ya da bu süre dolunca biter. Elle çekilen video ve sınav videosu 10–300 sn arasında 10’ar sn adımla ayarlanır (varsayılan 90 sn). Sayfa sayfa videoda (“sayfa videosu” deyin ya da ana ekrandaki düğme) program kitabı sesle konumlandırır; sayfa uygun olunca o sayfayı ayardaki süre kadar (varsayılan 5 sn, 2–15) aynı videoya yazar, sonra kaydı duraklatır; sayfayı çevirince yeniden konumlandırır. “Hepsi tamamlandı” ya da “kapat” tek dosyayı bitirir; süre sınırı yalnız kaydedilen saniyeleri sayar. Video saniyede 2 kare yazılır; tahmini boyut: 30 sn ≈ 4,5–8 MB, 90 sn ≈ 14–24 MB, 300 sn ≈ 45–80 MB (durağan belgede daha küçük çıkar). 14 MB’ı aşan video Gemini’ye yüklenerek gönderilir; yükleme süresi boyutla orantılı uzar, Gemini’nin sınırı 100 MB’tır. Değişiklik bir sonraki kayıttan itibaren geçerlidir.")
-        }
-    }
-
-    private var guidanceSection: some View {
-        Section(header: Text("Sesli konumlandırma")) {
-            Toggle("Sesle konumlandır", isOn: $settings.guidanceEnabled)
-                .accessibilityIdentifier("konumlandirma-ac")
-            Toggle("Uyarıları sesli söyle", isOn: $settings.guidanceVoice)
-            Toggle("Video çekerken de konum tarifi ver", isOn: $settings.videoGuidance)
-            Toggle("Kamera ve gönderim durumunu da söyle", isOn: $settings.statusNotices)
-            Toggle("Konum uygunsa kendiliğinden çek", isOn: $settings.guidanceAutoCapture)
-            Picker("Netlik isteği", selection: $settings.guidanceSharpness) {
-                Text("Gevşek").tag(0)
-                Text("Normal").tag(1)
-                Text("Sıkı").tag(2)
-            }
-            Toggle("Parlama uyarısı", isOn: $settings.guidanceGlare)
-            Toggle("Kadrajı tarif et", isOn: $settings.guidanceDescribe)
-            Toggle("Sayfa kenarını da algıla", isOn: $settings.guidancePageEdges)
-                .disabled(!settings.guidanceDescribe)
-            Toggle("Tam sığan bölümü kendiliğinden seç", isOn: $settings.guidanceAutoPick)
-            TextField("Bitirme sözcüğü", text: $settings.finishWord)
-                .disableAutocorrection(true)
-                        HelpRow("Program sayfayı ölçer ve “biraz sağa”, “yukarı”, “uzaklaş”, “yaklaş” gibi sesli yönlendirir; konum uygun olunca birkaç kareyi seri çekip en netini alır. Kadrajda birden çok sütun ya da yan yana sayfa varsa ve biri yarım kalıyorsa: “Tam sığan bölümü kendiliğinden seç” açıkken ve yalnız bir bölüm dört kenardan da tam sığıyorsa (kenara ya da alt / üst kenara dayalı değilse) sormadan onu seçer, hangisini çektiğini söyler (“Soldaki bölüm tam sığıyor, onu çekiyorum”) ve çeker; elle çekimde “okey” demenizi bekler. Aynı bölümü art arda ikinci kez seçmez. Değiştirmek için “yeniden çek” deyip “ikisi birden”, “sol” ya da “sağ” diyebilirsiniz. Ayar kapalıyken ya da hiçbiri tam sığmıyorsa “Sol mu, sağ mı?” diye sorar: “sol”, “sağ”, “orta”, “ikisi birden” (ya da “soldaki”, “sağ sütun”, “birinci”, “son”…) deyin; “yeniden seç” seçimi siler. “Hepsi tamamlandı”, “hepsini gönder”, “tümünü gönder”, “pdf yap”, “bitirdim” gibi söylenişlerin hepsi bekleyen fotoğrafları tek PDF olarak gönderir (en çok 30 sayfa / 15 MB; fazlası ikinci PDF olur). “Rapor ver” bugün kaç sayfa çekildiğini ve kaçının PDF olarak gittiğini söyler. “Son fotoğrafı sil”, “sonuncuyu sil”, “geri al” henüz gönderilmemiş son fotoğrafı siler; “yeniden çek” onu silip aynı bölümü yeniden kadraja aldırır. Çekimden sonra program “Çekim tamamlandı, N sayfa gönderilmeyi bekliyor” der; PDF sayfa sınırına yaklaşınca bunu da söyler. Kadrajı tarif et açıkken program kadrajda ne olduğunu da söyler: “Tek sayfa görünüyor, tam sığıyor”, “İki sayfa görünüyor, ikisi de tam sığıyor”, “İki sayfa görünüyor. Soldaki tam sığıyor, sağdakinin bir bölümü görünüyor”. Tarif her sayfada bir kez, ilk yönlendirmeyle ya da (düzeltme gerekmiyorsa) çekimden hemen önce söylenir; kadraj değişip tarif değişince yeniden söylenir. Yönlendirme sağa / sola / yukarı / aşağı için “azıcık, biraz, epey” der, doğru yöne gidip gitmediğinizi (“Doğru”, “Ters yöne gittiniz”, “Fazla kaydırdınız”) ve konum düzelince “Tamam” der. Yan yana iki sayfa ile iki sütunlu tek sayfa ayırt edilemez, ikisi de “iki sayfa” diye söylenir. Sayfa kenarını da algıla açıkken program Apple'ın belge algılayıcısıyla kâğıdın kenarlarını da bulur: tek sayfa görünüyor ve yazı tam sığıyorsa, kâğıdın bir kenarı kadrajın dışında kalıyorsa “Sayfanın alt kenarı kadrajın dışında kalıyor” der; dört kenar da görünüyorsa “kenarlarıyla birlikte tam sığıyor” der. Bu yalnız bilgi verir, çekimi engellemez ve yönlendirmeyi değiştirmez; kamera durunca çalışır, sonuç değişmiyorsa üç saniyede bir bakar. Telefonda denenmemiştir, telefon ısınırsa kapatın.Sayfada parlama (doymuş beyaz leke) görürse en çok iki kez uyarır, sonra yine de çeker; bu kontrol gerçek kamerada denenmemiştir, rahatsız ederse kapatın. Video çekerken de konum tarifi ver: video kaydı sürerken (elle çekilen video ve sınav videosu) program yalnız “biraz sağa, sola, yukarı, aşağı, yaklaş, uzaklaş” der; fotoğraf çekmez, bölüm sorusu sormaz, netlik ve parlama uyarısı vermez. Kamera hareket ederken susar, durgunlaşınca ölçer; “yazı görünmüyor” yalnız birkaç saniye sürerse söylenir. Elle çekilen videoda sesli söylemek “Uyarıları sesli söyle” ayarına bağlıdır, sınav videosunda hep sesli söylenir. Bu özellik telefonda denenmemiştir. Anlaşılmayan komutta program “anlayamadım” der. Bu özellik açılınca gönderim “toplu, yalnız komutla” olur ve “görüntü değişince çek” kapanır. “Kamera ve gönderim durumunu da söyle” açıkken kamera koptu / geri geldi, mikrofon izni yok, dosya gönderildi / gönderilemedi gibi haberler konuşma arasında kısaca söylenir; aynı haber tekrarlanmaz. Sesli yanıt için mikrofon izni gerekir.")
-        }
-    }
-
-    private var examSection: some View {
-        Section(header: Text("Deneme sınavı")) {
-            Stepper(value: $settings.examCancelWindow, in: 0...15) {
-                Text("Gönderimden önce vazgeçme süresi: \(settings.examCancelWindow) sn")
-            }
-            Stepper(value: $settings.examGap, in: 0...10) {
-                Text("Gruplar arası duraklama: \(settings.examGap) sn")
-            }
-            Toggle("Sınav sayfa sayfa videoyla yapılsın", isOn: $settings.examPageVideo)
-            // Sayfa sayfa video açıkken eski yöntem kullanılmaz: anahtar kapalı ve basılamaz görünür
-            Toggle("Sınav önce video çeksin (eski yöntem)", isOn: settings.examPageVideo ? Binding<Bool>.constant(false) : $settings.examVideoFirst)
-                .disabled(settings.examPageVideo)
-            if settings.examPageVideo {
-                Text("Sayfa sayfa video açıkken kullanılmaz.").font(.caption).foregroundColor(.secondary)
-            }
-            Toggle("Sınav başlarken ses, internet ve Gemini'yi sına", isOn: $settings.examSelfCheck)
-            HelpRow("Ana sayfadaki “Deneme sınav modunu etkinleştir” anahtarı açıkken uygulama deneme sınavı modunda çalışır (açılışta ses, internet ve Gemini sınanır); kapalıyken normal çalışır ve sınav sesli komutları devre dışıdır. Anahtar açıkken “sınavı başlat” sınavı başlatır; “sınavı sonlandır” yalnız yapılan sınavı bitirir (mod açık kalır); “sınavı kapat” sınavı bitirir ve deneme sınavı modunu kapatır (normal moda döner). Sınav başlayınca soru sayfaları sesli yönlendirmeyle taranır (fotoğraflar gönderilmeden birikir); “tarama tamamlandı” deyince PDF’ler belge klasörüne kaydedilir, Gemini yalnız bu sınavın PDF’lerini okur ve “N belge, M sayfa, K soru görüyorum” der. Cevaplar gruplar hâlinde okunur, her grup bir kez tekrarlanır; sonra soru numarasını söyleyerek ya da “tüm cevapları oku” diyerek istediğiniz cevabı yeniden dinlersiniz (tekrarlar Gemini’ye gitmez, kayıttan okunur). “Sınav tamamlandı” sınavı sonlandırır. Program konuşurken mikrofon kapalıdır; komutlar cümle bitince söylenmelidir. Okunamayan sorular uydurulmaz, “okunamadı” denir. “Sınav sayfa sayfa videoyla yapılsın” açıkken (varsayılan) sınav şöyle yürür: kitabı kameranın altına koyarsınız, program sesle konumlandırır, sayfa uygun olunca o sayfayı ayardaki süre kadar aynı videoya yazar; sayfayı çevirirsiniz; bitince “bitti” dersiniz. Video belge klasörüne kaydedilir ve tek başına (her video ayrı istekle) Gemini’ye gönderilir, cevabı hemen okunur; sonra “Videoya devam edeyim mi?” diye sorar: “evet” yeni video, “hayır” sınavı bitirir; “atla” fotoğraf taramasına geçer. Bu seçenek kapalıysa eski yöntem çalışır: fotoğraf taraması ve PDF. Eski yöntemde “Sınav önce video çeksin” açıksa sınav önce video aşamasıyla başlar: evrak kadraja girince “Kaydı başlatayım mı?” diye sorar, “evet” deyince kayıt başlar (en çok ayardaki süre, varsayılan 30 sn), “durdur” kaydı bitirip belge klasörüne kaydeder, “sil” kaydetmeden siler, “atla” video aşamasını geçer; her videodan sonra “videoya devam edeyim mi?” diye sorar: “evet” yeni video, “hayır” fotoğraf taraması. Eski yöntemde sınav videosu yalnız belge klasörüne kaydedilir (Gemini’ye sorulmaz).")
-        }
-    }
+    // MARK: Pil
 
     private var powerSection: some View {
         Section(header: Text("Pil ve ısınma")) {
-            Toggle("Canlı önizlemeyi kapat", isOn: $settings.previewOff)
-            Toggle("Ekran parlaklığını azalt", isOn: $settings.dimScreen)
-            HelpRow("Önizleme kapalıyken ekrana video çizilmez ve kareler seyreltilerek incelenir; fotoğraf çekme (düğme, sesli komut, görüntü değişince), kaydetme aynen çalışır. Kamera kadrajını önce önizlemeyle ayarlayın. Ekran parlaklığını azaltmak pilin en büyük tüketicisini azaltır; uygulama açıkken ekran hep açık kalır. Kamera yayını, Wi-Fi ve mikrofon yine çalıştığı için pil ve ısınma tamamen sıfırlanmaz.")
-        }
-    }
-
-    private var photoSection: some View {
-        Section(header: Text("Fotoğraf")) {
-            Picker("İyileştirme", selection: $settings.enhancement) {
-                Text("Kapalı").tag(0)
-                Text("Hafif").tag(1)
-                Text("Güçlü").tag(2)
-            }
-            .pickerStyle(.segmented)
-            Toggle("Birkaç net kareyi birleştir", isOn: $settings.multiFrame)
-            Toggle("Yalnız belge çek (belge değilse çekme)", isOn: $settings.documentOnly)
-            Toggle("Belgeyi otomatik düzelt ve kırp (deneysel)", isOn: $settings.deskew)
-            Picker("Tarih/saat yazısı", selection: $settings.timestampMode) {
-                Text("Bulanıklaştır (okunmaz)").tag(TimestampMode.blur)
-                Text("Kes (üst şeridi at)").tag(TimestampMode.crop)
-                Text("Olduğu gibi bırak").tag(TimestampMode.keep)
-            }
-            Picker("Büyütme", selection: $settings.upscale) {
-                Text("1×").tag(1.0)
-                Text("1,5×").tag(1.5)
-                Text("2×").tag(2.0)
-            }
-            .pickerStyle(.segmented)
-            VStack(alignment: .leading) {
-                Text("JPEG kalitesi: %\(Int((settings.jpegQuality * 100).rounded()))")
-                Slider(value: $settings.jpegQuality, in: 0.7...1.0, step: 0.01)
-            }
-            Stepper(value: $settings.burstBefore, in: 0...1.5, step: 0.1) {
-                Text(String(format: "Seri çekim: öncesi %.1f sn", settings.burstBefore))
-            }
-            Stepper(value: $settings.burstAfter, in: 0.2...2.0, step: 0.1) {
-                Text(String(format: "Seri çekim: sonrası %.1f sn", settings.burstAfter))
-            }
-            HelpRow("“Yalnız belge çek” açıkken kadrajda kâğıt ve üzerinde yazı yoksa (el, yüz, boş masa, duvar, çizgili desen) fotoğraf çekilmez; program “Belge görünmüyor” der. Belge hiç çekilmiyorsa ya da bu kontrol rahatsız ederse kapatın. Belge taraması için: İyileştirme Hafif, kalite %92 ve üzeri, Yüksek 1920×1080 görüntü önerilir. Büyütme ayrıntı eklemez, yalnızca yazıyı daha rahat okutur. Kamera tarih/saati görüntünün içine işler, silinemez: Bulanıklaştır yalnızca sağ üstteki tarih yazısının kutusunu okunmaz yapar, Kes ise üstteki şeridi atar (fotoğraf biraz kısalır).")
-        }
-    }
-
-    private var motionSection: some View {
-        Section(header: Text("Otomatik çekim")) {
-            // Sesli konumlandırma açıkken otomatik çekim çalışmaz: anahtar kapalı ve basılamaz görünür
-            Toggle("Görüntü değişince çek", isOn: settings.guidanceEnabled ? Binding<Bool>.constant(false) : $settings.motionEnabled)
-                .disabled(settings.guidanceEnabled)
-            if settings.guidanceEnabled {
-                Text("Sesli konumlandırma açıkken kullanılamaz.").font(.caption).foregroundColor(.secondary)
-            }
-            Picker("Duyarlılık", selection: $settings.motionSensitivity) {
-                Text("Düşük").tag(0)
-                Text("Orta").tag(1)
-                Text("Yüksek").tag(2)
-            }
-            .pickerStyle(.segmented)
-            HelpRow("Kamera önüne yeni bir belge konup görüntü durulunca bir kez çeker. Belge değişmedikçe tekrar çekmez.")
-        }
-    }
-
-    private var saveSection: some View {
-        Section(header: Text("Kaydetme")) {
-            Picker("Klasöre kaydetme", selection: $settings.sendMode) {
-                Text("Tek tek (hemen)").tag("single")
-                Text("Toplu (biriksin)").tag("batch")
-            }
-            .pickerStyle(.segmented)
-            if settings.sendMode == "batch" {
-                Stepper(value: $settings.batchSize, in: 0...50) {
-                    Text(settings.batchSize > 0 ? "\(settings.batchSize) fotoğrafta gönder" : "Otomatik gönderme kapalı (düğmeyle)")
-                }
-                Stepper(value: $settings.batchIdle, in: 0...600, step: 10) {
-                    Text(settings.batchIdle > 0 ? "Son çekimden \(settings.batchIdle) sn sonra gönder" : "Bekleme süresi kapalı")
-                }
-            }
-            Picker("Dosya türü", selection: $settings.uploadFormat) {
-                Text("PDF").tag("pdf")
-                Text("JPEG").tag("jpeg")
-            }
-            .pickerStyle(.segmented)
-            HelpRow("Dosyalar belge klasörüne (“G526 Belgeler”) kaydedilir; klasörü ilk ekrandaki “Belge klasörü” bölümünden seçersiniz. PDF: her fotoğraf (toplu modda birikenler tek çok sayfalı PDF olarak) kaydedilir; resim kalitesi bozulmaz.")
+            Toggle("Önizlemeyi kapat", isOn: $settings.previewOff)
+            Toggle("Ekran parlaklığını çok azalt", isOn: $settings.dimScreen)
+            HelpRow("Önizlemeyi kapatmak ve parlaklığı azaltmak ısınmayı ve pil tüketimini düşürür; tarama aynen sürer. Kamera görüntüsü çözme ve okuma (OCR) işlemleri telefonda yapılır; uzun sınavda şarjda olun.")
         }
     }
 }
 
-struct DiagnosticsView: View {
-    @EnvironmentObject var model: AppModel
-    @ObservedObject private var log = AppLog.shared
+/// Tam sayı giriş satırı: sayı tuş takımıyla yazılır, izin verilen aralığa çekilir
+struct NumberRow: View {
+    let title: String
+    @Binding var value: Int
+    let range: ClosedRange<Int>
+    var unit = ""
+    @State private var text = ""
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            TimelineView(.periodic(from: Date(), by: 1.0)) { _ in
-                Text(model.currentStats())
-                    .font(.system(.footnote, design: .monospaced))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            DisclosureGroup("Sağlık raporu (ısı, bellek, takılma)") {
-                TimelineView(.periodic(from: Date(), by: 5.0)) { _ in
-                    Text(HealthMonitor.shared.report())
-                        .font(.system(.caption2, design: .monospaced))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                Button("Sağlık raporunu kopyala") {
-                    UIPasteboard.general.string = HealthMonitor.shared.report()
-                }
-            }
-            Button("Kameradan pil / şarj bilgisi ara") { model.probeCamera() }
-                .accessibilityIdentifier("kamera-sorgula")
-            if !model.probeText.isEmpty {
-                Text(model.probeText)
-                    .font(.system(.caption2, design: .monospaced))
-                    .foregroundColor(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            if !model.deviceInfo.isEmpty {
-                Text(model.deviceInfo)
-                    .font(.system(.caption2, design: .monospaced))
-                    .foregroundColor(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            Text("Kameraya bağlanamıyorsanız: telefon kameranın Wi-Fi ağında olmalı ve Ayarlar > G526 Kamera > Yerel Ağ izni açık olmalı.")
-                .font(.caption)
-                .foregroundColor(.secondary)
-            HStack {
-                Button("Günlüğü kopyala") {
-                    UIPasteboard.general.string = log.lines.joined(separator: "\n")
-                }
-                Spacer()
-                Button("Temizle", role: .destructive) { log.clear() }
-            }
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 2) {
-                    ForEach(Array(log.lines.enumerated()), id: \.offset) { _, line in
-                        Text(line)
-                            .font(.system(size: 10, design: .monospaced))
-                            .frame(maxWidth: .infinity, alignment: .leading)
+        HStack {
+            Text(title)
+            Spacer()
+            TextField("0", text: $text)
+                .keyboardType(.numberPad)
+                .multilineTextAlignment(.trailing)
+                .frame(width: 80)
+                .onChange(of: text) { newText in
+                    let digits = newText.filter { $0.isNumber }
+                    if digits != newText {
+                        text = digits
+                        return
+                    }
+                    if let n = Int(digits) {
+                        let clamped = min(max(n, range.lowerBound), range.upperBound)
+                        if clamped != value { value = clamped }
                     }
                 }
-            }
-            .background(Color(UIColor.secondarySystemBackground))
-            .cornerRadius(8)
+            if !unit.isEmpty { Text(unit).foregroundColor(.secondary) }
         }
-        .padding(12)
-        .navigationTitle("Tanı")
-        .navigationBarTitleDisplayMode(.inline)
+        .onAppear { text = String(value) }
     }
 }
