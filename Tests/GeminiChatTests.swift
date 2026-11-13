@@ -809,6 +809,8 @@ final class GeminiChatTests: XCTestCase {
     private func setUpChain(active: Int = 1, waitLimit: TimeInterval = 30) {
         log.autoFinish = true
         options.profiles = chainProfiles()
+        // Seçili profilin isteği model belirtmeden gider; sahte istemci o zaman kendi "current" modelini kullanır (gerçekte profilin modeli)
+        client.current = options.profiles[0].model
         options.active = active
         options.chainFallback = true
         options.waitLimit = waitLimit

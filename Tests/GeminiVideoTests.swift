@@ -73,10 +73,10 @@ final class GeminiVideoTests: XCTestCase {
     }
 
     func testCandidatesStartWithActiveThenRotateAndSkipEmptyKeys() {
-        let list = [profile(1), profile(2, key: ""), profile(3), profile(4), profile(5), profile(6)]
-        XCTAssertEqual(GeminiVideo.candidates(profiles: list, active: 3, chain: true).map { $0.slot }, [3, 4, 5, 6, 1])
+        let list = [profile(1), profile(2, key: ""), profile(3), profile(4)]
+        XCTAssertEqual(GeminiVideo.candidates(profiles: list, active: 3, chain: true).map { $0.slot }, [3, 4, 1])
         XCTAssertEqual(GeminiVideo.candidates(profiles: list, active: 3, chain: false).map { $0.slot }, [3])
-        XCTAssertEqual(GeminiVideo.candidates(profiles: list, active: 1, chain: true).map { $0.slot }, [1, 3, 4, 5, 6])
+        XCTAssertEqual(GeminiVideo.candidates(profiles: list, active: 1, chain: true).map { $0.slot }, [1, 3, 4])
     }
 
     func testNoUsableProfileGivesNoCandidates() {

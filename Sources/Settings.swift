@@ -264,13 +264,15 @@ final class AppSettings: ObservableObject {
         geminiEnabled = d.object(forKey: "geminiEnabled") as? Bool ?? false
         // Eski 6 profilli düzenden geçiş (kullanıcı kararı 2026-11-13: eski anahtarlar silinsin, yeniden girilecek):
         // Keychain'de düzen işareti yoksa eski anahtarlar silinir, profiller (ad/model/ücretsiz) yeni 4 yuvaya taşınır.
-        let legacyLayout = Keychain.get(GeminiProfiles.layoutMarker) != GeminiProfiles.layoutVersion
+        // Güvenlik: işaret okunamasa bile (Keychain geçici hatası) kayıtlı profil sayısı zaten 4 ise yeni düzendir, anahtarlar silinmez.
+        let savedProfiles = d.data(forKey: "geminiProfiles").flatMap { try? JSONDecoder().decode([GeminiProfile].self, from: $0) }
+        let markerOK = Keychain.get(GeminiProfiles.layoutMarker) == GeminiProfiles.layoutVersion
+        let legacyLayout = !markerOK && savedProfiles?.count != GeminiProfiles.slotCount
         if legacyLayout {
             for slot in 1...GeminiProfiles.legacySlotCount { Keychain.remove(GeminiProfiles.keychainName(slot: slot)) }
-            Keychain.set(GeminiProfiles.layoutVersion, for: GeminiProfiles.layoutMarker)
         }
+        if !markerOK { Keychain.set(GeminiProfiles.layoutVersion, for: GeminiProfiles.layoutMarker) }
         geminiKeys = (1...GeminiProfiles.slotCount).map { Keychain.get(GeminiProfiles.keychainName(slot: $0)) ?? "" }
-        let savedProfiles = d.data(forKey: "geminiProfiles").flatMap { try? JSONDecoder().decode([GeminiProfile].self, from: $0) }
         if legacyLayout, let saved = savedProfiles {
             let list = GeminiProfiles.profiles(fromLegacy: saved)
             geminiProfiles = list

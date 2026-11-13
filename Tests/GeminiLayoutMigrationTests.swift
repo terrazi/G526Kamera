@@ -13,11 +13,12 @@ final class GeminiLayoutMigrationTests: XCTestCase {
         savedProfiles = d.data(forKey: "geminiProfiles")
         savedActive = d.object(forKey: "geminiActive")
         savedCapPrev = d.object(forKey: "geminiCapPrev")
+        // İmzasız benzetici derlemede gerçek Keychain çalışmaz: bellekteki sahte depo kullanılır
+        Keychain.testStore = [:]
     }
 
     override func tearDown() {
-        for slot in 1...GeminiProfiles.legacySlotCount { Keychain.remove(GeminiProfiles.keychainName(slot: slot)) }
-        Keychain.set(GeminiProfiles.layoutVersion, for: GeminiProfiles.layoutMarker)
+        Keychain.testStore = nil
         d.set(savedProfiles, forKey: "geminiProfiles")
         d.set(savedActive, forKey: "geminiActive")
         d.set(savedCapPrev, forKey: "geminiCapPrev")
@@ -74,5 +75,19 @@ final class GeminiLayoutMigrationTests: XCTestCase {
         XCTAssertEqual(s.geminiKeys.count, GeminiProfiles.slotCount)
         XCTAssertEqual(s.geminiActive, 1)
         XCTAssertEqual(Keychain.get(GeminiProfiles.layoutMarker), GeminiProfiles.layoutVersion)
+    }
+
+    func testUnreadableMarkerDoesNotDeleteKeysWhenProfilesAreAlreadyFour() {
+        // Keychain geçici okunamadı (işaret yok) ama kayıtlı profil sayısı 4: yeni düzendir, anahtarlar silinmemeli
+        Keychain.set("AQ.yeni-2", for: GeminiProfiles.keychainName(slot: 2))
+        Keychain.remove(GeminiProfiles.layoutMarker)
+        d.set(try? JSONEncoder().encode(GeminiProfiles.defaults()), forKey: "geminiProfiles")
+        d.set(2, forKey: "geminiActive")
+
+        let s = AppSettings()
+
+        XCTAssertEqual(s.geminiKeys, ["", "AQ.yeni-2", "", ""])
+        XCTAssertEqual(s.geminiActive, 2, "seçili profil kaymaz")
+        XCTAssertEqual(Keychain.get(GeminiProfiles.layoutMarker), GeminiProfiles.layoutVersion, "işaret yeniden yazılır")
     }
 }

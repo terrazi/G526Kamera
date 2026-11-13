@@ -120,8 +120,8 @@ final class FreeProfileDefaultTests: XCTestCase {
     func testOnlyTheLastProfileIsPaidByDefault() {
         let list = GeminiProfiles.defaults()
         XCTAssertEqual(list.count, GeminiProfiles.slotCount)
-        XCTAssertEqual(list.map { $0.free }, [true, true, true, true, true, false])
-        XCTAssertEqual(list[5].name, "Ücretli Gemini 3.1 Flash-Lite")
-        XCTAssertEqual(list[5].model, "gemini-3.1-flash-lite", "ücretli profil ucuz Flash-Lite")
+        XCTAssertEqual(list.map { $0.free }, [true, true, true, false])
+        XCTAssertEqual(list[3].name, "Ücretli Gemini 3.1 Flash-Lite")
+        XCTAssertEqual(list[3].model, "gemini-3.1-flash-lite", "ücretli profil ucuz Flash-Lite")
     }
 }
