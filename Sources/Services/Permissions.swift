@@ -8,6 +8,8 @@ struct PermissionResult: Equatable {
     var speech: Bool
     /// Türkçe çevrimdışı dikte telefonda var mı
     var onDeviceSpeech: Bool
+    /// İngilizce çevrimdışı dikte (yardımcı tanıyıcı) telefonda var mı; yoksa oturum yine başlar
+    var englishOnDevice: Bool = true
 }
 
 @MainActor
@@ -24,7 +26,8 @@ final class SystemPermissions: PermissionProviding {
         let speech = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
             SFSpeechRecognizer.requestAuthorization { continuation.resume(returning: $0 == .authorized) }
         }
-        return PermissionResult(microphone: mic, speech: speech, onDeviceSpeech: OnDeviceSpeechListener.onDeviceAvailable)
+        return PermissionResult(microphone: mic, speech: speech, onDeviceSpeech: OnDeviceSpeechListener.onDeviceAvailable,
+                                  englishOnDevice: OnDeviceSpeechListener.englishAvailable)
     }
 }
 

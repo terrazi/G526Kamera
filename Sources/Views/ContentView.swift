@@ -118,6 +118,13 @@ struct ContentView: View {
                                 .lineLimit(6)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
+                        if !session.liveEnglish.isEmpty {
+                            Text("İngilizce: " + session.liveEnglish)
+                                .font(.footnote)
+                                .foregroundColor(.secondary)
+                                .lineLimit(4)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                         Text("Bekliyor: “Cevapla” demenizi bekliyor")
                             .font(.footnote)
                             .foregroundColor(.secondary)

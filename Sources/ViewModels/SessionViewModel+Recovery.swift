@@ -151,6 +151,7 @@ extension SessionViewModel {
     /// bakılır. İkisi de sağlamsa sorun yoktur, bekçi yeniden kurulur; mikrofon donmuşsa ya da bağlantı takılmışsa onarım başlar.
     func handleSilence() async {
         accumulator.commitCurrent()
+        englishAccumulator.commitCurrent()
         deps.listener.pause()
         do {
             try deps.listener.start()

@@ -13,6 +13,7 @@ final class AppSettings: ObservableObject {
         static let shortcutReset = "v3.shortcut.reset"
         static let replayGap = "v3.replayGap"
         static let sendAudio = "v3.sendAudio"
+        static let englishDictation = "v3.englishDictation"
         static let geminiVoice = "v3.geminiVoice"
         static let geminiProfiles = "v3.geminiProfiles"
         static let dimScreen = "v3.dimScreen"
@@ -70,6 +71,11 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(sendAudio, forKey: Key.sendAudio) }
     }
 
+    /// İngilizce yardımcı dikte: aynı ses bir de İngilizce tanıyıcıdan geçirilip Gemini'ye ikinci metin olarak gönderilir
+    @Published var englishDictation: Bool {
+        didSet { defaults.set(englishDictation, forKey: Key.englishDictation) }
+    }
+
     /// Cevaplar Gemini'nin ses modeliyle mi okunsun (kapalıysa telefonun sesi)
     @Published var geminiVoice: Bool {
         didSet { defaults.set(geminiVoice, forKey: Key.geminiVoice) }
@@ -109,6 +115,7 @@ final class AppSettings: ObservableObject {
         resetShortcut = defaults.string(forKey: Key.shortcutReset) ?? ""
         replayGap = AppSettings.clampGap(defaults.object(forKey: Key.replayGap) as? Double ?? AppSettings.defaultReplayGap)
         sendAudio = defaults.object(forKey: Key.sendAudio) as? Bool ?? true
+        englishDictation = defaults.object(forKey: Key.englishDictation) as? Bool ?? true
         geminiVoice = defaults.object(forKey: Key.geminiVoice) as? Bool ?? true
         dimScreen = defaults.object(forKey: Key.dimScreen) as? Bool ?? false
         phoneVoiceID = defaults.string(forKey: Key.phoneVoice) ?? ""

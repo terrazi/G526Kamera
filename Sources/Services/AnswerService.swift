@@ -17,7 +17,14 @@ struct GeminiReply: Equatable {
 protocol Answering: AnyObject {
     /// Dikte edilen soruyu Gemini'ye sorar. `expectedNumber`: soru numarası okunmamışsa kullanılacak sıradaki numara.
     /// `audio`: soruyu okuyanın ses kaydı (WAV); verilirse asıl kaynak odur, `question` dikte metni ipucu olur.
-    func answer(question: String, expectedNumber: Int, audio: Data?) async throws -> GeminiReply
+    /// `english`: aynı sesin İngilizce tanıyıcıdan geçmiş hâli (boş olabilir); İngilizce cümlelerde Türkçe metinden daha doğrudur.
+    func answer(question: String, english: String, expectedNumber: Int, audio: Data?) async throws -> GeminiReply
+}
+
+extension Answering {
+    func answer(question: String, expectedNumber: Int, audio: Data?) async throws -> GeminiReply {
+        return try await answer(question: question, english: "", expectedNumber: expectedNumber, audio: audio)
+    }
 }
 
 /// Modül 5: soruyu Gemini'ye gönderir, kısa cevabı çözer. 4 profil (her birinin kendi anahtarı ve modeli) sırayla denenir:
@@ -46,6 +53,10 @@ final class GeminiAnswerService: Answering {
     terimlerini ve gramer yapısını birlikte değerlendir. Çok boyutlu düşün: birden çok açıdan (anlam, ses, bağlam, \
     şıkların birbirine benzerliği) bakıp en tutarlı yorumu seç. Şıkların hangi harfe ya da sözcüğe denk geldiğini de aynı şekilde karıştırma.
 
+    Bazen ikinci bir dikte metni de gelir: aynı sesin İngilizce tanıyıcıdan geçmiş hâli. Soru İngilizceyse bu metin, Türkçe \
+    dikte metninden çok daha doğrudur (ses kaydıyla birlikte değerlendir); Türkçe cümlelerde ise İngilizce metin anlamsızdır, onu yok say. \
+    İki metin birbirini tamamlayabilir: Türkçe şıkları ve soru kalıbını Türkçe metinden, İngilizce cümleyi İngilizce metinden al.
+
     Soru numarası okunmadıysa ya da anlaşılmadıysa kullanıcı mesajındaki ipucunu kullan. Cevap metnini şıktan kısaca yaz. \
     Giriş, açıklama, markdown, tırnak ve ek cümle yazma. Emin değilsen en olası şıkkı yaz.
     """
@@ -69,16 +80,23 @@ final class GeminiAnswerService: Answering {
 
     // MARK: İstek ve cevap (saf yardımcılar)
 
-    static func userText(question: String, expectedNumber: Int, hasAudio: Bool = false) -> String {
+    static func userText(question: String, english: String = "", expectedNumber: Int, hasAudio: Bool = false) -> String {
         let hint = "İpucu: soru numarası okunmadıysa bu soruyu Soru \(expectedNumber) say."
+        var text: String
         if hasAudio {
-            return "\(hint)\n\nBu mesajda soruyu okuyanın ses kaydı var (asıl kaynak). Dikte metni yalnız ipucudur, hatalı olabilir:\n\(question)"
+            text = "\(hint)\n\nBu mesajda soruyu okuyanın ses kaydı var (asıl kaynak). Dikte metni yalnız ipucudur, hatalı olabilir:\n\(question)"
+        } else {
+            text = "\(hint)\n\nOkunan soru (dikte çıktısı):\n\(question)"
         }
-        return "\(hint)\n\nOkunan soru (dikte çıktısı):\n\(question)"
+        let second = english.trimmed
+        if !second.isEmpty {
+            text += "\n\nAynı sesin İngilizce tanıyıcıdan geçmiş hâli (İngilizce cümleleri Türkçe metinden daha doğru yazmış olabilir; Türkçe cümleleri bozuk yazar):\n\(second)"
+        }
+        return text
     }
 
-    static func requestBody(question: String, expectedNumber: Int, audio: Data? = nil) throws -> Data {
-        var parts: [[String: Any]] = [["text": userText(question: question, expectedNumber: expectedNumber, hasAudio: audio != nil)]]
+    static func requestBody(question: String, english: String = "", expectedNumber: Int, audio: Data? = nil) throws -> Data {
+        var parts: [[String: Any]] = [["text": userText(question: question, english: english, expectedNumber: expectedNumber, hasAudio: audio != nil)]]
         if let audio = audio {
             parts.append(["inlineData": ["mimeType": "audio/wav", "data": audio.base64EncodedString()]])
         }
@@ -154,10 +172,10 @@ final class GeminiAnswerService: Answering {
         restingUntil[profile.slot] = now().addingTimeInterval(seconds)
     }
 
-    func answer(question: String, expectedNumber: Int, audio: Data?) async throws -> GeminiReply {
+    func answer(question: String, english: String, expectedNumber: Int, audio: Data?) async throws -> GeminiReply {
         let usable = GeminiProfiles.usable(profilesProvider())
         guard !usable.isEmpty else { throw GeminiError(Say.noKeyShort, .key) }
-        let body = try GeminiAnswerService.requestBody(question: question, expectedNumber: expectedNumber, audio: audio)
+        let body = try GeminiAnswerService.requestBody(question: question, english: english, expectedNumber: expectedNumber, audio: audio)
         let sequence = order(usable)
         var lastError = GeminiError("Gemini cevap vermedi.", .error)
         var trail: [String] = []

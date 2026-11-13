@@ -12,6 +12,7 @@ enum Say {
         return "Telefonun şarjı yüzde \(percent). Telefonu şarja takın."
     }
 
+    static let noEnglishDictation = "Telefonda çevrimdışı İngilizce dikte yüklü değil; İngilizce sorular yalnız ses kaydından çözülür. Ayarlar, Genel, Klavye, Dikte bölümünden İngilizce'yi de ekleyip internetteyken bir kez indirin."
     static let noKeyShort = "Gemini API anahtarı girilmemiş. Ayarlardan yapıştırın."
     static let noOnDevice = "Bu telefonda çevrimdışı Türkçe dikte yüklü değil. Ayarlar, Genel, Klavye, Dikte bölümünden Türkçe'yi ekleyip internetteyken bir kez indirin."
     static let permissionDenied = "Mikrofon ve konuşma tanıma izni gerekli. Ayarlar, Sesli Kontrol bölümünden izin verin."

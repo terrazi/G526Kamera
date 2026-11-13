@@ -23,6 +23,14 @@ extension SessionViewModel {
         guard granted else { await failStart(Say.permissionDenied); return }
         setCheck("dikte", "Çevrimdışı Türkçe dikte", ok: permission.onDeviceSpeech, detail: permission.onDeviceSpeech ? "yüklü" : "yüklü değil")
         guard permission.onDeviceSpeech else { await failStart(Say.noOnDevice); return }
+        // İngilizce yardımcı dikte: yoksa oturum yine başlar (İngilizce sorular yalnız ses kaydından çözülür), kırmızı kutuda uyarılır
+        if settings.englishDictation {
+            setCheck("ingilizce", "Çevrimdışı İngilizce dikte (yardımcı)", ok: permission.englishOnDevice,
+                     detail: permission.englishOnDevice ? "yüklü" : "yüklü değil")
+            if permission.englishOnDevice { clearWarning("ingilizce") } else { warn("ingilizce", Say.noEnglishDictation) }
+        } else {
+            clearWarning("ingilizce")
+        }
 
         // 2) Ses yolu: Bluetooth kulaklık (çıkış) ve harici yaka mikrofonu (giriş)
         do {

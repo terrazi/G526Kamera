@@ -51,6 +51,8 @@ final class SessionViewModel: ObservableObject {
     @Published var routeVerdict: RouteVerdict?
     /// Şu anki ses yolu, ana ekranda küçük yazıyla ("Çıkış: Bluetooth kulaklık. Giriş: Lightning/USB mikrofon.")
     @Published var routeText = ""
+    /// Okunmakta olan sorunun İngilizce tanıyıcıdan çıkan hâli (ana ekranda küçük yazıyla)
+    @Published var liveEnglish = ""
 
     // MARK: Bağımlılıklar
 
@@ -63,6 +65,8 @@ final class SessionViewModel: ObservableObject {
     // MARK: İç durum (uzantı dosyaları da kullanır)
 
     var accumulator = TranscriptAccumulator()
+    /// Yardımcı İngilizce tanıyıcının metni (tetikleyici aramasında kullanılmaz; Gemini'ye ikinci metin olarak gider)
+    var englishAccumulator = TranscriptAccumulator()
     var sessionFolder: URL?
     var nextNumber = 1
     var pendingStart = false
@@ -162,7 +166,9 @@ final class SessionViewModel: ObservableObject {
     func resetSession() {
         cancelWork()
         accumulator.clear()
+        englishAccumulator.clear()
         liveText = ""
+        liveEnglish = ""
         answers = []
         questions = []
         currentEntry = nil
@@ -246,7 +252,9 @@ final class SessionViewModel: ObservableObject {
         abandonEntry("Cevap alınamadı. Soruyu yeniden okuyun.")
         unheard = nil
         accumulator.clear()
+        englishAccumulator.clear()
         liveText = ""
+        liveEnglish = ""
         deps.recorder.reset()
         do {
             try deps.listener.start()
@@ -273,6 +281,11 @@ final class SessionViewModel: ObservableObject {
             reevaluateTrigger()
         case .taskEnded:
             accumulator.commitCurrent()
+        case .englishPartial(let text):
+            guard englishAccumulator.update(partial: text) else { return }
+            liveEnglish = englishAccumulator.text
+        case .englishTaskEnded:
+            englishAccumulator.commitCurrent()
         case .failure(let message):
             warn("mikrofon", message)
             work = Task { [weak self] in await self?.runRecovery(.hardware, force: true) }
@@ -303,11 +316,14 @@ final class SessionViewModel: ObservableObject {
         guard !match.question.isEmpty else {
             // Yalnız "cevapla" denmiş: boş soru gönderilmez
             accumulator.clear()
+            englishAccumulator.clear()
             liveText = ""
+            liveEnglish = ""
             return
         }
         // Mikrofon duraklar, tetikleyici sözcük metinden kırpılmıştır; ses kaydı da bu andan sonra durur
         let audio: Data? = settings.sendAudio ? deps.recorder.wavData() : nil
+        let english = settings.englishDictation ? englishAccumulator.text : ""
         deps.listener.pause()
         watchdog.disarm()
         liveText = match.question
@@ -316,14 +332,14 @@ final class SessionViewModel: ObservableObject {
         let question = match.question
         beginEntry(text: question, withAudio: audio != nil)
         tlog("[soru \(nextNumber)] Gemini'ye gönderildi (\(audio != nil ? "ses kaydıyla" : "yalnız metin"), \(question.count) karakter)")
-        work = Task { [weak self] in await self?.answer(question: question, audio: audio) }
+        work = Task { [weak self] in await self?.answer(question: question, english: english, audio: audio) }
     }
 
     // MARK: Cevaplama ve seslendirme (Modül 5)
 
-    func answer(question: String, audio: Data?) async {
+    func answer(question: String, english: String = "", audio: Data?) async {
         do {
-            let reply = try await deps.answering.answer(question: question, expectedNumber: nextNumber, audio: audio)
+            let reply = try await deps.answering.answer(question: question, english: english, expectedNumber: nextNumber, audio: audio)
             guard !Task.isCancelled, phase == .answering else { return }
             let number = reply.number ?? nextNumber
             nextNumber = number + 1

@@ -48,8 +48,9 @@ struct SettingsView: View {
     private var geminiSection: some View {
         Section(header: Text("Gemini")) {
             Toggle("Soruyu ses olarak da gönder", isOn: $settings.sendAudio)
+            Toggle("İngilizce dikteyi de çalıştır", isOn: $settings.englishDictation)
             Toggle("Cevabı Gemini sesiyle oku", isOn: $settings.geminiVoice)
-            HelpRow("Ses kaydı açıkken soru, dikte metniyle birlikte ses olarak da gider; İngilizce kelimeleri Gemini sesten daha iyi çözer. Gemini sesi açıkken cevap internet varken üretilip kaydedilir, tekrar internetsiz çalışır; olmazsa telefonun sesi kullanılır.")
+            HelpRow("Ses kaydı açıkken soru, dikte metniyle birlikte ses olarak da gider; İngilizce kelimeleri Gemini sesten daha iyi çözer. İngilizce dikte: Türkçe tanıyıcı İngilizce cümleleri anlamsız Türkçe sözcüklerle yazar; açıkken telefon aynı sesi bir de İngilizce tanıyıcıdan geçirir (ana ekranda “İngilizce:” satırı olarak görünür) ve Gemini'ye ikinci metin olarak yollar. “Cevapla” yine yalnız Türkçe metinde aranır. İki tanıyıcı birlikte çalıştığı için telefon biraz daha ısınır ve pil biraz daha çok gider; yalnız Türkçe sorular okunacaksa kapatabilirsiniz. Telefonda çevrimdışı İngilizce dikte yüklü olmalı. Gemini sesi açıkken cevap internet varken üretilip kaydedilir, tekrar internetsiz çalışır; olmazsa telefonun sesi kullanılır.")
         }
     }
 

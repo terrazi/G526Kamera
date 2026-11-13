@@ -39,7 +39,9 @@ extension SessionViewModel {
         deps.listener.pause()
         watchdog.disarm()
         accumulator.clear()
+        englishAccumulator.clear()
         liveText = ""
+        liveEnglish = ""
         phase = .paused(.manual)
         statusNote = "Duraklatıldı: mikrofon kapalı. Devam etmek için “Devam et”e basın."
     }

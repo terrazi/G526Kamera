@@ -376,3 +376,113 @@ final class SettingsToolsTests: XCTestCase {
         XCTAssertNotNil(object["contents"])
     }
 }
+
+// MARK: - İngilizce yardımcı dikte
+
+@MainActor
+final class EnglishDictationTests: XCTestCase {
+    func testEnglishTextTravelsWithTheQuestion() async {
+        let h = SessionHarness()
+        h.answering.results = [.success(FakeAnswering.reply(1))]
+        _ = await h.startListening()
+        h.listener.onEvent?(.englishPartial("what is the main idea of the passage"))
+        XCTAssertEqual(h.vm.liveEnglish, "what is the main idea of the passage")
+        h.ask("Vat is dı meyn aydia")   // Türkçe tanıyıcının İngilizce cümleyi yazış biçimi
+        let sent = await waitUntil { h.answering.calls.count == 1 }
+        XCTAssertTrue(sent)
+        XCTAssertEqual(h.answering.calls[0].question, "Vat is dı meyn aydia")
+        XCTAssertEqual(h.answering.calls[0].english, "what is the main idea of the passage")
+    }
+
+    func testEnglishSegmentsAreJoinedAcrossTaskRestarts() async {
+        let h = SessionHarness()
+        _ = await h.startListening()
+        h.listener.onEvent?(.englishPartial("the writer suggests that"))
+        h.listener.onEvent?(.englishTaskEnded)
+        h.listener.onEvent?(.englishPartial("education is changing"))
+        XCTAssertEqual(h.vm.englishAccumulator.text, "the writer suggests that education is changing")
+        XCTAssertEqual(h.vm.liveEnglish, "the writer suggests that education is changing")
+    }
+
+    func testTriggerWordIsOnlySearchedInTheTurkishText() async {
+        let h = SessionHarness()
+        h.answering.results = [.success(FakeAnswering.reply(1))]
+        _ = await h.startListening()
+        h.listener.onEvent?(.englishPartial("some words Cevapla"))
+        h.scheduler.advance(by: SessionViewModel.Timing.triggerConfirm + 0.1)
+        await settle()
+        XCTAssertTrue(h.answering.calls.isEmpty, "İngilizce metindeki 'Cevapla' soruyu göndermez")
+        XCTAssertEqual(h.vm.phase, .listening)
+    }
+
+    func testEnglishTextIsNotCarriedOverToTheNextQuestion() async {
+        let h = SessionHarness()
+        h.answering.results = [.success(FakeAnswering.reply(1)), .success(FakeAnswering.reply(2))]
+        _ = await h.startListening()
+        h.listener.onEvent?(.englishPartial("first english question"))
+        h.ask("birinci soru")
+        let back = await waitUntil { h.answering.calls.count == 1 && h.vm.phase == .listening }
+        XCTAssertTrue(back)
+        XCTAssertEqual(h.vm.liveEnglish, "")
+        h.ask("ikinci soru")
+        let second = await waitUntil { h.answering.calls.count == 2 }
+        XCTAssertTrue(second)
+        XCTAssertEqual(h.answering.calls[1].english, "", "Önceki sorunun İngilizce metni karışmaz")
+    }
+
+    func testSettingOffSendsNoEnglishText() async {
+        let h = SessionHarness()
+        h.settings.englishDictation = false
+        h.answering.results = [.success(FakeAnswering.reply(1))]
+        _ = await h.startListening()
+        h.listener.onEvent?(.englishPartial("should not be sent"))
+        h.ask("bir soru")
+        let sent = await waitUntil { h.answering.calls.count == 1 }
+        XCTAssertTrue(sent)
+        XCTAssertEqual(h.answering.calls[0].english, "")
+    }
+
+    func testMissingEnglishModelWarnsButDoesNotBlockTheStart() async {
+        let h = SessionHarness()
+        h.permissions.result = PermissionResult(microphone: true, speech: true, onDeviceSpeech: true, englishOnDevice: false)
+        let ok = await h.startListening()
+        XCTAssertTrue(ok, "İngilizce model yoksa da test başlar")
+        XCTAssertEqual(h.vm.warnings.first(where: { $0.id == "ingilizce" })?.text, Say.noEnglishDictation)
+        XCTAssertEqual(h.vm.checkup.first(where: { $0.id == "ingilizce" })?.ok, false)
+    }
+
+    func testNoWarningWhenTheEnglishHelperIsOff() async {
+        let h = SessionHarness()
+        h.settings.englishDictation = false
+        h.permissions.result = PermissionResult(microphone: true, speech: true, onDeviceSpeech: true, englishOnDevice: false)
+        _ = await h.startListening()
+        XCTAssertNil(h.vm.warnings.first(where: { $0.id == "ingilizce" }))
+        XCTAssertNil(h.vm.checkup.first(where: { $0.id == "ingilizce" }))
+    }
+
+    func testRequestCarriesTheSecondTranscriptOnlyWhenThereIsOne() throws {
+        let plain = GeminiAnswerService.userText(question: "x", expectedNumber: 1)
+        XCTAssertFalse(plain.contains("İngilizce tanıyıcıdan"))
+        let both = GeminiAnswerService.userText(question: "vat is", english: " what is ", expectedNumber: 3, hasAudio: true)
+        XCTAssertTrue(both.contains("vat is"))
+        XCTAssertTrue(both.contains("İngilizce tanıyıcıdan"))
+        XCTAssertTrue(both.hasSuffix("what is"))
+        let body = try GeminiAnswerService.requestBody(question: "vat is", english: "what is", expectedNumber: 3, audio: Data([1]))
+        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: body) as? [String: Any])
+        let parts = try XCTUnwrap((object["contents"] as? [[String: Any]])?[0]["parts"] as? [[String: Any]])
+        XCTAssertEqual(parts.count, 2, "Metin ve ses")
+        XCTAssertTrue((parts[0]["text"] as? String ?? "").contains("what is"))
+        XCTAssertNotNil(parts[1]["inlineData"])
+        XCTAssertTrue(GeminiAnswerService.systemPrompt.contains("ikinci bir dikte metni"), "Komut iki metni nasıl yorumlayacağını söyler")
+    }
+
+    func testEnglishSettingDefaultsOnAndPersists() {
+        Keychain.testStore = [:]
+        defer { Keychain.testStore = nil }
+        let defaults = UserDefaults(suiteName: "g526.testler.ingilizce.\(UUID().uuidString)")!
+        let s = AppSettings(defaults: defaults)
+        XCTAssertTrue(s.englishDictation)
+        s.englishDictation = false
+        XCTAssertFalse(AppSettings(defaults: defaults).englishDictation)
+    }
+}

@@ -219,6 +219,7 @@ final class FakeShortcuts: ShortcutRunning {
 final class FakeAnswering: Answering {
     struct Call {
         let question: String
+        let english: String
         let expectedNumber: Int
         let audio: Data?
     }
@@ -230,8 +231,8 @@ final class FakeAnswering: Answering {
         return GeminiReply(number: number, option: option, text: text, spoken: "Soru \(number), \(option), \(text)", model: "fake")
     }
 
-    func answer(question: String, expectedNumber: Int, audio: Data?) async throws -> GeminiReply {
-        calls.append(Call(question: question, expectedNumber: expectedNumber, audio: audio))
+    func answer(question: String, english: String, expectedNumber: Int, audio: Data?) async throws -> GeminiReply {
+        calls.append(Call(question: question, english: english, expectedNumber: expectedNumber, audio: audio))
         guard !results.isEmpty else { throw GeminiError("Cevap hazırlanmadı.", .error) }
         return try results.removeFirst().get()
     }

@@ -19,7 +19,7 @@ final class AppEnvironment: ObservableObject {
         let folderStore = FolderStore()
         let recorder = PCMRecorder()
         let route = AudioSessionGuard()
-        let listener = OnDeviceSpeechListener(recorder: recorder)
+        let listener = OnDeviceSpeechListener(recorder: recorder, wantsEnglish: { settings.englishDictation })
         let phoneVoice = SpeechRenderer(voice: { SpeechVoiceChooser.voice(preferredID: settings.phoneVoiceID) })
         let geminiVoice = GeminiVoice(keys: { settings.usableGeminiProfiles.map { $0.key } })
         let speaker = HeadphoneSpeaker(

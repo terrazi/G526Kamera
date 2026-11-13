@@ -9,6 +9,10 @@ enum SpeechEvent: Equatable {
     case taskEnded
     /// Dinleme durdu (donanım ya da tanıyıcı hatası)
     case failure(String)
+    /// Yardımcı İngilizce tanıyıcının son kısmi metni. "Cevapla" aramasında KULLANILMAZ; yalnız Gemini'ye ikinci metin olarak gider.
+    case englishPartial(String)
+    /// İngilizce görev bitti ve yenisi başladı: eldeki İngilizce metin bölüm olarak saklanmalı
+    case englishTaskEnded
 }
 
 enum ListenerError: LocalizedError, Equatable {
@@ -51,6 +55,7 @@ protocol SpeechListening: AnyObject {
 private final class AudioSink: @unchecked Sendable {
     private let lock = NSLock()
     private var request: SFSpeechAudioBufferRecognitionRequest?
+    private var englishRequest: SFSpeechAudioBufferRecognitionRequest?
     private var last: Date?
     /// Aynı tamponlar soru sesi olarak da biriktirilir (Gemini'ye gönderilmek üzere)
     let recorder: PCMRecorder?
@@ -65,12 +70,20 @@ private final class AudioSink: @unchecked Sendable {
         lock.unlock()
     }
 
+    func attachEnglish(_ request: SFSpeechAudioBufferRecognitionRequest?) {
+        lock.lock()
+        englishRequest = request
+        lock.unlock()
+    }
+
     func feed(_ buffer: AVAudioPCMBuffer) {
         lock.lock()
         let current = request
+        let english = englishRequest
         last = Date()
         lock.unlock()
         current?.append(buffer)
+        english?.append(buffer)
         recorder?.append(buffer)
     }
 
@@ -83,6 +96,7 @@ private final class AudioSink: @unchecked Sendable {
     func reset() {
         lock.lock()
         request = nil
+        englishRequest = nil
         last = nil
         lock.unlock()
     }
@@ -93,6 +107,9 @@ final class OnDeviceSpeechListener: SpeechListening {
     static let locale = Locale(identifier: "tr-TR")
     /// Tanıyıcıya ipucu: tetikleyici sözcükler ve şık sözcükleri daha doğru yazılsın
     static let contextualStrings = ["Cevapla", "Gönder", "Adana", "Bursa", "Ceyhan", "Denizli", "Erzurum"]
+    /// Yardımcı İngilizce tanıyıcı: Türkçe tanıyıcı İngilizce cümleleri Türkçe okunuşlu anlamsız sözcüklerle yazar; aynı ses bir de
+    /// İngilizce tanıyıcıdan geçirilir ve Gemini'ye ikinci metin olarak gider ("Cevapla" yine yalnız Türkçe metinde aranır).
+    static let englishLocale = Locale(identifier: "en-US")
     /// Üst üste bu kadar çabuk bitip hata veren görevden sonra dinleme durdurulur
     private static let maxQuickFailures = 5
 
@@ -100,10 +117,18 @@ final class OnDeviceSpeechListener: SpeechListening {
     private(set) var isRunning = false
 
     private let recognizer = SFSpeechRecognizer(locale: OnDeviceSpeechListener.locale)
+    private let englishRecognizer = SFSpeechRecognizer(locale: OnDeviceSpeechListener.englishLocale)
+    /// İngilizce yardımcı tanıyıcı çalışsın mı (ayardan okunur; her yeni görevde sorulur)
+    private let wantsEnglish: () -> Bool
+    private var englishTask: SFSpeechRecognitionTask?
+    private var englishRequest: SFSpeechAudioBufferRecognitionRequest?
+    private var englishStarted = Date()
+    private var englishQuickFailures = 0
 
     /// `recorder` verilirse mikrofon sesi ayrıca ona da akıtılır (dinleme yeniden başlatılsa da kayıt sürer)
-    init(recorder: PCMRecorder? = nil) {
+    init(recorder: PCMRecorder? = nil, wantsEnglish: @escaping () -> Bool = { true }) {
         sink = AudioSink(recorder: recorder)
+        self.wantsEnglish = wantsEnglish
     }
     private var engine: AVAudioEngine?
     private var task: SFSpeechRecognitionTask?
@@ -122,6 +147,11 @@ final class OnDeviceSpeechListener: SpeechListening {
         return SFSpeechRecognizer(locale: locale)?.supportsOnDeviceRecognition ?? false
     }
 
+    /// Telefonda İngilizce çevrimdışı dikte var mı (yardımcı tanıyıcı için; yoksa yalnız ses kaydı ve Türkçe metin gider)
+    static var englishAvailable: Bool {
+        return SFSpeechRecognizer(locale: englishLocale)?.supportsOnDeviceRecognition ?? false
+    }
+
     func start() throws {
         guard !isRunning else { return }
         guard let recognizer = recognizer, recognizer.isAvailable else { throw ListenerError.unavailable }
@@ -130,6 +160,8 @@ final class OnDeviceSpeechListener: SpeechListening {
         try startEngine()
         isRunning = true
         beginTask()
+        englishQuickFailures = 0
+        beginEnglishTask()
     }
 
     func pause() {
@@ -139,6 +171,11 @@ final class OnDeviceSpeechListener: SpeechListening {
         task = nil
         request = nil
         sink.attach(nil)
+        englishRequest?.endAudio()
+        englishTask?.cancel()
+        englishTask = nil
+        englishRequest = nil
+        sink.attachEnglish(nil)
         stopEngine()
         sink.reset()
     }
@@ -190,6 +227,40 @@ final class OnDeviceSpeechListener: SpeechListening {
                 self?.handle(text: text, finished: finished, failed: error != nil, request: request)
             }
         }
+    }
+
+    /// Yardımcı İngilizce görev. Hata verirse ya da model yoksa sessizce vazgeçilir: Türkçe dinleme ve "Cevapla" etkilenmez.
+    private func beginEnglishTask() {
+        guard isRunning, wantsEnglish(), englishQuickFailures < OnDeviceSpeechListener.maxQuickFailures,
+              let recognizer = englishRecognizer, recognizer.isAvailable, recognizer.supportsOnDeviceRecognition else { return }
+        let request = SFSpeechAudioBufferRecognitionRequest()
+        request.shouldReportPartialResults = true
+        request.requiresOnDeviceRecognition = true
+        request.taskHint = .dictation
+        englishRequest = request
+        sink.attachEnglish(request)
+        englishStarted = Date()
+        englishTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
+            let text = result?.bestTranscription.formattedString
+            let finished = (result?.isFinal ?? false) || error != nil
+            Task { @MainActor in
+                self?.handleEnglish(text: text, finished: finished, failed: error != nil, request: request)
+            }
+        }
+    }
+
+    private func handleEnglish(text: String?, finished: Bool, failed: Bool, request: SFSpeechAudioBufferRecognitionRequest) {
+        guard isRunning, request === self.englishRequest else { return }
+        if let text = text, !text.isEmpty {
+            englishQuickFailures = 0
+            onEvent?(.englishPartial(text))
+        }
+        guard finished else { return }
+        if failed && Date().timeIntervalSince(englishStarted) < 1.5 { englishQuickFailures += 1 }
+        onEvent?(.englishTaskEnded)
+        englishTask = nil
+        sink.attachEnglish(nil)
+        beginEnglishTask()
     }
 
     private func handle(text: String?, finished: Bool, failed: Bool, request: SFSpeechAudioBufferRecognitionRequest) {

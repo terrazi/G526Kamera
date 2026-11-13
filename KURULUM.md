@@ -46,6 +46,11 @@ Ayrıntılı işleyiş: `docs/SURUM3.md`.
 - **Kayıt klasörü:** 3. bölümdeki 5. adım.
 - **Soruyu ses olarak da gönder:** açıkken soru, dikte metnine ek olarak ses kaydı olarak da Gemini'ye gider (İngilizce kelimeleri
   sesten daha iyi çözer). Ses Google'a gider.
+- **İngilizce dikteyi de çalıştır:** (açık gelir) Türkçe tanıyıcı İngilizce cümleleri anlamsız Türkçe sözcüklerle yazar. Açıkken telefon
+  aynı sesi bir de İngilizce tanıyıcıdan geçirir; ana ekranda soru okunurken "İngilizce:" satırı görünür ve Gemini'ye ses kaydıyla
+  birlikte **iki metin** gider (Türkçe ve İngilizce). "Cevapla" yine yalnız Türkçe metinde aranır. İki tanıyıcı birlikte çalıştığı için
+  telefon biraz daha ısınır, pil biraz daha çok gider; yalnız Türkçe soru okuyacaksanız kapatın. Telefonda çevrimdışı İngilizce
+  dikte yüklü olmalı (yoksa ana ekranda kırmızı uyarı çıkar, test yine başlar ve İngilizce sorular yalnız ses kaydından çözülür).
 - **Cevabı Gemini sesiyle oku:** açıkken cevap Gemini'nin ses modeliyle üretilip kaydedilir; olmazsa telefonun sesi kullanılır.
 - **Modelleri listele / Model seç:** her profilde anahtar girilince anahtarın görebildiği modelleri listeler, listeden seçilen model o
   profile yazılır (model adını elle yazmak gerekmez). Gemma modellerinde "düşünme" otomatik açılır (soru çözümünde doğruluk için).

@@ -60,6 +60,11 @@ gerçek kurulum `App/AppEnvironment`, testler sahtelerle (`Tests/Fakes`) kurar.
 - **Duyulmayan cevap kaybolmaz:** cevap kaydedilir; okunurken kulaklık koparsa, kulaklık dönünce o cevap (soru yeniden okutulmadan)
   tekrar okunur. Açılış anonsu yarıda kesilirse açılış kontrolü baştan yapılır.
 - **Gemini sesi çalışmazsa** (kota, model) 5 dk boyunca denenmez; cevaplar hemen telefonun sesiyle okunur. Her model için bekleme 8 sn.
+- **İngilizce sorular:** Türkçe tanıyıcı (tr-TR) İngilizce cümleleri anlamsız yazar. `OnDeviceSpeechListener` aynı mikrofon tamponlarını
+  ikinci bir çevrimdışı tanıyıcıya (en-US) da verir; olaylar `englishPartial` / `englishTaskEnded` (tetikleyici aramasına GİRMEZ,
+  yalnız `englishAccumulator`'a yazılır). Soru gönderilirken Gemini'ye ses kaydı + Türkçe metin + İngilizce metin gider; komut ikisini
+  nasıl yorumlayacağını söyler. İngilizce görev hata verirse sessizce vazgeçilir (Türkçe dinleme etkilenmez). Ayar: "İngilizce dikteyi
+  de çalıştır" (açık). Maliyet: iki tanıyıcı → daha çok ısı ve pil.
 - **Okunamayan duyuru** oturumu durdurmaz; sebep ekranda yazılır, dinleme sürer.
 - **İlk sürümden alınan araçlar** (kamera, PDF, video ve sesli komut sistemi alınmadı): dokunmatik ekran kilidi (`ScreenLock`, ayrı
   UIWindow, 3 sn basılı tutunca açılır, test bitince kendiliğinden kalkar), "Testi Bitir" onayı, elle Duraklat / Devam et
