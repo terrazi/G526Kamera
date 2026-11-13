@@ -1741,7 +1741,7 @@ final class AppModel: ObservableObject {
         var online = await InternetProbe.isOnline()
         if !online { online = await InternetProbe.isOnline() }
         if !online {
-            return "İnternet yok. Hücresel veriyi kontrol edin; internet gelince deneme sınavı modu deyin."
+            return "İnternet yok. Hücresel veriyi kontrol edin; internet gelince sınavı başlat deyin."
         }
         let key = settings.activeGeminiProfile.key
         do {

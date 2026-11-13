@@ -298,7 +298,7 @@ final class AppSettings: ObservableObject {
         examGap = min(max(d.object(forKey: "examGap") as? Int ?? 3, 0), 10)
         examVideoFirst = d.object(forKey: "examVideoFirst") as? Bool ?? true
         examSelfCheck = d.object(forKey: "examSelfCheck") as? Bool ?? true
-        examEnabled = d.object(forKey: "examEnabled") as? Bool ?? false
+        examEnabled = d.object(forKey: "examEnabled") as? Bool ?? true
         connectionShortcutName = AppSettings.migratedConnectionShortcutName(d)
         audioShortcutName = d.string(forKey: "audioShortcutName") ?? ""
         previewOff = d.object(forKey: "previewOff") as? Bool ?? false

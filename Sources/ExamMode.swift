@@ -954,6 +954,7 @@ final class ExamMode: ObservableObject {
         guard on != enabled else { return }
         if on {
             enabled = true
+            closeAfter = false      // kapanmakta olan sınav varken anahtar geri açıldı: mod kapanmasın
             startupDone = false
             startupReady = false
             checkProblem = ""

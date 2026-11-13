@@ -130,14 +130,14 @@ final class GeminiVideoQueueTests: XCTestCase {
         XCTAssertTrue(q.contains("sıralı"))
     }
 
-    func testExamModeSwitchIsOffByDefaultAndStoredChoiceIsKept() {
+    func testExamModeSwitchIsOnByDefaultAndStoredChoiceIsKept() {
         UserDefaults.standard.removeObject(forKey: "examEnabled")
-        XCTAssertFalse(AppSettings().examEnabled, "varsayılan: normal mod")
+        XCTAssertTrue(AppSettings().examEnabled, "ilk açılışta deneme sınavı modu açık gelir")
         let s = AppSettings()
-        s.examEnabled = true
-        XCTAssertTrue(AppSettings().examEnabled, "anahtar yeniden açılışta korunur")
         s.examEnabled = false
-        XCTAssertFalse(AppSettings().examEnabled)
+        XCTAssertFalse(AppSettings().examEnabled, "kapatılan anahtar yeniden açılışta kapalı kalır")
+        s.examEnabled = true
+        XCTAssertTrue(AppSettings().examEnabled)
         UserDefaults.standard.removeObject(forKey: "examEnabled")
     }
 

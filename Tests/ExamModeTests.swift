@@ -1941,6 +1941,42 @@ final class ExamModeTests: XCTestCase {
         XCTAssertTrue(exam.enabled, "sonlandırılacak sınav yoksa mod yine de açık kalır")
     }
 
+    /// Anahtar kapatılınca açık sınav sonlanmaya başlar; bitmeden anahtar geri açılırsa mod kapanmış sayılmaz ve "Normal mod" denmez
+    func testSwitchingBackOnWhileTheExamIsEndingKeepsTheMode() async {
+        let p = FakePorts()
+        let exam = make(p)
+        var calls = 0
+        exam.onCloseMode = { calls += 1 }
+        XCTAssertTrue(exam.start())
+        await scanPages(exam, p, ["a.jpg"])
+        exam.setEnabled(false)       // anahtar kapandı: sınav sonlanıyor
+        exam.setEnabled(true)        // hemen geri açıldı
+        let done = await exam.waitDone(timeout: 8)
+        XCTAssertTrue(done)
+        try? await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertTrue(exam.enabled, "geri açılan mod kapanmaz")
+        XCTAssertEqual(calls, 0, "kapatma isteği geçersiz sayıldı")
+        XCTAssertFalse(p.spoken.contains(ExamMode.leftNotice), "\(p.spoken)")
+    }
+
+    /// Sesle "sınavı kapat" denip sınav bitmeden anahtar kapatılıp açılsa da mod açık kalır
+    func testSpokenCloseThenSwitchCycleKeepsTheModeOpen() async {
+        let p = FakePorts()
+        let exam = make(p)
+        var calls = 0
+        exam.onCloseMode = { calls += 1 }
+        XCTAssertTrue(exam.start())
+        await scanPages(exam, p, ["a.jpg"])
+        await say(exam, "sınavı kapat")
+        exam.setEnabled(false)
+        exam.setEnabled(true)
+        let done = await exam.waitDone(timeout: 8)
+        XCTAssertTrue(done)
+        try? await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertTrue(exam.enabled)
+        XCTAssertEqual(calls, 0)
+    }
+
     func testCloseCallsTheModeCallbackInsteadOfClosingByItself() async {
         let p = FakePorts()
         let exam = make(p)
