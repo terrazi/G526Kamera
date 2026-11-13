@@ -350,6 +350,11 @@ final class VideoOutbox {
     private let folder = FolderClient()
     private var busy = false
     private var waiters: [String: (Bool, String) -> Void] = [:]
+    /// Son kaydetme denemesinin hatası ("" = son deneme başarılı ya da henüz deneme yok): ana ekran uyarısı bundan türetilir, eski kalmaz
+    private(set) var lastError = ""
+
+    /// Belge klasörüne henüz kaydedilememiş, telefonda bekleyen video sayısı
+    var waitingCount: Int { return pendingFiles().count }
 
     init() {
         let support = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -443,6 +448,7 @@ final class VideoOutbox {
                 let saved = try await folder.save(.video(file))
                 try? fm.removeItem(at: file)
                 tlog("[video] klasöre kaydedildi: \(saved.id)")
+                lastError = ""
                 finish(name, ok: true, message: "")
                 return
             } catch {
@@ -454,6 +460,7 @@ final class VideoOutbox {
                 }
             }
         }
+        lastError = message
         finish(name, ok: false, message: message)
     }
 

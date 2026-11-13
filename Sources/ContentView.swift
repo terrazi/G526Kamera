@@ -9,7 +9,8 @@ struct ContentView: View {
         NavigationView {
             ScrollView {
                 VStack(spacing: 14) {
-                    NoticeRow(messages: [model.crashNotice, model.diskNotice, model.thermalNotice, model.networkNotice, model.micNotice, model.routeNotice])
+                    NoticeRow(messages: [model.crashNotice, model.diskNotice, model.thermalNotice, model.networkNotice, model.micNotice, model.routeNotice,
+                                         model.saveNotice, model.videoSendNote])
                     preview
                     powerToggles
                     captureButton
@@ -18,13 +19,6 @@ struct ContentView: View {
                     videoButton
                     if !model.videoRecording { pageVideoButton }
                     if model.queuedVideos > 0 || model.sendingVideos { sendVideosButton }
-                    if !model.videoSendNote.isEmpty && model.queuedVideos > 0 {
-                        Text(model.videoSendNote)
-                            .font(.caption)
-                            .foregroundColor(.orange)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .accessibilityIdentifier("video-gonder-uyari")
-                    }
                     if !model.videoAnswer.isEmpty {
                         Text(model.videoAnswer)
                             .font(.footnote)

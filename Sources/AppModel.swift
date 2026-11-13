@@ -68,6 +68,9 @@ final class AppModel: ObservableObject {
     /// "Videoları gönder"in son sorunu (ör. "Gemini kapalı", "Gemini videoyu okuyamadı: …"): düğmenin altında kalır; flaş yazı birkaç saniyede
     /// silinir ve konuşma kaçırılabilir, neden ekranda dursun
     @Published private(set) var videoSendNote = ""
+    /// Fotoğraf / video belge klasörüne kaydedilemiyorsa (klasör seçilmemiş, yazılamıyor) kırmızı uyarı kutusundaki yazı; durumdan türetilir,
+    /// sorun giderilince kendiliğinden kalkar ("" = sorun yok)
+    @Published private(set) var saveNotice = ""
     /// Gemini'ye gönderilmeyi bekleyen video sayısı ("videoları gönder" kipinde)
     @Published private(set) var queuedVideos = GeminiVideoQueue.shared.count
     /// Sıradaki videolar şu an Gemini'ye gönderiliyor
@@ -686,6 +689,7 @@ final class AppModel: ObservableObject {
     private func refreshDecoding() {
         let ok = cameraState.isLive && decodeClock.age() < 3.0
         if ok != decoding { decoding = ok }
+        refreshSaveNotice()
         // Sınav kartında "kamera görüntüsü yok / kulaklık bağlı değil" yazıyorsa sorun giderilince yazı kalkar
         if examStore?.refreshBlockedStatus() == true {
             // Açılış sınaması hazır değildi (ör. belge klasörü seçilmemişti), sorun giderildi: sınama yeniden denenir
@@ -1663,6 +1667,34 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Kaydetme sorunu yazısı (kırmızı uyarı kutusu): bekleyen fotoğraf / video varken klasör seçilmemişse ya da yazılamıyorsa dolu, yoksa boş.
+    /// Saf bir fonksiyon: yazı yalnız o anki durumdan çıkar, bu yüzden sorun giderilince (klasör seçildi, kayıt başarılı) kendiliğinden kalkar.
+    static func saveProblemText(photos: Int, videos: Int, folderChosen: Bool, photoError: String, videoError: String) -> String {
+        guard photos + videos > 0 else { return "" }
+        var parts: [String] = []
+        if photos > 0 { parts.append("\(photos) fotoğraf") }
+        if videos > 0 { parts.append("\(videos) video") }
+        let list = parts.joined(separator: " ve ")
+        if !folderChosen {
+            return "Belge klasörü seçilmemiş: \(list) telefonda bekliyor. Ayarlar → Dosya ve diğer bölümünden klasörü seçin."
+        }
+        let error = !photoError.isEmpty && photos > 0 ? photoError : (!videoError.isEmpty && videos > 0 ? videoError : "")
+        if !error.isEmpty {
+            let reason = error.trimmingCharacters(in: CharacterSet(charactersIn: " .\n"))
+            return "Klasöre kaydedilemedi: \(reason). \(list) telefonda bekliyor, yeniden denenecek."
+        }
+        return ""
+    }
+
+    private func refreshSaveNotice() {
+        let text = AppModel.saveProblemText(photos: queue.pending,
+                                            videos: VideoOutbox.shared.waitingCount,
+                                            folderChosen: DocumentFolder.shared.hasChoice,
+                                            photoError: queue.lastError,
+                                            videoError: VideoOutbox.shared.lastError)
+        if text != saveNotice { saveNotice = text }
+    }
+
     /// Biten video: "her video bitince" kipinde hemen Gemini'ye gider; "videoları gönder" kipinde sıraya alınır (klasöre her durumda kaydedilir).
     private func routeVideoToGemini(_ url: URL) {
         guard settings.videoToGemini else { return }
@@ -1808,6 +1840,7 @@ final class AppModel: ObservableObject {
             } catch {
                 let message = (error as? GeminiError)?.message ?? error.localizedDescription
                 tlog("[video] Gemini hatası: \(message)")
+                self?.videoSendNote = "Gemini videoyu okuyamadı: \(message)"
                 self?.flash("Gemini videoyu okuyamadı: \(message)", seconds: 10)
                 self?.say("Gemini videoyu okuyamadı. \(message)", interrupt: false, force: true)
             }
@@ -1816,6 +1849,7 @@ final class AppModel: ObservableObject {
 
     private func videoAnswered(_ result: VideoAnalysis) {
         tlog("[video] Gemini cevabı: \(result.model), \(result.promptTokens) giriş token'ı, \(result.text.count) karakter")
+        videoSendNote = ""
         videoAnswer = result.text
         _ = speakGemini("Gemini cevabı. " + result.text)
     }
