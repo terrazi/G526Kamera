@@ -31,7 +31,9 @@ final class LoopGuardTests: XCTestCase {
         XCTAssertTrue(h.isHardwarePause, "Art arda onarım işe yaramadı: duraklatıldı")
         XCTAssertTrue(h.vm.holdForRetry)
         let spoken = h.speaker.spoken.count
-        for _ in 0..<40 {
+        // Bekleme süresi (hardwareCapRetry) dolmadan: nabız ve yol yoklamaları defalarca çalışır, duraklama bozulmaz
+        let ticks = Int(T.hardwareCapRetry / 2) - 3
+        for _ in 0..<ticks {
             h.scheduler.advance(by: 2)
             await settle()
         }
