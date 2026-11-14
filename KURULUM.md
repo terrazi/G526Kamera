@@ -64,7 +64,8 @@ Ayrıntılı işleyiş: `docs/SURUM3.md`.
 - **Gemini beklerken bilgi ver:** (açık gelir) "Cevapla" deyince kulaklıktan "Soru başarıyla alınıp Gemini'ye gönderildi, cevap bekleniyor" denir; cevap uzarsa 30 saniyede bir "Cevap bekleniyor" denir. Gemini **3 dakikada** cevap vermezse bekleme bırakılır, "soruyu tekrar okuyun" denir ve dinlemeye dönülür. Kapalıyken bu anonslar ve 3 dakikalık sınır yoktur.
 - **Kesintiden sonra akıllı devam:** (açık gelir) Soru Gemini'ye gittikten sonra bağlantı koptu ve onarıldıysa "Bağlantı yeniden onarıldı. Sorunuz yarım kaldıysa son soruyu tekrar okuyunuz" denir. Okurken kesilirse program soru numarasını ve en son okuduğunuz cümleyi söyler ("En son üçüncü soruda şu cümleyi okudunuz: … Buradan devam edebilirsiniz"); devam ettiğiniz metin öncekiyle birleştirilir. Uygulama tümüyle kapanıp yeniden açılırsa yarım metin ve ortak paragraf korunamaz (soru baştan okunur). Kapalıyken eski davranış: "Lütfen en son kaldığın soruyu tekrar oku" ve yarım metin silinir.
 - **Tanı ve günlük:** ayarların en altında; cihaz özeti (şarj, ısı, boş yer) ve olay günlüğü. Bir sorun olursa **Günlüğü kopyala** ile
-  yapıştırıp bana gönderin; nedeni Mac olmadan okunur.
+  yapıştırıp bana gönderin; nedeni Mac olmadan okunur. Kopya dosyadan alınır: uygulama kapanıp yeniden açıldıysa **kapanan çalışmanın son
+  satırları da** gelir (kalan bellek, ısı, takılma gecikmeleri, son olaylar); neden orada aranır.
 - **Kestirmeler:** dört kestirmenin adı (aşağıda) ve isteğe bağlı beşincisi **Çıkışı kulaklığa al**. Boş bırakılan adım atlanır.
 - **Cevaplar arası boşluk:** 0-10 saniye (varsayılan 3), test sonundaki tekrar için.
 
@@ -143,10 +144,13 @@ döngüsüne girmemek için otomatik başlatma durur ve ekranda yazar. (5) Panon
    Program "Paragraf metnini aldım" der ve hangi sorulara ait olduğunu sorar: numaraları söyleyip "Cevapla" deyin ("beş altı yedi",
    "beşten yediye kadar"). Sonra soruları sırayla okuyun: paragraf, ait olduğu her soruyla birlikte Gemini'ye gider (varsa sesiyle);
    hepsi cevaplanınca paragraf bırakılır. Paragraf okurken bağlantı kesilirse program son cümleyi söyler, oradan devam edersiniz ve
-   "Tamamlandı" demeniz yeter. Paragraf ve yarım metin yalnız telefonun belleğindedir: uygulama tümüyle kapanırsa paragrafı yeniden okuyun.
-3. Cevaplar, seçtiğiniz **kayıt klasöründe gün klasörü** altında `soru_1`, `soru_2`… olarak kalır (`cevaplar.txt` de yazılır).
+   "Tamamlandı" demeniz yeter. Uygulama tümüyle kapanıp kendiliğinden açılırsa paragrafın **metni** korunur ("Ortak paragraf yazı olarak korundu…" denir) ve sonraki sorular onunla gider; paragrafın ses kaydı kaybolur, yarım okunan metin de kaybolur (gerekirse son soruyu baştan okuyun).
+3. Cevaplar, seçtiğiniz **kayıt klasöründe gün klasörü** altında `soru_1`, `soru_2`… olarak kalır (`cevaplar.txt` de yazılır). Bir soruyu yeniden
+   okuyup yeniden cevaplatırsanız hem ses dosyası hem `cevaplar.txt` satırı yenisiyle değişir. Cevap kulaklıktan duyulamayıp sonradan yeniden
+   okunursa ses dosyası o sırada yazılır.
 4. Bitince **Testi Bitir** (yanlışlıkla basılmasın diye bir onay sorar), sonra **Cevapları Tekrarla**: sistem internetsiz çalışır,
-   kayıtlar sırayla çalınır, aralarında ayardaki süre kadar bekler.
+   kayıtlar sırayla çalınır, aralarında ayardaki süre kadar bekler. Tek bir bozuk dosya atlanır (bitişte kaç dosyanın çalınamadığı yazılır);
+   üst üste iki dosya çalınamazsa tekrar durur.
 
 **Sınavda işe yarayan düğmeler (ana ekran)**
 

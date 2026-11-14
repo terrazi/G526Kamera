@@ -50,10 +50,14 @@ Durum: ✅ önlem var ve testli · 🛠 bu incelemede bulundu ve düzeltildi · 
 | **Cevap okunamadı** (ses çalınamadı / okunamadı) | Eskiden sessizce düşüyordu. Şimdi 1 sn sonra bir kez kayıtsız yeniden okunur; olmazsa metni kırmızı kutuda kalır; ses yolu güvensizse KURAL 1 gereği duraklar | 🛠 |
 | **Ses dosyası klasöre yazılamadı** (yer doldu, klasör erişimi gitti) | Eskiden fark edilmiyordu. Kırmızı kutu + kulaklıktan söylenir; sonraki başarılı kayıtta silinir | 🛠 |
 | **cevaplar.txt yazılamadı** | Aynı şekilde bildirilir; dosya açılamazsa üzerine yazılmaz (eski satırlar kaybolmasın) | 🛠 |
+| Aynı soru yeniden okunup yeniden cevaplandı | `soru_N` ses dosyası ve `cevaplar.txt` satırı yenisiyle değişir (çelişen çift satır kalmaz) | 🛠 |
+| Cevap duyulamadı (kulaklık koptu, arama geldi), dönünce yeniden okundu | Yeniden okuma `soru_N` dosyasını da yazar (yoksa); test sonu tekrarı bu cevabı atlamaz. Yeniden okuma kayıtsız yapılırsa (ses hatası sonrası ikinci deneme) eksik kayıt kırmızı kutuda görünür | 🛠 |
+| Tekrar sırasında bir ses dosyası bozuk | Atlanır, bitişte sayısı yazılır; üst üste iki dosya çalınamazsa tekrar durur | 🛠 |
 | Gemini "Soru: 3, …" / "Soru No 3 - …" / ```` ``` ```` çitli / başlıklı yazar | Numara ve şık çözülür; çözülemezse ham satır numarayla okunur | 🛠 |
 | Soru numarası okunmadı / çakıştı | Program "Lütfen okuduğunuz sorunun numarasını söyleyin" der; söylenen numara sorunun başına yazılıp gönderilir ("sıradaki" = sıradaki numara). Söylenmezse 2 hatırlatma, sonra sıradaki numarayla gider. Sıra: okunan → söylenen → Gemini'nin duyduğu → sıradaki; aynı numaralı eski dosya silinir | ✅ |
 | Birkaç soru aynı paragrafa dayanıyor | "Ortak paragraf … Tamamlandı" → "Paragraf metnini aldım, hangi sorular için?" → numaralar + "Cevapla". Paragraf (ve sesi) ait olduğu her soruyla gider; hepsi cevaplanınca bırakılır | ✅ |
-| Okurken kesinti oldu (uzun soru/paragraf) | Onarımdan sonra numara ve en son cümle söylenir, kullanıcı devam eder, metinler birleşir. Uygulama tümüyle kapanırsa yarım metin ve paragraf kaybolur (yalnız bellekte) | ✅ (⚠️ kapanmada kayıp) |
+| Okurken kesinti oldu (uzun soru/paragraf) | Onarımdan sonra numara ve en son cümle söylenir, kullanıcı devam eder, metinler birleşir. Uygulama tümüyle kapanırsa yarım metin ve paragrafın ses kaydı kaybolur; paragrafın metni defterde durur ve yeniden açılışta geri yüklenir ("Ortak paragraf yazı olarak korundu…") | ✅ (⚠️ yarım metin ve paragraf sesi kapanmada kaybolur) |
+| Paragraf çok uzun okundu (ses kaydı 180 sn'yi aştı, başı atıldı) | Gemini'ye paragraf sesinin başının eksik olduğu, tam metnin dikte metninde olduğu söylenir | 🛠 |
 | Numara/paragraf numarası beklerken kesinti | Bekleyen soru ya da paragraf korunur; onarımdan sonra aynı şey yeniden sorulur | ✅ |
 | Okurken kulaklık koptu | Cevap kayıtlıdır, dönünce yeniden okunur | ✅ |
 
