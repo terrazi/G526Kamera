@@ -11,6 +11,9 @@ struct GeminiReply: Equatable {
     let model: String
     /// Cevap ilk sıradaki profilden gelmediyse nedenini anlatan kısa not ("1. profil kotası doldu; cevap … modelinden geldi"); aksi hâlde boş
     var note: String = ""
+    /// Aynı durumun kulaklıktan söylenen çok kısa hâli ("X yanıt vermedi, cevap Y modelinden geldi"); sunucunun uzun (çoğu İngilizce) hata
+    /// metinleri yalnız ekrandaki `note` içinde kalır, okunmaz
+    var spokenNote: String = ""
 }
 
 @MainActor
@@ -185,6 +188,7 @@ final class GeminiAnswerService: Answering {
         let sequence = order(usable)
         var lastError = GeminiError("Gemini cevap vermedi.", .error)
         var trail: [String] = []
+        var failedNames: [String] = []
         for (index, profile) in sequence.enumerated() {
             let isLast = index == sequence.count - 1
             do {
@@ -198,10 +202,12 @@ final class GeminiAnswerService: Answering {
                 if parsed.spoken.isEmpty { throw GeminiError("Gemini cevap satırı vermedi.", .empty) }
                 restingUntil[profile.slot] = nil
                 let note = trail.isEmpty ? "" : "Cevap \(profile.name) modelinden geldi: " + trail.joined(separator: " ")
+                let spokenNote = failedNames.isEmpty ? "" : "\(failedNames.joined(separator: " ve ")) yanıt vermedi, cevap \(profile.name) modelinden geldi."
                 return GeminiReply(number: parsed.number, option: parsed.option, text: parsed.text,
-                                   spoken: parsed.spoken, model: profile.model, note: note)
+                                   spoken: parsed.spoken, model: profile.model, note: note, spokenNote: spokenNote)
             } catch let error as GeminiError {
                 trail.append("\(profile.name) (\(profile.model)): \(error.message)")
+                failedNames.append(profile.name)
                 lastError = error
                 guard !isLast, GeminiAnswerService.fallbackWorthy(error) else { break }
                 rest(profile, after: error)

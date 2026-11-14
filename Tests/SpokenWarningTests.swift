@@ -18,6 +18,20 @@ final class SpokenWarningTests: XCTestCase {
         XCTAssertTrue(gaveUp, "Onarım başarısız olunca da söylenir: \(h.speaker.announcements)")
     }
 
+    func testBackupModelAnswerIsSpokenAsOneShortSentenceNotTheServersErrorText() async {
+        let h = SessionHarness()
+        var reply = FakeAnswering.reply(1)
+        reply.note = "Cevap B modelinden geldi: A (gemini-x): The model is overloaded. Please try again later. (503) Çok uzun bir İngilizce sunucu hata metni."
+        reply.spokenNote = "A yanıt vermedi, cevap B modelinden geldi."
+        h.answering.results = [.success(reply)]
+        _ = await h.startListening()
+        h.ask("Bir soru")
+        let said = await waitUntil { h.speaker.announcements.contains(reply.spokenNote) }
+        XCTAssertTrue(said, "Kısa cümle söylenir: \(h.speaker.announcements)")
+        XCTAssertFalse(h.speaker.allCalls.contains { $0.text.contains("overloaded") || $0.text == reply.note }, "Sunucunun uzun hata metni okunmaz")
+        XCTAssertEqual(h.vm.warnings.first(where: { $0.id == "yedek" })?.text, reply.note, "Ekranda ayrıntı kalır")
+    }
+
     func testMissingMicrophoneIsSpokenWhileTheHeadphonesWork() async {
         let h = SessionHarness()
         h.route.current = FakeRoute.noMic

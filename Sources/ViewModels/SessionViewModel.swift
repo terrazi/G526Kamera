@@ -495,7 +495,7 @@ final class SessionViewModel: ObservableObject {
 
     /// Kulaklıktan zaten başka yerde söylenen ("start": Kontrol başarısız, "cevap": Gemini hatası) ya da kulaklıktan söylenemeyen
     /// ("ses": okuma hatası) uyarılar ayrıca söylenmez
-    private static let silentWarnings: Set<String> = ["start", "cevap", "ses", "kapanma", "gozcu"]
+    private static let silentWarnings: Set<String> = ["start", "cevap", "ses", "kapanma", "gozcu", "yedek"]
 
     /// Uyarıyı ekrana yazar; yeni ya da değişmişse kulaklıktan da söyler (`announce`)
     func warn(_ id: String, _ text: String) {
@@ -880,7 +880,14 @@ final class SessionViewModel: ObservableObject {
             tlog("[soru \(number)] numara kaynağı: \(source.logName)")
             finishEntry(.answered(record.spoken), number: number, model: reply.model, source: source)
             // Cevap yedek profilden geldiyse sebebi kırmızı kutuda yazılır; ilk profilden gelince silinir
-            if reply.note.isEmpty { clearWarning("yedek") } else { warn("yedek", reply.note) }
+            // Ekranda ayrıntılı not (sunucunun hata metinleri dahil), kulaklıktan yalnız kısa cümle: uzun İngilizce hata metni okunmaz
+            if reply.note.isEmpty {
+                clearWarning("yedek")
+            } else {
+                let changed = warnings.first(where: { $0.id == "yedek" })?.text != reply.note
+                warn("yedek", reply.note)
+                if changed { announce(reply.spokenNote.isEmpty ? Say.backupModelShort : reply.spokenNote) }
+            }
             store(record)
             completePassage(for: number)
             deps.journal.saveNextNumber(nextNumber)
