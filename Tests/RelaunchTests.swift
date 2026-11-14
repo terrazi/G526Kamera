@@ -153,32 +153,74 @@ final class RelaunchTests: XCTestCase {
         XCTAssertEqual(board.value, ClipboardFlag.closed, "Kestirmeler otomasyonu bu işareti görünce uygulamayı yeniden açmaz")
         let run2 = makeJournal(defaults, board: board)
         XCTAssertEqual(run2.beginRun().exit, .deliberate)
-        XCTAssertEqual(board.value, ClipboardFlag.closed, "Açılışta işaret silinmez: oturum yokken uygulama kapanırsa otomasyon yeniden açmasın")
+        XCTAssertEqual(board.value, "", "Açılışta işaret silinir: bundan sonra bu düğme dışındaki her kapanma (oturum yokken de) yeniden açılır")
         run2.setSessionOpen(true)
-        XCTAssertEqual(board.value, "", "Oturum başlayınca işaret silinir: o sırada gerçek bir kapanma yeniden açılabilsin")
+        XCTAssertEqual(board.value, "", "Oturum başlayınca da işaret yok: o sırada gerçek bir kapanma yeniden açılabilsin")
         XCTAssertEqual(makeJournal(defaults, board: board).beginRun().exit, .unexpected(cause: A.causeUnknown),
                        "Bayrak tek seferliktir; oturum açıkken sonra kapanırsa beklenmedik sayılır")
     }
 
-    func testClipboardMarkerFollowsTheSession() {
+    func testClipboardNeverHoldsAMarkerWhileTheAppIsOpenWhateverTheSessionDoes() {
         let defaults = freshDefaults()
         let board = FakePasteboard()
         let journal = makeJournal(defaults, board: board)
         _ = journal.beginRun()
-        XCTAssertEqual(board.value, ClipboardFlag.closed, "İlk açılışta oturum yok: kurulum ve denemeler sırasında otomasyon uygulamayı geri çekmesin")
+        XCTAssertFalse(board.value.hasPrefix(ClipboardFlag.prefix), "İlk açılışta da işaret yok: kapanma yalnız 'Programı kapat' düğmesiyle serbest")
         journal.setSessionOpen(true)
         XCTAssertEqual(board.value, "", "Oturum sürerken işaret yok: uygulama kapanırsa otomasyon yeniden açar")
         journal.setSessionOpen(false)
-        XCTAssertEqual(board.value, ClipboardFlag.closed, "Test bitti: uygulamadan çıkmak (başka uygulamaya geçmek) yeniden açmayı tetiklemesin")
+        XCTAssertEqual(board.value, "", "Testi Bitir'den sonra da işaret yok: uygulama başka yolla kapanırsa otomasyon yeniden açar")
     }
 
-    func testUpdatingFromAnOlderBuildWritesTheMarkerOnceButLaterLaunchesLeaveTheClipboardAlone() {
+    func testEndingTheTestNeverMakesAClosedAppStay() {
         let defaults = freshDefaults()
-        defaults.set(true, forKey: "journal.hasRun")   // eski sürüm zaten çalışmıştı; işaret hiç yazılmamıştı
         let board = FakePasteboard()
-        let first = makeJournal(defaults, board: board)
-        _ = first.beginRun()
-        XCTAssertEqual(board.value, ClipboardFlag.closed, "Güncelleme sonrası ilk açılışta oturum yok: otomasyon geri çekmesin")
+        let journal = makeJournal(defaults, board: board)
+        _ = journal.beginRun()
+        journal.setSessionOpen(true)
+        journal.setSessionOpen(false)   // Testi Bitir
+        // Uygulama kaydırılıp kapatıldı: panoda işaret yok, otomasyon açar; açılış oturum başlatmaz (test bilerek bitirilmişti)
+        XCTAssertFalse(board.value.hasPrefix(ClipboardFlag.prefix))
+        let reopened = makeJournal(defaults, board: board).beginRun()
+        XCTAssertEqual(reopened.exit, .clean, "Test bitmişti: yeniden açılış yeni oturum başlatmaz")
+        XCTAssertFalse(board.value.hasPrefix(ClipboardFlag.prefix))
+    }
+
+    func testEndingTheTestWhileClosingOnPurposeKeepsTheClosedMarker() {
+        // Programı kapat: önce işaret yazılır, sonra çalışan oturum bitirilir; oturumun bitişi işareti silmemeli
+        let defaults = freshDefaults()
+        let board = FakePasteboard()
+        let journal = makeJournal(defaults, board: board)
+        _ = journal.beginRun()
+        journal.setSessionOpen(true)
+        journal.markDeliberateClose()
+        journal.setSessionOpen(false)
+        XCTAssertEqual(board.value, ClipboardFlag.closed, "Düğmeyle kapatırken oturumun bitmesi işareti silmez")
+        journal.setAway(false)
+        XCTAssertEqual(board.value, ClipboardFlag.closed, "Çıkarken başka bir çağrı da işareti silmez")
+    }
+
+    func testSessionEndingWhileAwayForShortcutsKeepsTheRepairMarkerUntilReturn() {
+        let defaults = freshDefaults()
+        let board = FakePasteboard()
+        let journal = makeJournal(defaults, board: board)
+        _ = journal.beginRun()
+        journal.setSessionOpen(true)
+        journal.setAway(true)
+        journal.setSessionOpen(false)   // onarım sürerken oturum bitti
+        XCTAssertEqual(board.value, ClipboardFlag.repair, "Kestirmeler'deyken otomasyon uygulamayı geri çekmemeli")
+        journal.setAway(false)
+        XCTAssertEqual(board.value, "", "Dönünce işaret silinir: bu düğme dışındaki her çıkış yeniden açılır")
+    }
+
+    func testLaunchClearsAnOldClosedMarkerButNeverTouchesTheUsersOwnClipboard() {
+        let defaults = freshDefaults()
+        defaults.set(true, forKey: "journal.hasRun")
+        let board = FakePasteboard()
+        // Eski sürümün ya da "Programı kapat"ın bıraktığı işaret
+        ClipboardFlag(defaults: defaults, write: { board.write($0) }, changeCount: { board.changeCount }).set(ClipboardFlag.closed)
+        _ = makeJournal(defaults, board: board).beginRun()
+        XCTAssertEqual(board.value, "", "Açılışta eski işaret silinir")
         board.userCopies("Kopyalanan API anahtarı")
         _ = makeJournal(defaults, board: board).beginRun()
         XCTAssertEqual(board.value, "Kopyalanan API anahtarı", "Sonraki açılışlar kullanıcının panosunu ezmez")
@@ -212,10 +254,13 @@ final class RelaunchTests: XCTestCase {
         let board = FakePasteboard()
         let journal = makeJournal(defaults, board: board)
         _ = journal.beginRun()
-        XCTAssertEqual(board.value, ClipboardFlag.closed)
+        journal.setAway(true)
+        XCTAssertEqual(board.value, ClipboardFlag.repair)
         board.userCopies("Kullanıcının kopyaladığı metin")
-        journal.setSessionOpen(true)
+        journal.setAway(false)
         XCTAssertEqual(board.value, "Kullanıcının kopyaladığı metin", "Pano arada değiştiyse işaret bizim değildir, dokunulmaz")
+        journal.setSessionOpen(true)
+        XCTAssertEqual(board.value, "Kullanıcının kopyaladığı metin")
         journal.setAway(true)
         XCTAssertEqual(board.value, ClipboardFlag.repair)
         journal.setAway(false)
@@ -238,7 +283,7 @@ final class RelaunchTests: XCTestCase {
         XCTAssertEqual(board.value, "", "Dönünce oturum sürüyor: işaret silinir")
     }
 
-    func testReturningFromShortcutsAfterTheSessionEndedRestoresTheClosedMarker() {
+    func testReturningFromShortcutsAfterTheSessionEndedLeavesNoMarker() {
         let defaults = freshDefaults()
         let board = FakePasteboard()
         let journal = makeJournal(defaults, board: board)
@@ -247,7 +292,7 @@ final class RelaunchTests: XCTestCase {
         journal.setAway(true)
         journal.setSessionOpen(false)   // onarım sürerken oturum bitti
         journal.setAway(false)
-        XCTAssertEqual(board.value, ClipboardFlag.closed)
+        XCTAssertEqual(board.value, "", "Test bitmiş olsa da bu düğme dışındaki çıkış yeniden açılır")
     }
 
     func testRepeatedUnexpectedCloseWithinTheWindowIsALoop() {

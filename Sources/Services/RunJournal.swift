@@ -170,9 +170,10 @@ enum ClipboardState: Equatable {
 }
 
 /// Panodaki işaret. Kestirmeler'deki "uygulama kapanınca yeniden aç" otomasyonu panoyu okur: `SESLIKONTROL-` ile başlayan bir şey varsa
-/// uygulamayı açmaz. iOS "Kapatıldı" tetikleyicisini uygulamadan başka uygulamaya geçildiğinde de çalıştırır; bu yüzden işaret şu
-/// anlarda yazılır: oturum yokken (kapat düğmesi, test bitti), uygulama kestirme çalıştırmak için bilerek başka uygulamaya geçerken.
-/// Oturum sürerken panoda işaret yoktur: o sırada uygulama kapanırsa otomasyon onu geri açar.
+/// uygulamayı açmaz. iOS "Kapatıldı" tetikleyicisini uygulamadan başka uygulamaya geçildiğinde de çalıştırır; bu yüzden işaret yalnız
+/// iki anda yazılır: "Programı kapat" düğmesi (KAPALI) ve uygulama kestirme çalıştırmak için bilerek başka uygulamaya geçerken (ONARIM).
+/// Başka her durumda (oturum sürerken, oturum yokken, "Testi Bitir"den sonra) panoda işaret yoktur: uygulama bu düğme dışında
+/// kapanırsa ya da ekrandan çıkılırsa otomasyon onu geri açar. İşaret her açılışta silinir.
 /// Kullanıcının panosuna saygı: işaret ancak panoyu başka biri değiştirmediyse (değişim sayacı aynıysa) silinir.
 final class ClipboardFlag {
     static let prefix = "SESLIKONTROL-"
@@ -235,15 +236,16 @@ final class RunJournal: RunJournaling {
         static let next = "journal.nextNumber"
         static let folder = "journal.folder"
         static let unexpected = "journal.unexpectedTimes"
-        static let markerInit = "journal.clipboardMarkerInit"
     }
 
     private let defaults: UserDefaults
     private let previousLog: [String]
     private let now: () -> Date
     private let clipboard: ClipboardFlag
-    /// Şu an oturum açık mı (yalnız bu çalışma için; pano işareti buna göre yönetilir)
-    private var open = false
+    /// Uygulama onarım için bilerek Kestirmeler'e geçmiş durumda (yalnız bu çalışma için): pano işareti `ONARIM` kalır
+    private var away = false
+    /// "Programı kapat" düğmesi basıldı, program çıkıyor (yalnız bu çalışma için): pano işareti `KAPALI` kalır, bir daha değişmez
+    private var closing = false
 
     init(defaults: UserDefaults = .standard,
          previousLog: [String] = AppLog.shared.previousRun,
@@ -263,12 +265,10 @@ final class RunJournal: RunJournaling {
         defaults.set(true, forKey: Key.hasRun)
         defaults.set(false, forKey: Key.deliberate)
         if hadRun { tlog("[açılış] pano işareti: \(clipboard.state().text); önceki çalışmada oturum \(wasOpen ? "açıktı" : "kapalıydı")") }
-        // Pano işareti hiç yazılmamışsa (ilk kurulum ya da bu özellikten önceki sürümden güncelleme) oturum yokken otomasyon uygulamayı
-        // geri çekmesin diye bir kez yazılır; sonraki açılışlarda kullanıcının panosuna dokunulmaz (anahtar kopyalayıp açtıysa kaybolmasın)
-        if !defaults.bool(forKey: Key.markerInit) {
-            defaults.set(true, forKey: Key.markerInit)
-            if !wasOpen { clipboard.set(ClipboardFlag.closed) }
-        }
+        // Kapanma yalnız "Programı kapat" düğmesiyle serbesttir. Her açılışta eski işaret (düğmeyle kapatmadan ya da eski sürümden kalan
+        // KAPALI) silinir; böylece oturum yokken ve "Testi Bitir"den sonra da bu düğme dışındaki her kapanma/çıkış otomasyonla geri açılır.
+        // Kullanıcı arada kendi metnini kopyaladıysa o silinmez.
+        clipboard.clearIfOurs()
 
         let exit: PreviousExit = hadRun ? ExitAnalyzer.analyze(sessionOpen: wasOpen, deliberate: deliberate, previous: previousLog) : .firstRun
         let stamp = now().timeIntervalSince1970
@@ -296,23 +296,20 @@ final class RunJournal: RunJournaling {
     }
 
     func setSessionOpen(_ open: Bool) {
-        self.open = open
         defaults.set(open, forKey: Key.open)
-        if open {
-            heartbeat()
-            clipboard.clearIfOurs()   // oturum sürerken panoda işaret olmaz: uygulama kapanırsa otomasyon geri açar
-        } else {
-            clipboard.set(ClipboardFlag.closed)
-        }
+        if open { heartbeat() }
+        // Oturum sürerken de, "Testi Bitir"den sonra da panoda işaret yoktur: program bu düğme dışında kapanırsa otomasyon geri açar.
+        // (Onarım için Kestirmeler'e geçilirken ya da bilerek kapatılırken işarete dokunulmaz.)
+        if !away && !closing { clipboard.clearIfOurs() }
     }
 
     func setAway(_ away: Bool) {
+        self.away = away
+        if closing { return }
         if away {
             clipboard.set(ClipboardFlag.repair)
-        } else if open {
-            clipboard.clearIfOurs()
         } else {
-            clipboard.set(ClipboardFlag.closed)
+            clipboard.clearIfOurs()
         }
     }
 
@@ -345,7 +342,7 @@ final class RunJournal: RunJournaling {
     }
 
     func markDeliberateClose() {
-        open = false
+        closing = true
         defaults.set(true, forKey: Key.deliberate)
         defaults.set(false, forKey: Key.open)
         clipboard.set(ClipboardFlag.closed)

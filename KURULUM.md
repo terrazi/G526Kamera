@@ -113,23 +113,28 @@ neden: …"), Gemini'ye gitmiş ama cevabı duyulmamış son soruyu yeniden sora
 son soruyu baştan okumanızı ister. Cevap klasörü ve soru numarası kaldığı yerden sürer.
 
 **Pano işareti (otomasyonun "açma" işareti):** Apple'a göre "Kapatıldı" tetikleyicisi uygulamadan başka uygulamaya geçildiğinde de çalışır,
-yalnız kaydırıp kapatınca değil. Bu yüzden uygulama, yeniden açılmasını istemediği anlarda panoya `SESLIKONTROL-` ile başlayan bir işaret
-yazar: **oturum yokken** (ilk açılış, test bitti, başlatma başarısız), **"Programı kapat"** ile kapatırken ve **Kestirmeler'i bilerek açarken**
-(`SESLIKONTROL-ONARIM`; onarım ve "Dene" sırasında otomasyon uygulamayı geri çekip onarımı bozmasın). **Oturum sürerken panoda işaret
-yoktur**: o sırada uygulama kapanırsa ya da ekrandan çıkılırsa otomasyon uygulamayı geri açar. İşaret yalnız kendi yazdığı hâlde silinir;
-arada başka bir şey kopyaladıysanız panonuza dokunulmaz (silmek için panoyu okumak da gerekmez, iOS'un "yapıştırmaya izin ver" sorusu çıkmaz).
+yalnız kaydırıp kapatınca değil. **Kapanma yalnız "Programı kapat" düğmesiyle serbesttir**: uygulama panoya `SESLIKONTROL-` ile başlayan
+bir işareti yalnız iki anda yazar: **"Programı kapat"** ile kapatırken (`SESLIKONTROL-KAPALI`) ve **Kestirmeler'i bilerek açarken**
+(`SESLIKONTROL-ONARIM`; onarım ve "Dene" sırasında otomasyon uygulamayı geri çekip onarımı bozmasın). **Başka her durumda panoda işaret
+yoktur**: oturum sürerken de, oturum yokken de, **"Testi Bitir"den sonra da** uygulama kapanırsa ya da ekrandan çıkılırsa otomasyon
+uygulamayı geri açar. İşaret her açılışta silinir (düğmeyle kapattıktan sonra elle açınca kural yeniden geçerli olur). Yalnız kendi
+yazdığı işaret silinir; arada başka bir şey kopyaladıysanız panonuza dokunulmaz (silmek için panoyu okumak da gerekmez, iOS'un
+"yapıştırmaya izin ver" sorusu çıkmaz).
 
 **Bilerek kapatmak:** ana ekranın altındaki **Programı kapat** düğmesine **3 saniye basılı tutun**. Bu kapanış "bilerek" sayılır:
 oturum biter, uygulama panoya `SESLIKONTROL-KAPALI` yazar, otomasyon bunu görüp uygulamayı yeniden açmaz. Bu düğme dışındaki her
-kapanış (oturum sürerken) beklenmedik sayılır.
+kapanış otomasyonla geri açılır; oturum sürerken kapandıysa oturum kaldığı yerden sürer ("beklenmedik" sayılır), "Testi Bitir"den sonra ya da
+oturum yokken kapandıysa uygulama yalnız açılır, yeni oturum **başlatmaz**. Bunun bedeli: otomasyon kuruluyken uygulamadan başka uygulamaya
+geçemezsiniz (ana ekrana çıkmak da uygulamayı geri getirir). Başka bir uygulamayı (Kestirmeler'de otomasyon düzenlemek gibi) kullanmak
+için önce "Programı kapat" ile kapatın; kapalıyken istediğiniz uygulamayı açabilirsiniz.
 
 Sınırlar (dürüstçe): (0) 2026-11-14 evde denemede ilk bakışta oturum sürerken yukarı kaydırıp kapatınca uygulama açılmamış görünmüştü; sonradan
 kullanıcı ikisinin de (yeniden açılma ve ekran kısma) çalıştığını bildirdi. Yine de iOS "Kapatıldı" tetikleyicisini zorla kapatmadan sonra
 çalıştırmayı belgelemiyor (kamuya açık bildirimlere göre uygulamadan çıkınca/ekran kilitlenince/Denetim Merkezi açılınca da çalışır), bu yüzden
 her iOS sürümünde aynı olacağı garanti edilmez. Açılışta günlüğe "[açılış] pano işareti: …" satırı yazılır: otomasyon bir gün açmazsa işaretin
 engel olup olmadığı orada görünür. (1) Bu otomasyon telefonda denenmeden güvenilmemeli. Evde dört deneme: Başlat'tan sonra uygulamayı yukarı kaydırıp
-kapatın (birkaç saniyede yeniden açılmalı); "Programı kapat" ile kapatın (açılmamalı); Başlat > Testi Bitir > başka uygulamaya geçin
-(geri gelmemeli); Ayarlar'dan bir kestirmeyi "Dene" ile çalıştırın (kestirme çalışıp uygulamaya dönmeli). (2) Oturum sürerken başka uygulamaya
+kapatın (birkaç saniyede yeniden açılmalı); "Programı kapat" ile kapatın (açılmamalı); Başlat > Testi Bitir > uygulamayı yukarı kaydırıp
+kapatın (yeniden açılmalı, yeni oturum başlatmamalı); Ayarlar'dan bir kestirmeyi "Dene" ile çalıştırın (kestirme çalışıp uygulamaya dönmeli). (2) Oturum sürerken başka uygulamaya
 geçerseniz otomasyon Sesli Kontrol'ü öne geri getirir (sınav okuyucusu için çoğu zaman istenen budur). (3) Telefon kilitliyken iOS başka
 uygulama açtırmayabilir; yeniden açılma kilit açılana kadar bekleyebilir. (4) Kısa sürede (2 dk içinde) üç kez beklenmedik kapanırsa açılış
 döngüsüne girmemek için otomatik başlatma durur ve ekranda yazar. (5) Panonuz bir süre `SESLIKONTROL-…` içerebilir.

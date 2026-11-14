@@ -77,7 +77,7 @@ Durum: ✅ önlem var ve testli · 🛠 bu incelemede bulundu ve düzeltildi · 
 | Boş yer azalır (<200 MB) | Açılışta ve dakikada bir uyarılır (ses kayıtları yazılamayabilir) | ✅ |
 | **iOS uygulamayı kapatır / çöker / kaydırılıp kapatılır** | Önlenemez ama telafi edilir: günlük diske yazılır; açılışta önceki çalışma taranır, oturum açıkken kapandıysa **oturum kendiliğinden yeniden başlar**, olanlar ve olası neden söylenir, Gemini'ye gitmiş soru yeniden sorulur / cevabı yeniden okunur, klasör ve numara kaldığı yerden sürer. Yeniden açılışı yalnız Kestirmeler otomasyonu yapabilir (KURULUM.md 5); kaydırıp kapatınca otomatik yeniden açılma evde denendi ve çalıştığı bildirildi (2026-11-14); iOS tetikleyiciyi zorla kapatmadan sonra çalıştırmayı belgelemediği için her sürümde garanti edilmez; elle açınca oturum her hâlde sürer | ✅ kod ve testler; ✅ 📱 otomasyon evde denendi (tek cihaz, tek deneme) |
 | Arka arkaya kapanma (çökme döngüsü) | 2 dk içinde 3 beklenmedik kapanmada otomatik başlatma durur, ekranda yazar | ✅ |
-| Bilerek kapatma | "Programı kapat" düğmesi 3 sn basılı tutulur; oturum biter, "kullanıcı kapattı" işlenir, panoya `SESLIKONTROL-KAPALI` yazılır (otomasyon yeniden açmaz) | ✅ |
+| Bilerek kapatma | Kapanma yalnız "Programı kapat" düğmesiyle serbest: 3 sn basılı tutulur; oturum biter, "kullanıcı kapattı" işlenir, panoya `SESLIKONTROL-KAPALI` yazılır (otomasyon yeniden açmaz). Oturum yokken ve "Testi Bitir"den sonra da pano işaretsizdir: başka yolla kapanırsa otomasyon uygulamayı yeniden açar (yeni oturum başlatmaz). İşaret her açılışta silinir | ✅ kod ve testler; 📱 otomasyon |
 | Bir aşama sonsuza dek takılır (kontrol, Gemini, okuma, onarım) | Gözcü: kontrol 4 dk, Gemini 11 dk, okuma 3 dk, onarım 6 dk hiç değişmezse iş iptal edilip oturum yeniden kurulur. Dinleme ve duraklatmalar sınırsız bekleyebilir | ✅ |
 | Ana iş parçacığı takılır / uygulama askıya alınır | Nabız 3 sn'den geç gelirse günlüğe "gecikti" yazılır (sonradan teşhis) | ✅ |
 
@@ -102,6 +102,6 @@ yol bildirimi ve onarım sınırı aynı anda üst üste gelince tetikleniyordu.
 
 1. ~~Gemini'nin takılması~~ **Yapıldı:** 180 sn sınır, 30 sn'de bir "cevap bekleniyor", "soru gönderildi" anonsu. Ayrıntı: §2.
 2. **Zaman aşımında ses kaydı:** ilk profil zaman aşımına uğrarsa sıradaki profile yalnız metinle (kayıtsız) gitmek; doğruluğu biraz düşürür, ama yavaş hatta cevabı kurtarır. Karar sizin.
-3. **Kestirmeler "Kapatıldı" otomasyonu:** gerçek telefonda denenmeli (kaydırıp kapatınca açılıyor mu, kilitliyken ne oluyor; Testi Bitir sonrası ve Kestirmeler'e geçerken pano işareti sayesinde geri çekmiyor mu).
+3. **Kestirmeler "Kapatıldı" otomasyonu:** gerçek telefonda denenmeli (kaydırıp kapatınca açılıyor mu, kilitliyken ne oluyor; Testi Bitir sonrası kaydırıp kapatınca da açılıyor mu; Kestirmeler'e bilerek geçerken pano işareti sayesinde geri çekmiyor mu).
 4. **Cihaz günlüğü:** ilk beklenmedik kapanmadan sonra "Tanı ve günlük"ten günlük istenmeli; neden tahmini günlüğün ipucuna dayanır, kesin değildir.
 5. **Ses seviyesi:** açılışta çıkış sesi çok düşükse (<%10) kullanıcıya söylemek.
