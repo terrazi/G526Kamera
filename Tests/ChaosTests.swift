@@ -21,12 +21,12 @@ final class ChaosTests: XCTestCase {
     }
 
     /// Tohum sayıları (kalıcı); bir arama turunda geçici olarak büyütülür
-    static let realisticSeeds = 1500
-    static let burstSeeds = 2500
+    static let realisticSeeds = 300
+    static let burstSeeds = 500
 
     /// Olay havuzu: sık görülenler birden çok kez yazılarak ağırlıklandırılır
     private static let pool: [Int] = [0, 0, 0, 1, 2, 3, 3, 4, 5, 5, 5, 6, 7, 7, 8, 9, 9, 10, 11, 12, 13, 14, 14, 15, 16,
-                                      17, 17, 17, 17, 18, 19, 20, 21, 22, 22, 23, 24, 25, 26, 26, 27, 28]
+                                      17, 17, 17, 17, 18, 19, 20, 21, 22, 22, 23, 24, 25, 26, 26, 27, 28, 29, 30, 31, 32, 33]
 
     /// Zamanı ilerletir. `burst`: süre tek hamlede geçer (tüm nöbetçi vuruşları görevlere nefes aldırmadan art arda çalışır; uç durum);
     /// aksi hâlde yarım saniyelik adımlarla geçer ve her adımda görevlerin ilerlemesine izin verilir (gerçek zamana yakın).
@@ -91,6 +91,11 @@ final class ChaosTests: XCTestCase {
         case 25: h.answering.hold = false; h.answering.release(); return "Gemini yanıt verdi"
         case 27: h.vm.recheckHardware(); return "uygulama öne geldi"
         case 28: h.network.onPathChange?(); return "ağ yolu değişti"
+        case 29: h.system.current.availableMemoryMB = 100; h.system.onMemoryWarning?(); return "iOS bellek uyarısı"
+        case 30: h.system.current.thermal = .critical; h.system.onThermalChange?(); return "telefon çok ısındı"
+        case 31: h.system.current.thermal = .nominal; h.system.onThermalChange?(); return "telefon soğudu"
+        case 32: h.system.current.lowPowerMode.toggle(); h.system.onPowerModeChange?(); return "düşük güç modu değişti"
+        case 33: h.system.current.freeDiskMB = 50; return "boş yer azaldı"
         default: h.speaker.hold = false; h.speaker.release(); return "okuma devam etti"
         }
     }
@@ -114,6 +119,9 @@ final class ChaosTests: XCTestCase {
         h.listener.recognitionStreak = 0
         h.listener.startErrors = []
         h.battery.set(80, charging: true)
+        h.system.current = SystemSnapshot(availableMemoryMB: 1500, footprintMB: 200, thermal: .nominal, lowPowerMode: false, freeDiskMB: 5000)
+        h.system.onThermalChange?()
+        h.system.onPowerModeChange?()
         if h.vm.phase == .paused(.manual) { h.vm.resumeByUser() }
         for _ in 0..<60 {
             await pass(h, 15, burst: burst)

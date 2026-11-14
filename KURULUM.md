@@ -89,6 +89,30 @@ açık ve kilitsiz olmalı. Yedek: uygulama açıksa saat gelince kendisi başla
 
 İsteğe bağlı: sınav süresince **Odak** (Rahatsız Etme) açan otomasyon. Uygulama aramaları/mesajları engelleyemez.
 
+**Kapanırsa kendiliğinden yeniden açılma (önerilir, bir kez kurulur):** iOS hiçbir uygulamaya kendini yeniden açma izni vermez; bunu
+yalnız Kestirmeler yapabilir. Uygulama kapanınca (iOS belleği boşaltmak için kapatırsa, çökerse, yanlışlıkla kaydırıp kapatılırsa)
+yeniden açılması için:
+1. Kestirmeler > **Otomasyon** > **+** > **Uygulama** > **Seç** > "Sesli Kontrol" > yalnız **Kapatıldı** işaretli kalsın (Açıldı kapalı) > **İleri**.
+2. **Yeni Boş Otomasyon** > eylem ekle: **Panoyu Al**.
+3. Eylem ekle: **Eğer** > "Pano" **içerir** > `SESLIKONTROL-KAPALI`.
+4. "Eğer"in içine: **Bu Kestirmeyi Durdur**. ("Aksi hâlde" bölümüne dokunmayın.)
+5. "Aksi hâlde" bölümüne: **URL'yi Aç** > `seslikontrol://yeniden`.
+6. **İleri** > **Çalıştırmadan Önce Sor: KAPALI** > **Bitti**.
+
+Nasıl çalışır: uygulama açılınca önceki kapanışın nedenini kendi günlüğünden okur. Oturum sürerken kapandıysa **kendiliğinden yeniden
+başlar** (telefona dokunmanız gerekmez), kulaklıktan ne olduğunu söyler ("Program beklenmedik biçimde kapanıp yeniden açıldı. Olası
+neden: …"), Gemini'ye gitmiş ama cevabı duyulmamış son soruyu yeniden sorar ya da cevabı yeniden okur. Soruyu söylerken kapanmışsa
+son soruyu baştan okumanızı ister. Cevap klasörü ve soru numarası kaldığı yerden sürer.
+
+**Bilerek kapatmak:** ana ekranın altındaki **Programı kapat** düğmesine **3 saniye basılı tutun**. Bu kapanış "bilerek" sayılır:
+oturum biter, uygulama panoya `SESLIKONTROL-KAPALI` yazar, otomasyon bunu görüp uygulamayı yeniden açmaz (panoyu bir sonraki açılışta
+uygulama siler; o sırada panonuzdaki eski içerik de silinir). Bu düğme dışındaki her kapanış beklenmedik sayılır.
+
+Sınırlar (dürüstçe): (1) Bu otomasyon telefonda denenmeden güvenilmemeli: sınavdan önce uygulamayı yukarı kaydırıp kapatın, birkaç saniye
+içinde yeniden açılmalı. (2) iOS "Kapatıldı" tetikleyicisini uygulama öndeyken ekrandan çıkıldığında da çalıştırabilir; bu durumda uygulama
+öne geri gelir (bu çoğu zaman istenendir). (3) Telefon kilitliyken iOS başka uygulama açtırmayabilir; yeniden açılma kilit açılana kadar
+bekleyebilir. (4) Kısa sürede (2 dk içinde) üç kez beklenmedik kapanırsa açılış döngüsüne girmemek için otomatik başlatma durur ve ekranda yazar.
+
 ## 6) Sınav günü
 
 1. Başlayınca uygulama donanımı denetler: izinler, çevrimdışı dikte, kulaklık, mikrofon, internet, Gemini. Sorun yoksa kulaklıktan

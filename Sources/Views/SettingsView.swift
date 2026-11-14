@@ -40,6 +40,7 @@ struct SettingsView: View {
             DatePicker("Saat", selection: $settings.startTime, displayedComponents: .hourAndMinute)
                 .disabled(!settings.startEnabled)
             HelpRow("iOS bir uygulamanın kendi kendine uyanmasına izin vermez. Asıl yol: Kestirmeler > Otomasyon > Günün Saati > “URL’yi aç”: seslikontrol://basla (Hemen çalıştır). Uygulama açıksa bu saat de başlatır; ayrıca saat gelince sessiz bir bildirim çıkar, dokununca başlar. Telefon açık ve kilitsiz olmalı.")
+            HelpRow("Kapanırsa yeniden açılma: Kestirmeler > Otomasyon > Uygulama > Sesli Kontrol > Kapatıldı > Panoyu Al, Eğer pano “SESLIKONTROL-KAPALI” içeriyorsa kestirmeyi durdur, değilse URL’yi aç: seslikontrol://yeniden (Hemen çalıştır). Uygulama oturum sürerken kapanırsa açılınca kaldığı yerden sürer. Bilerek kapatmak için ana ekrandaki “Programı kapat” düğmesine 3 saniye basılı tutun.")
         }
     }
 

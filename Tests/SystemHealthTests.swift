@@ -128,13 +128,16 @@ final class SystemHealthTests: XCTestCase {
         XCTAssertNil(warning(h, "yer"), "Yer açılınca uyarı silinir")
     }
 
-    func testSystemWarningsAreSpokenThroughTheHeadsetNotJustShown() async {
+    func testSystemWarningsWaitForAQuietMomentThenAreSpokenThroughTheHeadset() async {
         let h = makeHarness()
+        h.answering.results = [.success(FakeAnswering.reply(1))]
         _ = await h.startListening()
         h.system.current = snapshot(thermal: .critical)
         h.system.onThermalChange?()
-        let spoken = await waitUntil { h.vm.announced.contains(Say.veryHot) }
-        XCTAssertTrue(spoken, "Sınavdaki kişi ekrana bakamaz: sistem uyarısı kulaklıktan da söylenir")
+        XCTAssertTrue(h.vm.voiceQueue.contains { $0.text == Say.veryHot }, "Dinlerken mikrofona karışmasın diye sıraya alınır")
+        h.ask("Birinci soru")
+        let spoken = await waitUntil { h.vm.announced.contains(Say.veryHot) && h.vm.phase == .listening }
+        XCTAssertTrue(spoken, "Sınavdaki kişi ekrana bakamaz: uyarı sıradaki sessiz anda kulaklıktan da söylenir")
     }
 
     // MARK: Nabız ve defter
