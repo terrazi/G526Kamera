@@ -41,6 +41,8 @@ enum Say {
     static let askNumberAgain = "Soru numarasını duyamadım. Lütfen sorunun numarasını söyleyin. Numarayı bilmiyorsanız sıradaki deyin, sıradaki numara verilir."
     static let recoveredAskNumber = "Bağlantı yeniden onarıldı. Lütfen okuduğunuz sorunun numarasını söyleyin."
 
+    /// "Ortak paragraf" denince (başka bir şey söylenmeden duraklanırsa) kulaklıktan söylenir
+    static let passagePrompt = "Lütfen ortak paragrafı okuyun, bitince Tamam deyin."
     static let passageTaken = "Paragraf metnini aldım. Bu paragraf hangi sorular için? Soru numaralarını söyleyip Tamam deyin."
     static let passageTargetsAgain = "Soru numaralarını anlayamadım. Paragrafın hangi sorulara ait olduğunu numaralarla söyleyip Tamam deyin."
     static let recoveredAskTargets = "Bağlantı yeniden onarıldı. Paragraf metnini aldım. Hangi sorulara ait olduğunu söyleyip Tamam deyin."
@@ -53,8 +55,8 @@ enum Say {
     static func continuePartial(passage: Bool, number: Int?, sentence: String) -> String {
         var text = "Bağlantı yeniden onarıldı. "
         if passage {
-            if sentence.isEmpty { return text + "Ortak paragraf kipindesiniz. Paragrafı okuyun, bitirince tamamlandı deyin." }
-            return text + "Ortak paragrafta en son şu cümleyi okudunuz: \(sentence). Buradan devam edebilirsiniz; bitirince tamamlandı deyin."
+            if sentence.isEmpty { return text + "Ortak paragraf kipindesiniz. Paragrafı okuyun, bitirince tamam deyin." }
+            return text + "Ortak paragrafta en son şu cümleyi okudunuz: \(sentence). Buradan devam edebilirsiniz; bitirince tamam deyin."
         }
         if let number = number {
             text += "En son \(TurkishOrdinal.inQuestion(number)) şu cümleyi okudunuz: \(sentence). "

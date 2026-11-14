@@ -75,7 +75,7 @@ Mikrofon açıkken, soruyu okumadan **tek başına** söylenen komutlar tanını
 | "Testi bitir" / "Sınavı bitir" / "sınav bitti" / "sınavı sonlandır" | Program "Testi bitirmek istiyor musunuz?" diye sorar. **Evet** (ya da komutu yeniden söylemek) bitirir; **hayır / vazgeç** ya da hiç cevap vermemek testi sürdürür. Yanlış tanımada test kapanmaz. |
 | "Son cevabı tekrarla" / "Tekrarla" | Son cevap yeniden okunur, Gemini'ye gitmez. |
 | "Cevapla" / "Gönder" | Okuduğunuz soruyu Gemini'ye gönderir (komutlarla birlikte söylenirse komut soru olarak gitmez). |
-| "Ortak paragraf" … "Tamamlandı" | Ortak paragraf kipi. |
+| "Ortak paragraf" (duraklayın) … "Tamam" | Program kulaklıktan "Lütfen ortak paragrafı okuyun, bitince Tamam deyin" der; paragrafı okuyup "Tamam" dersiniz. Sonra hangi sorulara ait olduğunu söyleyip yine "Tamam" dersiniz. |
 
 Ekrandaki "Okunuyor: sorunuz bitince Cevapla deyin" notu, okunan metin varken görünür; program bir şey beklemiyor, yalnız dinliyor demektir.
 
@@ -179,11 +179,11 @@ döngüsüne girmemek için otomatik başlatma durur ve ekranda yazar. (5) Panon
    okursanız eski cevabın yerine yenisi yazılır. Numara hiç söylenmezse sıradaki numara verilir ve soru listesinde turuncu bir not çıkar.
    **Gönderildi bilgisi:** "Cevapla" dedikten sonra kulaklıktan "Soru başarıyla alınıp Gemini'ye gönderildi, cevap bekleniyor" duyarsınız;
    bu cümleyi duymadıysanız soru gitmemiştir. Numara söylememişseniz önce "Lütfen okuduğunuz sorunun numarasını söyleyin" denir.
-   **Ortak paragraf:** birkaç soru aynı paragrafa dayanıyorsa önce **"Ortak paragraf"** deyip paragrafı okuyun, bitirince **"Tamamlandı"** deyin.
+   **Ortak paragraf:** birkaç soru aynı paragrafa dayanıyorsa önce **"Ortak paragraf"** deyip duraklayın; program "Lütfen ortak paragrafı okuyun, bitince Tamam deyin" der. Paragrafı okuyup bitirince **"Tamam"** deyin ("Tamamlandı" da kabul edilir).
    Program "Paragraf metnini aldım" der ve hangi sorulara ait olduğunu sorar: numaraları söyleyip **"Tamam"** deyin ("beş altı yedi", "5, 6, 7",
    "5. soru, 6. soru, 7. soru", "beşinci soru, altıncı soru", "beşten yediye kadar"; eskisi gibi "Cevapla" da kabul edilir). Sonra soruları sırayla okuyun: paragraf, ait olduğu her soruyla birlikte Gemini'ye gider (varsa sesiyle);
    hepsi cevaplanınca paragraf bırakılır. Paragraf okurken bağlantı kesilirse program son cümleyi söyler, oradan devam edersiniz ve
-   "Tamamlandı" demeniz yeter. Uygulama tümüyle kapanıp kendiliğinden açılırsa paragrafın **metni** korunur ("Ortak paragraf yazı olarak korundu…" denir) ve sonraki sorular onunla gider; paragrafın ses kaydı kaybolur, yarım okunan metin de kaybolur (gerekirse son soruyu baştan okuyun).
+   "Tamam" demeniz yeter. Uygulama tümüyle kapanıp kendiliğinden açılırsa paragrafın **metni** korunur ("Ortak paragraf yazı olarak korundu…" denir) ve sonraki sorular onunla gider; paragrafın ses kaydı kaybolur, yarım okunan metin de kaybolur (gerekirse son soruyu baştan okuyun).
 3. Cevaplar, seçtiğiniz **kayıt klasöründe gün klasörü** altında `soru_1`, `soru_2`… olarak kalır (`cevaplar.txt` de yazılır). Bir soruyu yeniden
    okuyup yeniden cevaplatırsanız hem ses dosyası hem `cevaplar.txt` satırı yenisiyle değişir. Cevap kulaklıktan duyulamayıp sonradan yeniden
    okunursa ses dosyası o sırada yazılır.

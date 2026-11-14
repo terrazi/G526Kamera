@@ -200,6 +200,32 @@ final class ReadingFlowTests: XCTestCase {
         }
     }
 
+    func testSayingOnlyOrtakParagrafAsksAloudToReadTheParagraphAndTamamFinishesIt() async {
+        let h = harness()
+        _ = await h.startListening()
+        say(h, "Ortak paragraf", confirm: Timing.numberConfirm)
+        let asked = await waitUntil { h.speaker.spoken.last == Say.passagePrompt && h.vm.phase == .listening && h.vm.listenMode == .passage }
+        XCTAssertTrue(asked, "Sesli uyarı: lütfen paragrafı okuyun, bitince Tamam deyin")
+        XCTAssertTrue(h.answering.calls.isEmpty)
+        say(h, "Ali eve gitti. Sonra okula yürüdü Tamam")
+        let targets = await waitUntil { h.vm.phase == .listening && h.vm.listenMode == .passageTargets && h.speaker.spoken.last == Say.passageTaken }
+        XCTAssertTrue(targets, "Paragraf 'Tamam' ile biter")
+        XCTAssertEqual(h.vm.passageDraft?.text, "Ali eve gitti. Sonra okula yürüdü")
+        say(h, "beş altı yedi Tamam")
+        let saved = await waitUntil { h.vm.listenMode == .question && h.vm.passage?.all == [5, 6, 7] }
+        XCTAssertTrue(saved)
+    }
+
+    func testOrtakParagrafFollowedDirectlyByTheTextDoesNotInterruptWithAPrompt() async {
+        let h = harness()
+        _ = await h.startListening()
+        say(h, "Ortak paragraf Ali eve gitti", confirm: Timing.numberConfirm)
+        await settle()
+        XCTAssertFalse(h.speaker.spoken.contains(Say.passagePrompt), "Okumaya zaten başlandıysa araya girilmez")
+        XCTAssertEqual(h.vm.listenMode, .passage)
+        XCTAssertEqual(h.vm.phase, .listening)
+    }
+
     func testPassageTargetsStillAcceptTheOldClosingWords() async {
         for closer in ["Cevapla", "Gönder", "Tamamlandı"] {
             let h = harness()

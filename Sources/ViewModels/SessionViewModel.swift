@@ -618,7 +618,7 @@ final class SessionViewModel: ObservableObject {
             liveText = accumulator.text
             watchdog.kick()
             if listenMode == .question, PassageCommand.startsWith(accumulator.text) {
-                listenMode = .passage   // "ortak paragraf": paragraf okunuyor, "Tamamlandı" ile biter
+                listenMode = .passage   // "ortak paragraf": paragraf okunuyor, "Tamam" ile biter
                 tlog("[paragraf] ortak paragraf kipi açıldı")
             }
             reevaluateTrigger()
@@ -667,7 +667,7 @@ final class SessionViewModel: ObservableObject {
         work = Task { [weak self] in await self?.runRecovery(.hardware, force: true) }
     }
 
-    /// Kipe göre tetikleyici sabit kalırsa ateşler: soru ve paragraf numaralarında metnin sonu "Cevapla"/"Gönder", ortak paragrafta "Tamamlandı";
+    /// Kipe göre tetikleyici sabit kalırsa ateşler: soru ve paragraf numaralarında metnin sonu "Cevapla"/"Gönder", ortak paragrafta "Tamam";
     /// eksik soru numarası beklenirken kısa bir numara cevabı ("soru yedi") ya da "sıradaki"
     private func reevaluateTrigger() {
         confirmTask?.cancel()
@@ -685,6 +685,11 @@ final class SessionViewModel: ObservableObject {
         case .passageTargets:
             guard TriggerDetector.match(in: text, words: PassageCommand.targetWords) != nil else { return }
         case .passage:
+            // Yalnız "ortak paragraf" denmiş, paragraf henüz okunmaya başlanmamış: kısa süre sabit kalırsa kulaklıktan okuma istenir
+            if PassageCommand.startsWith(text), PassageCommand.stripStart(text).isEmpty {
+                confirmTask = deps.scheduler.after(Timing.numberConfirm) { [weak self] in self?.firePassagePrompt() }
+                return
+            }
             guard TriggerDetector.match(in: text, words: PassageCommand.finishWords) != nil else { return }
         case .missingNumber:
             guard heldQuestion != nil, SpokenNumber.standalone(from: text) != nil || SpokenNumber.wantsSequence(text) else { return }
@@ -933,7 +938,26 @@ final class SessionViewModel: ObservableObject {
         await askForNumber(again: true)
     }
 
-    /// "Tamamlandı" denince ortak paragraf alınır; hangi sorulara ait olduğu sorulur
+    /// "Ortak paragraf" denip beklendi: "Lütfen ortak paragrafı okuyun, bitince Tamam deyin" der ve paragrafı dinler
+    private func firePassagePrompt() {
+        confirmTask = nil
+        guard phase == .listening, listenMode == .passage,
+              PassageCommand.startsWith(accumulator.text), PassageCommand.stripStart(accumulator.text).isEmpty else { return }
+        closeListening()
+        accumulator.clear()
+        englishAccumulator.clear()
+        liveText = ""
+        liveEnglish = ""
+        deps.recorder.reset()
+        phase = .speaking
+        tlog("[paragraf] ortak paragraf komutu duyuldu; paragrafı okuması isteniyor")
+        work = Task { [weak self] in
+            guard let self = self, await self.speakNotice(Say.passagePrompt) else { return }
+            self.beginListening(mode: .passage)
+        }
+    }
+
+    /// "Tamam" denince ortak paragraf alınır; hangi sorulara ait olduğu sorulur
     private func firePassage() {
         guard let match = TriggerDetector.match(in: accumulator.text, words: PassageCommand.finishWords) else { return }
         let text = PassageCommand.stripStart(match.question)

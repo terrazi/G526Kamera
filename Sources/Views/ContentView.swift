@@ -108,7 +108,7 @@ struct ContentView: View {
     private var modeNote: String {
         switch session.listenMode {
         case .question: return "Okunuyor: sorunuz bitince “Cevapla” deyin"
-        case .passage: return "Ortak paragraf okunuyor: bitirince “Tamamlandı” deyin"
+        case .passage: return "Ortak paragraf okunuyor: bitirince “Tamam” deyin"
         case .passageTargets: return "Paragraf alındı: hangi sorulara ait olduğunu söyleyip “Tamam” deyin"
         case .missingNumber: return "Soru numarası bekleniyor: numarayı söyleyin (ör. “yedi”)"
         case .confirmEnd: return "Testi bitirmek için “evet”, devam etmek için “hayır” deyin"

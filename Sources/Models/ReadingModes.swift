@@ -4,7 +4,7 @@ import Foundation
 enum ListenMode: Equatable {
     /// Soru okunuyor; "Cevapla" / "Gönder" ile gönderilir
     case question
-    /// "Ortak paragraf" denmiş; paragraf okunuyor, "Tamamlandı" ile biter
+    /// "Ortak paragraf" denmiş; paragraf okunuyor, "Tamam" (ya da "Tamamlandı") ile biter
     case passage
     /// Paragraf alındı; hangi sorulara ait olduğu numaralarla söyleniyor ("beş altı yedi, Cevapla")
     case passageTargets
@@ -29,7 +29,7 @@ struct PassageContext: Equatable {
     var audioTruncated = false
 }
 
-/// "Tamamlandı" denmiş ama hangi sorulara ait olduğu henüz söylenmemiş paragraf
+/// "Tamam" denmiş ama hangi sorulara ait olduğu henüz söylenmemiş paragraf
 struct PassageDraft: Equatable {
     var text: String
     var english: String
@@ -47,7 +47,7 @@ struct HeldQuestion: Equatable {
 /// "Ortak paragraf" komutu: okumanın en başında söylenir, paragrafın kendisi sonra okunur
 enum PassageCommand {
     /// Paragrafı bitiren sözcük
-    static let finishWords = ["Tamamlandı", "Tamamlandi"]
+    static let finishWords = ["Tamam", "Tamamlandı", "Tamamlandi"]
     /// Paragrafın hangi sorulara ait olduğunu söyledikten sonra söylenen sözcük. Burada hiçbir şey Gemini'ye gitmez, yalnız paragraf kaydedilir;
     /// bu yüzden "Tamam" denir. Alışkanlıkla "Cevapla", "Gönder" ya da "Tamamlandı" denirse de aynı işi görür.
     static let targetWords = ["Tamam", "Tamamlandı", "Tamamlandi", "Cevapla", "Gönder"]
