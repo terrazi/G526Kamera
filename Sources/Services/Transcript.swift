@@ -67,6 +67,11 @@ enum TriggerDetector {
         while end > 0, fold(tokens[end - 1]).isEmpty { end -= 1 }
         guard end > 0 else { return nil }
         let last = fold(tokens[end - 1])
+        // Tanıyıcı "Cevapla"yı bazen "cevap la" diye böler: iki sözcük de tetikleyici sayılır
+        if last == "la", end >= 2, fold(tokens[end - 2]) == "cevap", let word = words.first(where: { fold($0) == "cevapla" }) {
+            let question = tokens[0..<(end - 2)].joined(separator: " ").trimmed
+            return TriggerMatch(word: word, question: question)
+        }
         guard let word = words.first(where: { fold($0) == last }) else { return nil }
         let question = tokens[0..<(end - 1)].joined(separator: " ").trimmed
         return TriggerMatch(word: word, question: question)

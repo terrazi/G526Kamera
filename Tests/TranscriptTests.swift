@@ -84,6 +84,13 @@ final class TriggerDetectorTests: XCTestCase {
         XCTAssertNil(TriggerDetector.match(in: "soru cevaplama"))
     }
 
+    func testTriggerSplitIntoTwoWordsByTheRecognizerStillWorks() {
+        let match = TriggerDetector.match(in: "Soru 5 Ali nereye gitti cevap la")
+        XCTAssertEqual(match?.word, "Cevapla")
+        XCTAssertEqual(match?.question, "Soru 5 Ali nereye gitti")
+        XCTAssertNil(TriggerDetector.match(in: "cevap la bakalım ne olacak"), "Yalnız metnin sonunda")
+    }
+
     func testBareTriggerGivesEmptyQuestion() {
         XCTAssertEqual(TriggerDetector.match(in: "Cevapla")?.question, "")
     }

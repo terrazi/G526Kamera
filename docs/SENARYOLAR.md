@@ -48,7 +48,8 @@ Durum: ✅ önlem var ve testli · 🛠 bu incelemede bulundu ve düzeltildi · 
 | 30 sn sessizlik | Dinleme sessizce yenilenir, mikrofon ve bağlantı denetlenir; yalnız gerçek arıza varsa onarım | ✅ |
 | Tetikleyici varyantları ("CEVAPLA.", "gonder", "“Cevapla” …") | Büyük/küçük harf, noktalama, ö/o yok sayılır; soru metnine tetikleyici karışmaz | ✅ |
 | Soru ortasında "gönder…" gibi sözcük | Yalnız SON sözcük tetikler | ✅ |
-| Tanıyıcı "cevap la" diye böler | Tetiklemez (bilinen sınır; cihazda görülürse sözcük listesine eklenir) | 📱 |
+| Tanıyıcı "cevap la" diye böler | İki sözcük de tetikleyici sayılır (metnin sonundaysa) | ✅ |
+| Soru okunmadan / duyulmadan yalnız "Cevapla" denildi | Program "Soruyu duymadım. Lütfen soruyu okuyup Cevapla deyin" der (sessiz kalmaz), dinlemeye döner | ✅ |
 
 ## 4. Cevap, okuma ve kayıt
 

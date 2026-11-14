@@ -213,14 +213,15 @@ final class SessionFlowTests: XCTestCase {
         XCTAssertEqual(h.answering.calls.map { $0.expectedNumber }, [1, 6])
     }
 
-    func testBareTriggerWordSendsNothing() async {
+    func testBareTriggerWordSendsNothingAndTellsThatNoQuestionWasHeard() async {
         let h = SessionHarness()
         _ = await h.startListening()
         h.listener.say("Cevapla")
         h.scheduler.advance(by: 1)
-        await settle()
+        let told = await waitUntil { h.speaker.spoken.last == Say.noQuestionHeard && h.vm.phase == .listening }
+        XCTAssertTrue(told, "Soru yokken 'Cevapla' denince program sessiz kalmaz: soruyu duymadığını söyler")
         XCTAssertTrue(h.answering.calls.isEmpty)
-        XCTAssertEqual(h.vm.phase, .listening)
+        XCTAssertEqual(h.vm.listenMode, .question)
     }
 
     func testTriggerInTheMiddleOfTheTextDoesNotFire() async {

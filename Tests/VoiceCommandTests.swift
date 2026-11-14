@@ -6,10 +6,11 @@ import XCTest
 final class VoiceCommandParseTests: XCTestCase {
     func testEndCommandsAreRecognizedOnlyWhenTheWholeTextIsTheCommand() {
         for text in ["Testi bitir", "testi bitir.", "Sınavı bitir", "sınavı sonlandır", "Lütfen testi bitir", "sınav bitti", "test sona erdi",
-                     "Deneme sınavı bitti", "sınavı tamamla", "TESTİ BİTİR"] {
+                     "Deneme sınavı bitti", "sınavı tamamla", "TESTİ BİTİR", "Sınavı artık bitirelim", "testi bitirmek istiyorum",
+                     "testi bitir lütfen", "Evet testi bitir"] {
             XCTAssertEqual(VoiceCommand.parse(text), .endTest, text)
         }
-        for text in ["Testi bitirmek için hangisi doğrudur", "soru yedi testi bitir", "sınavı bitirmeden önce", "bitir", "testi", ""] {
+        for text in ["Testi bitirmek için hangisi doğrudur", "soru yedi testi bitir", "sınavı bitirmeden önce", "bitir", "testi", "", "soru yedi testi bitir"] {
             XCTAssertNil(VoiceCommand.parse(text), text)
         }
     }
@@ -26,9 +27,16 @@ final class VoiceCommandParseTests: XCTestCase {
         XCTAssertEqual(SpokenReply.yesNo("evet bitir."), .yes)
         XCTAssertEqual(SpokenReply.yesNo("Hayır"), .no)
         XCTAssertEqual(SpokenReply.yesNo("hayır devam"), .no)
-        XCTAssertNil(SpokenReply.yesNo("belki evet belki hayır olabilir ama emin değilim"))
+        XCTAssertNil(SpokenReply.yesNo("belki evet belki hayır olabilir ama emin değilim"), "Çelişen söz anlaşılmamış sayılır")
+        XCTAssertEqual(SpokenReply.yesNo("evet bitirelim lütfen"), .yes)
+        XCTAssertEqual(SpokenReply.yesNo("hayır bitirme devam edelim"), .no)
+        XCTAssertEqual(SpokenReply.yesNo("sınav bitti"), .yes)
         XCTAssertEqual(SpokenReply.start("Devam"), .continuePrevious)
         XCTAssertEqual(SpokenReply.start("önceki kayıttan devam"), .continuePrevious)
+        XCTAssertEqual(SpokenReply.start("önceki kayıttan sorulara devam edelim"), .continuePrevious)
+        XCTAssertEqual(SpokenReply.start("eski kayıttan devam et"), .continuePrevious)
+        XCTAssertEqual(SpokenReply.start("yeni sınava başlayalım"), .startNew)
+        XCTAssertNil(SpokenReply.start("yeni ama önceki de devam"), "Çelişen söz anlaşılmamış sayılır")
         XCTAssertEqual(SpokenReply.start("Yeni"), .startNew)
         XCTAssertEqual(SpokenReply.start("yeni sınav"), .startNew)
         XCTAssertNil(SpokenReply.start("soru bir"))
@@ -119,6 +127,32 @@ final class VoiceCommandFlowTests: XCTestCase {
         XCTAssertTrue(h.player.played.isEmpty)
     }
 
+    func testNaturalEndPhraseAsksForConfirmation() async {
+        let h = SessionHarness()
+        _ = await h.startListening()
+        h.listener.say("Sınavı artık bitirelim")
+        h.scheduler.advance(by: T.numberConfirm + 0.1)
+        let asked = await waitUntil { h.vm.listenMode == .confirmEnd && h.vm.phase == .listening }
+        XCTAssertTrue(asked)
+    }
+
+    func testUnclearReplyToTheEndConfirmationAsksOnceMoreThenKeepsTheTestGoing() async {
+        let h = SessionHarness()
+        _ = await h.startListening()
+        h.listener.say("Testi bitir")
+        h.scheduler.advance(by: T.numberConfirm + 0.1)
+        _ = await waitUntil { h.vm.listenMode == .confirmEnd && h.vm.phase == .listening }
+        h.listener.say("hmm bilmem")
+        h.scheduler.advance(by: T.numberUnclear + 0.1)
+        let again = await waitUntil { h.speaker.spoken.last == Say.confirmEndAgain && h.vm.listenMode == .confirmEnd && h.vm.phase == .listening }
+        XCTAssertTrue(again, "Anlaşılmayan cevapta 30 sn beklenmeden bir kez daha sorulur")
+        XCTAssertTrue(h.vm.warnings.contains { $0.id == "duyulan" && $0.text.contains("hmm bilmem") }, "Ne duyulduğu ekranda yazar")
+        h.listener.say("şey")
+        h.scheduler.advance(by: T.numberUnclear + 0.1)
+        let kept = await waitUntil { h.speaker.spoken.last == Say.endCancelled && h.vm.listenMode == .question && h.vm.phase == .listening }
+        XCTAssertTrue(kept, "İkinci kez de anlaşılmazsa test bitmez")
+    }
+
     func testNoToTheConfirmationKeepsTheTestGoing() async {
         let h = SessionHarness()
         _ = await h.startListening()
@@ -137,6 +171,9 @@ final class VoiceCommandFlowTests: XCTestCase {
         h.listener.say("Testi bitir")
         h.scheduler.advance(by: T.numberConfirm + 0.1)
         _ = await waitUntil { h.vm.listenMode == .confirmEnd && h.vm.phase == .listening }
+        h.scheduler.advance(by: SilenceWatchdog.limit + 0.1)
+        let again = await waitUntil { h.speaker.spoken.last == Say.confirmEndAgain && h.vm.listenMode == .confirmEnd && h.vm.phase == .listening }
+        XCTAssertTrue(again, "Önce bir kez daha sorulur")
         h.scheduler.advance(by: SilenceWatchdog.limit + 0.1)
         let back = await waitUntil { h.vm.listenMode == .question && h.vm.phase == .listening && h.speaker.spoken.last == Say.endCancelled }
         XCTAssertTrue(back, "Cevap gelmezse test bitmez")
@@ -227,6 +264,33 @@ final class VoiceCommandFlowTests: XCTestCase {
         XCTAssertNotEqual(h.vm.sessionFolder, folder, "Eski cevapların üzerine yazılmaz: yeni klasör")
         XCTAssertEqual(h.vm.nextNumber, 1)
         XCTAssertTrue(h.vm.answers.isEmpty)
+    }
+
+    func testNaturalSentenceChoosesToContinueThePreviousRecord() async {
+        let h = SessionHarness()
+        let folder = await finishedSessionWithOneAnswer(h)
+        _ = await h.startListening()
+        h.listener.say("önceki kayıttan sorulara devam edelim")
+        h.scheduler.advance(by: T.numberConfirm + 0.1)
+        let on = await waitUntil { h.speaker.spoken.last == Say.continuingPrevious(next: 2) && h.vm.listenMode == .question && h.vm.phase == .listening }
+        XCTAssertTrue(on, "Doğal cümle de anlaşılır; tekrar söylemek gerekmez")
+        XCTAssertEqual(h.vm.sessionFolder, folder)
+    }
+
+    func testUnclearReplyToTheChoiceIsAskedAgainSoonAndShowsWhatWasHeard() async {
+        let h = SessionHarness()
+        _ = await finishedSessionWithOneAnswer(h)
+        _ = await h.startListening()
+        h.listener.say("bilmem ki")
+        h.scheduler.advance(by: T.numberUnclear + 0.1)
+        let again = await waitUntil { h.speaker.spoken.last == Say.askChoiceAgain && h.vm.listenMode == .startChoice && h.vm.phase == .listening }
+        XCTAssertTrue(again)
+        XCTAssertTrue(h.vm.warnings.contains { $0.id == "duyulan" && $0.text.contains("bilmem ki") })
+        h.listener.say("devam")
+        h.scheduler.advance(by: T.numberConfirm + 0.1)
+        let on = await waitUntil { h.vm.listenMode == .question && h.vm.phase == .listening }
+        XCTAssertTrue(on)
+        XCTAssertFalse(h.vm.warnings.contains { $0.id == "duyulan" }, "Anlaşılınca uyarı silinir")
     }
 
     func testUnansweredChoiceRemindsOnceThenContinuesWhenTheRecordIsRecent() async {

@@ -19,6 +19,9 @@ enum Say {
     /// Soru Gemini'ye gittikten sonra kesinti olup düzelince (yarım kalmış olabilir)
     static let recoveredAfterSend = "Bağlantı yeniden onarıldı. Sorunuz yarım kaldıysa son soruyu tekrar okuyunuz."
 
+    /// Yalnız "Cevapla" denmiş, soru metni yok (tanıyıcı soruyu duymamış ya da soru okunmamış)
+    static let noQuestionHeard = "Soruyu duymadım. Lütfen soruyu okuyup Cevapla deyin."
+    static let confirmEndAgain = "Anlayamadım. Testi bitirmek için evet, devam etmek için hayır deyin."
     /// Sesli "testi bitir" komutu: önce onay istenir; "evet" denirse kısa bilgi verilir ve test biter
     static let confirmEnd = "Testi bitirmek istiyor musunuz? Bitirmek için evet, devam etmek için hayır deyin."
     static let endCancelled = "Tamam, test devam ediyor. Soruyu okuyabilirsiniz."

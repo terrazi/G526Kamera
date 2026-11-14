@@ -269,6 +269,7 @@ final class SessionViewModel: ObservableObject {
     var passageDraft: PassageDraft?
     var numberReminders = 0
     var targetReminders = 0
+    var endReminders = 0
     /// Sesle bitirme sonrası kendiliğinden başlayan tekrar: bitince "Cevapların hepsi okundu" denir
     var autoReplayAtEnd = false
     /// Kesinti (onarım, donanım beklemesi) hangi aşamadayken başladı: dinlerken mi, soru gitmişken (cevap beklenirken) mi
@@ -534,7 +535,7 @@ final class SessionViewModel: ObservableObject {
 
     /// Kulaklıktan zaten başka yerde söylenen ("start": Kontrol başarısız, "cevap": Gemini hatası) ya da kulaklıktan söylenemeyen
     /// ("ses": okuma hatası) uyarılar ayrıca söylenmez
-    private static let silentWarnings: Set<String> = ["start", "cevap", "ses", "kapanma", "gozcu", "yedek", "numara"]
+    private static let silentWarnings: Set<String> = ["start", "cevap", "ses", "kapanma", "gozcu", "yedek", "numara", "duyulan"]
 
     /// Uyarıyı ekrana yazar; yeni ya da değişmişse kulaklıktan da söyler (`announce`)
     func warn(_ id: String, _ text: String) {
@@ -714,10 +715,10 @@ final class SessionViewModel: ObservableObject {
                 return
             }
         case .confirmEnd:
-            guard SpokenReply.yesNo(text) != nil else { return }
+            guard SpokenReply.yesNo(text) != nil else { scheduleChoiceUnclear(); return }
             delay = Timing.numberConfirm
         case .startChoice:
-            guard SpokenReply.start(text) != nil else { return }
+            guard SpokenReply.start(text) != nil else { scheduleChoiceUnclear(); return }
             delay = Timing.numberConfirm
         }
         confirmTask = deps.scheduler.after(delay) { [weak self] in self?.fireTrigger() }
@@ -761,6 +762,7 @@ final class SessionViewModel: ObservableObject {
         case .endTest:
             // Yanlış tanımaya karşı önce onay istenir: "evet" bitirir, "hayır" (ya da cevapsızlık) devam ettirir
             tlog("[komut] sesli komut: testi bitir; onay isteniyor")
+            endReminders = 0
             work = Task { [weak self] in
                 guard let self = self, await self.speakNotice(Say.confirmEnd) else { return }
                 self.beginListening(mode: .confirmEnd)
@@ -778,6 +780,7 @@ final class SessionViewModel: ObservableObject {
     /// "Testi bitirmek istiyor musunuz?" sorusuna cevap: evet bitirir, hayır devam ettirir
     private func fireConfirmEnd() {
         guard let reply = SpokenReply.yesNo(accumulator.text) else { return }
+        clearWarning("duyulan")
         closeListening()
         accumulator.clear()
         englishAccumulator.clear()
@@ -811,6 +814,23 @@ final class SessionViewModel: ObservableObject {
         }
     }
 
+    /// Evet/hayır ya da devam/yeni beklenirken anlaşılmayan kısa bir söz duyuldu: 30 sn beklemeden yeniden sorulur
+    private func scheduleChoiceUnclear() {
+        guard accumulator.text.split(whereSeparator: { $0.isWhitespace }).count <= 8 else { return }
+        confirmTask = deps.scheduler.after(Timing.numberUnclear) { [weak self] in self?.choiceUnclear() }
+    }
+
+    func choiceUnclear() {
+        confirmTask = nil
+        guard phase == .listening, listenMode == .confirmEnd || listenMode == .startChoice else { return }
+        let heard = accumulator.text
+        if listenMode == .confirmEnd, SpokenReply.yesNo(heard) != nil { return }
+        if listenMode == .startChoice, SpokenReply.start(heard) != nil { return }
+        tlog("[komut] cevap anlaşılamadı; duyulan: \"\(heard)\"")
+        warn("duyulan", "Duyulan: “\(heard)”. Cevap anlaşılamadı.")
+        work = Task { [weak self] in await self?.choiceSilence() }
+    }
+
     /// Cevap gelmedi ("evet/hayır" ya da "devam/yeni" denmedi): testi bitirme sorusunda bitirilmez; başlangıç sorusunda bir kez hatırlatılır,
     /// yine olmazsa varsayılan uygulanır (önceki kayıt 12 saatten yeniyse devam, değilse yeni sınav)
     func choiceSilence() async {
@@ -818,9 +838,16 @@ final class SessionViewModel: ObservableObject {
         phase = .speaking
         switch listenMode {
         case .confirmEnd:
-            tlog("[komut] testi bitirme sorusu cevapsız kaldı; test devam ediyor")
-            guard await speakNotice(Say.endCancelled) else { return }
-            beginListening(mode: .question)
+            endReminders += 1
+            if endReminders <= 1 {
+                guard await speakNotice(Say.confirmEndAgain) else { return }
+                beginListening(mode: .confirmEnd)
+            } else {
+                tlog("[komut] testi bitirme sorusu cevapsız kaldı; test devam ediyor")
+                clearWarning("duyulan")
+                guard await speakNotice(Say.endCancelled) else { return }
+                beginListening(mode: .question)
+            }
         case .startChoice:
             choiceReminders += 1
             if choiceReminders <= Timing.choiceReminderLimit {
@@ -837,6 +864,7 @@ final class SessionViewModel: ObservableObject {
     /// "Önceki kayıttan devam mı, yeni sınav mı?" sorusuna cevap
     private func fireStartChoice() {
         guard let reply = SpokenReply.start(accumulator.text) else { return }
+        clearWarning("duyulan")
         closeListening()
         phase = .speaking
         work = Task { [weak self] in await self?.applyStartChoice(continuePrevious: reply == .continuePrevious) }
@@ -845,6 +873,7 @@ final class SessionViewModel: ObservableObject {
     /// Devam: önceki klasör ve numara korunur, önceki cevaplar yüklenir. Yeni: yeni klasör, numara 1.
     func applyStartChoice(continuePrevious: Bool) async {
         let offer = choiceOffer
+        clearWarning("duyulan")
         choiceOffer = nil
         choiceReminders = 0
         var goOn = continuePrevious
@@ -880,12 +909,20 @@ final class SessionViewModel: ObservableObject {
             return
         }
         guard !match.question.isEmpty else {
-            // Yalnız "cevapla" denmiş: boş soru gönderilmez; sesteki "cevapla" sözcüğü bir sonraki soruya karışmasın
+            // Yalnız "cevapla" denmiş: boş soru gönderilmez; sesteki "cevapla" sözcüğü bir sonraki soruya karışmasın. Kullanıcıya söylenir:
+            // soru duyulmadıysa (okunmadı ya da tanıyıcı kaçırdı) sessizce beklemek "program anlamıyor" izlenimi verir.
+            closeListening()
             accumulator.clear()
             englishAccumulator.clear()
             liveText = ""
             liveEnglish = ""
             deps.recorder.reset()
+            phase = .speaking
+            tlog("[soru] yalnız tetikleyici duyuldu; soru metni yok")
+            work = Task { [weak self] in
+                guard let self = self, await self.speakNotice(Say.noQuestionHeard) else { return }
+                self.beginListening(mode: .question)
+            }
             return
         }
         // Mikrofon duraklar, tetikleyici sözcük metinden kırpılmıştır; ses kaydı da bu andan sonra durur
