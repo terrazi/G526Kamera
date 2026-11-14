@@ -15,7 +15,7 @@ struct ContentView: View {
                     statusCard
                     if !session.warnings.isEmpty { warningBox }
                     if !session.checkup.isEmpty { checkupList }
-                    if !session.questions.isEmpty || liveQuestion != nil { questionList }
+                    if !session.questions.isEmpty || liveBoxVisible || passageNote != nil { questionList }
                     controls
                     outputPicker
                     inputPicker

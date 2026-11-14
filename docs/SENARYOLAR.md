@@ -25,10 +25,10 @@ Durum: ✅ önlem var ve testli · 🛠 bu incelemede bulundu ve düzeltildi · 
 |---|---|---|
 | İnternet koptu | Nabız (5 sn'de bir yoklama, 2 başarısız yoklama) yaklaşık 6–10 sn'de yakalar; Wi-Fi → Hücresel → Sistem Sıfırla; her adımdan sonra doğrulama; düzelince "hazır" | ✅ |
 | Hızlı yoklama boşuna alarm verir | Önce tam sınama (internet + Gemini); sağlamsa hiçbir şey durmaz, anons yok, yarım soru silinmez; susturma yok, nabız daha uzun yoklamaya geçer | ✅ |
-| Soru giderken bağlantı düştü | Soru "gitmedi" işaretlenir, bağlantı onarılır, "soruyu yeniden oku" denir | ✅ (kullanıcı isteği: otomatik yeniden gönderim bekliyor, bkz. §6) |
+| Soru giderken bağlantı düştü | Soru "gitmedi" işaretlenir, bağlantı onarılır, "Bağlantı yeniden onarıldı. Sorunuz yarım kaldıysa son soruyu tekrar okuyunuz" denir (akıllı devam kapalıysa eski cümle) | ✅ (otomatik yeniden gönderim bekliyor, bkz. §7) |
 | Kota / anahtar reddi / sunucu hatası / boş yanıt | 4 profil sırayla; arızalı profil dinlenir, cevap yedekten gelirse sebebi kırmızı kutuda | ✅ |
 | İçerik engeli, harcama sınırı, çok büyük istek | Başka modele geçilmez; ne olduğu söylenir, dinlemeye dönülür | ✅ |
-| **Gemini takıldı** (bağlantı var, cevap gelmiyor) | Son profil dışında 40 sn; **son profilde 120 sn + 3 sunucu yeniden denemesi → en kötü durumda yaklaşık 8–10 dk sessiz bekleme** | ⚠️ açık |
+| **Gemini takıldı** (bağlantı var, cevap gelmiyor) | "Cevapla"dan sonra "soru gönderildi, cevap bekleniyor"; 30 sn'de bir "Cevap bekleniyor"; **180 sn'de bekleme bırakılır** (istek iptal, soru "gitmedi", "soruyu tekrar okuyun", dinlemeye dönülür; onarım başlatmaz). Ayar kapalıysa eski davranış (en kötü ~8–10 dk sessizlik) | ✅ |
 | Yavaş hatta büyük ses kaydı zaman aşımına uğrar | Zaman aşımı → sıradaki profil (aynı büyük kayıtla) → hepsi dolarsa "soruyu yeniden oku" | ⚠️ açık |
 | Gemini beklenirken arama gelir / elle duraklatılır / ikinci "Cevapla" | Soru "gitmedi" olur ya da yok sayılır; geç gelen cevap duraklatılmış oturumu bozmaz | ✅ |
 
@@ -51,7 +51,10 @@ Durum: ✅ önlem var ve testli · 🛠 bu incelemede bulundu ve düzeltildi · 
 | **Ses dosyası klasöre yazılamadı** (yer doldu, klasör erişimi gitti) | Eskiden fark edilmiyordu. Kırmızı kutu + kulaklıktan söylenir; sonraki başarılı kayıtta silinir | 🛠 |
 | **cevaplar.txt yazılamadı** | Aynı şekilde bildirilir; dosya açılamazsa üzerine yazılmaz (eski satırlar kaybolmasın) | 🛠 |
 | Gemini "Soru: 3, …" / "Soru No 3 - …" / ```` ``` ```` çitli / başlıklı yazar | Numara ve şık çözülür; çözülemezse ham satır numarayla okunur | 🛠 |
-| Soru numarası okunmadı / çakıştı | Önce okunan, sonra Gemini'nin duyduğu, sonra sıradaki; aynı numaralı eski dosya silinir | ✅ |
+| Soru numarası okunmadı / çakıştı | Program "Lütfen okuduğunuz sorunun numarasını söyleyin" der; söylenen numara sorunun başına yazılıp gönderilir ("sıradaki" = sıradaki numara). Söylenmezse 2 hatırlatma, sonra sıradaki numarayla gider. Sıra: okunan → söylenen → Gemini'nin duyduğu → sıradaki; aynı numaralı eski dosya silinir | ✅ |
+| Birkaç soru aynı paragrafa dayanıyor | "Ortak paragraf … Tamamlandı" → "Paragraf metnini aldım, hangi sorular için?" → numaralar + "Cevapla". Paragraf (ve sesi) ait olduğu her soruyla gider; hepsi cevaplanınca bırakılır | ✅ |
+| Okurken kesinti oldu (uzun soru/paragraf) | Onarımdan sonra numara ve en son cümle söylenir, kullanıcı devam eder, metinler birleşir. Uygulama tümüyle kapanırsa yarım metin ve paragraf kaybolur (yalnız bellekte) | ✅ (⚠️ kapanmada kayıp) |
+| Numara/paragraf numarası beklerken kesinti | Bekleyen soru ya da paragraf korunur; onarımdan sonra aynı şey yeniden sorulur | ✅ |
 | Okurken kulaklık koptu | Cevap kayıtlıdır, dönünce yeniden okunur | ✅ |
 
 ## 5. Telefon ve uygulama
@@ -81,6 +84,9 @@ mikrofon tamponu, Kestirme sonuçları, Gemini hata/takılma, okuma hatası/tak�
 Her adımda "dinliyor aşamasında dinleyici çalışıyor" değişmezi; dizi sonunda her şey düzeltilip **oturumun kendiliğinden dinlemeye dönmesi**,
 Kestirme ve anons sayılarının sınırlı kalması aranır. İki zaman kipi vardır: gerçek zamana yakın (yarım saniyelik adım) ve hamle (zaman tek seferde geçer).
 
+Okuma komutları açık (numara sorma, ilerleme anonsu, akıllı devam) ek iki tarama daha vardır; havuza numara söyleme, "ortak paragraf … Tamamlandı",
+paragrafın soru numaraları, "sıradaki" ve yarım okuma olayları eklenir; "numara bekleniyor ama bekleyen soru yok" gibi değişmezler de aranır.
+
 Sistem olayları (bellek uyarısı, ısı, düşük güç, boş yer) havuza eklendi. Geniş tarama (1500 gerçekçi + 2500 hamle tohumu, 29 olay) **0 hata** verdi;
 kalıcı sayı 300 + 500'dür.
 
@@ -90,7 +96,7 @@ yol bildirimi ve onarım sınırı aynı anda üst üste gelince tetikleniyordu.
 
 ## 7. Bekleyen kararlar ve öneriler
 
-1. **Gemini'nin takılması:** toplam bekleme sınırı (öneri ≈ 150 sn), 20 sn'de bir kısa "cevap bekleniyor" ve süre dolunca "Gemini cevap vermedi, soruyu yeniden oku". İstediğiniz 1. madde ("soru gönderildi, cevap bekleniyor") ile aynı koda dokunur; birlikte yapılması önerilir.
+1. ~~Gemini'nin takılması~~ **Yapıldı:** 180 sn sınır, 30 sn'de bir "cevap bekleniyor", "soru gönderildi" anonsu. Ayrıntı: §2.
 2. **Zaman aşımında ses kaydı:** ilk profil zaman aşımına uğrarsa sıradaki profile yalnız metinle (kayıtsız) gitmek; doğruluğu biraz düşürür, ama yavaş hatta cevabı kurtarır. Karar sizin.
 3. **Kestirmeler "Kapatıldı" otomasyonu:** gerçek telefonda denenmeli (kaydırıp kapatınca açılıyor mu, kilitliyken ne oluyor; Testi Bitir sonrası ve Kestirmeler'e geçerken pano işareti sayesinde geri çekmiyor mu).
 4. **Cihaz günlüğü:** ilk beklenmedik kapanmadan sonra "Tanı ve günlük"ten günlük istenmeli; neden tahmini günlüğün ipucuna dayanır, kesin değildir.
