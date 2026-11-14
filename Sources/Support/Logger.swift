@@ -73,6 +73,16 @@ final class AppLog: ObservableObject {
         DispatchQueue.main.async { self.lines.removeAll() }
     }
 
+    /// Dosyadaki son satırlar: önceki çalışmaların sonu ve bu çalışma, açılış işaretleriyle ayrılmış. Uygulama beklenmedik kapanıp yeniden
+    /// açıldıysa kapanmanın kanıtı (kalan bellek, ısı, takılma gecikmeleri, son olaylar) önceki çalışmanın sonundadır; ekrandaki liste onu göstermez.
+    /// Dosya okunamazsa ekrandaki satırlar döner.
+    func recentLines(maxLines: Int) -> [String] {
+        flush()
+        guard let file = file, let text = try? String(contentsOf: file, encoding: .utf8) else { return Array(lines.suffix(maxLines)) }
+        let all = text.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
+        return Array(all.suffix(maxLines))
+    }
+
     /// Bekleyen satırların dosyaya yazılmasını bekler (uygulama kendini kapatmadan önce)
     func flush() {
         queue.sync { }

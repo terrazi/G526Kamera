@@ -168,6 +168,36 @@ final class DeepReviewTests: XCTestCase {
         XCTAssertNil(journal.beginRun().passage)
     }
 
+    // MARK: Günlüğü kopyala
+
+    func testCopiedLogIncludesTheEndOfThePreviousRunAfterARelaunch() {
+        let url = makeTempFolder("g526-gunluk-kopya").appendingPathComponent("gunluk.txt")
+        let first = AppLog(file: url)
+        first.log("[sistem] bellek: kalan 310 MB")
+        first.log("[sistem] iOS bellek uyarısı verdi")
+        first.log("[gözcü] nabız 7.5 sn gecikti")
+        first.flush()
+        // Uygulama burada beklenmedik kapandı; yeniden açılış yeni bir AppLog yaratır
+        let second = AppLog(file: url)
+        second.log("[açılış] önceki çalışma: beklenmedik kapanma")
+        let copied = second.recentLines(maxLines: 800)
+        XCTAssertTrue(copied.contains { $0.contains("iOS bellek uyarısı") }, "Kapanan çalışmanın kanıtı kopyaya girer: \(copied)")
+        XCTAssertTrue(copied.contains { $0.contains("nabız 7.5 sn gecikti") })
+        XCTAssertTrue(copied.contains { $0.contains("[açılış] önceki çalışma") }, "Yeni çalışmanın satırları da vardır")
+        let markers = copied.enumerated().filter { $0.element.hasPrefix(AppLog.startMarker) }.map { $0.offset }
+        XCTAssertEqual(markers.count, 2, "İki çalışma açılış işaretleriyle ayrılır")
+    }
+
+    func testCopiedLogKeepsOnlyTheNewestLines() {
+        let url = makeTempFolder("g526-gunluk-kirp").appendingPathComponent("gunluk.txt")
+        let log = AppLog(file: url)
+        for i in 1...50 { log.log("satır \(i)") }
+        let copied = log.recentLines(maxLines: 10)
+        XCTAssertEqual(copied.count, 10)
+        XCTAssertTrue(copied.last?.hasSuffix("satır 50") == true)
+        XCTAssertTrue(copied.first?.hasSuffix("satır 41") == true)
+    }
+
     // MARK: Çok uzun paragraf sesi
 
     func testTruncatedPassageAudioIsReportedToGemini() async {

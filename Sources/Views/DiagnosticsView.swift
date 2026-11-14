@@ -15,7 +15,8 @@ struct DiagnosticsView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             HStack {
                 Button(copied ? "Kopyalandı" : "Günlüğü kopyala") {
-                    UIPasteboard.general.string = info + "\n\n" + log.lines.joined(separator: "\n")
+                    // Dosyadan okunur: uygulama kapanıp yeniden açıldıysa önceki çalışmanın sonu da gelir (kapanma nedeni orada aranır)
+                    UIPasteboard.general.string = info + "\n\n" + log.recentLines(maxLines: 800).joined(separator: "\n")
                     copied = true
                 }
                 Spacer()
