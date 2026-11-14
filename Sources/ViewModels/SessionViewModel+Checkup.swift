@@ -111,7 +111,9 @@ extension SessionViewModel {
         if let resumed = resume {
             // Beklenmedik kapanmadan sonra yeniden açıldık: ne olduğu söylenir, yarım kalan soru tamamlanır. Anons yarıda kesilirse
             // (kulaklık koptu) `resume` durur ve kontrol yol dönünce baştan yapılır.
-            guard await speakNotice(Say.resumed(cause: resumed.cause, downSeconds: resumed.downSeconds, pending: resumed.pending)) else { return }
+            var notice = Say.resumed(cause: resumed.cause, downSeconds: resumed.downSeconds, pending: resumed.pending)
+            if let context = passage, !context.remaining.isEmpty { notice += " " + Say.resumedPassage(context.remaining) }
+            guard await speakNotice(notice) else { return }
             pendingStart = false
             resume = nil
             if let pending = resumed.pending {

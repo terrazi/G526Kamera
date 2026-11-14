@@ -380,7 +380,7 @@ extension SessionViewModel {
         }
         if let record = unheard {
             // Cevap alınmış ve kaydedilmişti, yalnız kulaklıktan duyulamamıştı: soruyu yeniden okutmadan cevabı tekrar söyle
-            guard await speakNotice(record.spoken) else { return }
+            guard await rereadUnheard(record) else { return }
             unheard = nil
             beginListening()
             return

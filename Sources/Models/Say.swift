@@ -63,6 +63,11 @@ enum Say {
         return text
     }
 
+    /// Kapanmadan önceki ortak paragraf geri yüklendi (ses kaydı kayboldu, metin kaldı)
+    static func resumedPassage(_ numbers: [Int]) -> String {
+        return "Ortak paragraf yazı olarak korundu: \(QuestionComposer.listText(numbers)) numaralı sorular için geçerli."
+    }
+
     static func duration(_ seconds: Int) -> String {
         return seconds < 90 ? "\(seconds) saniye" : "\(seconds / 60) dakika"
     }

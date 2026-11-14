@@ -133,6 +133,7 @@ final class FakeListener: SpeechListening {
 
 final class FakeRecorder: QuestionRecording {
     var data: Data? = Data([1, 2, 3, 4])
+    var truncated = false
     private(set) var resetCalls = 0
     var duration: TimeInterval { return data == nil ? 0 : 1 }
     func reset() { resetCalls += 1 }
@@ -395,6 +396,8 @@ final class FakeJournal: RunJournaling {
     }
     func heartbeat() { heartbeats += 1 }
     func savePending(_ work: PendingWork?) { pending = work }
+    private(set) var passage: SavedPassage?
+    func savePassage(_ passage: SavedPassage?) { self.passage = passage }
     func saveNextNumber(_ number: Int) { nextNumber = number }
     func saveFolder(_ name: String?) { folder = name }
     func markDeliberateClose() {

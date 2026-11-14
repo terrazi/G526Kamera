@@ -17,9 +17,9 @@ final class SessionViewModel: ObservableObject {
         static let hardwareGrace: TimeInterval = 20
         /// Donanım geri geldikten sonra bu kadar süre sabit kalırsa devam edilir
         static let routeStable: TimeInterval = 1
-        /// Numara istenince söylenen numara bu kadar sn sabit kalırsa soru gönderilir; numara hiç söylenmezse bu kadar kez hatırlatılır
         /// Yarım okuma kesilince (kesinti sonrası) devam ettirmek için eldeki metnin en az sözcük sayısı
         static let partialMinWords = 4
+        /// Numara istenince söylenen numara bu kadar sn sabit kalırsa soru gönderilir; numara hiç söylenmezse en çok bu kadar kez hatırlatılır
         static let numberConfirm: TimeInterval = 1.5
         static let numberReminderLimit = 2
         /// Cevap beklerken "cevap bekleniyor" anonsu bu aralıkla (sn) söylenir; bu süre dolarsa (sn) bekleme bırakılır
@@ -121,6 +121,7 @@ final class SessionViewModel: ObservableObject {
                         // kontrolde takılıp bittiyse "kaldığınız yerden sürüyorum" demesin, eski yarım iş yeniden sorulmasın)
                         resume = nil
                         deps.journal.savePending(nil)
+                        deps.journal.savePassage(nil)
                     }
                 }
                 drainAnnouncementsIfQuiet()
@@ -151,7 +152,13 @@ final class SessionViewModel: ObservableObject {
     /// Mikrofonun şu an ne için açık olduğu (soru, ortak paragraf, paragrafın soru numaraları, eksik soru numarası)
     @Published var listenMode: ListenMode = .question
     /// Kayıtlı ortak paragraf (ait olduğu sorular cevaplanınca bırakılır)
-    @Published var passage: PassageContext?
+    @Published var passage: PassageContext? {
+        didSet {
+            guard passage != oldValue else { return }
+            // Uygulama beklenmedik kapanırsa paragraf (yalnız metin) defterde durur ve yeniden açılışta geri yüklenir
+            deps.journal.savePassage(passage.map { SavedPassage(text: $0.text, english: $0.english, all: $0.all, remaining: $0.remaining) })
+        }
+    }
 
     // MARK: Bağımlılıklar
 
@@ -301,6 +308,11 @@ final class SessionViewModel: ObservableObject {
     func start() {
         guard phase.isAtRest else { return }
         resetSession()
+        // Beklenmedik kapanmadan sonra ortak paragraf yalnız metin olarak geri gelir (ses kaydı bellekteydi, kayboldu)
+        if let saved = resume?.passage, !saved.remaining.isEmpty {
+            passage = PassageContext(text: saved.text, english: saved.english, audio: nil, all: saved.all, remaining: saved.remaining)
+            tlog("[paragraf] kapanmadan önceki ortak paragraf yazı olarak geri yüklendi (\(QuestionComposer.listText(saved.remaining)) numaralı sorular)")
+        }
         phase = .checking
         deps.screen.keepAwake(true)
         deps.network.start()
@@ -359,12 +371,14 @@ final class SessionViewModel: ObservableObject {
         guard !run.loop else {
             deps.journal.setSessionOpen(false)
             deps.journal.savePending(nil)
+            deps.journal.savePassage(nil)
             warn("kapanma", Say.restartLoop)
             tlog("[açılış] kısa sürede art arda beklenmedik kapanma: otomatik başlatma durduruldu")
             return
         }
         guard phase.isAtRest else { return }
-        resume = ResumeInfo(cause: cause, downSeconds: run.downSeconds, pending: run.pending, nextNumber: run.nextNumber, folder: run.folder)
+        resume = ResumeInfo(cause: cause, downSeconds: run.downSeconds, pending: run.pending, nextNumber: run.nextNumber, folder: run.folder,
+                            passage: run.passage)
         tlog("[açılış] oturum kendiliğinden yeniden başlatılıyor (kapalı kalma: \(run.downSeconds.map { "\($0) sn" } ?? "bilinmiyor"), yarım iş: \(run.pending == nil ? "yok" : "var"))")
         start()
     }
@@ -752,6 +766,7 @@ final class SessionViewModel: ObservableObject {
         let text = PassageCommand.stripStart(match.question)
         let english = settings.englishDictation ? englishAccumulator.text : ""
         let audio: Data? = settings.sendAudio ? deps.recorder.wavData() : nil
+        let audioTruncated = audio != nil && deps.recorder.truncated
         closeListening()
         liveText = ""
         phase = .speaking
@@ -764,7 +779,7 @@ final class SessionViewModel: ObservableObject {
             }
             return
         }
-        passageDraft = PassageDraft(text: text, english: english, audio: audio)
+        passageDraft = PassageDraft(text: text, english: english, audio: audio, audioTruncated: audioTruncated)
         listenMode = .passageTargets
         tlog("[paragraf] ortak paragraf alındı (\(text.count) karakter); hangi sorulara ait olduğu soruluyor")
         work = Task { [weak self] in
@@ -793,7 +808,8 @@ final class SessionViewModel: ObservableObject {
             }
             return
         }
-        passage = PassageContext(text: draft.text, english: draft.english, audio: draft.audio, all: numbers, remaining: numbers)
+        passage = PassageContext(text: draft.text, english: draft.english, audio: draft.audio, all: numbers, remaining: numbers,
+                                 audioTruncated: draft.audioTruncated)
         passageDraft = nil
         listenMode = .question
         tlog("[paragraf] ortak paragraf \(QuestionComposer.listText(numbers)) numaralı sorular için kaydedildi")
@@ -967,6 +983,8 @@ final class SessionViewModel: ObservableObject {
                     unheard = nil
                     clearWarning("ses")
                     tlog("[ses] okuma ikinci denemede oldu: soru \(record.number)")
+                    verifyRecording(number: record.number, requested: sessionFolder != nil)   // yeniden okuma dosya yazmaz: eksikse kırmızı kutuda görünür
+                    refreshReplayAvailability()
                 } catch SpeakError.routeUnsafe {
                     enterHardwarePause(AudioRouting.verdict(deps.route.snapshot()))
                     return
@@ -983,7 +1001,7 @@ final class SessionViewModel: ObservableObject {
     }
 
     /// Cevabın ses dosyası klasöre gerçekten yazıldı mı: yazılamadıysa (yer doldu, klasör erişimi gitti) kırmızı kutuda ve kulaklıktan bildirilir
-    private func verifyRecording(number: Int, requested: Bool) {
+    func verifyRecording(number: Int, requested: Bool) {
         guard requested, let folder = sessionFolder else { return }
         let saved = deps.library.answerFiles(in: folder).contains { AnswerLibrary.questionNumber(fromFileName: $0.lastPathComponent) == number }
         if saved {
@@ -1006,14 +1024,28 @@ final class SessionViewModel: ObservableObject {
         if await speakNotice(Say.geminiFailure(error)) { beginListening() }
     }
 
-    /// Kısa anons: kaydedilmez, yalnız kulaklıktan çalar. Sonuna kadar çalındıysa true.
+    /// Duyulmamış cevabı yeniden okur. Okuma sentez sırasında kesilmişse soru_N dosyası silinmiştir: bu okumada yeniden yazılır, yoksa test
+    /// sonundaki tekrar bu cevabı atlardı. Dosya duruyorsa (kesinti çalma sırasında olduysa) üzerine yazılmaz. Sonuna kadar okunduysa true.
+    func rereadUnheard(_ record: AnswerRecord) async -> Bool {
+        var base: URL?
+        if let folder = sessionFolder {
+            let exists = deps.library.answerFiles(in: folder).contains { AnswerLibrary.questionNumber(fromFileName: $0.lastPathComponent) == record.number }
+            if !exists { base = deps.library.fileBase(question: record.number, in: folder) }
+        }
+        guard await speakNotice(record.spoken, saveAs: base) else { return false }
+        verifyRecording(number: record.number, requested: base != nil)
+        refreshReplayAvailability()
+        return true
+    }
+
+    /// Kısa anons: yalnız kulaklıktan çalar; `saveAs` verilmedikçe kaydedilmez. Sonuna kadar çalındıysa true.
     @discardableResult
-    func speakNotice(_ text: String) async -> Bool {
+    func speakNotice(_ text: String, saveAs: URL? = nil) async -> Bool {
         phase = .speaking
         await settleAnnouncements()   // önce bekleyen uyarılar, sonra bu anons
         guard !Task.isCancelled, phase == .speaking else { return false }
         do {
-            try await deps.speaker.speak(text, saveAs: nil)
+            try await deps.speaker.speak(text, saveAs: saveAs)
         } catch SpeakError.routeUnsafe {
             enterHardwarePause(AudioRouting.verdict(deps.route.snapshot()))
             return false

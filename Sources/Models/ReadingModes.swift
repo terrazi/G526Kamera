@@ -21,6 +21,8 @@ struct PassageContext: Equatable {
     var all: [Int]
     /// Henüz cevaplanmamış olanlar; hepsi cevaplanınca paragraf bırakılır
     var remaining: [Int]
+    /// Paragraf o kadar uzun okundu ki kaydın başı bellek sınırı yüzünden atıldı (metin tam, ses eksik)
+    var audioTruncated = false
 }
 
 /// "Tamamlandı" denmiş ama hangi sorulara ait olduğu henüz söylenmemiş paragraf
@@ -28,6 +30,7 @@ struct PassageDraft: Equatable {
     var text: String
     var english: String
     var audio: Data?
+    var audioTruncated = false
 }
 
 /// Numarası okunmadığı için numara beklenirken tutulan soru
@@ -131,6 +134,9 @@ enum QuestionComposer {
     static func withPassage(question: String, passage: PassageContext, audioCombined: Bool) -> String {
         var text = "Ortak paragraf (\(listText(passage.all)) numaralı sorular için ortaktır; soruyu bu paragrafa göre çöz):\n\(passage.text)"
         if audioCombined { text += "\n\n(Ses kaydında önce ortak paragraf, ardından soru okunuyor.)" }
+        if audioCombined && passage.audioTruncated {
+            text += "\n(Paragraf çok uzun okunduğu için ses kaydında paragrafın ilk bölümü yok; paragrafın tamamı yukarıdaki dikte metnindedir, eksik bölüm için onu esas al.)"
+        }
         return text + "\n\nŞimdi sorulan soru:\n\(question)"
     }
 

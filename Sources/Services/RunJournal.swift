@@ -13,6 +13,14 @@ struct PendingWork: Codable, Equatable {
     var spoken: String?
 }
 
+/// Kayıtlı ortak paragrafın kalıcı hâli (ses kaydı kalıcı tutulmaz: yalnız metin). Uygulama beklenmedik kapanırsa sonraki sorular yine paragrafla gider.
+struct SavedPassage: Codable, Equatable {
+    var text: String
+    var english: String
+    var all: [Int]
+    var remaining: [Int]
+}
+
 /// Önceki çalışmanın nasıl bittiği
 enum PreviousExit: Equatable {
     /// Uygulama ilk kez açılıyor
@@ -45,6 +53,8 @@ struct RunStart: Equatable {
     var downSeconds: Int?
     /// Kısa sürede art arda beklenmedik kapanma oldu: açılış döngüsüne girmemek için otomatik başlatma yapılmaz
     var loop: Bool
+    /// Oturum sürerken kayıtlı ortak paragraf (varsa)
+    var passage: SavedPassage? = nil
 
     static let fresh = RunStart(exit: .firstRun, pending: nil, nextNumber: 1, folder: nil, downSeconds: nil, loop: false)
 }
@@ -56,6 +66,7 @@ struct ResumeInfo: Equatable {
     var pending: PendingWork?
     var nextNumber: Int
     var folder: String?
+    var passage: SavedPassage? = nil
 }
 
 /// Çalışmalar arası kalıcı defter: oturum açık mı, yarım kalan iş, sıradaki soru numarası, son nabız. Beklenmedik kapanma buradan ve
@@ -68,6 +79,8 @@ protocol RunJournaling: AnyObject {
     /// Uygulamanın yaşadığının işareti (kapalı kalma süresini hesaplamak için)
     func heartbeat()
     func savePending(_ work: PendingWork?)
+    /// Kayıtlı ortak paragraf değişti (nil: yok)
+    func savePassage(_ passage: SavedPassage?)
     func saveNextNumber(_ number: Int)
     func saveFolder(_ name: String?)
     /// Kullanıcı kapattı: bir sonraki açılış bunu beklenmedik saymaz, Kestirmeler otomasyonu da yeniden açmaz
@@ -83,6 +96,7 @@ final class NoJournal: RunJournaling {
     func setSessionOpen(_ open: Bool) {}
     func heartbeat() {}
     func savePending(_ work: PendingWork?) {}
+    func savePassage(_ passage: SavedPassage?) {}
     func saveNextNumber(_ number: Int) {}
     func saveFolder(_ name: String?) {}
     func markDeliberateClose() {}
@@ -186,6 +200,7 @@ final class RunJournal: RunJournaling {
         static let deliberate = "journal.deliberateClose"
         static let alive = "journal.lastAlive"
         static let pending = "journal.pending"
+        static let passage = "journal.passage"
         static let next = "journal.nextNumber"
         static let folder = "journal.folder"
         static let unexpected = "journal.unexpectedTimes"
@@ -236,13 +251,16 @@ final class RunJournal: RunJournaling {
         }
         var pending: PendingWork?
         if let data = defaults.data(forKey: Key.pending) { pending = try? JSONDecoder().decode(PendingWork.self, from: data) }
+        var passage: SavedPassage?
+        if let data = defaults.data(forKey: Key.passage) { passage = try? JSONDecoder().decode(SavedPassage.self, from: data) }
         let next = max(1, defaults.integer(forKey: Key.next))
         return RunStart(exit: exit,
                         pending: pending,
                         nextNumber: next,
                         folder: defaults.string(forKey: Key.folder),
                         downSeconds: alive.map { Int(max(0, stamp - $0)) },
-                        loop: loop)
+                        loop: loop,
+                        passage: passage)
     }
 
     func setSessionOpen(_ open: Bool) {
@@ -275,6 +293,14 @@ final class RunJournal: RunJournaling {
             defaults.set(data, forKey: Key.pending)
         } else {
             defaults.removeObject(forKey: Key.pending)
+        }
+    }
+
+    func savePassage(_ passage: SavedPassage?) {
+        if let passage = passage, let data = try? JSONEncoder().encode(passage) {
+            defaults.set(data, forKey: Key.passage)
+        } else {
+            defaults.removeObject(forKey: Key.passage)
         }
     }
 

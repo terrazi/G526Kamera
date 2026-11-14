@@ -9,6 +9,12 @@ protocol QuestionRecording: AnyObject {
     /// Kayıt WAV olarak; hiç ses yoksa nil
     func wavData() -> Data?
     var duration: TimeInterval { get }
+    /// Kayıt dolup en eski ses atıldı mı (kaydın başı eksik); `reset()` ile sıfırlanır
+    var truncated: Bool { get }
+}
+
+extension QuestionRecording {
+    var truncated: Bool { return false }
 }
 
 /// İş parçacığı güvenli ses biriktirici. Mikrofon tamponlarını ses iş parçacığında alır, 16 kHz / tek kanal / Int16'ya çevirir.
@@ -19,6 +25,7 @@ final class PCMRecorder: QuestionRecording, @unchecked Sendable {
 
     private let lock = NSLock()
     private var samples: [Int16] = []
+    private var didTrim = false
     private var converter: AVAudioConverter?
     private var converterInput: AVAudioFormat?
     private let target = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: PCMRecorder.sampleRate, channels: 1, interleaved: true)
@@ -29,9 +36,16 @@ final class PCMRecorder: QuestionRecording, @unchecked Sendable {
         return Double(samples.count) / PCMRecorder.sampleRate
     }
 
+    var truncated: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return didTrim
+    }
+
     func reset() {
         lock.lock()
         samples.removeAll(keepingCapacity: true)
+        didTrim = false
         lock.unlock()
     }
 
@@ -84,7 +98,10 @@ final class PCMRecorder: QuestionRecording, @unchecked Sendable {
     private func trim() {
         let limit = Int(PCMRecorder.maxSeconds * PCMRecorder.sampleRate)
         let slack = Int(10 * PCMRecorder.sampleRate)
-        if samples.count > limit + slack { samples.removeFirst(samples.count - limit) }
+        if samples.count > limit + slack {
+            samples.removeFirst(samples.count - limit)
+            didTrim = true
+        }
     }
 
     // MARK: WAV
