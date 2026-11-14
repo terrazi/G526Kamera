@@ -48,6 +48,9 @@ struct HeldQuestion: Equatable {
 enum PassageCommand {
     /// Paragrafı bitiren sözcük
     static let finishWords = ["Tamamlandı", "Tamamlandi"]
+    /// Paragrafın hangi sorulara ait olduğunu söyledikten sonra söylenen sözcük. Burada hiçbir şey Gemini'ye gitmez, yalnız paragraf kaydedilir;
+    /// bu yüzden "Tamam" denir. Alışkanlıkla "Cevapla", "Gönder" ya da "Tamamlandı" denirse de aynı işi görür.
+    static let targetWords = ["Tamam", "Tamamlandı", "Tamamlandi", "Cevapla", "Gönder"]
 
     /// Metin "ortak paragraf" ile mi başlıyor (dikte "paragrafı" gibi ek de yazabilir)
     static func startsWith(_ text: String) -> Bool {

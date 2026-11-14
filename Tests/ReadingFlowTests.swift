@@ -173,14 +173,40 @@ final class ReadingFlowTests: XCTestCase {
 
     // MARK: Ortak paragraf
 
-    private func savePassage(_ h: SessionHarness, targets: String = "beş altı yedi") async {
+    private func savePassage(_ h: SessionHarness, targets: String = "beş altı yedi", closer: String = "Tamam") async {
         say(h, "Ortak paragraf Ali eve gitti. Sonra okula yürüdü Tamamlandı")
         let asked = await waitUntil { h.vm.phase == .listening && h.vm.listenMode == .passageTargets }
         XCTAssertTrue(asked)
         XCTAssertEqual(h.speaker.spoken.last, Say.passageTaken, "Paragraf metni alındı denir")
-        say(h, targets + " Cevapla")
+        say(h, targets + " " + closer)
         let saved = await waitUntil { h.vm.phase == .listening && h.vm.listenMode == .question && h.vm.passage != nil }
         XCTAssertTrue(saved)
+    }
+
+    func testPassageTargetsAreClosedWithTamamAndNothingGoesToGemini() async {
+        let h = harness()
+        _ = await h.startListening()
+        await savePassage(h, targets: "beş altı yedi", closer: "Tamam")
+        XCTAssertEqual(h.vm.passage?.all, [5, 6, 7])
+        XCTAssertTrue(h.answering.calls.isEmpty, "Paragraf kaydedilir, Gemini'ye bir şey gitmez")
+    }
+
+    func testPassageTargetsAcceptDigitsAndQuestionWords() async {
+        for targets in ["5, 6, 7", "5. soru, 6. soru, 7. soru", "beşinci soru, altıncı soru, yedinci soru"] {
+            let h = harness()
+            _ = await h.startListening()
+            await savePassage(h, targets: targets, closer: "Tamam")
+            XCTAssertEqual(h.vm.passage?.all, [5, 6, 7], targets)
+        }
+    }
+
+    func testPassageTargetsStillAcceptTheOldClosingWords() async {
+        for closer in ["Cevapla", "Gönder", "Tamamlandı"] {
+            let h = harness()
+            _ = await h.startListening()
+            await savePassage(h, targets: "beş altı yedi", closer: closer)
+            XCTAssertEqual(h.vm.passage?.all, [5, 6, 7], closer)
+        }
     }
 
     func testPassageIsSentWithItsQuestionsAndReleasedWhenAllAreAnswered() async {

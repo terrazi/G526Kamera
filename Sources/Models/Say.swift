@@ -41,9 +41,9 @@ enum Say {
     static let askNumberAgain = "Soru numarasını duyamadım. Lütfen sorunun numarasını söyleyin. Numarayı bilmiyorsanız sıradaki deyin, sıradaki numara verilir."
     static let recoveredAskNumber = "Bağlantı yeniden onarıldı. Lütfen okuduğunuz sorunun numarasını söyleyin."
 
-    static let passageTaken = "Paragraf metnini aldım. Bu paragraf hangi sorular için? Soru numaralarını söyleyip Cevapla deyin."
-    static let passageTargetsAgain = "Soru numaralarını anlayamadım. Paragrafın hangi sorulara ait olduğunu numaralarla söyleyip Cevapla deyin."
-    static let recoveredAskTargets = "Bağlantı yeniden onarıldı. Paragraf metnini aldım. Hangi sorulara ait olduğunu söyleyip Cevapla deyin."
+    static let passageTaken = "Paragraf metnini aldım. Bu paragraf hangi sorular için? Soru numaralarını söyleyip Tamam deyin."
+    static let passageTargetsAgain = "Soru numaralarını anlayamadım. Paragrafın hangi sorulara ait olduğunu numaralarla söyleyip Tamam deyin."
+    static let recoveredAskTargets = "Bağlantı yeniden onarıldı. Paragraf metnini aldım. Hangi sorulara ait olduğunu söyleyip Tamam deyin."
     static let passageEmpty = "Paragraf metni boş kaldı. Ortak paragraf deyip paragrafı yeniden okuyun."
     static func passageReady(_ numbers: [Int]) -> String {
         return "Ortak paragraf \(QuestionComposer.listText(numbers)) numaralı sorular için kaydedildi. Şimdi soruları okuyabilirsiniz."

@@ -675,13 +675,15 @@ final class SessionViewModel: ObservableObject {
         let text = accumulator.text
         var delay = Timing.triggerConfirm
         switch listenMode {
-        case .question, .passageTargets:
+        case .question:
             // Tek başına söylenen komut ("testi bitir"): kısa süre sabit kalırsa çalışır, "Cevapla" demek gerekmez
-            if listenMode == .question, VoiceCommand.parse(text) != nil {
+            if VoiceCommand.parse(text) != nil {
                 confirmTask = deps.scheduler.after(Timing.numberConfirm) { [weak self] in self?.fireVoiceCommand() }
                 return
             }
             guard TriggerDetector.match(in: text) != nil else { return }
+        case .passageTargets:
+            guard TriggerDetector.match(in: text, words: PassageCommand.targetWords) != nil else { return }
         case .passage:
             guard TriggerDetector.match(in: text, words: PassageCommand.finishWords) != nil else { return }
         case .missingNumber:
@@ -961,7 +963,7 @@ final class SessionViewModel: ObservableObject {
 
     /// Paragrafın ait olduğu soru numaraları ("beş altı yedi, Cevapla") alınır; paragraf o sorularla birlikte gider
     private func fireTargets() {
-        guard let match = TriggerDetector.match(in: accumulator.text) else { return }
+        guard let match = TriggerDetector.match(in: accumulator.text, words: PassageCommand.targetWords) else { return }
         let numbers = SpokenNumber.list(from: match.question)
         closeListening()
         liveText = ""

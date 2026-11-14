@@ -117,7 +117,15 @@ final class ReadingModesTests: XCTestCase {
             ("yedi", [7]),
             ("yirmi bir yirmi iki", [21, 22]),
             ("7 ile 5 arası", [5, 7]),
-            ("üç beş üç", [3, 5])
+            ("üç beş üç", [3, 5]),
+            ("5, 6, 7", [5, 6, 7]),
+            ("5, 6 ve 7", [5, 6, 7]),
+            ("5. soru, 6. soru, 7. soru", [5, 6, 7]),
+            ("5.soru 6.soru 7.soru", [5, 6, 7]),
+            ("beşinci soru, altıncı soru, yedinci soru", [5, 6, 7]),
+            ("soru 5, soru 6 ve soru 7", [5, 6, 7]),
+            ("5'inci soru, 7'nci soru", [5, 7]),
+            ("12. soru, 13. soru", [12, 13])
         ]
         for (text, expected) in cases {
             XCTAssertEqual(SpokenNumber.list(from: text), expected, text)
