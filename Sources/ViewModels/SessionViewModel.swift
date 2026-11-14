@@ -578,7 +578,7 @@ final class SessionViewModel: ObservableObject {
             answers.sort { $0.number < $1.number }
         }
         if let folder = sessionFolder, !deps.library.appendTranscript(record.spoken, in: folder) {
-            warn("kayit", Say.transcriptFailed)
+            warn("yazi", Say.transcriptFailed)
         }
     }
 

@@ -65,7 +65,8 @@ extension SessionViewModel {
             return
         }
         switch phase {
-        case .listening, .answering, .speaking:
+        case .listening, .answering, .speaking, .recovering:
+            // Onarım sürerken de (arama onarımın ortasında gelebilir): sıfırlama kestirmeleri aramayı keserdi, onarım bırakılır
             interruptionActive = true
             pauseForHardware(summary: "ses kesintisi",
                              detail: "ses kesintisi (arama, alarm ya da Siri). Bitince kendiliğinden devam edilir.",
@@ -294,7 +295,9 @@ extension SessionViewModel {
 
     /// `force`: sorun ses yoluna bakarak görülemiyorsa (mikrofon donmuş) Kestirmeler yine de çalıştırılır
     func runRecovery(_ reason: RecoveryReason, force: Bool = false) async {
-        guard canRecover else { return }
+        // İptal edilmiş bir görev (kuyruğa alınmış ama başlamadan başka bir olay işi iptal etmiş) hiçbir şeye dokunmaz:
+        // yoksa aşamayı "onarılıyor" yapıp çıkar ve oturum kalıcı olarak takılırdı
+        guard canRecover, !Task.isCancelled else { return }
         if reason == .hardware, hardwareRecoveries >= Timing.maxHardwareRecoveries {
             // Art arda onarıldı ama mikrofon yine çalışmıyor: sonsuz sıfırlama döngüsüne girme, uyar, bir süre sonra bir kez daha dene
             hardwareRecoveries = Timing.maxHardwareRecoveries - 1
@@ -413,7 +416,7 @@ extension SessionViewModel {
     /// kurulur ve dinleme KANITLANARAK açılır; "hazır" yalnız kanıttan sonra söylenir. Kanıtlanamazsa gerçek durum söylenir ve her
     /// `recognizerRetry` saniyede bir yeniden denenir. `quiet`: yeniden denemelerde anons tekrarlanmaz.
     func repairRecognizer(_ detail: String, quiet: Bool = false) async {
-        guard canRecover else { return }
+        guard canRecover, !Task.isCancelled else { return }
         recognizerRepairs += 1
         tlog("[onarım] konuşma tanıma düşüyor (\(detail)); ses yolu sağlam, yalnız tanıma yeniden kuruluyor (\(recognizerRepairs). kez)")
         accumulator.commitCurrent()

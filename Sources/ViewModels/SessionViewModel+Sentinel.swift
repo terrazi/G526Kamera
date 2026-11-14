@@ -75,6 +75,7 @@ extension SessionViewModel {
         if micHealCount > Timing.maxMicHeals {
             micHealCount = 0
             warn("mikrofon", "Mikrofon art arda yeniden kurulamadı; Kestirmelerle onarılıyor.")
+            work?.cancel()   // kuyrukta bekleyen eski bir onarım görevi varsa o düşer; tek onarım çalışır
             work = Task { [weak self] in await self?.runRecovery(.hardware, force: true) }
             return
         }

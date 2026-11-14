@@ -24,7 +24,23 @@ final class ChaosTests: XCTestCase {
     private static let pool: [Int] = [0, 0, 0, 1, 2, 3, 3, 4, 5, 5, 5, 6, 7, 7, 8, 9, 9, 10, 11, 12, 13, 14, 14, 15, 16,
                                       17, 17, 17, 17, 18, 19, 20, 21, 22, 22, 23, 24, 25, 26, 26]
 
-    private func apply(_ code: Int, _ h: SessionHarness, _ rng: inout SeededGenerator) -> String {
+    /// Zamanı ilerletir. `burst`: süre tek hamlede geçer (tüm nöbetçi vuruşları görevlere nefes aldırmadan art arda çalışır; uç durum);
+    /// aksi hâlde yarım saniyelik adımlarla geçer ve her adımda görevlerin ilerlemesine izin verilir (gerçek zamana yakın).
+    private func pass(_ h: SessionHarness, _ seconds: TimeInterval, burst: Bool) async {
+        if burst {
+            h.scheduler.advance(by: seconds)
+            return
+        }
+        var left = seconds
+        while left > 0 {
+            let step = min(0.5, left)
+            h.scheduler.advance(by: step)
+            left -= step
+            await settle(8)
+        }
+    }
+
+    private func apply(_ code: Int, _ h: SessionHarness, _ rng: inout SeededGenerator, burst: Bool) async -> String {
         switch code {
         case 0:
             h.answering.results.append(.success(FakeAnswering.reply(Int.random(in: 1...40, using: &rng))))
@@ -59,7 +75,7 @@ final class ChaosTests: XCTestCase {
         case 17:
             let steps: [TimeInterval] = [0.5, 3, 12, 40, 90]
             let step = steps[Int.random(in: 0..<steps.count, using: &rng)]
-            h.scheduler.advance(by: step)
+            await pass(h, step, burst: burst)
             return "\(step) sn geçti"
         case 18: h.speaker.script = [SpeakError.failed("okuma hatası")]; return "okuma hatası"
         case 19: h.speaker.hold = true; return "okuma takıldı"
@@ -74,7 +90,7 @@ final class ChaosTests: XCTestCase {
     }
 
     /// Her şeyi düzeltir (kulaklık, mikrofon, internet, kestirme, Gemini, okuma, arama) ve oturumun kendiliğinden dinlemeye dönmesini bekler
-    private func healEverything(_ h: SessionHarness) async {
+    private func healEverything(_ h: SessionHarness, burst: Bool) async {
         h.speaker.hold = false
         h.speaker.script = []
         h.speaker.release()
@@ -94,19 +110,19 @@ final class ChaosTests: XCTestCase {
         h.battery.set(80, charging: true)
         if h.vm.phase == .paused(.manual) { h.vm.resumeByUser() }
         for _ in 0..<60 {
-            h.scheduler.advance(by: 15)
+            await pass(h, 15, burst: burst)
             await settle()
             if h.vm.phase == .paused(.manual) { h.vm.resumeByUser() }
             if h.vm.phase == .listening && h.listener.isRunning { break }
         }
         // Dinleme göründükten sonra da biraz zaman geçirilir: gecikmeli bir görev yeniden bozmasın
         for _ in 0..<6 {
-            h.scheduler.advance(by: 20)
+            await pass(h, 20, burst: burst)
             await settle()
         }
     }
 
-    private func runSequence(seed: UInt64) async -> [String] {
+    private func runSequence(seed: UInt64, burst: Bool) async -> [String] {
         var problems: [String] = []
         var rng = SeededGenerator(seed: seed)
         let h = SessionHarness()
@@ -118,7 +134,7 @@ final class ChaosTests: XCTestCase {
         let count = Int.random(in: 8...16, using: &rng)
         for step in 0..<count {
             let code = ChaosTests.pool[Int.random(in: 0..<ChaosTests.pool.count, using: &rng)]
-            let name = apply(code, h, &rng)
+            let name = await apply(code, h, &rng, burst: burst)
             log.append("\(step + 1). \(name)")
             await settle()
             // Değişmez 1: dinleme aşamasındaysa dinleyici gerçekten çalışıyor olmalı (yoksa kullanıcı konuşur, kimse duymaz)
@@ -132,7 +148,7 @@ final class ChaosTests: XCTestCase {
             }
         }
 
-        await healEverything(h)
+        await healEverything(h, burst: burst)
         // Canlılık: her şey düzelince oturum kendi kendine dinlemeye dönmeli
         if h.vm.phase != .listening {
             problems.append("her şey düzeldiği hâlde aşama '\(h.vm.phase)' (dinlemeye dönmedi)")
@@ -150,14 +166,28 @@ final class ChaosTests: XCTestCase {
         return problems
     }
 
+    /// Gerçek zamana yakın: zaman yarım saniyelik adımlarla geçer, görevler her adımda ilerler
     func testRandomOutagesNeverDeadlockTheSession() async {
         var failed = 0
-        for seed in 1...160 {
-            let problems = await runSequence(seed: UInt64(seed))
+        for seed in 1...100 {
+            let problems = await runSequence(seed: UInt64(seed), burst: false)
             if !problems.isEmpty {
                 failed += 1
                 XCTFail("tohum \(seed): " + problems.joined(separator: "; "))
                 if failed >= 6 { break }   // günlük şişmesin
+            }
+        }
+    }
+
+    /// Uç durum: ana iş parçacığı bir süre tıkanıp sayaçlar art arda ateşlenirse (ya da zaman tek hamlede geçerse) de oturum kilitlenmez
+    func testRandomOutagesWithBurstedTimeNeverDeadlockTheSession() async {
+        var failed = 0
+        for seed in 1...160 {
+            let problems = await runSequence(seed: UInt64(seed), burst: true)
+            if !problems.isEmpty {
+                failed += 1
+                XCTFail("tohum \(seed) (hamle): " + problems.joined(separator: "; "))
+                if failed >= 6 { break }
             }
         }
     }

@@ -90,7 +90,7 @@ final class ScenarioReviewTests: XCTestCase {
         h.ask("Birinci soru")
         let ok = await waitUntil { h.vm.answers.count == 1 && h.vm.phase == .listening }
         XCTAssertTrue(ok, "Yazı dosyası yazılamasa da cevap okunur ve oturum sürer")
-        XCTAssertEqual(warningText(h, "kayit"), Say.transcriptFailed)
+        XCTAssertEqual(warningText(h, "yazi"), Say.transcriptFailed)
         XCTAssertEqual(h.speaker.spoken.last, "Soru 1, Denizli, Örgütsel Davranış", "Cevap yine de okundu")
     }
 
@@ -150,6 +150,45 @@ final class ScenarioReviewTests: XCTestCase {
         XCTAssertEqual(h.answering.calls.count, 1, "Cevap beklenirken ikinci soru gitmez")
         h.answering.hold = false
         h.answering.release()
+    }
+
+    // MARK: Onarım görevi iptal edilirse oturum takılmaz
+
+    func testRecoveryTaskCancelledBeforeItStartsNeverLeavesTheSessionStuck() async {
+        let h = SessionHarness()
+        _ = await h.startListening()
+        // Dinlerken bir onarım görevi kuyruğa alınır; başlamadan yol gider ve iş iptal edilir
+        h.vm.work = Task { [weak vm = h.vm] in await vm?.runRecovery(.hardware, force: true) }
+        h.route.change(to: FakeRoute.noHeadphones)
+        await settle()
+        XCTAssertTrue(h.isHardwarePause, "İptal edilmiş görev aşamayı 'onarılıyor' yapıp takmaz: \(h.vm.phase)")
+        h.route.change(to: FakeRoute.good)
+        h.scheduler.advance(by: T.routeStable + 0.1)
+        let back = await waitUntil { h.vm.phase == .listening }
+        XCTAssertTrue(back, "Kulaklık dönünce oturum kendiliğinden devam eder")
+    }
+
+    func testCallStartingDuringRecoveryStopsTheRecoveryWithoutRunningShortcuts() async {
+        let h = SessionHarness()
+        _ = await h.startListening()
+        h.health.internet = false
+        h.shortcuts.outcome = .success
+        // Kestirme çalışırken (aşama: onarılıyor) telefon çalar
+        h.shortcuts.onRun = { [weak h] _ in h?.route.interrupt(began: true) }
+        h.network.set(online: false)
+        h.scheduler.advance(by: T.offlineDebounce + 0.1)
+        let calledInRecovery = await waitUntil { h.vm.interruptionActive }
+        XCTAssertTrue(calledInRecovery, "Onarım sürerken gelen arama kesinti olarak işlenir")
+        let runsAtCall = h.shortcuts.runs.count
+        await settle()
+        XCTAssertEqual(h.shortcuts.runs.count, runsAtCall, "Arama sürerken başka kestirme çalıştırılmaz (uçak modu aramayı keserdi)")
+        XCTAssertTrue(h.isHardwarePause)
+        h.route.interrupt(began: false)
+        h.health.internet = true
+        h.network.set(online: true)
+        h.scheduler.advance(by: T.routeStable + 0.1)
+        let back = await waitUntil { h.vm.phase == .listening }
+        XCTAssertTrue(back, "Arama bitince oturum devam eder")
     }
 
     // MARK: Art arda oturumlar
