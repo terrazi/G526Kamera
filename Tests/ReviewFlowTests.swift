@@ -207,6 +207,7 @@ final class ReviewFlowTests: XCTestCase {
         say(h, "soru yedi")
         let sent = await waitUntil { h.answering.calls.count == 2 }
         XCTAssertTrue(sent)
+        guard sent else { return }
         XCTAssertEqual(h.answering.calls[1].question, "Soru 7. Bir soru metni A B C")
     }
 
@@ -325,14 +326,17 @@ final class ReviewFlowTests: XCTestCase {
         say(h, "Ortak paragraf Ali eve gitti. Sonra okula yürüdü Tamamlandı")
         _ = await waitUntil { h.vm.listenMode == .passageTargets && h.vm.phase == .listening }
         say(h, "peş altı yeti Tamam")
-        let saved = await waitUntil { h.vm.passage != nil && h.vm.listenMode == .question }
+        // Dinleme yeniden açılmadan söylenen söz kaybolur: soru, dinleme açıldıktan sonra okunur
+        let saved = await waitUntil { h.vm.phase == .listening && h.vm.listenMode == .question && h.vm.passage != nil }
         XCTAssertTrue(saved)
         XCTAssertEqual(h.vm.passage?.all, [5, 6, 7], "'peş' ve 'yeti' beş ve yedi olarak anlaşıldı")
         h.ask("Bir soru metni A B C")
-        _ = await waitUntil { h.vm.listenMode == .missingNumber && h.vm.phase == .listening }
+        let asking = await waitUntil { h.vm.listenMode == .missingNumber && h.vm.phase == .listening }
+        XCTAssertTrue(asking, "Numara istenmedi")
         say(h, "peş")
         let sent = await waitUntil { h.answering.calls.count == 1 }
         XCTAssertTrue(sent)
+        guard sent else { return }
         XCTAssertEqual(h.answering.calls[0].expectedNumber, 5)
     }
 }
