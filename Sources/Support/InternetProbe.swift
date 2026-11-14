@@ -17,7 +17,7 @@ enum InternetProbe {
     static let address = targets[0].url
     static let timeout: TimeInterval = 10
     /// Nabız yoklamasının sınırı: yol ölüyse bu kadar sonra "yok" denir
-    static let quickTimeout: TimeInterval = 3
+    static let quickTimeout: TimeInterval = 5
 
     static func isOnline() async -> Bool {
         return await check().online
@@ -46,20 +46,28 @@ enum InternetProbe {
         return result.0 ? (true, "") : (false, result.1.joined(separator: ", "))
     }
 
-    /// Nabız: ilk iki adrese aynı anda, kısa sınırla; biri cevap verirse yol canlıdır
+    /// Nabız: üç adrese aynı anda, kısa sınırla; biri cevap verirse yol canlıdır. Başarısızlığın nedeni günlüğe yazılır
+    /// (yoklama güvenilmezse hangi adreste hangi hatanın çıktığı görülsün).
     static func quick() async -> Bool {
-        return await withTaskGroup(of: Bool.self) { group in
-            for t in targets.prefix(2) {
-                group.addTask { return await attempt(t, timeout: quickTimeout).ok }
-            }
-            for await ok in group {
-                if ok {
-                    group.cancelAll()
-                    return true
+        let result: (Bool, [String]) = await withTaskGroup(of: (Bool, String).self) { group in
+            for t in targets {
+                group.addTask {
+                    let r = await attempt(t, timeout: quickTimeout)
+                    return (r.ok, "\(t.host) \(r.reason)")
                 }
             }
-            return false
+            var failures: [String] = []
+            for await r in group {
+                if r.0 {
+                    group.cancelAll()
+                    return (true, [])
+                }
+                failures.append(r.1)
+            }
+            return (false, failures)
         }
+        if !result.0 { tlog("[tespit] yoklama başarısız: \(result.1.joined(separator: ", "))") }
+        return result.0
     }
 
     private static func attempt(_ target: Target, timeout: TimeInterval = InternetProbe.timeout) async -> (ok: Bool, reason: String) {

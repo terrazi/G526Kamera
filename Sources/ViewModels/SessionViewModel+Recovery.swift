@@ -14,6 +14,7 @@ extension SessionViewModel {
     }
 
     func pauseForHardware(summary: String, detail: String, grace: TimeInterval?) {
+        holdForRetry = false
         if outageStart == nil { outageStart = deps.now() }
         work?.cancel()
         work = nil
@@ -43,6 +44,7 @@ extension SessionViewModel {
         case .paused(.hardware):
             stableTask?.cancel()
             stableTask = nil
+            if !verdict.isSafe { holdForRetry = false }   // ses yolu gerçekten değişti: sınır beklemesi biter, yol dönünce devam edilir
             if verdict.isSafe {
                 // Hemen değil, kısa süre sabit kalırsa devam et (yol bildirimleri art arda gelir)
                 stableTask = deps.scheduler.after(Timing.routeStable) { [weak self] in self?.hardwareReturned() }
@@ -127,7 +129,7 @@ extension SessionViewModel {
 
     func hardwareReturned() {
         stableTask = nil
-        guard !interruptionActive, case .paused(.hardware) = phase,
+        guard !interruptionActive, !holdForRetry, case .paused(.hardware) = phase,
               AudioRouting.verdict(deps.route.snapshot()).isSafe else { return }
         hardwareGrace?.cancel()
         hardwareGrace = nil
@@ -142,6 +144,16 @@ extension SessionViewModel {
     func hardwareGraceExpired() {
         hardwareGrace = nil
         guard !interruptionActive, case .paused(.hardware) = phase else { return }
+        if holdForRetry {
+            // Sınır beklemesi doldu: ses yolu hâlâ sağlamsa bir kez daha denenir (yeniden başarısız olursa sınır hemen yine devreye girer)
+            holdForRetry = false
+            hardwareRecoveries = Timing.maxHardwareRecoveries - 1
+            if AudioRouting.verdict(deps.route.snapshot()).isSafe {
+                tlog("[onarım] sınır beklemesi doldu; yeniden deneniyor")
+                work = Task { [weak self] in await self?.resumeAfterRecovery() }
+                return
+            }
+        }
         // Kulaklık sağlam, mikrofon alıcısı takılı, yalnız giriş yola girmemiş: bu bir kopma değil yönlendirme sorunudur. Bluetooth'u ya da
         // uçak modunu kapatıp açan Kestirme kulaklığı da koparıp sorunu büyütür ("ikide bir Kestirme çalışıyor"). Onun yerine mikrofon
         // tercihi yeniden verilir, nedeni yazılır ve beklenir; yol oturunca kendiliğinden devam edilir.
@@ -288,7 +300,20 @@ extension SessionViewModel {
             hardwareRecoveries = Timing.maxHardwareRecoveries - 1
             warn("onarim", "Mikrofon art arda onarıldı ama çalışmıyor. Kulaklığı ve mikrofon alıcısını kontrol edin.")
             enterHardwarePause(AudioRouting.verdict(deps.route.snapshot()), grace: Timing.hardwareCapRetry)
+            holdForRetry = true   // ses yolu sağlam görünse de süre dolmadan devam edilmez (nabız aynı döngüyü yeniden başlatmasın)
             return
+        }
+        // İnternet alarmı yanlış çıkabilir (yoklama yavaş/takılı, ağ yolu bildirimi dalgalandı): mikrofon açıkken önce sessizce sınanır.
+        // Bağlantı sağlamsa hiçbir şey durdurulmaz, anons yapılmaz, yarım okunan soru silinmez.
+        lastNetworkAlarmWasFalse = false
+        if reason == .network, !force, phase == .listening {
+            let healthy = await verify(.network, key: settings.primaryKey)
+            guard !Task.isCancelled, phase == .listening else { return }
+            if healthy {
+                lastNetworkAlarmWasFalse = true
+                tlog("[onarım] internet alarmı yanlıştı: internet ve Gemini sağlam; hiçbir şey durdurulmadı")
+                return
+            }
         }
         let result = await performRecovery(reason, force: force)
         guard !Task.isCancelled, case .recovering = phase else { return }
@@ -348,6 +373,14 @@ extension SessionViewModel {
             // Cevap alınmış ve kaydedilmişti, yalnız kulaklıktan duyulamamıştı: soruyu yeniden okutmadan cevabı tekrar söyle
             guard await speakNotice(record.spoken) else { return }
             unheard = nil
+            beginListening()
+            return
+        }
+        // Döngü kesici: arada tek kelime tanınmadan art arda onarım oluyorsa asıl sorun başka yerdedir; aynı anonsu tekrar tekrar söylemek
+        // kullanıcıyı yalnız yanıltır. Bu durumda anons susturulur, dinleme sessizce yeniden açılır.
+        resumesWithoutSpeech += 1
+        if resumesWithoutSpeech > Timing.maxSilentResumes {
+            tlog("[onarım] arada konuşma tanınmadan \(resumesWithoutSpeech). onarım; anons susturuldu")
             beginListening()
             return
         }

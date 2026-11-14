@@ -21,6 +21,28 @@ final class AppSettings: ObservableObject {
         static let instantDetection = "v3.instantDetection"
         static let shortcutOutput = "v3.shortcutOutput"
         static let phoneVoice = "v3.phoneVoice"
+        static let shortcutPresetApplied = "v3.shortcutPresetApplied"
+    }
+
+    /// Kullanıcının verdiği kestirme adları. Uygulama ilk açıldığında (bir kez) ilgili alanlara yazılır; sonra Ayarlar'dan silinip
+    /// başka bir ad yazılabilir ya da boş bırakılabilir (bir daha geri yazılmaz).
+    enum PresetShortcut {
+        static let wifi = "Wifi"
+        static let cellular = "Hücresel Veri"
+        static let bluetooth = "Bluetooth"
+        static let reset = "Sistemi Sıfırla"
+        static let output = "Kulaklık Düzeltme"
+    }
+
+    /// Hazır kestirme adlarını yalnız bir kez yazar (uygulama başlarken çağrılır; ayarlar testlerde etkilenmesin diye `init` yazmaz)
+    func applyShortcutPresetOnce() {
+        guard !defaults.bool(forKey: Key.shortcutPresetApplied) else { return }
+        defaults.set(true, forKey: Key.shortcutPresetApplied)
+        wifiShortcut = PresetShortcut.wifi
+        cellularShortcut = PresetShortcut.cellular
+        bluetoothShortcut = PresetShortcut.bluetooth
+        resetShortcut = PresetShortcut.reset
+        outputShortcut = PresetShortcut.output
     }
 
     /// Tekrar modunda iki cevap arasındaki boşluk (sn): Ayarlar'daki kaydırıcının aralığı

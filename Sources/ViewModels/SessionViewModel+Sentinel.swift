@@ -67,9 +67,9 @@ extension SessionViewModel {
 
     /// Dinlemeyi hemen yeniden kurar. Eldeki yarım metin korunur (soru sesi de kayda devam eder). Yol güvenli değilse donanım
     /// beklemesine geçilir; art arda `maxMicHeals` onarım işe yaramazsa Kestirmelere başvurulur.
-    func healMic(_ reason: String) {
+    func healMic(_ reason: String, counted: Bool = true) {
         guard settings.instantDetection, phase == .listening else { return }
-        micHealCount += 1
+        if counted { micHealCount += 1 }
         micCooldown = Timing.micWarmupTicks
         tlog("[tespit] mikrofon: \(reason) (\(micHealCount). onarım)")
         if micHealCount > Timing.maxMicHeals {
@@ -101,7 +101,7 @@ extension SessionViewModel {
 
     /// Donanım duraklamasında yol bildirimi gelmeden düzeldiyse devam edilmesini başlatır
     func watchReturns() {
-        guard case .paused(.hardware) = phase, stableTask == nil, !interruptionActive,
+        guard case .paused(.hardware) = phase, stableTask == nil, !interruptionActive, !holdForRetry,
               AudioRouting.verdict(deps.route.snapshot()).isSafe else { return }
         tlog("[tespit] ses yolu geri geldi (bildirim gelmeden); devam ediliyor")
         stableTask = deps.scheduler.after(Timing.routeStable) { [weak self] in self?.hardwareReturned() }
@@ -178,6 +178,10 @@ extension SessionViewModel {
             return
         }
         guard phase == .listening else { return }
+        if let until = netMutedUntil, deps.now() < until {
+            netFails = 0
+            return   // nabız yakın zamanda boşuna alarm verdi: bir süre onarım başlatmaz (ağ yolu ve istek hataları yine yakalar)
+        }
         netFails += 1
         guard netFails >= Timing.netFailLimit else {
             netPulse = .suspect
@@ -186,8 +190,27 @@ extension SessionViewModel {
         }
         netPulse = .down
         netFails = 0
-        tlog("[tespit] internet nabzı yok (\(reason)); onarım başlıyor")
-        work = Task { [weak self] in await self?.runRecovery(.network) }
+        tlog("[tespit] internet nabzı yok (\(reason)); bağlantı sınanıyor")
+        work = Task { [weak self] in
+            guard let self = self else { return }
+            self.lastNetworkAlarmWasFalse = false
+            await self.runRecovery(.network)
+            if self.lastNetworkAlarmWasFalse { self.noteFalseNetAlarm() }
+        }
+    }
+
+    /// Nabız "internet yok" dedi ama tam sınama (internet + Gemini) sağlam çıktı: yoklama yanlış alarm verdi. Art arda olursa nabızla
+    /// onarım `netMuteSeconds` boyunca susturulur; dinleme hiç kesilmez.
+    func noteFalseNetAlarm() {
+        lastNetworkAlarmWasFalse = false
+        netFalseAlarms += 1
+        netPulse = .up
+        tlog("[tespit] nabız yanlış alarm verdi (\(netFalseAlarms). kez): internet ve Gemini sağlam, dinleme sürüyor")
+        if netFalseAlarms >= Timing.netFalseAlarmLimit {
+            netFalseAlarms = 0
+            netMutedUntil = deps.now().addingTimeInterval(Timing.netMuteSeconds)
+            tlog("[tespit] nabızla internet onarımı \(Int(Timing.netMuteSeconds)) sn susturuldu")
+        }
     }
 
     // MARK: Canlı durum

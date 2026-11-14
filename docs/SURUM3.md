@@ -118,3 +118,19 @@ Bu yüzden kopma ölçülerek yakalanır. Ayar: `AppSettings.instantDetection` (
 - **Ekran/günlük:** `liveStatus` ("Canlı: Kulaklık ✓ · Mikrofon ✓ · İnternet ✓"), günlükte `[tespit]` satırları.
 - **Bilinen sınır:** çıkış (kulaklık) için kopma yalnız iOS yol bildirimiyle ve `watchReturns` ile görülür; Bluetooth bağlantısı sessizce ölüp iOS yolu değiştirmezse ölçülemez.
 
+## Döngü kesiciler (anında tespit sonrası saha hatası)
+
+Sahada "Hazır. Son soruyu tekrar oku." anonsu durmadan tekrarlandı ve "Konuşma tanıma üst üste hata verdi" ile "Kulaklık ya da mikrofon sorunu var" çıktı,
+oysa kulaklık ve mikrofon sağlamdı. Sebepler ve önlemler:
+
+- **Sınır beklemesi bozuluyordu:** art arda 3 onarım işe yaramayınca 5 dk bekleme kurulur; yeni nabız "ses yolu sağlam" görüp bu beklemeyi 1 sn sonra bozuyor ve
+  aynı onarımı yeniden başlatıyordu. Artık `holdForRetry` varken nabız da yol bildirimi de devam ettirmez; süre dolunca bir kez daha denenir, ses yolu gerçekten
+  değişirse (kulaklık çıkıp gelirse) bekleme biter.
+- **İnternet nabzı yanlış alarm verebilir:** mikrofon açıkken `runRecovery(.network)` önce internet + Gemini'yi sessizce sınar; sağlamsa hiçbir şey durdurulmaz, anons
+  yapılmaz, yarım okunan soru silinmez (`[onarım] internet alarmı yanlıştı`). İki yanlış alarmdan sonra nabızla onarım 10 dk susturulur. Yoklama artık üç adrese
+  5 sn sınırla gider ve başarısızlık nedeni günlüğe yazılır (`[tespit] yoklama başarısız: …`).
+- **Konuşma tanıma hatası donanım sayılmaz:** ses yolu sağlamsa dinleme yeniden kurulur; Bluetooth/uçak modu Kestirmeleri yalnız art arda 4. hatada çalışır.
+  Dinleyici kendi içinde 1, 2, 3, 5 sn bekleyerek yeniden dener (12 üst üste hataya kadar), 3. hatada yardımcı İngilizce tanıyıcıyı bırakır ve her hatanın
+  kodunu günlüğe yazar (`[mikrofon] tanıma görevi hata verdi …`).
+- **Anons döngü kesici:** arada tek kelime tanınmadan 3 onarımdan sonra "yeniden hazır" anonsu söylenmez.
+

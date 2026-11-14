@@ -56,6 +56,11 @@ final class SessionViewModel: ObservableObject {
         static let mediaHealDelay: TimeInterval = 0.3
         /// Bu süreden kısa kesintiden sonra kısa "Hazır" anonsu
         static let briefOutage: TimeInterval = 8
+        /// Nabız art arda bu kadar kez boşuna alarm verirse (bağlantı sağlamdı) nabızla onarım bu kadar saniye susturulur
+        static let netFalseAlarmLimit = 2
+        static let netMuteSeconds: TimeInterval = 600
+        /// Arada tek kelime tanınmadan bu kadar "yeniden hazır" anonsundan sonra anons susturulur (döngü kesici)
+        static let maxSilentResumes = 3
     }
 
     // MARK: Ekranın gördüğü durum
@@ -147,6 +152,16 @@ final class SessionViewModel: ObservableObject {
     var netPulse: NetPulse = .unknown
     /// Duraklama/onarım ilk başladığı an (kısa kesintide kısa anons için)
     var outageStart: Date?
+    /// Sınır duraklaması (art arda onarım işe yaramadı): ses yolu sağlam görünse de süre dolana kadar devam edilmez. Yoksa nabız,
+    /// "yol sağlam" diye hemen devam edip aynı onarım döngüsünü yeniden başlatır.
+    var holdForRetry = false
+    /// İnternet nabzı boşuna alarm verdi (bağlantı sağlamdı) sayısı; art arda olursa nabızla onarım bir süre susturulur
+    var netFalseAlarms = 0
+    var netMutedUntil: Date?
+    /// Son ağ onarımı çağrısı yanlış alarmdı (bağlantı sağlamdı, hiçbir şey durdurulmadı)
+    var lastNetworkAlarmWasFalse = false
+    /// Arada tek kelime tanınmadan art arda kaç kez "yeniden hazır" anonsu söylendi (döngü kesici)
+    var resumesWithoutSpeech = 0
 
     init(settings: AppSettings, deps: SessionDependencies) {
         self.settings = settings
@@ -271,6 +286,11 @@ final class SessionViewModel: ObservableObject {
         netPulse = .unknown
         outageStart = nil
         liveStatus = ""
+        holdForRetry = false
+        netFalseAlarms = 0
+        netMutedUntil = nil
+        lastNetworkAlarmWasFalse = false
+        resumesWithoutSpeech = 0
     }
 
     func cancelWork() {
@@ -378,6 +398,7 @@ final class SessionViewModel: ObservableObject {
         case .partial(let text):
             guard accumulator.update(partial: text) else { return }
             hardwareRecoveries = 0   // mikrofon gerçekten çalışıyor
+            resumesWithoutSpeech = 0
             liveText = accumulator.text
             watchdog.kick()
             reevaluateTrigger()
@@ -390,11 +411,18 @@ final class SessionViewModel: ObservableObject {
             englishAccumulator.commitCurrent()
         case .failure(let message):
             warn("mikrofon", message)
-            work = Task { [weak self] in await self?.runRecovery(.hardware, force: true) }
+            // Ses yolu sağlamsa sorun donanımda değil konuşma tanıyıcıdadır: Bluetooth/uçak modu Kestirmeleri onu düzeltmez, kulaklığı koparır.
+            // Dinleme yeniden kurulur; art arda olursa (healMic) Kestirmelere başvurulur.
+            if settings.instantDetection, AudioRouting.verdict(deps.route.snapshot()).isSafe {
+                healMic("konuşma tanıma hata verdi")
+            } else {
+                work = Task { [weak self] in await self?.runRecovery(.hardware, force: true) }
+            }
         case .engineStopped:
-            // Dinleme yeni (yeniden) başladıysa bekleme süresinde yok sayılır; gerçekten durduysa nabız yine yakalar
+            // Dinleme yeni (yeniden) başladıysa bekleme süresinde yok sayılır; gerçekten durduysa nabız yine yakalar.
+            // Motor bildirimi tek başına onarım sayacına sayılmaz (tamponlar gerçekten kesilirse nabız sayar).
             guard settings.instantDetection, micCooldown == 0 else { return }
-            healMic("ses motoru durdu")
+            healMic("ses motoru durdu", counted: false)
         }
     }
 

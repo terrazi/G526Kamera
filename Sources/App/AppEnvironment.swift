@@ -16,6 +16,7 @@ final class AppEnvironment: ObservableObject {
 
     init() {
         let settings = AppSettings()
+        settings.applyShortcutPresetOnce()
         let folderStore = FolderStore()
         let recorder = PCMRecorder()
         let route = AudioSessionGuard()

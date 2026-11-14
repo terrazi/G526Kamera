@@ -67,6 +67,8 @@ Ayrıntılı işleyiş: `docs/SURUM3.md`.
 
 ## 5) iOS Kestirmeler (sınavdan önce, bir kez)
 
+Uygulama ilk açıldığında Ayarlar'daki alanlara şu adları kendiliğinden yazar: **Wifi**, **Hücresel Veri**, **Bluetooth**, **Sistemi Sıfırla** ve **Çıkışı kulaklığa al** alanına **Kulaklık Düzeltme**. Kestirmeler uygulamasındaki kestirmelerin adı bunlarla birebir aynı olmalıdır. Başka ad kullanmak için alanı silip yenisini yazın (ya da boş bırakın); bir daha geri yazılmaz.
+
 Kestirmeler uygulamasında dört kestirme yapıp adlarını Ayarlar'a yazın (örnek adlar):
 
 1. `WiFi_Ac` — Wi-Fi'yi aç (gerekirse kapat, 2 sn bekle, aç).
