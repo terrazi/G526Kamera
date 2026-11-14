@@ -42,7 +42,8 @@ extension SessionViewModel {
         case .gap(let next, let total):
             statusNote = "Sıradaki cevap \(next)/\(total), bekleniyor"
         case .finished:
-            finishReplay("Tekrar bitti.")
+            let failed = replay.failedCount
+            finishReplay(failed == 0 ? "Tekrar bitti." : "Tekrar bitti; \(failed) cevap dosyası çalınamadı.")
         case .stopped(let reason):
             finishReplay(reason)
         }

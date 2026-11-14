@@ -40,6 +40,10 @@ final class ReplayController {
     private var index = 0
     private var generation = 0
     private var pendingGap: ScheduledTask?
+    /// Bu tekrarda çalınamayan dosya sayısı; tek bozuk dosya atlanır, üst üste iki dosya çalınamazsa (kulaklık, arama, ses servisi) tekrar durur
+    private(set) var failedCount = 0
+    private var consecutiveFailures = 0
+    static let maxConsecutiveFailures = 2
 
     /// `canPlay`: her dosyadan önce sorulur; Bluetooth kulaklık yoksa tekrar durur (ses telefondan çıkmaz)
     init(player: AudioFilePlaying, scheduler: Scheduling, canPlay: @escaping () -> Bool) {
@@ -53,6 +57,8 @@ final class ReplayController {
         self.files = files
         self.gap = AppSettings.clampGap(gap)
         index = 0
+        failedCount = 0
+        consecutiveFailures = 0
         playCurrent()
     }
 
@@ -88,9 +94,16 @@ final class ReplayController {
 
     private func fileFinished(_ ok: Bool, generation mine: Int) {
         guard mine == generation else { return }
-        guard ok else {
-            state = .stopped("Dosya çalınamadı.")
-            return
+        if ok {
+            consecutiveFailures = 0
+        } else {
+            failedCount += 1
+            consecutiveFailures += 1
+            tlog("[tekrar] dosya çalınamadı: \(files[index].lastPathComponent) (üst üste \(consecutiveFailures))")
+            if consecutiveFailures >= ReplayController.maxConsecutiveFailures {
+                state = .stopped("Dosya çalınamadı.")
+                return
+            }
         }
         index += 1
         if index >= files.count {

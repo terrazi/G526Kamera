@@ -248,11 +248,35 @@ final class ReplayControllerTests: XCTestCase {
         XCTAssertEqual(replay.state, .stopped(Say.noHeadphonesForReplay))
     }
 
-    func testFailedFileStops() {
-        let (replay, player, _) = make()
-        replay.start(files: urls(2), gap: 3)
+    func testTwoFailedFilesInARowStop() {
+        let (replay, player, scheduler) = make()
+        replay.start(files: urls(4), gap: 3)
         player.finish(false)
-        XCTAssertEqual(replay.state, .stopped("Dosya çalınamadı."))
+        scheduler.advance(by: 3)
+        player.finish(false)
+        XCTAssertEqual(replay.state, .stopped("Dosya çalınamadı."), "Üst üste iki dosya çalınamazsa sorun dosyada değil, sistemdedir")
+    }
+
+    func testSingleBrokenFileIsSkippedAndTheRestKeepsPlaying() {
+        let (replay, player, scheduler) = make()
+        replay.start(files: urls(3), gap: 3)
+        player.finish(false)
+        XCTAssertEqual(replay.state, .gap(next: 2, total: 3), "Bozuk dosya tüm tekrarı durdurmaz")
+        scheduler.advance(by: 3)
+        player.finish()
+        scheduler.advance(by: 3)
+        player.finish()
+        XCTAssertEqual(player.played.count, 3)
+        XCTAssertEqual(replay.state, .finished)
+        XCTAssertEqual(replay.failedCount, 1)
+    }
+
+    func testBrokenLastFileStillFinishes() {
+        let (replay, player, _) = make()
+        replay.start(files: urls(1), gap: 3)
+        player.finish(false)
+        XCTAssertEqual(replay.state, .finished)
+        XCTAssertEqual(replay.failedCount, 1)
     }
 
     func testEmptyListFinishesImmediately() {
