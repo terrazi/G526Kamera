@@ -24,6 +24,7 @@ final class AppSettings: ObservableObject {
         static let shortcutPresetApplied = "v3.shortcutPresetApplied"
         static let askMissingNumber = "v3.askMissingNumber"
         static let askNextQuestion = "v3.askNextQuestion"
+        static let readAnswersAtEnd = "v3.readAnswersAtEnd"
         static let spokenProgress = "v3.spokenProgress"
         static let smartResume = "v3.smartResume"
     }
@@ -135,6 +136,11 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(askNextQuestion, forKey: Key.askNextQuestion) }
     }
 
+    /// Sesle "Testi bitir" onaylanınca kaydedilen cevaplar kulaklıktan sırayla okunur (Modül 6 tekrarı kendiliğinden başlar)
+    @Published var readAnswersAtEnd: Bool {
+        didSet { defaults.set(readAnswersAtEnd, forKey: Key.readAnswersAtEnd) }
+    }
+
     /// Soru Gemini'ye gidince "soru başarıyla alınıp gönderildi, cevap bekleniyor" denir; cevap uzun sürerse arada "cevap bekleniyor" denir
     @Published var spokenProgress: Bool {
         didSet { defaults.set(spokenProgress, forKey: Key.spokenProgress) }
@@ -185,6 +191,7 @@ final class AppSettings: ObservableObject {
         geminiVoice = defaults.object(forKey: Key.geminiVoice) as? Bool ?? true
         askMissingNumber = defaults.object(forKey: Key.askMissingNumber) as? Bool ?? true
         askNextQuestion = defaults.object(forKey: Key.askNextQuestion) as? Bool ?? true
+        readAnswersAtEnd = defaults.object(forKey: Key.readAnswersAtEnd) as? Bool ?? true
         spokenProgress = defaults.object(forKey: Key.spokenProgress) as? Bool ?? true
         smartResume = defaults.object(forKey: Key.smartResume) as? Bool ?? true
         dimScreen = defaults.object(forKey: Key.dimScreen) as? Bool ?? false

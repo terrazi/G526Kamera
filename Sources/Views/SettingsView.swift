@@ -160,9 +160,11 @@ struct SettingsView: View {
     private var readingSection: some View {
         Section(header: Text("Okuma komutları ve kesinti")) {
             Toggle("Cevaptan sonra sonraki soruyu iste", isOn: $settings.askNextQuestion)
+            Toggle("Testi bitirince cevapları oku", isOn: $settings.readAnswersAtEnd)
             Toggle("Soru numarası okunmadıysa sor", isOn: $settings.askMissingNumber)
             Toggle("Gemini beklerken bilgi ver", isOn: $settings.spokenProgress)
             Toggle("Kesintiden sonra akıllı devam", isOn: $settings.smartResume)
+            HelpRow("Testi bitirince cevapları oku: “Testi bitir” deyip “evet” dediğinizde program kaydedilen cevapları numara sırasıyla, aralarında Tekrar boşluğu kadar bekleyerek kulaklıktan okur; sonunda “Cevapların hepsi okundu” der. Kapalıysa yalnız test biter, cevapları ana ekrandaki tekrar düğmesiyle dinlersiniz.")
             HelpRow("Cevaptan sonra sonraki soruyu iste: cevap kulaklıktan okunup bitince program “Lütfen sonraki soruyu okuyun” der ve ondan sonra dinlemeye geçer; ne zaman okuyacağınızı bilirsiniz. Kapalıyken cevaptan sonra sessizce dinlemeye geçer.")
             HelpRow("Soru numarası okunmadıysa sor: soruyu okuyup “Cevapla” dediniz ama “soru yedi” gibi bir numara söylemediyseniz program “Lütfen okuduğunuz sorunun numarasını söyleyin” der. “Yedi” ya da “soru yedi” demeniz yeter; numara sorunun başına yazılıp Gemini'ye öyle gider. Numarayı bilmiyorsanız “sıradaki” deyin, sıradaki numara verilir. Hiç söylemezseniz iki kez hatırlatılır, sonra sıradaki numarayla gönderilir; soru kaybolmaz. Kapalıyken numara sorulmaz, sıradaki numara verilir.")
             HelpRow("Gemini beklerken bilgi ver: “Cevapla” deyince kulaklıktan “Soru başarıyla alınıp Gemini'ye gönderildi, cevap bekleniyor” denir; cevap uzarsa 30 saniyede bir “Cevap bekleniyor” denir. Gemini 3 dakikada cevap vermezse bekleme bırakılır, durum söylenir ve soruyu yeniden okumanız istenir. Kapalıyken bu anonslar ve 3 dakikalık sınır yoktur.")

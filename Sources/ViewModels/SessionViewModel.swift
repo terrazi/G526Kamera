@@ -22,6 +22,10 @@ final class SessionViewModel: ObservableObject {
         /// Numara istenince söylenen numara bu kadar sn sabit kalırsa soru gönderilir; numara hiç söylenmezse en çok bu kadar kez hatırlatılır
         static let numberConfirm: TimeInterval = 1.5
         static let numberReminderLimit = 2
+        /// Numara beklenirken anlaşılmayan kısa bir söz bu süre değişmezse numara yeniden sorulur (30 sn beklenmez)
+        static let numberUnclear: TimeInterval = 4
+        /// Paragrafın soru numaraları bu kadar kez anlaşılamazsa paragraf yalnız sıradaki soruya bağlanır
+        static let targetReminderLimit = 2
         /// Cevap beklerken "cevap bekleniyor" anonsu bu aralıkla (sn) söylenir; bu süre dolarsa (sn) bekleme bırakılır
         static let answerCueEvery: TimeInterval = 30
         static let answerCap: TimeInterval = 180
@@ -264,6 +268,9 @@ final class SessionViewModel: ObservableObject {
     var heldQuestion: HeldQuestion?
     var passageDraft: PassageDraft?
     var numberReminders = 0
+    var targetReminders = 0
+    /// Sesle bitirme sonrası kendiliğinden başlayan tekrar: bitince "Cevapların hepsi okundu" denir
+    var autoReplayAtEnd = false
     /// Kesinti (onarım, donanım beklemesi) hangi aşamadayken başladı: dinlerken mi, soru gitmişken (cevap beklenirken) mi
     var interruptedFrom: SessionPhase?
     /// Cevap beklenirken "cevap bekleniyor" anonsu ve 3 dakikalık bekleme sınırı için zamanlayıcı
@@ -445,6 +452,8 @@ final class SessionViewModel: ObservableObject {
         nextNumber = 1
         choiceOffer = nil
         choiceReminders = 0
+        targetReminders = 0
+        autoReplayAtEnd = false
         pendingStart = false
         unheard = nil
         hardwareRecoveries = 0
@@ -525,7 +534,7 @@ final class SessionViewModel: ObservableObject {
 
     /// Kulaklıktan zaten başka yerde söylenen ("start": Kontrol başarısız, "cevap": Gemini hatası) ya da kulaklıktan söylenemeyen
     /// ("ses": okuma hatası) uyarılar ayrıca söylenmez
-    private static let silentWarnings: Set<String> = ["start", "cevap", "ses", "kapanma", "gozcu", "yedek"]
+    private static let silentWarnings: Set<String> = ["start", "cevap", "ses", "kapanma", "gozcu", "yedek", "numara"]
 
     /// Uyarıyı ekrana yazar; yeni ya da değişmişse kulaklıktan da söyler (`announce`)
     func warn(_ id: String, _ text: String) {
@@ -690,10 +699,20 @@ final class SessionViewModel: ObservableObject {
                 confirmTask = deps.scheduler.after(Timing.numberConfirm) { [weak self] in self?.firePassagePrompt() }
                 return
             }
-            guard TriggerDetector.match(in: text, words: PassageCommand.finishWords) != nil else { return }
+            guard let match = TriggerDetector.match(in: text, words: PassageCommand.finishWords) else { return }
+            // "tamam" paragrafın içinde de geçebilir (cümle sonunda): kısa duraklamada bitmez, daha uzun sabit kalmalı
+            if TriggerDetector.fold(match.word) == "tamam" { delay = Timing.numberConfirm }
         case .missingNumber:
-            guard heldQuestion != nil, SpokenNumber.standalone(from: text) != nil || SpokenNumber.wantsSequence(text) else { return }
-            delay = Timing.numberConfirm
+            guard heldQuestion != nil else { return }
+            if SpokenNumber.standalone(from: text) != nil || SpokenNumber.wantsSequence(text) {
+                delay = Timing.numberConfirm
+            } else {
+                // Kısa ama numara olmayan bir söz duyuldu ("peş", "yedi mi"): 30 sn beklemeden yeniden sorulur. Uzun metin, kullanıcının
+                // sonraki soruyu okumaya başladığı demektir; ona karışılmaz.
+                guard text.split(whereSeparator: { $0.isWhitespace }).count <= 6 else { return }
+                confirmTask = deps.scheduler.after(Timing.numberUnclear) { [weak self] in self?.numberUnclear() }
+                return
+            }
         case .confirmEnd:
             guard SpokenReply.yesNo(text) != nil else { return }
             delay = Timing.numberConfirm
@@ -769,12 +788,19 @@ final class SessionViewModel: ObservableObject {
         switch reply {
         case .yes:
             let count = answers.count
-            tlog("[komut] testi bitirme onaylandı (\(count) cevap)")
+            let reading = settings.readAnswersAtEnd && count > 0
+            tlog("[komut] testi bitirme onaylandı (\(count) cevap\(reading ? ", cevaplar okunacak" : ""))")
             work = Task { [weak self] in
                 guard let self = self else { return }
-                await self.speakNotice(Say.endingTest(count))
+                await self.speakNotice(reading ? Say.endingTestReading(count) : Say.endingTest(count))
                 guard !Task.isCancelled else { return }
                 self.endTest()
+                // Prosedür: test sonunda kaydedilen cevaplar sırayla yeniden okunur (Modül 6)
+                if reading {
+                    self.autoReplayAtEnd = true
+                    self.startReplay()
+                    if self.phase != .replaying { self.autoReplayAtEnd = false }
+                }
             }
         case .no:
             tlog("[komut] testi bitirmekten vazgeçildi")
@@ -912,8 +938,20 @@ final class SessionViewModel: ObservableObject {
         liveText = held.text
         phase = .answering
         statusNote = ""
+        clearWarning("numara")
         tlog("[soru] numara söylendi: \(number)")
         send(question: held.text, english: held.english, audio: held.audio, number: number, numberSpoken: false)
+    }
+
+    /// Numara beklenirken duyulan söz numara değildi: ne duyulduğu ekranda yazılır, numara yeniden sorulur
+    func numberUnclear() {
+        confirmTask = nil
+        guard phase == .listening, listenMode == .missingNumber, heldQuestion != nil else { return }
+        let heard = accumulator.text
+        guard SpokenNumber.standalone(from: heard) == nil, !SpokenNumber.wantsSequence(heard) else { return }
+        tlog("[soru] numara anlaşılamadı; duyulan: \"\(heard)\"")
+        warn("numara", "Duyulan: “\(heard)”. Numara anlaşılamadı.")
+        work = Task { [weak self] in await self?.numberSilence() }
     }
 
     /// Numara hiç söylenmeden sessizlik sürerse: hatırlatılır; yine olmazsa eski davranış (sıradaki numara) uygulanır, soru kaybolmaz
@@ -977,6 +1015,7 @@ final class SessionViewModel: ObservableObject {
             return
         }
         passageDraft = PassageDraft(text: text, english: english, audio: audio, audioTruncated: audioTruncated)
+        targetReminders = 0
         listenMode = .passageTargets
         tlog("[paragraf] ortak paragraf alındı (\(text.count) karakter); hangi sorulara ait olduğu soruluyor")
         work = Task { [weak self] in
@@ -988,7 +1027,7 @@ final class SessionViewModel: ObservableObject {
     /// Paragrafın ait olduğu soru numaraları ("beş altı yedi, Cevapla") alınır; paragraf o sorularla birlikte gider
     private func fireTargets() {
         guard let match = TriggerDetector.match(in: accumulator.text, words: PassageCommand.targetWords) else { return }
-        let numbers = SpokenNumber.list(from: match.question)
+        var numbers = SpokenNumber.list(from: match.question)
         closeListening()
         liveText = ""
         phase = .speaking
@@ -997,21 +1036,33 @@ final class SessionViewModel: ObservableObject {
             work = Task { [weak self] in self?.beginListening(mode: .question) }
             return
         }
-        guard !numbers.isEmpty else {
-            tlog("[paragraf] soru numaraları anlaşılamadı; yeniden isteniyor")
-            work = Task { [weak self] in
-                guard let self = self, await self.speakNotice(Say.passageTargetsAgain) else { return }
-                self.beginListening(mode: .passageTargets)
+        var notice: String?
+        if numbers.isEmpty {
+            targetReminders += 1
+            tlog("[paragraf] soru numaraları anlaşılamadı (deneme \(targetReminders)); duyulan: \"\(match.question)\"")
+            warn("numara", "Duyulan: “\(match.question)”. Soru numaraları anlaşılamadı.")
+            guard targetReminders > Timing.targetReminderLimit else {
+                work = Task { [weak self] in
+                    guard let self = self, await self.speakNotice(Say.passageTargetsAgain) else { return }
+                    self.beginListening(mode: .passageTargets)
+                }
+                return
             }
-            return
+            // Üst üste anlaşılamadı: sonsuz tekrar yerine paragraf sıradaki soruya bağlanır ve bu açıkça söylenir
+            numbers = [nextNumber]
+            notice = Say.passageFallback(nextNumber)
+            tlog("[paragraf] numaralar anlaşılamadı; paragraf sıradaki soruya (\(nextNumber)) bağlandı")
         }
+        targetReminders = 0
+        clearWarning("numara")
         passage = PassageContext(text: draft.text, english: draft.english, audio: draft.audio, all: numbers, remaining: numbers,
                                  audioTruncated: draft.audioTruncated)
         passageDraft = nil
         listenMode = .question
         tlog("[paragraf] ortak paragraf \(QuestionComposer.listText(numbers)) numaralı sorular için kaydedildi")
+        let spokenNotice = notice ?? Say.passageReady(numbers)
         work = Task { [weak self] in
-            guard let self = self, await self.speakNotice(Say.passageReady(numbers)) else { return }
+            guard let self = self, await self.speakNotice(spokenNotice) else { return }
             self.beginListening(mode: .question)
         }
     }

@@ -32,6 +32,11 @@ enum Say {
     }
     static let startingNew = "Yeni sınav başladı. İlk soruyu okuyabilirsiniz."
     /// Sesli "testi bitir" komutu onaylandı: kısa bilgi, sonra test biter
+    /// "Testi bitir" onaylandı ve cevaplar baştan sona okunacak
+    static func endingTestReading(_ answers: Int) -> String {
+        return "Test bitiriliyor. \(answers) cevap kaydedildi. Cevaplar sırayla okunuyor."
+    }
+    static let replayDone = "Cevapların hepsi okundu."
     static func endingTest(_ answers: Int) -> String {
         return answers > 0 ? "Test bitiriliyor. \(answers) cevap kaydedildi." : "Test bitiriliyor."
     }
@@ -44,7 +49,11 @@ enum Say {
     /// "Ortak paragraf" denince (başka bir şey söylenmeden duraklanırsa) kulaklıktan söylenir
     static let passagePrompt = "Lütfen ortak paragrafı okuyun, bitince Tamam deyin."
     static let passageTaken = "Paragraf metnini aldım. Bu paragraf hangi sorular için? Soru numaralarını söyleyip Tamam deyin."
-    static let passageTargetsAgain = "Soru numaralarını anlayamadım. Paragrafın hangi sorulara ait olduğunu numaralarla söyleyip Tamam deyin."
+    static let passageTargetsAgain = "Numaraları anlayamadım. Örneğin beş altı yedi deyip Tamam deyin."
+    /// Numaralar üst üste anlaşılamadı: paragraf yalnız sıradaki soruya bağlanır (kaybolmasın, döngü bitsin)
+    static func passageFallback(_ next: Int) -> String {
+        return "Numaraları anlayamadım. Paragraf yalnız sıradaki soru, yani \(next). soru için kaydedildi. Şimdi soruyu okuyabilirsiniz."
+    }
     static let recoveredAskTargets = "Bağlantı yeniden onarıldı. Paragraf metnini aldım. Hangi sorulara ait olduğunu söyleyip Tamam deyin."
     static let passageEmpty = "Paragraf metni boş kaldı. Ortak paragraf deyip paragrafı yeniden okuyun."
     static func passageReady(_ numbers: [Int]) -> String {

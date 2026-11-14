@@ -49,6 +49,7 @@ final class VoiceCommandFlowTests: XCTestCase {
 
     func testEndCommandAsksForConfirmationAndYesEndsTheTest() async {
         let h = SessionHarness()
+        h.settings.readAnswersAtEnd = false
         _ = await h.startListening()
         await answerOne(h)
         h.listener.say("Testi bitir")
@@ -62,6 +63,60 @@ final class VoiceCommandFlowTests: XCTestCase {
         let ended = await waitUntil { h.vm.phase == .finished }
         XCTAssertTrue(ended)
         XCTAssertEqual(h.speaker.spoken.last, Say.endingTest(1))
+    }
+
+    func testConfirmedEndReadsAllAnswersBackThenSaysDone() async {
+        let h = SessionHarness()
+        _ = await h.startListening()
+        await answerOne(h, number: 1)
+        await answerOne(h, number: 2)
+        h.listener.say("Testi bitir")
+        h.scheduler.advance(by: T.numberConfirm + 0.1)
+        _ = await waitUntil { h.vm.listenMode == .confirmEnd && h.vm.phase == .listening }
+        h.listener.say("Evet")
+        h.scheduler.advance(by: T.numberConfirm + 0.1)
+        let replaying = await waitUntil { h.vm.phase == .replaying }
+        XCTAssertTrue(replaying, "Test bitince cevaplar kendiliğinden okunmaya başlar")
+        XCTAssertEqual(h.speaker.spoken.last, Say.endingTestReading(2))
+        XCTAssertEqual(h.player.played.map { $0.lastPathComponent }, ["soru_1.m4a"])
+        h.player.finish()
+        h.scheduler.advance(by: 3.1)
+        XCTAssertEqual(h.player.played.map { $0.lastPathComponent }, ["soru_1.m4a", "soru_2.m4a"], "Numara sırasıyla")
+        h.player.finish()
+        let done = await waitUntil { h.vm.phase == .finished }
+        XCTAssertTrue(done)
+        let said = await waitUntil { h.speaker.announcements.contains(Say.replayDone) }
+        XCTAssertTrue(said, "Sonunda 'Cevapların hepsi okundu' denir")
+    }
+
+    func testConfirmedEndWithoutAnswersJustEnds() async {
+        let h = SessionHarness()
+        _ = await h.startListening()
+        h.listener.say("Testi bitir")
+        h.scheduler.advance(by: T.numberConfirm + 0.1)
+        _ = await waitUntil { h.vm.listenMode == .confirmEnd && h.vm.phase == .listening }
+        h.listener.say("Evet")
+        h.scheduler.advance(by: T.numberConfirm + 0.1)
+        let ended = await waitUntil { h.vm.phase == .finished }
+        XCTAssertTrue(ended)
+        XCTAssertEqual(h.speaker.spoken.last, Say.endingTest(0))
+        XCTAssertTrue(h.player.played.isEmpty)
+    }
+
+    func testReadingAnswersAtTheEndCanBeTurnedOff() async {
+        let h = SessionHarness()
+        h.settings.readAnswersAtEnd = false
+        _ = await h.startListening()
+        await answerOne(h)
+        h.listener.say("Testi bitir")
+        h.scheduler.advance(by: T.numberConfirm + 0.1)
+        _ = await waitUntil { h.vm.listenMode == .confirmEnd && h.vm.phase == .listening }
+        h.listener.say("Evet")
+        h.scheduler.advance(by: T.numberConfirm + 0.1)
+        let ended = await waitUntil { h.vm.phase == .finished }
+        XCTAssertTrue(ended)
+        XCTAssertEqual(h.speaker.spoken.last, Say.endingTest(1))
+        XCTAssertTrue(h.player.played.isEmpty)
     }
 
     func testNoToTheConfirmationKeepsTheTestGoing() async {

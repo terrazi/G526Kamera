@@ -131,7 +131,7 @@ enum SpokenNumber {
 
 extension SpokenNumber {
     /// Yanıtta sayı sayılmayan dolgu sözcükler ("soru yedi", "numara yedi, cevapla")
-    private static let fillerWords: Set<String> = ["soru", "sorusu", "numarasi", "numara", "no", "nu", "numarali", "cevapla", "gonder", "tamam", "evet"]
+    private static let fillerWords: Set<String> = ["soru", "sorusu", "sorunun", "sorular", "sorulari", "numarasi", "numara", "no", "nu", "numarali", "sayisi", "cevapla", "gonder", "tamam", "evet"]
     /// "Sıradaki numarayı ver" anlamına gelen sözcükler
     private static let sequenceWords: Set<String> = ["siradaki", "sirada", "gec", "atla", "numarasiz"]
     /// Aralık bağlaçları ve ekleri: "5 ile 7 arası", "5'ten 7'ye kadar"
@@ -169,7 +169,13 @@ extension SpokenNumber {
     /// Paragrafın hangi sorulara ait olduğu: "5 6 7", "beş, altı ve yedi", "5 ile 7 arası", "beşten yediye kadar", "5-7" → [5, 6, 7]
     static func list(from text: String) -> [Int] {
         let normalized = text.replacingOccurrences(of: "(\\d+)\\s*[-–—]\\s*(\\d+)", with: "$1 ile $2 arasi", options: .regularExpression)
-        let words = tokens(normalized).map { numberStem($0) }
+        // "567" gibi bitişik yazılmış rakamlar ("beş altı yedi" → "567"): üç haneli ve soru sayısının çok üstündeyse tek tek rakamlara ayrılır
+        let words = tokens(normalized).flatMap { token -> [String] in
+            if token.count == 3, token.allSatisfy({ $0.isASCII && $0.isNumber }), let value = Int(token), value > 150 {
+                return token.map { String($0) }
+            }
+            return [token]
+        }.map { numberStem($0) }
         struct Hit { let value: Int; let start: Int; let end: Int }
         var hits: [Hit] = []
         var i = 0

@@ -72,7 +72,7 @@ Mikrofon açıkken, soruyu okumadan **tek başına** söylenen komutlar tanını
 
 | Söyleyin | Ne olur |
 |---|---|
-| "Testi bitir" / "Sınavı bitir" / "sınav bitti" / "sınavı sonlandır" | Program "Testi bitirmek istiyor musunuz?" diye sorar. **Evet** (ya da komutu yeniden söylemek) bitirir; **hayır / vazgeç** ya da hiç cevap vermemek testi sürdürür. Yanlış tanımada test kapanmaz. |
+| "Testi bitir" / "Sınavı bitir" / "sınav bitti" / "sınavı sonlandır" | Program "Testi bitirmek istiyor musunuz?" diye sorar. **Evet** (ya da komutu yeniden söylemek) bitirir ve kaydedilen cevapları numara sırasıyla baştan sona okur ("Cevapların hepsi okundu" der; Ayarlar > "Testi bitirince cevapları oku" ile kapatılır); **hayır / vazgeç** ya da hiç cevap vermemek testi sürdürür. Yanlış tanımada test kapanmaz. |
 | "Son cevabı tekrarla" / "Tekrarla" | Son cevap yeniden okunur, Gemini'ye gitmez. |
 | "Cevapla" / "Gönder" | Okuduğunuz soruyu Gemini'ye gönderir (komutlarla birlikte söylenirse komut soru olarak gitmez). |
 | "Ortak paragraf" (duraklayın) … "Tamam" | Program kulaklıktan "Lütfen ortak paragrafı okuyun, bitince Tamam deyin" der; paragrafı okuyup "Tamam" dersiniz. Sonra hangi sorulara ait olduğunu söyleyip yine "Tamam" dersiniz. |

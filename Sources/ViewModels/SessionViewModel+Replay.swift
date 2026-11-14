@@ -43,13 +43,16 @@ extension SessionViewModel {
             statusNote = "Sıradaki cevap \(next)/\(total), bekleniyor"
         case .finished:
             let failed = replay.failedCount
+            let announceEnd = autoReplayAtEnd && failed == 0
             finishReplay(failed == 0 ? "Tekrar bitti." : "Tekrar bitti; \(failed) cevap dosyası çalınamadı.")
+            if announceEnd { announce(Say.replayDone) }
         case .stopped(let reason):
             finishReplay(reason)
         }
     }
 
     private func finishReplay(_ note: String) {
+        autoReplayAtEnd = false
         phase = .finished
         statusNote = note
         deps.screen.keepAwake(false)

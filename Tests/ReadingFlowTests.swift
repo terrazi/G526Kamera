@@ -115,6 +115,65 @@ final class ReadingFlowTests: XCTestCase {
         XCTAssertEqual(h.vm.answers.map { $0.number }, [7])
     }
 
+    func testUnclearShortReplyToTheNumberQuestionIsAskedAgainAfterAFewSecondsAndShowsWhatWasHeard() async {
+        let h = harness(number: true)
+        _ = await h.startListening()
+        h.ask("Bir soru metni")
+        _ = await waitUntil { h.vm.listenMode == .missingNumber && h.vm.phase == .listening }
+        say(h, "peş yedi mi", confirm: Timing.triggerConfirm)
+        XCTAssertEqual(h.speaker.spoken.last, Say.askNumber, "Henüz yeniden sorulmaz")
+        h.scheduler.advance(by: Timing.numberUnclear)
+        let again = await waitUntil { h.speaker.spoken.last == Say.askNumberAgain && h.vm.phase == .listening }
+        XCTAssertTrue(again, "30 sn beklenmeden yeniden sorulur")
+        XCTAssertTrue(h.vm.warnings.contains { $0.id == "numara" && $0.text.contains("peş yedi mi") }, "Ne duyulduğu ekranda yazar")
+        XCTAssertFalse(h.speaker.announcements.contains { $0.contains("peş yedi mi") }, "Duyulan metin kulaklıktan okunmaz")
+        say(h, "yedi", confirm: Timing.numberConfirm)
+        let sent = await waitUntil { h.answering.calls.count == 1 }
+        XCTAssertTrue(sent)
+        XCTAssertFalse(h.vm.warnings.contains { $0.id == "numara" }, "Numara anlaşılınca uyarı silinir")
+    }
+
+    func testLongSpeechWhileWaitingForTheNumberIsNotTreatedAsUnclear() async {
+        let h = harness(number: true)
+        _ = await h.startListening()
+        h.ask("Bir soru metni")
+        _ = await waitUntil { h.vm.listenMode == .missingNumber && h.vm.phase == .listening }
+        say(h, "bu başka bir soru metni ve oldukça uzun bir cümle", confirm: Timing.triggerConfirm)
+        h.scheduler.advance(by: Timing.numberUnclear + 0.1)
+        await settle()
+        XCTAssertEqual(h.speaker.spoken.last, Say.askNumber, "Sonraki soruyu okumaya başlayan kullanıcıya karışılmaz")
+    }
+
+    func testPassageTargetsUnclearThreeTimesFallBackToTheNextQuestion() async {
+        let h = harness()
+        _ = await h.startListening()
+        say(h, "Ortak paragraf Ali eve gitti Tamamlandı")
+        _ = await waitUntil { h.vm.phase == .listening && h.vm.listenMode == .passageTargets }
+        for attempt in 1...2 {
+            say(h, "bilmiyorum Tamam")
+            let again = await waitUntil {
+                h.speaker.spoken.last == Say.passageTargetsAgain && h.vm.phase == .listening
+                    && h.speaker.spoken.filter { $0 == Say.passageTargetsAgain }.count == attempt
+            }
+            XCTAssertTrue(again, "\(attempt). yeniden sorma")
+        }
+        XCTAssertTrue(h.vm.warnings.contains { $0.id == "numara" && $0.text.contains("bilmiyorum") }, "Ne duyulduğu ekranda yazar")
+        say(h, "bilmiyorum Tamam")
+        let fallback = await waitUntil { h.vm.passage?.all == [1] && h.speaker.spoken.last == Say.passageFallback(1) && h.vm.phase == .listening }
+        XCTAssertTrue(fallback, "Sonsuz tekrar yok: paragraf sıradaki soruya bağlanır ve söylenir")
+        XCTAssertEqual(h.vm.listenMode, .question)
+    }
+
+    func testTamamInsideTheParagraphDoesNotEndItOnAShortPause() async {
+        let h = harness()
+        _ = await h.startListening()
+        say(h, "Ortak paragraf Ali işi tamam", confirm: Timing.triggerConfirm)
+        XCTAssertEqual(h.vm.listenMode, .passage, "Kısa duraklamada paragraf bitmez")
+        h.scheduler.advance(by: Timing.numberConfirm)
+        let done = await waitUntil { h.vm.listenMode == .passageTargets && h.vm.phase == .listening }
+        XCTAssertTrue(done, "Daha uzun sabit kalırsa biter")
+    }
+
     func testSequenceWordGivesTheNextNumber() async {
         let h = harness(number: true)
         h.answering.results = [.success(FakeAnswering.reply(1))]
