@@ -70,9 +70,18 @@ final class AppEnvironment: ObservableObject {
             .store(in: &cancellables)
     }
 
+    /// Son verilen karar (günlüğe yalnız değişince yazılır)
+    private var lastDimDecision: DimDecision?
+
     func syncDimming() {
-        let dim = settings.dimScreen && session.phase.isRunning && session.warnings.isEmpty && isActive
-        ScreenDimmer.shared.update(dim: dim)
+        let decision = DimDecision.decide(enabled: settings.dimScreen, running: session.phase.isRunning, active: isActive,
+                                          warnings: session.warnings.map { $0.text })
+        if decision != lastDimDecision {
+            lastDimDecision = decision
+            if decision != .settingOff { tlog("[ekran] \(decision.statusText)") }
+        }
+        settingsModel.dimStatus = decision.statusText
+        ScreenDimmer.shared.update(dim: decision.shouldDim)
     }
 
     /// Uygulama arka plana ya da pasife geçerken kullanıcının parlaklığı geri verilir

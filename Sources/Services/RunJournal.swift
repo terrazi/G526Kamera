@@ -151,6 +151,24 @@ enum ExitAnalyzer {
     }
 }
 
+/// Panodaki işaretin durumu (açılışta günlüğe yazılır)
+enum ClipboardState: Equatable {
+    /// Bizim işaretimiz yok (hiç yazılmadı ya da oturum için silindi): otomasyon uygulamayı açabilir
+    case clean
+    /// İşaret panoda duruyor: otomasyon uygulamayı açmaz
+    case marker(String)
+    /// İşaretten sonra pano başka bir şeyle değişmiş (işaret gitti)
+    case overwritten
+
+    var text: String {
+        switch self {
+        case .clean: return "yok (otomasyon açabilir)"
+        case let .marker(name): return "\(name) (otomasyon açmaz)"
+        case .overwritten: return "başkası değiştirmiş (işaret yok)"
+        }
+    }
+}
+
 /// Panodaki işaret. Kestirmeler'deki "uygulama kapanınca yeniden aç" otomasyonu panoyu okur: `SESLIKONTROL-` ile başlayan bir şey varsa
 /// uygulamayı açmaz. iOS "Kapatıldı" tetikleyicisini uygulamadan başka uygulamaya geçildiğinde de çalıştırır; bu yüzden işaret şu
 /// anlarda yazılır: oturum yokken (kapat düğmesi, test bitti), uygulama kestirme çalıştırmak için bilerek başka uygulamaya geçerken.
@@ -164,6 +182,7 @@ final class ClipboardFlag {
     static let repair = "SESLIKONTROL-ONARIM"
 
     private static let tokenKey = "journal.clipboardToken"
+    private static let nameKey = "journal.clipboardMarker"
     private let defaults: UserDefaults
     private let write: (String) -> Void
     private let changeCount: () -> Int
@@ -180,6 +199,17 @@ final class ClipboardFlag {
     func set(_ marker: String) {
         write(marker)
         defaults.set(changeCount(), forKey: ClipboardFlag.tokenKey)
+        defaults.set(marker, forKey: ClipboardFlag.nameKey)
+    }
+
+    /// Panonun şu anki durumu (içeriği okunmaz: iOS'un "yapıştırmaya izin ver" sorusu çıkmaz). Açılışta günlüğe yazılır:
+    /// yeniden açılma otomasyonu işe yaramadıysa işaretin engel olup olmadığı buradan anlaşılır.
+    func state() -> ClipboardState {
+        guard defaults.object(forKey: ClipboardFlag.tokenKey) != nil else { return .clean }
+        if defaults.integer(forKey: ClipboardFlag.tokenKey) == changeCount() {
+            return .marker(defaults.string(forKey: ClipboardFlag.nameKey) ?? "?")
+        }
+        return .overwritten
     }
 
     /// Pano hâlâ bizim yazdığımızsa siler; kullanıcı arada başka bir şey kopyaladıysa dokunmaz
@@ -187,6 +217,7 @@ final class ClipboardFlag {
         guard defaults.object(forKey: ClipboardFlag.tokenKey) != nil else { return }
         if defaults.integer(forKey: ClipboardFlag.tokenKey) == changeCount() { write("") }
         defaults.removeObject(forKey: ClipboardFlag.tokenKey)
+        defaults.removeObject(forKey: ClipboardFlag.nameKey)
     }
 }
 
@@ -231,6 +262,7 @@ final class RunJournal: RunJournaling {
         let alive = defaults.object(forKey: Key.alive) as? Double
         defaults.set(true, forKey: Key.hasRun)
         defaults.set(false, forKey: Key.deliberate)
+        if hadRun { tlog("[açılış] pano işareti: \(clipboard.state().text); önceki çalışmada oturum \(wasOpen ? "açıktı" : "kapalıydı")") }
         // Pano işareti hiç yazılmamışsa (ilk kurulum ya da bu özellikten önceki sürümden güncelleme) oturum yokken otomasyon uygulamayı
         // geri çekmesin diye bir kez yazılır; sonraki açılışlarda kullanıcının panosuna dokunulmaz (anahtar kopyalayıp açtıysa kaybolmasın)
         if !defaults.bool(forKey: Key.markerInit) {

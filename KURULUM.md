@@ -58,7 +58,11 @@ Ayrıntılı işleyiş: `docs/SURUM3.md`.
   seçtiğiniz sesi kulaklıktan dinletir.
 - **Uyarıları sesli söyle:** (açık gelir) ekrana yazılan her uyarı kulaklıktan da kısaca söylenir: internet koptu, mikrofon yok, onarım başarısız, şarj azaldı, yedek modelden cevap geldi… Yalnız Bluetooth kulaklıktan çalar (kulaklık yoksa hiçbir şey çalınmaz; ses telefondan çıkmaz). Soru okunurken ya da cevap beklenirken araya girmez: duraklama ve onarım anlarında hemen, aksi hâlde cevap duyulduktan sonra söylenir. Aynı cümle 5 dakika içinde tekrar etmez.
 - **Test sürerken ekranı kıs:** (kapalı gelir) test sürerken parlaklığı en aza indirir, pil daha yavaş biter. Ekran açık kalır
-  (Kestirmeler için gerekir). Kırmızı uyarı çıkınca ya da uygulamadan çıkınca/test bitince parlaklık geri verilir.
+  (Kestirmeler için gerekir). iOS parlaklık atamasını sessizce yok sayabildiği ve otomatik parlaklık değeri geri yükseltebildiği için
+  üç şey birlikte yapılır: parlaklık düşürülür, ekranın üstüne dokunuşları geçiren koyu bir örtü konur (OLED'de siyah piksel yanmaz;
+  parlaklık atanmasa bile ekran kararır) ve 5 saniyede bir parlaklık denetlenip gerekirse yeniden düşürülür. Kırmızı uyarı çıkınca ya da
+  uygulamadan çıkınca/test bitince parlaklık ve örtü geri verilir. **Kırmızı uyarı sürdükçe ekran kısılmaz** (örn. düşük güç modu uyarısı
+  kalıcıdır); ayarın altındaki yazı o an kısılıp kısılmadığını ve kısılmıyorsa nedenini (uyarı metniyle) söyler.
 - **Anında tespit (nabız):** (açık gelir) Dinlerken mikrofonun ses verip vermediğine yarım saniyede bir, internete 5 saniyede bir (ağ yolu değişince hemen) bakılır. Mikrofon bir saniyeden uzun ses vermezse dinleme hemen yeniden kurulur ve yarım metin korunur; art arda 3 kez işe yaramazsa Kestirmeler çalışır. iOS'un ses servisi çökerse ve ses motoru kendiliğinden durursa bildirim gelir gelmez aynı onarım başlar. İnternet için art arda iki nabız yoksa onarım başlar; bağlantı yokken her 2 saniyede bir bakıldığından internet dönünce 60 saniyelik yeniden deneme beklenmeden devam edilir. Kulaklık yoldan çıkınca çıkış kestirmesi 1 saniye sonra çalışır. Kısa kesintiden sonra uzun anons yerine yalnız "Hazır. Son soruyu tekrar oku." denir. Ana ekranda "Canlı: Kulaklık ✓ · Mikrofon ✓ · İnternet ✓" satırı görünür; Tanı ve günlük'te "[tespit]" satırları neyin ne zaman yakalandığını gösterir. Sorun çıkarsa Ayarlar'dan kapatılabilir.
 - **Soru numarası okunmadıysa sor:** (açık gelir) Soruyu okuyup "Cevapla" dediniz ama numara söylemediyseniz program "Lütfen okuduğunuz sorunun numarasını söyleyin" der. "Yedi" ya da "soru yedi" demeniz yeter; numara sorunun başına yazılıp Gemini'ye öyle gider. Bilmiyorsanız "sıradaki" deyin, sıradaki numara verilir. Hiç söylemezseniz iki kez hatırlatılır, sonra sıradaki numarayla gönderilir (soru kaybolmaz). Kapalıyken numara sorulmaz, sıradaki numara verilir.
 - **Gemini beklerken bilgi ver:** (açık gelir) "Cevapla" deyince kulaklıktan "Soru başarıyla alınıp Gemini'ye gönderildi, cevap bekleniyor" denir; cevap uzarsa 30 saniyede bir "Cevap bekleniyor" denir. Gemini **3 dakikada** cevap vermezse bekleme bırakılır, "soruyu tekrar okuyun" denir ve dinlemeye dönülür. Kapalıyken bu anonslar ve 3 dakikalık sınır yoktur.
@@ -119,7 +123,12 @@ arada başka bir şey kopyaladıysanız panonuza dokunulmaz (silmek için panoyu
 oturum biter, uygulama panoya `SESLIKONTROL-KAPALI` yazar, otomasyon bunu görüp uygulamayı yeniden açmaz. Bu düğme dışındaki her
 kapanış (oturum sürerken) beklenmedik sayılır.
 
-Sınırlar (dürüstçe): (1) Bu otomasyon telefonda denenmeden güvenilmemeli. Evde dört deneme: Başlat'tan sonra uygulamayı yukarı kaydırıp
+Sınırlar (dürüstçe): (0) **2026-11-14 evde denemede: oturum sürerken uygulamayı yukarı kaydırıp kapatınca uygulama yeniden AÇILMADI.**
+Nedeni kesin bilinmiyor (otomasyon kurulu olmayabilir, panoda işaret kalmış olabilir ya da iOS "Kapatıldı" tetikleyicisini zorla
+kapatmadan sonra çalıştırmıyor olabilir; kamuya açık bildirimlere göre tetikleyici uygulamadan çıkınca/ekran kilitlenince/Denetim
+Merkezi açılınca çalışır, zorla kapatmayı garanti etmez). Bu yüzden **kaydırıp kapatmadan sonra otomatik yeniden açılma garanti
+edilmez**; uygulamayı elle açtığınızda oturum kaldığı yerden sürer. Açılışta günlüğe "[açılış] pano işareti: …" satırı yazılır:
+işaret engel olduysa orada görünür. (1) Bu otomasyon telefonda denenmeden güvenilmemeli. Evde dört deneme: Başlat'tan sonra uygulamayı yukarı kaydırıp
 kapatın (birkaç saniyede yeniden açılmalı); "Programı kapat" ile kapatın (açılmamalı); Başlat > Testi Bitir > başka uygulamaya geçin
 (geri gelmemeli); Ayarlar'dan bir kestirmeyi "Dene" ile çalıştırın (kestirme çalışıp uygulamaya dönmeli). (2) Oturum sürerken başka uygulamaya
 geçerseniz otomasyon Sesli Kontrol'ü öne geri getirir (sınav okuyucusu için çoğu zaman istenen budur). (3) Telefon kilitliyken iOS başka

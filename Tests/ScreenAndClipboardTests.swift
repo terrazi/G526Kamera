@@ -1,0 +1,213 @@
+import XCTest
+@testable import G526CameraDrive
+
+/// Sahte ekran: parlaklık ataması yok sayılabilir, sistem kendi başına parlaklığı değiştirebilir, örtü görünür/gizli
+@MainActor
+final class FakeDimHardware: DimHardware {
+    private var level: CGFloat
+    /// iOS parlaklık atamasını sessizce yok sayıyor
+    var ignoresBrightnessWrites = false
+    private(set) var writes = 0
+    private(set) var overlayVisible = false
+
+    init(brightness: CGFloat = 0.7) { level = brightness }
+
+    var brightness: CGFloat {
+        get { return level }
+        set {
+            writes += 1
+            if !ignoresBrightnessWrites { level = newValue }
+        }
+    }
+
+    func setOverlay(_ visible: Bool) { overlayVisible = visible }
+
+    /// Otomatik parlaklık ya da kullanıcı parlaklığı kendi başına değiştirdi (atama sayılmaz)
+    func systemSets(_ value: CGFloat) { level = value }
+    /// Pencere/sahne değişince örtü kayboldu
+    func overlayVanishes() { overlayVisible = false }
+}
+
+/// "Test sürerken ekranı kıs": parlaklık, koyu örtü, sistemin parlaklığı geri yükseltmesi, çökmeden sonra geri verme, karar nedenleri
+/// ve açılışta pano işaretinin durumu (yeniden açılma otomasyonunun neden açmadığını anlamak için)
+@MainActor
+final class ScreenAndClipboardTests: XCTestCase {
+    private func freshDefaults() -> UserDefaults {
+        return UserDefaults(suiteName: "g526.ekran.\(UUID().uuidString)")!
+    }
+
+    private func makeDimmer(_ hardware: FakeDimHardware, defaults: UserDefaults? = nil) -> ScreenDimmer {
+        return ScreenDimmer(hardware: hardware, defaults: defaults ?? freshDefaults(), monitorInterval: 0)
+    }
+
+    // MARK: Parlaklık ve örtü
+
+    func testDimLowersBrightnessAndDarkensThenRestoresTheUsersBrightness() {
+        let hw = FakeDimHardware(brightness: 0.7)
+        let dimmer = makeDimmer(hw)
+        dimmer.update(dim: true)
+        XCTAssertEqual(hw.brightness, ScreenDimmer.dimLevel, accuracy: 0.0001)
+        XCTAssertTrue(hw.overlayVisible, "Parlaklık düşerken ekranın üstüne koyu örtü de gelir")
+        XCTAssertTrue(dimmer.isDimmed)
+        dimmer.update(dim: false)
+        XCTAssertEqual(hw.brightness, 0.7, accuracy: 0.0001, "Kullanıcının parlaklığı geri verilir")
+        XCTAssertFalse(hw.overlayVisible, "Örtü kalkar")
+        XCTAssertFalse(dimmer.isDimmed)
+    }
+
+    func testDimmingAgainDoesNotOverwriteTheSavedBrightness() {
+        let hw = FakeDimHardware(brightness: 0.7)
+        let dimmer = makeDimmer(hw)
+        dimmer.update(dim: true)
+        dimmer.update(dim: true)
+        dimmer.update(dim: true)
+        dimmer.update(dim: false)
+        XCTAssertEqual(hw.brightness, 0.7, accuracy: 0.0001, "Art arda kısma çağrıları kısık değeri 'kullanıcı parlaklığı' diye saklamaz")
+    }
+
+    func testUndimWithoutDimmingChangesNothing() {
+        let hw = FakeDimHardware(brightness: 0.7)
+        let dimmer = makeDimmer(hw)
+        dimmer.update(dim: false)
+        XCTAssertEqual(hw.writes, 0)
+        XCTAssertFalse(hw.overlayVisible)
+        XCTAssertEqual(hw.brightness, 0.7, accuracy: 0.0001)
+    }
+
+    func testSystemRaisingTheBrightnessIsLoweredAgain() {
+        let hw = FakeDimHardware(brightness: 0.7)
+        let dimmer = makeDimmer(hw)
+        dimmer.update(dim: true)
+        XCTAssertFalse(dimmer.reassertIfNeeded(), "Parlaklık kısıkken denetim bir şey yapmaz")
+        hw.systemSets(0.6)   // otomatik parlaklık geri yükseltti
+        XCTAssertTrue(dimmer.reassertIfNeeded())
+        XCTAssertEqual(hw.brightness, ScreenDimmer.dimLevel, accuracy: 0.0001)
+        XCTAssertEqual(dimmer.reapplied, 1)
+        XCTAssertFalse(dimmer.reassertIfNeeded())
+        dimmer.update(dim: false)
+        XCTAssertEqual(hw.brightness, 0.7, accuracy: 0.0001, "Geri yükseltmeler kullanıcının parlaklığının yerine geçmez")
+    }
+
+    func testSmallBrightnessDriftIsIgnored() {
+        let hw = FakeDimHardware(brightness: 0.7)
+        let dimmer = makeDimmer(hw)
+        dimmer.update(dim: true)
+        let writes = hw.writes
+        hw.systemSets(ScreenDimmer.dimLevel + ScreenDimmer.tolerance / 2)
+        XCTAssertFalse(dimmer.reassertIfNeeded())
+        XCTAssertEqual(hw.writes, writes, "Önemsiz oynamada parlaklık yeniden atanmaz")
+    }
+
+    func testWhenIOSIgnoresBrightnessWritesTheOverlayStillDarkensTheScreen() {
+        let hw = FakeDimHardware(brightness: 0.7)
+        hw.ignoresBrightnessWrites = true
+        let dimmer = makeDimmer(hw)
+        dimmer.update(dim: true)
+        XCTAssertEqual(hw.brightness, 0.7, accuracy: 0.0001, "Sahte iOS atamayı yok saydı")
+        XCTAssertTrue(hw.overlayVisible, "Yine de ekran örtüyle kararır")
+        dimmer.update(dim: false)
+        XCTAssertFalse(hw.overlayVisible)
+        XCTAssertFalse(dimmer.isDimmed)
+    }
+
+    func testReassertBringsTheOverlayBackIfItVanished() {
+        let hw = FakeDimHardware()
+        let dimmer = makeDimmer(hw)
+        dimmer.update(dim: true)
+        hw.overlayVanishes()
+        _ = dimmer.reassertIfNeeded()
+        XCTAssertTrue(hw.overlayVisible)
+    }
+
+    func testReassertDoesNothingWhenNotDimmed() {
+        let hw = FakeDimHardware()
+        let dimmer = makeDimmer(hw)
+        XCTAssertFalse(dimmer.reassertIfNeeded())
+        XCTAssertEqual(hw.writes, 0)
+        XCTAssertFalse(hw.overlayVisible)
+    }
+
+    func testBrightnessIsGivenBackAfterACrashWhileDimmed() {
+        let defaults = freshDefaults()
+        let hw = FakeDimHardware(brightness: 0.8)
+        makeDimmer(hw, defaults: defaults).update(dim: true)
+        XCTAssertEqual(hw.brightness, ScreenDimmer.dimLevel, accuracy: 0.0001)
+        // Program kısıkken çöktü; yeni çalışma
+        let next = makeDimmer(hw, defaults: defaults)
+        next.restoreIfLeftDimmed()
+        XCTAssertEqual(hw.brightness, 0.8, accuracy: 0.0001)
+        XCTAssertNil(defaults.object(forKey: ScreenDimmer.savedKey))
+        let writes = hw.writes
+        next.restoreIfLeftDimmed()
+        XCTAssertEqual(hw.writes, writes, "Saklı değer yoksa bir şey yapılmaz")
+    }
+
+    // MARK: Kısma kararı ve nedeni
+
+    func testDecisionOrderAndReasons() {
+        typealias D = DimDecision
+        XCTAssertEqual(D.decide(enabled: false, running: true, active: true, warnings: []), .settingOff)
+        XCTAssertEqual(D.decide(enabled: true, running: false, active: true, warnings: []), .notRunning)
+        XCTAssertEqual(D.decide(enabled: true, running: true, active: false, warnings: []), .inactive)
+        XCTAssertEqual(D.decide(enabled: true, running: true, active: true, warnings: ["Mikrofon yok", "Şarj az"]), .warning("Mikrofon yok", 2))
+        XCTAssertEqual(D.decide(enabled: true, running: true, active: true, warnings: []), .dim)
+        XCTAssertTrue(D.dim.shouldDim)
+        for other in [D.settingOff, .notRunning, .inactive, .warning("x", 1)] { XCTAssertFalse(other.shouldDim) }
+    }
+
+    func testStatusTextsNameTheBlockingWarning() {
+        let blocked = DimDecision.warning("Telefon düşük güç modunda.", 2).statusText
+        XCTAssertTrue(blocked.contains("Telefon düşük güç modunda."), "Neden kısılmadığı uyarı metniyle yazılır")
+        XCTAssertTrue(blocked.contains("+1 uyarı daha"))
+        XCTAssertFalse(DimDecision.warning("Tek", 1).statusText.contains("daha"))
+        let long = DimDecision.warning(String(repeating: "a", count: 300), 1).statusText
+        XCTAssertLessThan(long.count, 200, "Uzun uyarı metni kısaltılır")
+        XCTAssertEqual(DimDecision.settingOff.statusText, "", "Ayar kapalıyken Ayarlar'da bir şey yazılmaz")
+        XCTAssertFalse(DimDecision.dim.statusText.isEmpty)
+        XCTAssertFalse(DimDecision.notRunning.statusText.isEmpty)
+        XCTAssertFalse(DimDecision.inactive.statusText.isEmpty)
+    }
+
+    // MARK: Pano işaretinin durumu
+
+    func testClipboardStateReportsCleanMarkerAndOverwritten() {
+        let board = RelaunchTests.FakePasteboard()
+        let flag = ClipboardFlag(defaults: freshDefaults(), write: { board.write($0) }, changeCount: { board.changeCount })
+        XCTAssertEqual(flag.state(), .clean)
+        flag.set(ClipboardFlag.closed)
+        XCTAssertEqual(flag.state(), .marker(ClipboardFlag.closed))
+        flag.set(ClipboardFlag.repair)
+        XCTAssertEqual(flag.state(), .marker(ClipboardFlag.repair))
+        board.userCopies("kendi metnim")
+        XCTAssertEqual(flag.state(), .overwritten, "İşaretten sonra kullanıcı başka şey kopyaladı")
+        flag.clearIfOurs()
+        XCTAssertEqual(board.value, "kendi metnim", "Kullanıcının panosuna dokunulmaz")
+        XCTAssertEqual(flag.state(), .clean)
+        flag.set(ClipboardFlag.closed)
+        flag.clearIfOurs()
+        XCTAssertEqual(board.value, "")
+        XCTAssertEqual(flag.state(), .clean)
+    }
+
+    func testClipboardStateTextsTellWhetherTheAutomationCanReopen() {
+        XCTAssertTrue(ClipboardState.clean.text.contains("açabilir"))
+        XCTAssertTrue(ClipboardState.marker("SESLIKONTROL-KAPALI").text.contains("açmaz"))
+        XCTAssertTrue(ClipboardState.marker("SESLIKONTROL-KAPALI").text.contains("SESLIKONTROL-KAPALI"))
+        XCTAssertTrue(ClipboardState.overwritten.text.contains("değiştirmiş"))
+    }
+
+    func testBeginRunReadsTheClipboardStateWithoutChangingTheClipboard() {
+        let defaults = freshDefaults()
+        let board = RelaunchTests.FakePasteboard()
+        func journal() -> RunJournal {
+            let flag = ClipboardFlag(defaults: defaults, write: { board.write($0) }, changeCount: { board.changeCount })
+            return RunJournal(defaults: defaults, previousLog: [], clipboard: flag)
+        }
+        let first = journal()
+        _ = first.beginRun()
+        first.setSessionOpen(true)   // oturum sürerken panoda işaret yok
+        let count = board.changeCount
+        _ = journal().beginRun()
+        XCTAssertEqual(board.changeCount, count, "Açılışta pano yalnız sayaçla yoklanır; yazılmaz, okunmaz")
+    }
+}
