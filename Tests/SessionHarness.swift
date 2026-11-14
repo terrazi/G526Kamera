@@ -32,6 +32,8 @@ final class SessionHarness {
         settings.instantDetection = false
         // Numara sorma ve "gönderildi" anonsu varsayılan olarak açıktır; eski testlerin akışı bozulmasın diye burada kapalı, ona ait testler açar
         settings.askMissingNumber = false
+        // "Lütfen sonraki soruyu okuyun" anonsu varsayılan olarak açıktır; eski testlerin konuşma dizileri bozulmasın diye burada kapalı, ona ait testler açar
+        settings.askNextQuestion = false
         settings.spokenProgress = false
         settings.smartResume = false
         if shortcutNames {

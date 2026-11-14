@@ -19,6 +19,8 @@ enum Say {
     /// Soru Gemini'ye gittikten sonra kesinti olup düzelince (yarım kalmış olabilir)
     static let recoveredAfterSend = "Bağlantı yeniden onarıldı. Sorunuz yarım kaldıysa son soruyu tekrar okuyunuz."
 
+    /// Cevap duyulduktan sonra, dinlemeye geçmeden: program sıradaki soruyu kendisi ister
+    static let nextQuestion = "Lütfen sonraki soruyu okuyun."
     static let askNumber = "Lütfen okuduğunuz sorunun numarasını söyleyin."
     static let askNumberAgain = "Soru numarasını duyamadım. Lütfen sorunun numarasını söyleyin. Numarayı bilmiyorsanız sıradaki deyin, sıradaki numara verilir."
     static let recoveredAskNumber = "Bağlantı yeniden onarıldı. Lütfen okuduğunuz sorunun numarasını söyleyin."
@@ -106,8 +108,8 @@ enum Say {
     static let micMissing = "Yaka mikrofonu görünmüyor. Mikrofonu ve alıcıyı kontrol edin; takılınca kendiliğinden devam edilir. Kulaklık sağlam olduğu için Kestirme çalıştırılmıyor."
     /// Kulaklık sağlam, mikrofon tarafı onarılıyor (Kestirme çalışmaz)
     static let micRepairing = "Mikrofon sorunu var. Test duraklatıldı, mikrofon yeniden kuruluyor."
-    /// Yedek modelden cevap geldi ama kısa cümle üretilememişse (yalnız yedek)
-    static let backupModelShort = "Önceki model yanıt vermedi, cevap yedek modelden geldi."
+    /// Cevap diğer modeller yanıt vermeyince ÜCRETLİ modelden geldi (para harcandı); söylenen tek cümle budur
+    static let paidModelUsed = "Ücretli modelden cevaplandı."
     static let noKeyShort = "Gemini API anahtarı girilmemiş. Ayarlardan yapıştırın."
     static let noOnDevice = "Bu telefonda çevrimdışı Türkçe dikte yüklü değil. Ayarlar, Genel, Klavye, Dikte bölümünden Türkçe'yi ekleyip internetteyken bir kez indirin."
     static let permissionDenied = "Mikrofon ve konuşma tanıma izni gerekli. Ayarlar, Sesli Kontrol bölümünden izin verin."

@@ -18,18 +18,32 @@ final class SpokenWarningTests: XCTestCase {
         XCTAssertTrue(gaveUp, "Onarım başarısız olunca da söylenir: \(h.speaker.announcements)")
     }
 
-    func testBackupModelAnswerIsSpokenAsOneShortSentenceNotTheServersErrorText() async {
+    func testPaidModelAnswerIsSpokenAsOneShortSentenceNotTheServersErrorText() async {
         let h = SessionHarness()
         var reply = FakeAnswering.reply(1)
-        reply.note = "Cevap B modelinden geldi: A (gemini-x): The model is overloaded. Please try again later. (503) Çok uzun bir İngilizce sunucu hata metni."
-        reply.spokenNote = "A yanıt vermedi, cevap B modelinden geldi."
+        reply.note = "Cevap Ücretli modelinden geldi: A (gemini-x): The model is overloaded. Please try again later. (503) Çok uzun bir İngilizce sunucu hata metni."
+        reply.spokenNote = Say.paidModelUsed
         h.answering.results = [.success(reply)]
         _ = await h.startListening()
         h.ask("Bir soru")
-        let said = await waitUntil { h.speaker.announcements.contains(reply.spokenNote) }
-        XCTAssertTrue(said, "Kısa cümle söylenir: \(h.speaker.announcements)")
+        let said = await waitUntil { h.speaker.announcements.contains(Say.paidModelUsed) }
+        XCTAssertTrue(said, "Ücretli modelden gelince kısa cümle söylenir: \(h.speaker.announcements)")
         XCTAssertFalse(h.speaker.allCalls.contains { $0.text.contains("overloaded") || $0.text == reply.note }, "Sunucunun uzun hata metni okunmaz")
         XCTAssertEqual(h.vm.warnings.first(where: { $0.id == "yedek" })?.text, reply.note, "Ekranda ayrıntı kalır")
+    }
+
+    func testFreeBackupModelAnswerSaysNothingAloudButKeepsTheScreenNote() async {
+        let h = SessionHarness()
+        var reply = FakeAnswering.reply(1)
+        reply.note = "Cevap Gemini 3.1 Flash-Lite modelinden geldi: Gemini 3.6 Flash (gemini-3.6-flash): The model is overloaded."
+        h.answering.results = [.success(reply)]
+        _ = await h.startListening()
+        h.ask("Bir soru")
+        let done = await waitUntil { h.vm.answers.count == 1 && h.vm.phase == .listening }
+        XCTAssertTrue(done)
+        XCTAssertFalse(h.speaker.allCalls.contains { $0.text.contains("overloaded") || $0.text.contains("modelinden") || $0.text.contains("yanıt vermedi") },
+                       "Hangi modelin cevapladığı ve hata metni söylenmez: \(h.speaker.allCalls.map { $0.text })")
+        XCTAssertEqual(h.vm.warnings.first(where: { $0.id == "yedek" })?.text, reply.note, "Ayrıntı ekranda kalır")
     }
 
     func testMissingMicrophoneIsSpokenWhileTheHeadphonesWork() async {

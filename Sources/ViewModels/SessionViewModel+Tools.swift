@@ -64,6 +64,7 @@ extension SessionViewModel {
             if let record = self.unheard {
                 guard await self.rereadUnheard(record) else { return }
                 self.unheard = nil
+                guard await self.promptNextQuestion() else { return }
             }
             guard !Task.isCancelled else { return }
             self.beginListening()

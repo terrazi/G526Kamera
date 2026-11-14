@@ -854,6 +854,7 @@ final class SessionViewModel: ObservableObject {
         if let spoken = pending.spoken, let number = pending.number {
             tlog("[soru \(number)] kapanmadan önce alınan cevap yeniden okunuyor")
             guard await speakNotice(spoken) else { return }
+            guard await promptNextQuestion() else { return }
             beginListening()
             return
         }
@@ -880,13 +881,14 @@ final class SessionViewModel: ObservableObject {
             tlog("[soru \(number)] numara kaynağı: \(source.logName)")
             finishEntry(.answered(record.spoken), number: number, model: reply.model, source: source)
             // Cevap yedek profilden geldiyse sebebi kırmızı kutuda yazılır; ilk profilden gelince silinir
-            // Ekranda ayrıntılı not (sunucunun hata metinleri dahil), kulaklıktan yalnız kısa cümle: uzun İngilizce hata metni okunmaz
+            // Ekranda ayrıntılı not (sunucunun hata metinleri dahil) kalır; kulaklıktan hangi modelin cevapladığı söylenmez, yalnız
+            // ücretli modelden geldiyse "Ücretli modelden cevaplandı." denir (hata metinleri hiç okunmaz)
             if reply.note.isEmpty {
                 clearWarning("yedek")
             } else {
                 let changed = warnings.first(where: { $0.id == "yedek" })?.text != reply.note
                 warn("yedek", reply.note)
-                if changed { announce(reply.spokenNote.isEmpty ? Say.backupModelShort : reply.spokenNote) }
+                if changed, !reply.spokenNote.isEmpty { announce(reply.spokenNote) }
             }
             store(record)
             completePassage(for: number)
@@ -909,8 +911,9 @@ final class SessionViewModel: ObservableObject {
             clearWarning("ses")
             verifyRecording(number: number, requested: base != nil)
             refreshReplayAvailability()
-            await settleAnnouncements()   // cevap duyulduktan sonra bekleyen uyarılar (şarj, yedek model…) söylenir
+            await settleAnnouncements()   // cevap duyulduktan sonra bekleyen uyarılar (şarj, ücretli model…) söylenir
             guard !Task.isCancelled, phase == .speaking else { return }
+            guard await promptNextQuestion() else { return }   // "Lütfen sonraki soruyu okuyun"; yarıda kesilirse akışı duraklama/onarım sürdürür
             beginListening()
         } catch is CancellationError {
             return
@@ -1003,6 +1006,7 @@ final class SessionViewModel: ObservableObject {
                 }
             }
             guard !Task.isCancelled, phase == .speaking else { return }
+            guard await promptNextQuestion() else { return }
             beginListening()
         }
     }

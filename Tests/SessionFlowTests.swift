@@ -135,6 +135,43 @@ final class SessionFlowTests: XCTestCase {
         XCTAssertEqual(transcript, "Soru 1, Denizli, Örgütsel Davranış\n")
     }
 
+    func testProgramAsksForTheNextQuestionItselfAfterTheAnswerIsHeard() async {
+        let h = SessionHarness()
+        h.settings.askNextQuestion = true
+        h.answering.results = [.success(FakeAnswering.reply(1))]
+        _ = await h.startListening()
+        h.ask("Soru bir. A seçeneği Adana")
+        let done = await waitUntil { h.vm.answers.count == 1 && h.vm.phase == .listening }
+        XCTAssertTrue(done)
+        XCTAssertEqual(h.speaker.spoken, [Say.ready, "Soru 1, Denizli, Örgütsel Davranış", Say.nextQuestion],
+                       "Cevap okunur, sonra program sıradaki soruyu kendisi ister, sonra dinler")
+        XCTAssertNil(h.speaker.calls.last?.saveAs, "Bu anons kayda yazılmaz")
+        XCTAssertEqual(h.speaker.calls.first(where: { $0.text.hasPrefix("Soru 1") })?.saveAs?.lastPathComponent, "soru_1")
+        XCTAssertEqual(h.listener.startCalls, 2, "İstekten sonra mikrofon açılır")
+    }
+
+    func testNextQuestionPromptCanBeTurnedOff() async {
+        let h = SessionHarness()
+        h.settings.askNextQuestion = false
+        h.answering.results = [.success(FakeAnswering.reply(1))]
+        _ = await h.startListening()
+        h.ask("Soru bir. A seçeneği Adana")
+        let done = await waitUntil { h.vm.answers.count == 1 && h.vm.phase == .listening }
+        XCTAssertTrue(done)
+        XCTAssertFalse(h.speaker.spoken.contains(Say.nextQuestion))
+    }
+
+    func testNoNextQuestionPromptAfterAFailedAnswer() async {
+        let h = SessionHarness()
+        h.settings.askNextQuestion = true
+        h.answering.results = [.failure(GeminiError("Kota doldu", .quota))]
+        _ = await h.startListening()
+        h.ask("Soru bir. A seçeneği Adana")
+        let done = await waitUntil { h.vm.phase == .listening && h.speaker.spoken.count >= 2 }
+        XCTAssertTrue(done)
+        XCTAssertFalse(h.speaker.spoken.contains(Say.nextQuestion), "Cevap gelmediyse 'sonraki soru' denmez; zaten soruyu yeniden okuması istenir")
+    }
+
     func testAudioIsOmittedWhenSettingIsOff() async {
         let h = SessionHarness()
         h.settings.sendAudio = false

@@ -23,6 +23,7 @@ final class AppSettings: ObservableObject {
         static let phoneVoice = "v3.phoneVoice"
         static let shortcutPresetApplied = "v3.shortcutPresetApplied"
         static let askMissingNumber = "v3.askMissingNumber"
+        static let askNextQuestion = "v3.askNextQuestion"
         static let spokenProgress = "v3.spokenProgress"
         static let smartResume = "v3.smartResume"
     }
@@ -129,6 +130,11 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(askMissingNumber, forKey: Key.askMissingNumber) }
     }
 
+    /// Cevap kulaklıktan okunup bitince program "Lütfen sonraki soruyu okuyun" der, sonra dinlemeye geçer
+    @Published var askNextQuestion: Bool {
+        didSet { defaults.set(askNextQuestion, forKey: Key.askNextQuestion) }
+    }
+
     /// Soru Gemini'ye gidince "soru başarıyla alınıp gönderildi, cevap bekleniyor" denir; cevap uzun sürerse arada "cevap bekleniyor" denir
     @Published var spokenProgress: Bool {
         didSet { defaults.set(spokenProgress, forKey: Key.spokenProgress) }
@@ -178,6 +184,7 @@ final class AppSettings: ObservableObject {
         englishDictation = defaults.object(forKey: Key.englishDictation) as? Bool ?? true
         geminiVoice = defaults.object(forKey: Key.geminiVoice) as? Bool ?? true
         askMissingNumber = defaults.object(forKey: Key.askMissingNumber) as? Bool ?? true
+        askNextQuestion = defaults.object(forKey: Key.askNextQuestion) as? Bool ?? true
         spokenProgress = defaults.object(forKey: Key.spokenProgress) as? Bool ?? true
         smartResume = defaults.object(forKey: Key.smartResume) as? Bool ?? true
         dimScreen = defaults.object(forKey: Key.dimScreen) as? Bool ?? false

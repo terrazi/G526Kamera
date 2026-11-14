@@ -479,9 +479,18 @@ final class GeminiProfileChainTests: XCTestCase {
         XCTAssertTrue(reply.note.contains("Cevap \(GeminiProfiles.defaultNames[2]) modelinden geldi"), reply.note)
         XCTAssertTrue(reply.note.contains(GeminiProfiles.defaultNames[0]), reply.note)
         XCTAssertTrue(reply.note.contains(GeminiProfiles.defaultNames[1]), reply.note)
-        let names = GeminiProfiles.defaultNames
-        XCTAssertEqual(reply.spokenNote, "\(names[0]) ve \(names[1]) yanıt vermedi, cevap \(names[2]) modelinden geldi.",
-                       "Kulaklıktan yalnız kısa cümle: hangi model yanıt vermedi, hangisinden cevap geldi; sunucunun hata metni okunmaz")
+        XCTAssertEqual(reply.spokenNote, "", "Ücretsiz bir modelden cevap geldiyse kulaklıktan hiçbir şey söylenmez")
+    }
+
+    func testPaidModelAnswerAfterOthersFailedIsSpokenAsOneShortSentence() async throws {
+        FakeGeminiProtocol.reset()
+        queueReplies([errorReply(503, "The model is overloaded. Please try again later."), errorReply(404), errorReply(503, "yoğun"),
+                      textReply("Soru 1, Adana, A")])
+        let service = GeminiAnswerService(profiles: profiles(["K1", "K2", "K3", "K4"]), makeClient: fakeProfileClient)
+        let reply = try await service.answer(question: "x", expectedNumber: 1, audio: nil)
+        XCTAssertEqual(reply.spokenNote, Say.paidModelUsed, "Yalnız ücretli modelden gelince: tek kısa cümle, hata metni yok")
+        XCTAssertFalse(reply.spokenNote.contains("overloaded"))
+        XCTAssertTrue(reply.note.contains("overloaded"), "Ayrıntı ekrandaki notta kalır")
     }
 
     func testFirstProfileAnsweringLeavesNoNote() async throws {

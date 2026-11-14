@@ -434,6 +434,7 @@ extension SessionViewModel {
             // Cevap alınmış ve kaydedilmişti, yalnız kulaklıktan duyulamamıştı: soruyu yeniden okutmadan cevabı tekrar söyle
             guard await rereadUnheard(record) else { return }
             unheard = nil
+            guard await promptNextQuestion() else { return }
             beginListening()
             return
         }

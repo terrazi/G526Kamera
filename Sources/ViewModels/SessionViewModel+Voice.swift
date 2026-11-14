@@ -15,6 +15,13 @@ struct PendingAnnouncement: Equatable {
 ///   diğer zamanlarda sıradaki anons ya da cevap duyulduktan sonra söylenir.
 /// - Aynı cümle 5 dakika içinde yeniden söylenmez; arama/Siri kesintisi sürerken hiçbir şey söylenmez.
 extension SessionViewModel {
+    /// Cevap duyulduktan sonra dinlemeye geçmeden önce: program sıradaki soruyu kendisi ister ("Lütfen sonraki soruyu okuyun").
+    /// false: anons yarıda kesildi (duraklatma, kulaklık kopması); çağıran dinlemeye geçmez, iş devam eden akışa kalır.
+    func promptNextQuestion() async -> Bool {
+        guard settings.askNextQuestion else { return true }
+        return await speakNotice(Say.nextQuestion)
+    }
+
     /// Uyarı cümlesini söylenecekler sırasına koyar; sessiz bir andaysak hemen söyler
     func announce(_ text: String) {
         guard settings.spokenWarnings, !interruptionActive else { return }

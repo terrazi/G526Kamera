@@ -11,8 +11,8 @@ struct GeminiReply: Equatable {
     let model: String
     /// Cevap ilk sıradaki profilden gelmediyse nedenini anlatan kısa not ("1. profil kotası doldu; cevap … modelinden geldi"); aksi hâlde boş
     var note: String = ""
-    /// Aynı durumun kulaklıktan söylenen çok kısa hâli ("X yanıt vermedi, cevap Y modelinden geldi"); sunucunun uzun (çoğu İngilizce) hata
-    /// metinleri yalnız ekrandaki `note` içinde kalır, okunmaz
+    /// Kulaklıktan söylenen tek kısa cümle: yalnız cevap diğer modeller yanıt vermeyince ÜCRETLİ modelden geldiyse "Ücretli modelden cevaplandı."
+    /// (para harcandığı bilinsin). Hangi ücretsiz modelin cevapladığı ve sunucunun hata metinleri söylenmez; ayrıntı yalnız ekrandaki `note` içindedir.
     var spokenNote: String = ""
 }
 
@@ -202,7 +202,7 @@ final class GeminiAnswerService: Answering {
                 if parsed.spoken.isEmpty { throw GeminiError("Gemini cevap satırı vermedi.", .empty) }
                 restingUntil[profile.slot] = nil
                 let note = trail.isEmpty ? "" : "Cevap \(profile.name) modelinden geldi: " + trail.joined(separator: " ")
-                let spokenNote = failedNames.isEmpty ? "" : "\(failedNames.joined(separator: " ve ")) yanıt vermedi, cevap \(profile.name) modelinden geldi."
+                let spokenNote = (!profile.free && !failedNames.isEmpty) ? Say.paidModelUsed : ""
                 return GeminiReply(number: parsed.number, option: parsed.option, text: parsed.text,
                                    spoken: parsed.spoken, model: profile.model, note: note, spokenNote: spokenNote)
             } catch let error as GeminiError {
