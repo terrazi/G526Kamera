@@ -89,6 +89,22 @@ final class PCMRecorder: QuestionRecording, @unchecked Sendable {
 
     // MARK: WAV
 
+    /// Birkaç WAV'ı (bu sınıfın yazdığı 44 baytlık başlıklı, 16 kHz tek kanal) uç uca ekler. Parçalardan biri geçerli WAV değilse nil.
+    static func concatenated(_ parts: [Data]) -> Data? {
+        guard !parts.isEmpty, parts.allSatisfy({ $0.count > 44 && $0.prefix(4) == Data("RIFF".utf8) }) else { return nil }
+        if parts.count == 1 { return parts[0] }
+        var samples: [Int16] = []
+        for part in parts {
+            let body = part.dropFirst(44)
+            var i = body.startIndex
+            while i + 1 < body.endIndex {
+                samples.append(Int16(bitPattern: UInt16(body[i]) | (UInt16(body[i + 1]) << 8)))
+                i += 2
+            }
+        }
+        return wav(samples: samples, sampleRate: Int(sampleRate))
+    }
+
     /// 16 bit tek kanal PCM → 44 baytlık başlıklı WAV
     static func wav(samples: [Int16], sampleRate: Int) -> Data {
         let dataSize = samples.count * 2

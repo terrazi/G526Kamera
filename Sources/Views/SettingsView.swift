@@ -14,6 +14,7 @@ struct SettingsView: View {
                 geminiProfilesSection
                 folderSection
                 voiceScreenSection
+                readingSection
                 shortcutsSection
                 replaySection
                 Section {
@@ -146,6 +147,20 @@ struct SettingsView: View {
             HelpRow("Anında tespit: dinlerken mikrofonun ses verip vermediğine yarım saniyede bir, internete 5 saniyede bir (ağ yolu değişince hemen) bakılır. Mikrofon bir saniyeden uzun ses vermezse, ses servisi çökerse ya da internet iki nabızdır yoksa, bildirim beklenmeden onarım başlar; yazdığınız yarım soru korunur. Ana ekranda “Canlı” satırı kulaklık, mikrofon ve interneti gösterir. Sorun çıkarsa kapatabilirsiniz; eski davranışa (yalnız iOS bildirimleri) döner. Kapatırsanız takılma gözcüsü, sistem (bellek, ısı, disk) denetimi ve “yaşıyorum” nabzı da durur.")
             Toggle("Test sürerken ekranı kıs", isOn: $settings.dimScreen)
             HelpRow("Uyarıları sesli söyle: ekrana yazılan her uyarı (internet koptu, mikrofon yok, Kestirmeler sorunu gideremedi, şarj azaldı, yedek modelden cevap geldi…) kulaklıktan da kısaca söylenir. Yalnız Bluetooth kulaklıktan çalar; kulaklık yoksa hiçbir şey çalınmaz. Soru okunurken ya da cevap verilirken araya girmez, sıradaki sessiz ana kalır. “Otomatik”, telefonda kurulu en kaliteli Türkçe sesi seçer. Daha doğal bir ses için iPhone Ayarlar > Erişilebilirlik > Konuşulan İçerik > Sesler > Türkçe bölümünden “Gelişmiş” ya da “Premium” bir ses indirin, sonra bu ekrana dönün. Bu ses kısa anonslarda (“Ben hazırım…”), Gemini sesi kapalıyken ve Gemini sesi çalışmazken cevaplarda kullanılır; seçtiğiniz sesi ana ekrandaki “Sesi dene” ile kulaklıktan dinleyebilirsiniz (ses telefon hoparlöründen çıkmaz). Ekranı kıs: test sürerken ekran parlaklığı en aza iner ve pil daha yavaş biter; ekran açık kalır (Kestirmeler için gerekir). Kırmızı bir uyarı çıkınca, ekrana bakıp görebilmeniz için parlaklık kullanıcı ayarına geri verilir; uygulamadan çıkınca ya da test bitince de geri verilir.")
+        }
+    }
+
+    // MARK: Okuma komutları ve kesinti
+
+    private var readingSection: some View {
+        Section(header: Text("Okuma komutları ve kesinti")) {
+            Toggle("Soru numarası okunmadıysa sor", isOn: $settings.askMissingNumber)
+            Toggle("Gemini beklerken bilgi ver", isOn: $settings.spokenProgress)
+            Toggle("Kesintiden sonra akıllı devam", isOn: $settings.smartResume)
+            HelpRow("Soru numarası okunmadıysa sor: soruyu okuyup “Cevapla” dediniz ama “soru yedi” gibi bir numara söylemediyseniz program “Lütfen okuduğunuz sorunun numarasını söyleyin” der. “Yedi” ya da “soru yedi” demeniz yeter; numara sorunun başına yazılıp Gemini'ye öyle gider. Numarayı bilmiyorsanız “sıradaki” deyin, sıradaki numara verilir. Hiç söylemezseniz iki kez hatırlatılır, sonra sıradaki numarayla gönderilir; soru kaybolmaz. Kapalıyken numara sorulmaz, sıradaki numara verilir.")
+            HelpRow("Gemini beklerken bilgi ver: “Cevapla” deyince kulaklıktan “Soru başarıyla alınıp Gemini'ye gönderildi, cevap bekleniyor” denir; cevap uzarsa 30 saniyede bir “Cevap bekleniyor” denir. Gemini 3 dakikada cevap vermezse bekleme bırakılır, durum söylenir ve soruyu yeniden okumanız istenir. Kapalıyken bu anonslar ve 3 dakikalık sınır yoktur.")
+            HelpRow("Kesintiden sonra akıllı devam: soru Gemini'ye gittikten sonra bağlantı kopup onarılırsa “Bağlantı yeniden onarıldı. Sorunuz yarım kaldıysa son soruyu tekrar okuyunuz” denir. Okurken kesilirse program soru numarasını ve en son okuduğunuz cümleyi söyler (“En son üçüncü soruda şu cümleyi okudunuz: … Buradan devam edebilirsiniz”); devam ettiğiniz metin öncekiyle birleştirilir. Uygulama tümüyle kapanıp yeniden açılırsa yarım metin korunamaz, soru baştan okunur.")
+            HelpRow("Ortak paragraf: birkaç soru aynı paragrafa dayanıyorsa önce “Ortak paragraf” deyip paragrafı okuyun, bitirince “Tamamlandı” deyin. Program “Paragraf metnini aldım, hangi sorular için?” diye sorar; “beş altı yedi” ya da “beşten yediye kadar” deyip “Cevapla” deyin. Sonra soruları sırayla okuyun: paragraf, ait olduğu her soruyla birlikte Gemini'ye gider; hepsi cevaplanınca paragraf bırakılır. Paragraf okurken kesinti olursa program son cümleyi söyler, oradan devam edersiniz.")
         }
     }
 

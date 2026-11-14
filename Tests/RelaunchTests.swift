@@ -172,6 +172,28 @@ final class RelaunchTests: XCTestCase {
         XCTAssertEqual(board.value, ClipboardFlag.closed, "Test bitti: uygulamadan çıkmak (başka uygulamaya geçmek) yeniden açmayı tetiklemesin")
     }
 
+    func testUpdatingFromAnOlderBuildWritesTheMarkerOnceButLaterLaunchesLeaveTheClipboardAlone() {
+        let defaults = freshDefaults()
+        defaults.set(true, forKey: "journal.hasRun")   // eski sürüm zaten çalışmıştı; işaret hiç yazılmamıştı
+        let board = FakePasteboard()
+        let first = makeJournal(defaults, board: board)
+        _ = first.beginRun()
+        XCTAssertEqual(board.value, ClipboardFlag.closed, "Güncelleme sonrası ilk açılışta oturum yok: otomasyon geri çekmesin")
+        board.userCopies("Kopyalanan API anahtarı")
+        _ = makeJournal(defaults, board: board).beginRun()
+        XCTAssertEqual(board.value, "Kopyalanan API anahtarı", "Sonraki açılışlar kullanıcının panosunu ezmez")
+    }
+
+    func testFirstLaunchAfterAnUnexpectedCloseDoesNotLeaveAMarker() {
+        let defaults = freshDefaults()
+        defaults.set(true, forKey: "journal.hasRun")
+        defaults.set(true, forKey: "journal.sessionOpen")   // eski sürüm oturum sürerken kapanmıştı
+        let board = FakePasteboard()
+        let start = makeJournal(defaults, log: ["10:00:00.000 \(A.startedMark)"], board: board).beginRun()
+        XCTAssertEqual(start.exit, .unexpected(cause: A.causeUnknown))
+        XCTAssertEqual(board.value, "", "Oturum yeniden başlayacak: işaret yazılmaz")
+    }
+
     func testCrashLeavesTheClipboardWithoutAMarkerSoTheAutomationReopens() {
         let defaults = freshDefaults()
         let board = FakePasteboard()

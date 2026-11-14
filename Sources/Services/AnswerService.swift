@@ -59,6 +59,10 @@ final class GeminiAnswerService: Answering {
 
     Kullanıcı soruları sırayla okumak zorunda değildir (önce Soru 7, sonra Soru 3 okunabilir): numarayı sıradan ya da ipucundan \
     çıkarma, okunan numarayı aynen yaz. Soru numarası hiç okunmadıysa ya da anlaşılmadıysa kullanıcı mesajındaki ipucunu kullan. \
+    Bazen mesaj "Ortak paragraf (… numaralı sorular için ortaktır …)" diye başlar; ardından paragraf metni ve "Şimdi sorulan soru:" \
+    bölümü gelir. Paragraf birden çok sorunun ortak metnidir: yalnız "Şimdi sorulan soru" bölümündeki soruyu, paragrafa dayanarak \
+    yanıtla ve cevabı o sorunun numarasıyla ver; paragraftaki diğer numaraları cevaplama. Soru metni "Soru 7." diye başlıyorsa bu \
+    numarayı kullanıcı söylemiştir (numara okumadan sonra sorulup öğrenildi): aynen kullan. \
     Cevap metnini şıktan kısaca yaz. \
     Giriş, açıklama, markdown, tırnak ve ek cümle yazma. Emin değilsen en olası şıkkı yaz.
     """

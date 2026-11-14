@@ -184,6 +184,10 @@ extension SessionViewModel {
 
     func silenceExpired() {
         guard phase == .listening else { return }
+        if listenMode == .missingNumber, heldQuestion != nil {
+            work = Task { [weak self] in await self?.numberSilence() }   // numara söylenmedi: hatırlatılır, olmazsa sıradaki numara verilir
+            return
+        }
         work = Task { [weak self] in await self?.handleSilence() }
     }
 
@@ -382,8 +386,7 @@ extension SessionViewModel {
             return
         }
         let brief = settings.instantDetection && SessionViewModel.isBriefOutage(since: outageStart, now: deps.now())
-        guard await speakNotice(brief ? Say.recoveredShort : Say.recovered) else { return }
-        beginListening()
+        await finishRecovery(brief: brief)
     }
 
     // MARK: Konuşma tanıma onarımı
@@ -450,8 +453,7 @@ extension SessionViewModel {
                 deps.listener.pause()
                 clearWarning("mikrofon")
                 statusNote = ""
-                guard await speakNotice(Say.recoveredShort) else { return }
-                beginListening()
+                await finishRecovery(brief: true)
                 return
             }
             guard !Task.isCancelled, phase == recognizing else { return }

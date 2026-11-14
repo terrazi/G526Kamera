@@ -22,6 +22,9 @@ final class AppSettings: ObservableObject {
         static let shortcutOutput = "v3.shortcutOutput"
         static let phoneVoice = "v3.phoneVoice"
         static let shortcutPresetApplied = "v3.shortcutPresetApplied"
+        static let askMissingNumber = "v3.askMissingNumber"
+        static let spokenProgress = "v3.spokenProgress"
+        static let smartResume = "v3.smartResume"
     }
 
     /// Kullanıcının verdiği kestirme adları. Uygulama ilk açıldığında (bir kez) ilgili alanlara yazılır; sonra Ayarlar'dan silinip
@@ -121,6 +124,22 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(instantDetection, forKey: Key.instantDetection) }
     }
 
+    /// Soru numarası okunmadıysa program numarayı sorsun mu ("Lütfen okuduğunuz sorunun numarasını söyleyin"); kapalıyken sıradaki numara verilir
+    @Published var askMissingNumber: Bool {
+        didSet { defaults.set(askMissingNumber, forKey: Key.askMissingNumber) }
+    }
+
+    /// Soru Gemini'ye gidince "soru başarıyla alınıp gönderildi, cevap bekleniyor" denir; cevap uzun sürerse arada "cevap bekleniyor" denir
+    @Published var spokenProgress: Bool {
+        didSet { defaults.set(spokenProgress, forKey: Key.spokenProgress) }
+    }
+
+    /// Onarımdan sonra akıllı devam: soru Gemini'ye gitmişken kesinti olduysa "sorunuz yarım kaldıysa tekrar okuyunuz" denir; okuma yarıda
+    /// kesildiyse en son cümle tekrarlanır ve devam edilen metin öncekiyle birleştirilir (kapalıyken eldeki yarım metin silinir)
+    @Published var smartResume: Bool {
+        didSet { defaults.set(smartResume, forKey: Key.smartResume) }
+    }
+
     /// Test sürerken (kırmızı uyarı yokken) ekran pil için kısılsın mı
     @Published var dimScreen: Bool {
         didSet { defaults.set(dimScreen, forKey: Key.dimScreen) }
@@ -158,6 +177,9 @@ final class AppSettings: ObservableObject {
         sendAudio = defaults.object(forKey: Key.sendAudio) as? Bool ?? true
         englishDictation = defaults.object(forKey: Key.englishDictation) as? Bool ?? true
         geminiVoice = defaults.object(forKey: Key.geminiVoice) as? Bool ?? true
+        askMissingNumber = defaults.object(forKey: Key.askMissingNumber) as? Bool ?? true
+        spokenProgress = defaults.object(forKey: Key.spokenProgress) as? Bool ?? true
+        smartResume = defaults.object(forKey: Key.smartResume) as? Bool ?? true
         dimScreen = defaults.object(forKey: Key.dimScreen) as? Bool ?? false
         spokenWarnings = defaults.object(forKey: Key.spokenWarnings) as? Bool ?? true
         instantDetection = defaults.object(forKey: Key.instantDetection) as? Bool ?? true

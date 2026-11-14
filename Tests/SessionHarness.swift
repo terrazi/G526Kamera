@@ -30,6 +30,10 @@ final class SessionHarness {
         settings = AppSettings(defaults: defaults)
         // Anında tespit (nabız) varsayılan olarak açıktır; eski testlerin zamanlaması bozulmasın diye burada kapalı, ona ait testler açar
         settings.instantDetection = false
+        // Numara sorma ve "gönderildi" anonsu varsayılan olarak açıktır; eski testlerin akışı bozulmasın diye burada kapalı, ona ait testler açar
+        settings.askMissingNumber = false
+        settings.spokenProgress = false
+        settings.smartResume = false
         if shortcutNames {
             settings.wifiShortcut = "WiFi_Ac"
             settings.cellularShortcut = "Hücresel_Ac"

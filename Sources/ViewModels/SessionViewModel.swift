@@ -17,6 +17,14 @@ final class SessionViewModel: ObservableObject {
         static let hardwareGrace: TimeInterval = 20
         /// Donanım geri geldikten sonra bu kadar süre sabit kalırsa devam edilir
         static let routeStable: TimeInterval = 1
+        /// Numara istenince söylenen numara bu kadar sn sabit kalırsa soru gönderilir; numara hiç söylenmezse bu kadar kez hatırlatılır
+        /// Yarım okuma kesilince (kesinti sonrası) devam ettirmek için eldeki metnin en az sözcük sayısı
+        static let partialMinWords = 4
+        static let numberConfirm: TimeInterval = 1.5
+        static let numberReminderLimit = 2
+        /// Cevap beklerken "cevap bekleniyor" anonsu bu aralıkla (sn) söylenir; bu süre dolarsa (sn) bekleme bırakılır
+        static let answerCueEvery: TimeInterval = 30
+        static let answerCap: TimeInterval = 180
         /// Sessizlikte dinlemeyi yenileyip sağlığa bakmadan önce beklenen süre
         static let silenceProbe: TimeInterval = 4
         /// Bağlantı onarılamazsa yeniden deneme aralığı
@@ -102,6 +110,7 @@ final class SessionViewModel: ObservableObject {
         didSet {
             if phase != oldValue {
                 tlog("[oturum] \(phase.title)")
+                trackInterruption(from: oldValue)
                 let open = SessionViewModel.countsAsSession(phase)
                 if open != SessionViewModel.countsAsSession(oldValue) {
                     // Oturumun açık olduğu deftere ve günlüğe işlenir: uygulama bu arada kapanırsa sonraki açılış bunu görür
@@ -139,6 +148,10 @@ final class SessionViewModel: ObservableObject {
     @Published var liveStatus = ""
     /// Okunmakta olan sorunun İngilizce tanıyıcıdan çıkan hâli (ana ekranda küçük yazıyla)
     @Published var liveEnglish = ""
+    /// Mikrofonun şu an ne için açık olduğu (soru, ortak paragraf, paragrafın soru numaraları, eksik soru numarası)
+    @Published var listenMode: ListenMode = .question
+    /// Kayıtlı ortak paragraf (ait olduğu sorular cevaplanınca bırakılır)
+    @Published var passage: PassageContext?
 
     // MARK: Bağımlılıklar
 
@@ -220,6 +233,15 @@ final class SessionViewModel: ObservableObject {
     var stuckTrips = 0
     var lastTickAt: Date?
     var heartbeatTicks = 0
+    /// Numarası okunmadığı için numara beklenen soru; "Tamamlandı" denmiş ama soru numaraları beklenen paragraf; numara hatırlatma sayısı
+    var heldQuestion: HeldQuestion?
+    var passageDraft: PassageDraft?
+    var numberReminders = 0
+    /// Kesinti (onarım, donanım beklemesi) hangi aşamadayken başladı: dinlerken mi, soru gitmişken (cevap beklenirken) mi
+    var interruptedFrom: SessionPhase?
+    /// Cevap beklenirken "cevap bekleniyor" anonsu ve 3 dakikalık bekleme sınırı için zamanlayıcı
+    var answerWait: ScheduledTask?
+    var answerWaitElapsed: TimeInterval = 0
 
     init(settings: AppSettings, deps: SessionDependencies) {
         self.settings = settings
@@ -296,6 +318,10 @@ final class SessionViewModel: ObservableObject {
         deps.network.stop()
         deps.screen.keepAwake(false)
         phase = .finished
+        passage = nil
+        heldQuestion = nil
+        passageDraft = nil
+        listenMode = .question
         statusNote = "Test bitti. \(answers.count) cevap kaydedildi."
         refreshReplayAvailability()
     }
@@ -412,6 +438,15 @@ final class SessionViewModel: ObservableObject {
         watchedTicks = 0
         lastTickAt = nil
         heartbeatTicks = 0
+        listenMode = .question
+        passage = nil
+        heldQuestion = nil
+        passageDraft = nil
+        numberReminders = 0
+        interruptedFrom = nil
+        answerWait?.cancel()
+        answerWait = nil
+        answerWaitElapsed = 0
     }
 
     func cancelWork() {
@@ -438,6 +473,8 @@ final class SessionViewModel: ObservableObject {
         interruptionPoll = nil
         outputQuick?.cancel()
         outputQuick = nil
+        answerWait?.cancel()
+        answerWait = nil
     }
 
     // MARK: Uyarılar ve kontrol maddeleri
@@ -485,17 +522,30 @@ final class SessionViewModel: ObservableObject {
 
     // MARK: Dinleme (Modül 3)
 
-    /// Mikrofonu açar ve yeni soruyu bekler. Eldeki yarım metin ve ses silinir.
-    func beginListening() {
+    /// Mikrofonu açar ve yeni soruyu bekler. Eldeki yarım metin ve ses silinir; yalnız `keepPartial` ise (kesinti sonrası, okunan soru ya da
+    /// paragraf yarıda kalmışsa) korunur ve devam edilen okuma ona eklenir. `mode`: mikrofonun ne için açıldığı.
+    func beginListening(mode: ListenMode = .question, keepPartial: Bool = false) {
         cancelTimers()
         abandonEntry("Cevap alınamadı. Soruyu yeniden okuyun.")
         deps.journal.savePending(nil)   // dinlemeye dönüldüyse yarım kalan iş yoktur
         unheard = nil
-        accumulator.clear()
-        englishAccumulator.clear()
-        liveText = ""
-        liveEnglish = ""
-        deps.recorder.reset()
+        if keepPartial, !accumulator.isEmpty {
+            accumulator.commitCurrent()   // eski görevin yarım metni bölüm olur; yeni görevin metni onun arkasına eklenir
+            englishAccumulator.commitCurrent()
+            liveText = accumulator.text
+            liveEnglish = englishAccumulator.text
+        } else {
+            accumulator.clear()
+            englishAccumulator.clear()
+            liveText = ""
+            liveEnglish = ""
+            deps.recorder.reset()
+            if mode == .question {
+                heldQuestion = nil
+                passageDraft = nil
+            }
+        }
+        listenMode = mode
         do {
             try deps.listener.start()
         } catch {
@@ -523,6 +573,10 @@ final class SessionViewModel: ObservableObject {
             recognizerRepairs = 0    // tanıma gerçekten çalışıyor
             liveText = accumulator.text
             watchdog.kick()
+            if listenMode == .question, PassageCommand.startsWith(accumulator.text) {
+                listenMode = .passage   // "ortak paragraf": paragraf okunuyor, "Tamamlandı" ile biter
+                tlog("[paragraf] ortak paragraf kipi açıldı")
+            }
             reevaluateTrigger()
         case .taskEnded:
             accumulator.commitCurrent()
@@ -569,45 +623,213 @@ final class SessionViewModel: ObservableObject {
         work = Task { [weak self] in await self?.runRecovery(.hardware, force: true) }
     }
 
-    /// Metnin sonu "Cevapla"/"Gönder" ise kısa bir süre sabit kalmasını bekler; kalırsa tetikler
+    /// Kipe göre tetikleyici sabit kalırsa ateşler: soru ve paragraf numaralarında metnin sonu "Cevapla"/"Gönder", ortak paragrafta "Tamamlandı";
+    /// eksik soru numarası beklenirken kısa bir numara cevabı ("soru yedi") ya da "sıradaki"
     private func reevaluateTrigger() {
         confirmTask?.cancel()
         confirmTask = nil
-        guard TriggerDetector.match(in: accumulator.text) != nil else { return }
-        confirmTask = deps.scheduler.after(Timing.triggerConfirm) { [weak self] in self?.fireTrigger() }
+        let text = accumulator.text
+        var delay = Timing.triggerConfirm
+        switch listenMode {
+        case .question, .passageTargets:
+            guard TriggerDetector.match(in: text) != nil else { return }
+        case .passage:
+            guard TriggerDetector.match(in: text, words: PassageCommand.finishWords) != nil else { return }
+        case .missingNumber:
+            guard heldQuestion != nil, SpokenNumber.standalone(from: text) != nil || SpokenNumber.wantsSequence(text) else { return }
+            delay = Timing.numberConfirm
+        }
+        confirmTask = deps.scheduler.after(delay) { [weak self] in self?.fireTrigger() }
     }
 
     func fireTrigger() {
         confirmTask = nil
-        guard phase == .listening, let match = TriggerDetector.match(in: accumulator.text) else { return }
+        guard phase == .listening else { return }
+        switch listenMode {
+        case .question: fireQuestion()
+        case .passage: firePassage()
+        case .passageTargets: fireTargets()
+        case .missingNumber: fireNumber()
+        }
+    }
+
+    /// Mikrofonu kapatır (ses kaydı ve İngilizce metin `fire*` işlevlerinde önceden alınır; dinleme yeniden açılırken metin silinir)
+    private func closeListening() {
+        deps.listener.pause()
+        watchdog.disarm()
+    }
+
+    private func fireQuestion() {
+        guard let match = TriggerDetector.match(in: accumulator.text) else { return }
         guard !match.question.isEmpty else {
-            // Yalnız "cevapla" denmiş: boş soru gönderilmez
+            // Yalnız "cevapla" denmiş: boş soru gönderilmez; sesteki "cevapla" sözcüğü bir sonraki soruya karışmasın
             accumulator.clear()
             englishAccumulator.clear()
             liveText = ""
             liveEnglish = ""
+            deps.recorder.reset()
             return
         }
         // Mikrofon duraklar, tetikleyici sözcük metinden kırpılmıştır; ses kaydı da bu andan sonra durur
         let audio: Data? = settings.sendAudio ? deps.recorder.wavData() : nil
         let english = settings.englishDictation ? englishAccumulator.text : ""
-        deps.listener.pause()
-        watchdog.disarm()
-        liveText = match.question
+        let question = match.question
+        closeListening()
+        liveText = question
+        // Kayıt, okunan numarayla yapılır: kullanıcı soruları sırayla okumak zorunda değildir
+        let spoken = SpokenNumber.extract(from: question)
+        if spoken == nil, settings.askMissingNumber {
+            heldQuestion = HeldQuestion(text: question, english: english, audio: audio)
+            numberReminders = 0
+            tlog("[soru] numara okunmadı; numara isteniyor")
+            phase = .speaking
+            work = Task { [weak self] in await self?.askForNumber(again: false) }
+            return
+        }
         phase = .answering
         statusNote = ""
-        let question = match.question
-        // Kayıt, okunan numarayla yapılır: kullanıcı soruları sırayla okumak zorunda değildir
-        dispatchQuestion(question, english: english, audio: audio, spokenNumber: SpokenNumber.extract(from: question))
+        send(question: question, english: english, audio: audio, number: spoken, numberSpoken: true)
     }
 
-    /// Soruyu listeye işler, "yarım kalan iş" olarak deftere yazar (uygulama bu arada kapanırsa yeniden sorulur) ve Gemini'ye gönderir
-    func dispatchQuestion(_ question: String, english: String, audio: Data?, spokenNumber: Int?) {
+    /// "Lütfen okuduğunuz sorunun numarasını söyleyin" der ve numarayı dinler
+    func askForNumber(again: Bool) async {
+        guard heldQuestion != nil else { return }
+        guard await speakNotice(again ? Say.askNumberAgain : Say.askNumber) else { return }
+        beginListening(mode: .missingNumber)
+    }
+
+    /// Numara duyuldu ("soru yedi") ya da "sıradaki" denildi: bekleyen soru numarası başa yazılarak Gemini'ye gider
+    private func fireNumber() {
+        guard let held = heldQuestion else {
+            listenMode = .question
+            return
+        }
+        let text = accumulator.text
+        let number: Int
+        if let heard = SpokenNumber.standalone(from: text) {
+            number = heard
+        } else if SpokenNumber.wantsSequence(text) {
+            number = nextNumber
+        } else {
+            return
+        }
+        closeListening()
+        heldQuestion = nil
+        numberReminders = 0
+        listenMode = .question
+        liveText = held.text
+        phase = .answering
+        statusNote = ""
+        tlog("[soru] numara söylendi: \(number)")
+        send(question: held.text, english: held.english, audio: held.audio, number: number, numberSpoken: false)
+    }
+
+    /// Numara hiç söylenmeden sessizlik sürerse: hatırlatılır; yine olmazsa eski davranış (sıradaki numara) uygulanır, soru kaybolmaz
+    func numberSilence() async {
+        guard let held = heldQuestion else { return }
+        numberReminders += 1
+        guard numberReminders <= Timing.numberReminderLimit else {
+            closeListening()
+            heldQuestion = nil
+            numberReminders = 0
+            listenMode = .question
+            liveText = held.text
+            phase = .answering
+            statusNote = ""
+            tlog("[soru] numara söylenmedi; sıradaki numara verilerek gönderiliyor")
+            send(question: held.text, english: held.english, audio: held.audio, number: nil, numberSpoken: true)
+            return
+        }
+        deps.listener.pause()
+        watchdog.disarm()
+        phase = .speaking
+        await askForNumber(again: true)
+    }
+
+    /// "Tamamlandı" denince ortak paragraf alınır; hangi sorulara ait olduğu sorulur
+    private func firePassage() {
+        guard let match = TriggerDetector.match(in: accumulator.text, words: PassageCommand.finishWords) else { return }
+        let text = PassageCommand.stripStart(match.question)
+        let english = settings.englishDictation ? englishAccumulator.text : ""
+        let audio: Data? = settings.sendAudio ? deps.recorder.wavData() : nil
+        closeListening()
+        liveText = ""
+        phase = .speaking
+        guard !text.isEmpty else {
+            listenMode = .question
+            tlog("[paragraf] paragraf metni boş kaldı")
+            work = Task { [weak self] in
+                guard let self = self, await self.speakNotice(Say.passageEmpty) else { return }
+                self.beginListening(mode: .question)
+            }
+            return
+        }
+        passageDraft = PassageDraft(text: text, english: english, audio: audio)
+        listenMode = .passageTargets
+        tlog("[paragraf] ortak paragraf alındı (\(text.count) karakter); hangi sorulara ait olduğu soruluyor")
+        work = Task { [weak self] in
+            guard let self = self, await self.speakNotice(Say.passageTaken) else { return }
+            self.beginListening(mode: .passageTargets)
+        }
+    }
+
+    /// Paragrafın ait olduğu soru numaraları ("beş altı yedi, Cevapla") alınır; paragraf o sorularla birlikte gider
+    private func fireTargets() {
+        guard let match = TriggerDetector.match(in: accumulator.text) else { return }
+        let numbers = SpokenNumber.list(from: match.question)
+        closeListening()
+        liveText = ""
+        phase = .speaking
+        guard let draft = passageDraft else {
+            listenMode = .question
+            work = Task { [weak self] in self?.beginListening(mode: .question) }
+            return
+        }
+        guard !numbers.isEmpty else {
+            tlog("[paragraf] soru numaraları anlaşılamadı; yeniden isteniyor")
+            work = Task { [weak self] in
+                guard let self = self, await self.speakNotice(Say.passageTargetsAgain) else { return }
+                self.beginListening(mode: .passageTargets)
+            }
+            return
+        }
+        passage = PassageContext(text: draft.text, english: draft.english, audio: draft.audio, all: numbers, remaining: numbers)
+        passageDraft = nil
+        listenMode = .question
+        tlog("[paragraf] ortak paragraf \(QuestionComposer.listText(numbers)) numaralı sorular için kaydedildi")
+        work = Task { [weak self] in
+            guard let self = self, await self.speakNotice(Say.passageReady(numbers)) else { return }
+            self.beginListening(mode: .question)
+        }
+    }
+
+    /// Soruyu (varsa ortak paragrafıyla ve başına numarası yazılarak) Gemini'ye yollar
+    func send(question: String, english: String, audio: Data?, number: Int?, numberSpoken: Bool, ack: Bool = true) {
+        var text = question
+        if let number = number, !numberSpoken { text = QuestionComposer.numbered(question, number: number) }
+        var englishOut = english
+        var audioOut = audio
+        let effective = number ?? nextNumber
+        if let context = passage, context.remaining.contains(effective) {
+            let joined = AudioJoin.join(passage: context.audio, question: audio)
+            text = QuestionComposer.withPassage(question: text, passage: context, audioCombined: joined.combined)
+            englishOut = QuestionComposer.english(passage: context, question: english)
+            if joined.data != nil { audioOut = joined.data }
+            tlog("[paragraf] soru \(effective) ortak paragrafla birlikte gönderiliyor")
+        }
+        dispatchQuestion(text, english: englishOut, audio: audioOut, spokenNumber: number, display: question, ack: ack)
+    }
+
+    /// Soruyu listeye işler, "yarım kalan iş" olarak deftere yazar (uygulama bu arada kapanırsa yeniden sorulur) ve Gemini'ye gönderir.
+    /// `display`: listede görünen metin (ortak paragraf eklenmiş hâli değil). `ack`: "soru gönderildi" anonsu yapılır mı.
+    func dispatchQuestion(_ question: String, english: String, audio: Data?, spokenNumber: Int?, display: String? = nil, ack: Bool = false) {
         let announced = spokenNumber ?? nextNumber
-        beginEntry(text: question, withAudio: audio != nil, number: announced)
+        beginEntry(text: display ?? question, withAudio: audio != nil, number: announced)
         deps.journal.savePending(PendingWork(question: question, english: english, spokenNumber: spokenNumber, number: nil, spoken: nil))
         tlog("[soru \(announced)] Gemini'ye gönderildi (\(audio != nil ? "ses kaydıyla" : "yalnız metin"), \(question.count) karakter; numara \(spokenNumber != nil ? "okundu" : "okunmadı, sıradaki"))")
         work = Task { [weak self] in await self?.answer(question: question, english: english, audio: audio, spokenNumber: spokenNumber) }
+        if ack, settings.spokenProgress { speakProgress(Say.questionSent) }
+        startAnswerWait()
     }
 
     /// Beklenmedik kapanmadan önce Gemini'ye gitmiş soru yeniden sorulur (ses kaydı kaybolduğu için yalnız metinle); cevabı alınmış ama
@@ -644,6 +866,7 @@ final class SessionViewModel: ObservableObject {
             // Cevap yedek profilden geldiyse sebebi kırmızı kutuda yazılır; ilk profilden gelince silinir
             if reply.note.isEmpty { clearWarning("yedek") } else { warn("yedek", reply.note) }
             store(record)
+            completePassage(for: number)
             deps.journal.saveNextNumber(nextNumber)
             deps.journal.savePending(PendingWork(question: question, english: english, spokenNumber: spokenNumber, number: number, spoken: record.spoken))
             phase = .speaking
@@ -671,8 +894,10 @@ final class SessionViewModel: ObservableObject {
         } catch let error as SpeakError {
             await handleSpeakError(error)
         } catch let error as GeminiError {
+            guard !Task.isCancelled else { return }   // iptal edilen istek (bekleme sınırı, duraklatma) onarım başlatmaz
             await handleGeminiError(error)
         } catch {
+            guard !Task.isCancelled else { return }
             finishEntry(.failed(error.localizedDescription))
             warn("cevap", error.localizedDescription)
             if phase == .answering || phase == .speaking, await speakNotice(Say.answerFailed) { beginListening() }

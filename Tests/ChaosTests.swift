@@ -28,6 +28,9 @@ final class ChaosTests: XCTestCase {
     private static let pool: [Int] = [0, 0, 0, 1, 2, 3, 3, 4, 5, 5, 5, 6, 7, 7, 8, 9, 9, 10, 11, 12, 13, 14, 14, 15, 16,
                                       17, 17, 17, 17, 18, 19, 20, 21, 22, 22, 23, 24, 25, 26, 26, 27, 28, 29, 30, 31, 32, 33]
 
+    /// Okuma komutları açıkken eklenen olaylar: numara söyleme, ortak paragraf, paragrafın soru numaraları, yarım okuma
+    private static let modeEvents: [Int] = [34, 34, 35, 35, 36, 36, 37, 38, 38, 38]
+
     /// Zamanı ilerletir. `burst`: süre tek hamlede geçer (tüm nöbetçi vuruşları görevlere nefes aldırmadan art arda çalışır; uç durum);
     /// aksi hâlde yarım saniyelik adımlarla geçer ve her adımda görevlerin ilerlemesine izin verilir (gerçek zamana yakın).
     private func pass(_ h: SessionHarness, _ seconds: TimeInterval, burst: Bool) async {
@@ -96,6 +99,25 @@ final class ChaosTests: XCTestCase {
         case 31: h.system.current.thermal = .nominal; h.system.onThermalChange?(); return "telefon soğudu"
         case 32: h.system.current.lowPowerMode.toggle(); h.system.onPowerModeChange?(); return "düşük güç modu değişti"
         case 33: h.system.current.freeDiskMB = 50; return "boş yer azaldı"
+        case 34:
+            h.listener.say("soru yedi")
+            h.scheduler.advance(by: SessionViewModel.Timing.numberConfirm + 0.1)
+            return "numara söylendi"
+        case 35:
+            h.listener.say("Ortak paragraf Ali eve gitti. Sonra okula yürüdü Tamamlandı")
+            h.scheduler.advance(by: SessionViewModel.Timing.triggerConfirm + 0.1)
+            return "ortak paragraf okundu"
+        case 36:
+            h.listener.say("beş altı yedi Cevapla")
+            h.scheduler.advance(by: SessionViewModel.Timing.triggerConfirm + 0.1)
+            return "paragrafın soru numaraları"
+        case 37:
+            h.listener.say("sıradaki")
+            h.scheduler.advance(by: SessionViewModel.Timing.numberConfirm + 0.1)
+            return "sıradaki denildi"
+        case 38:
+            h.listener.say("Soru 3 Ali eve gitti. Sonra okula yürüdü ve arkadaşlarıyla buluştu")
+            return "yarım okuma"
         default: h.speaker.hold = false; h.speaker.release(); return "okuma devam etti"
         }
     }
@@ -136,18 +158,24 @@ final class ChaosTests: XCTestCase {
         }
     }
 
-    private func runSequence(seed: UInt64, burst: Bool) async -> [String] {
+    private func runSequence(seed: UInt64, burst: Bool, modes: Bool = false) async -> [String] {
         var problems: [String] = []
         var rng = SeededGenerator(seed: seed)
         let h = SessionHarness()
         h.settings.instantDetection = seed % 2 == 0
+        if modes {
+            h.settings.askMissingNumber = true
+            h.settings.spokenProgress = true
+            h.settings.smartResume = true
+        }
+        let pool = modes ? ChaosTests.pool + ChaosTests.modeEvents : ChaosTests.pool
         h.answering.results = [.success(FakeAnswering.reply(1))]
         guard await h.startListening() else { return ["oturum açılışta dinlemeye geçemedi"] }
 
         var log: [String] = []
         let count = Int.random(in: 8...16, using: &rng)
         for step in 0..<count {
-            let code = ChaosTests.pool[Int.random(in: 0..<ChaosTests.pool.count, using: &rng)]
+            let code = pool[Int.random(in: 0..<pool.count, using: &rng)]
             let name = await apply(code, h, &rng, burst: burst)
             log.append("\(step + 1). \(name)")
             await settle()
@@ -159,6 +187,13 @@ final class ChaosTests: XCTestCase {
             if h.vm.phase == .idle || h.vm.phase == .finished {
                 problems.append("adım \(step + 1): oturum kendiliğinden kapandı (\(h.vm.phase))")
                 break
+            }
+            // Değişmez 3: numara ya da paragraf numaraları beklenirken bekleyen soru/paragraf elde olmalı (yoksa kimse yanıtı bilmez)
+            if h.vm.phase == .listening, h.vm.listenMode == .missingNumber, h.vm.heldQuestion == nil {
+                problems.append("adım \(step + 1): numara bekleniyor ama bekleyen soru yok")
+            }
+            if h.vm.phase == .listening, h.vm.listenMode == .passageTargets, h.vm.passageDraft == nil {
+                problems.append("adım \(step + 1): paragrafın soru numaraları bekleniyor ama bekleyen paragraf yok")
             }
         }
 
@@ -189,6 +224,31 @@ final class ChaosTests: XCTestCase {
                 failed += 1
                 XCTFail("tohum \(seed): " + problems.joined(separator: "; "))
                 if failed >= 6 { break }   // günlük şişmesin
+            }
+        }
+    }
+
+    /// Okuma komutları (numara sorma, ortak paragraf, devam, ilerleme anonsu) açıkken de oturum kilitlenmez
+    func testRandomOutagesWithReadingCommandsNeverDeadlockTheSession() async {
+        var failed = 0
+        for seed in 1...ChaosTests.realisticSeeds {
+            let problems = await runSequence(seed: UInt64(seed), burst: false, modes: true)
+            if !problems.isEmpty {
+                failed += 1
+                XCTFail("tohum \(seed) (komutlar): " + problems.joined(separator: "; "))
+                if failed >= 6 { break }
+            }
+        }
+    }
+
+    func testRandomOutagesWithReadingCommandsAndBurstedTimeNeverDeadlockTheSession() async {
+        var failed = 0
+        for seed in 1...ChaosTests.burstSeeds {
+            let problems = await runSequence(seed: UInt64(seed), burst: true, modes: true)
+            if !problems.isEmpty {
+                failed += 1
+                XCTFail("tohum \(seed) (komutlar, hamle): " + problems.joined(separator: "; "))
+                if failed >= 6 { break }
             }
         }
     }

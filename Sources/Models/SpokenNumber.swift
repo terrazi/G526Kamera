@@ -126,3 +126,80 @@ enum SpokenNumber {
         return Parsed(value: value, consumed: i, final: false)
     }
 }
+
+// MARK: - Numara istenince verilen kısa yanıtlar
+
+extension SpokenNumber {
+    /// Yanıtta sayı sayılmayan dolgu sözcükler ("soru yedi", "numara yedi, cevapla")
+    private static let fillerWords: Set<String> = ["soru", "sorusu", "numarasi", "numara", "no", "nu", "numarali", "cevapla", "gonder", "tamam", "evet"]
+    /// "Sıradaki numarayı ver" anlamına gelen sözcükler
+    private static let sequenceWords: Set<String> = ["siradaki", "sirada", "gec", "atla", "numarasiz"]
+    /// Aralık bağlaçları ve ekleri: "5 ile 7 arası", "5'ten 7'ye kadar"
+    private static let rangeLinks: Set<String> = ["ile", "ten", "tan", "den", "dan", "e", "a", "ye", "ya", "ila", "ve"]
+    private static let rangeEnds: Set<String> = ["arasi", "arasinda", "kadar"]
+    /// Tek paragrafın ait olabileceği en çok soru sayısı
+    static let maxListed = 80
+
+    /// "Lütfen sorunun numarasını söyleyin" yanıtı: kısa bir cümledeki tek numara ("yedi", "soru yedi", "yedinci soru", "yirmi beş").
+    /// Uzun metinde (kullanıcı sonraki soruyu okumaya başladıysa) nil.
+    static func standalone(from text: String) -> Int? {
+        let words = tokens(text).filter { !fillerWords.contains($0) }
+        guard !words.isEmpty, words.count <= 4 else { return nil }
+        guard let parsed = parse(words), parsed.consumed == words.count else { return nil }
+        return parsed.value
+    }
+
+    /// Yanıt "sıradaki numarayı ver" mi ("sıradaki", "geç", "atla")
+    static func wantsSequence(_ text: String) -> Bool {
+        let words = tokens(text)
+        return !words.isEmpty && words.count <= 4 && words.contains(where: { sequenceWords.contains($0) })
+    }
+
+    /// "beşten", "yediye", "ona": hâl ekli sayı sözcüğünün kökü (yalnız kalan tam bir birler/onlar sözcüğüyse); aksi hâlde nil
+    private static let caseSuffixes = ["ten", "tan", "den", "dan", "ye", "ya", "e", "a"]
+    private static func numberStem(_ word: String) -> String {
+        if units[word] != nil || tens[word] != nil { return word }
+        for suffix in caseSuffixes where word.hasSuffix(suffix) {
+            let stem = String(word.dropLast(suffix.count))
+            if units[stem] != nil || tens[stem] != nil { return stem }
+        }
+        return word
+    }
+
+    /// Paragrafın hangi sorulara ait olduğu: "5 6 7", "beş, altı ve yedi", "5 ile 7 arası", "beşten yediye kadar", "5-7" → [5, 6, 7]
+    static func list(from text: String) -> [Int] {
+        let normalized = text.replacingOccurrences(of: "(\\d+)\\s*[-–—]\\s*(\\d+)", with: "$1 ile $2 arasi", options: .regularExpression)
+        let words = tokens(normalized).map { numberStem($0) }
+        struct Hit { let value: Int; let start: Int; let end: Int }
+        var hits: [Hit] = []
+        var i = 0
+        while i < words.count {
+            if let parsed = parse(Array(words[i...])) {
+                hits.append(Hit(value: parsed.value, start: i, end: i + parsed.consumed))
+                i += parsed.consumed
+            } else {
+                i += 1
+            }
+        }
+        var result: [Int] = []
+        var k = 0
+        while k < hits.count {
+            let a = hits[k]
+            if k + 1 < hits.count {
+                let b = hits[k + 1]
+                let between = words[a.end..<b.start]
+                var j = b.end
+                while j < words.count, rangeLinks.contains(words[j]) { j += 1 }
+                let after = j < words.count ? words[j] : ""
+                if rangeEnds.contains(after), between.allSatisfy({ rangeLinks.contains($0) }), b.value >= a.value, b.value - a.value < maxListed {
+                    result.append(contentsOf: Array(a.value...b.value))
+                    k += 2
+                    continue
+                }
+            }
+            result.append(a.value)
+            k += 1
+        }
+        return Array(Set(result)).sorted().prefix(maxListed).map { $0 }
+    }
+}

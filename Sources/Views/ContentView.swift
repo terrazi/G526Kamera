@@ -98,22 +98,48 @@ struct ContentView: View {
         }
     }
 
-    /// Okunmakta olan soru (dinleme sürerken, henüz "Cevapla" denmemiş)
-    private var liveQuestion: String? {
-        guard session.phase == .listening, !session.liveText.isEmpty else { return nil }
-        return session.liveText
+    /// Okunmakta olan soru ya da paragraf kutusu görünsün mü (dinleme sürerken; soru kipinde yalnız bir şey okunmaya başlandıysa)
+    private var liveBoxVisible: Bool {
+        guard session.phase == .listening else { return false }
+        return !session.liveText.isEmpty || session.listenMode != .question
+    }
+
+    /// Mikrofon şu an ne bekliyor
+    private var modeNote: String {
+        switch session.listenMode {
+        case .question: return "Bekliyor: “Cevapla” demenizi bekliyor"
+        case .passage: return "Ortak paragraf okunuyor: bitirince “Tamamlandı” deyin"
+        case .passageTargets: return "Paragraf alındı: hangi sorulara ait olduğunu söyleyip “Cevapla” deyin"
+        case .missingNumber: return "Soru numarası bekleniyor: numarayı söyleyin (ör. “yedi”)"
+        }
+    }
+
+    private var passageNote: String? {
+        guard let context = session.passage else { return nil }
+        return "Ortak paragraf kayıtlı: \(QuestionComposer.listText(context.remaining)) numaralı sorular için"
     }
 
     /// Tek liste: yüklenen sorular, her birinin yanında Gemini'ye gidiş işareti. Yeni soru en üstte; durum canlı güncellenir.
     private var questionList: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Yüklenen sorular (\(session.questions.count))").font(.headline)
-            if let live = liveQuestion {
+            if let note = passageNote {
+                questionBox {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        markSlot { Image(systemName: "doc.text.fill").foregroundColor(.blue) }
+                        Text(note)
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+            if liveBoxVisible {
                 questionBox {
                     VStack(alignment: .leading, spacing: 4) {
                         HStack(alignment: .firstTextBaseline, spacing: 6) {
                             markSlot { Image(systemName: "clock.fill").foregroundColor(.orange) }
-                            Text(live)
+                            Text(session.liveText.isEmpty ? "…" : session.liveText)
                                 .font(.subheadline)
                                 .lineLimit(6)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -125,9 +151,10 @@ struct ContentView: View {
                                 .lineLimit(4)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
-                        Text("Bekliyor: “Cevapla” demenizi bekliyor")
+                        Text(modeNote)
                             .font(.footnote)
                             .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
             }

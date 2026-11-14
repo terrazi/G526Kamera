@@ -189,6 +189,7 @@ final class RunJournal: RunJournaling {
         static let next = "journal.nextNumber"
         static let folder = "journal.folder"
         static let unexpected = "journal.unexpectedTimes"
+        static let markerInit = "journal.clipboardMarkerInit"
     }
 
     private let defaults: UserDefaults
@@ -215,8 +216,12 @@ final class RunJournal: RunJournaling {
         let alive = defaults.object(forKey: Key.alive) as? Double
         defaults.set(true, forKey: Key.hasRun)
         defaults.set(false, forKey: Key.deliberate)
-        // İlk açılışta oturum yok: otomasyon uygulamayı geri çekmesin (kurulum ve denemeler sırasında)
-        if !hadRun { clipboard.set(ClipboardFlag.closed) }
+        // Pano işareti hiç yazılmamışsa (ilk kurulum ya da bu özellikten önceki sürümden güncelleme) oturum yokken otomasyon uygulamayı
+        // geri çekmesin diye bir kez yazılır; sonraki açılışlarda kullanıcının panosuna dokunulmaz (anahtar kopyalayıp açtıysa kaybolmasın)
+        if !defaults.bool(forKey: Key.markerInit) {
+            defaults.set(true, forKey: Key.markerInit)
+            if !wasOpen { clipboard.set(ClipboardFlag.closed) }
+        }
 
         let exit: PreviousExit = hadRun ? ExitAnalyzer.analyze(sessionOpen: wasOpen, deliberate: deliberate, previous: previousLog) : .firstRun
         let stamp = now().timeIntervalSince1970

@@ -9,6 +9,43 @@ enum Say {
     /// Kısa kesintide (birkaç saniye) uzun anons yerine
     static let recoveredShort = "Hazır. Son soruyu tekrar oku."
 
+    // MARK: Soru gönderme, numara, ortak paragraf, kesinti sonrası devam
+
+    /// "Cevapla" denince, soru Gemini'ye gittiği anda
+    static let questionSent = "Soru başarıyla alınıp Gemini'ye gönderildi, cevap bekleniyor."
+    /// Cevap uzun süre gelmezse arada
+    static let stillWaiting = "Cevap bekleniyor."
+    static let geminiSlow = "Gemini üç dakikada cevap vermedi. Soruyu tekrar okuyun."
+    /// Soru Gemini'ye gittikten sonra kesinti olup düzelince (yarım kalmış olabilir)
+    static let recoveredAfterSend = "Bağlantı yeniden onarıldı. Sorunuz yarım kaldıysa son soruyu tekrar okuyunuz."
+
+    static let askNumber = "Lütfen okuduğunuz sorunun numarasını söyleyin."
+    static let askNumberAgain = "Soru numarasını duyamadım. Lütfen sorunun numarasını söyleyin. Numarayı bilmiyorsanız sıradaki deyin, sıradaki numara verilir."
+    static let recoveredAskNumber = "Bağlantı yeniden onarıldı. Lütfen okuduğunuz sorunun numarasını söyleyin."
+
+    static let passageTaken = "Paragraf metnini aldım. Bu paragraf hangi sorular için? Soru numaralarını söyleyip Cevapla deyin."
+    static let passageTargetsAgain = "Soru numaralarını anlayamadım. Paragrafın hangi sorulara ait olduğunu numaralarla söyleyip Cevapla deyin."
+    static let recoveredAskTargets = "Bağlantı yeniden onarıldı. Paragraf metnini aldım. Hangi sorulara ait olduğunu söyleyip Cevapla deyin."
+    static let passageEmpty = "Paragraf metni boş kaldı. Ortak paragraf deyip paragrafı yeniden okuyun."
+    static func passageReady(_ numbers: [Int]) -> String {
+        return "Ortak paragraf \(QuestionComposer.listText(numbers)) numaralı sorular için kaydedildi. Şimdi soruları okuyabilirsiniz."
+    }
+
+    /// Yarım okuma kesilip bağlantı düzelince: en son okunan cümle tekrarlanır, kullanıcı oradan devam eder (söyledikleri birleştirilir)
+    static func continuePartial(passage: Bool, number: Int?, sentence: String) -> String {
+        var text = "Bağlantı yeniden onarıldı. "
+        if passage {
+            if sentence.isEmpty { return text + "Ortak paragraf kipindesiniz. Paragrafı okuyun, bitirince tamamlandı deyin." }
+            return text + "Ortak paragrafta en son şu cümleyi okudunuz: \(sentence). Buradan devam edebilirsiniz; bitirince tamamlandı deyin."
+        }
+        if let number = number {
+            text += "En son \(TurkishOrdinal.inQuestion(number)) şu cümleyi okudunuz: \(sentence). "
+        } else {
+            text += "En son şu cümleyi okudunuz: \(sentence). "
+        }
+        return text + "Buradan devam edebilirsiniz."
+    }
+
     // MARK: Beklenmedik kapanma, sistem sağlığı, takılma
 
     /// Program beklenmedik kapanıp yeniden açılınca (sesli): ne oldu, yarım iş ne olacak
