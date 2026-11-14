@@ -9,6 +9,9 @@ enum SpeechEvent: Equatable {
     case taskEnded
     /// Dinleme durdu (donanım ya da tanıyıcı hatası)
     case failure(String)
+    /// Konuşma tanıyıcı kendi basamaklarını (görevi yenile, tanıyıcıyı yeniden yarat, ses motorunu yeniden kur) tüketti ya da yeniden
+    /// denemekle geçmeyen bir eksik buldu; dinleme durdu. `permanent`: Dikte kapalı ya da model yok. `message`: nedeni (kalıcıysa söylenecek cümle).
+    case recognizerDown(message: String, permanent: Bool)
     /// Ses motorunun yapılandırması değişti (giriş cihazı çıktı/geldi, ses servisi sıfırlandı): motor durmuş olabilir, tamponlar gelmeyebilir.
     /// Bildirim gelir gelmez, nabzı beklemeden dinleme yeniden kurulmalıdır.
     case engineStopped
@@ -42,6 +45,23 @@ enum ListenerError: LocalizedError, Equatable {
     }
 }
 
+/// Apple'ın konuşma tanıma hata kodlarının (SFSpeechRecognitionTask.Error tablosu) bu uygulama için anlamı
+enum RecognitionFault: Equatable {
+    /// Yeniden denemekle geçmez: Siri/Dikte kapalı ya da çevrimdışı model yüklü değil. Mesaj kullanıcıya söylenir.
+    case permanent(String)
+    /// Görev düştü (bağlantı kesildi, önceki görev sürüyordu, tanıyıcı başlatılamadı…): yeniden kurmak denenir
+    case transient
+
+    static func classify(domain: String, code: Int) -> RecognitionFault {
+        guard domain == "kLSRErrorDomain" else { return .transient }
+        switch code {
+        case 201: return .permanent(Say.dictationOff)      // Siri or Dictation is disabled
+        case 102: return .permanent(Say.noOnDevice)        // Assets are not installed
+        default: return .transient                         // 300 başlatılamadı, 301 iptal
+        }
+    }
+}
+
 /// Cihaz içi (çevrimdışı) sürekli dinleme
 @MainActor
 protocol SpeechListening: AnyObject {
@@ -49,6 +69,8 @@ protocol SpeechListening: AnyObject {
     var isRunning: Bool { get }
     /// Mikrofondan en son ses tamponunun geldiği andan beri geçen saniye (hiç gelmediyse nil)
     var secondsSinceAudio: TimeInterval? { get }
+    /// Üst üste kaç Türkçe tanıma görevi çabuk bitti (0: tanıma sağlam). Bir görev birkaç saniye hata vermeden yaşarsa ya da metin gelirse sıfırlanır.
+    var recognitionStreak: Int { get }
     func start() throws
     /// Mikrofonu ve tanıyıcıyı kapatır; bekleyen sonuçlar yok sayılır
     func pause()
@@ -113,30 +135,34 @@ final class OnDeviceSpeechListener: SpeechListening {
     /// Yardımcı İngilizce tanıyıcı: Türkçe tanıyıcı İngilizce cümleleri Türkçe okunuşlu anlamsız sözcüklerle yazar; aynı ses bir de
     /// İngilizce tanıyıcıdan geçirilir ve Gemini'ye ikinci metin olarak gider ("Cevapla" yine yalnız Türkçe metinde aranır).
     static let englishLocale = Locale(identifier: "en-US")
-    /// Yardımcı İngilizce görev üst üste bu kadar çabuk bitip hata verirse bırakılır
-    private static let maxQuickFailures = 5
-    /// Türkçe görev üst üste bu kadar çabuk bitip hata verirse dinleme durdurulur (öncesinde bekleme süresi uzayarak yeniden denenir;
-    /// geçici tanıyıcı sıkıntısı Kestirme/Bluetooth onarımı gerektirmez)
-    static let maxTurkishFailures = 12
-    /// Üst üste bu kadar hatadan sonra yardımcı İngilizce tanıyıcı bırakılır (iki tanıyıcı aynı anda çalışırken Türkçe düşüyorsa yük azalır)
-    static let suspendEnglishAfter = 3
+    /// Yardımcı İngilizce görev üst üste bu kadar çabuk bitip hata verirse bırakılır (Türkçe dinlemeyi hiçbir zaman engellememeli)
+    private static let maxQuickFailures = 2
+    /// Bundan kısa yaşayan görev "çabuk bitti" sayılır; bundan uzun yaşayan görev tanımanın sağlam olduğunu gösterir
+    static let quickLimit: TimeInterval = 1.5
+    static let stableAfter: TimeInterval = 3
+    /// Türkçe görev üst üste bu kadar çabuk biterse tanıyıcı kendi basamaklarını tüketmiş sayılır: dinleme durur ve `recognizerDown` gelir.
+    /// Basamaklar: 1. hata: yardımcı İngilizce bırakılır, görev yenilenir. 2: tanıyıcı nesneleri yeniden yaratılır. 3-4: ses motoru yeniden kurulur.
+    static let maxTurkishFailures = 5
+    /// Yardımcı İngilizce tanıyıcı ilk çabuk hatada bırakılır (Apple iki çevrimdışı tanıyıcının aynı anda çalışmasını garanti etmez; Türkçe öncelikli)
+    static let suspendEnglishAfter = 1
+    /// Tanıyıcı nesneleri bu hatada yeniden yaratılır, ses motoru bu hatadan itibaren yeniden kurulur
+    static let renewRecognizerAt = 2
+    static let rebuildEngineFrom = 3
 
-    /// Hata sayısına göre yeni tanıma görevinden önce beklenecek süre (sn): ilk iki hatada hemen, sonra 1, 2, 3 ve 5 sn
+    /// Hata sayısına göre yeni tanıma görevinden önce beklenecek süre (sn): ilk iki hatada hemen, sonra 0,3 ve 1 sn
     static func restartDelay(afterFailures count: Int) -> TimeInterval {
         switch count {
         case ..<3: return 0
-        case 3: return 1
-        case 4: return 2
-        case 5: return 3
-        default: return 5
+        case 3: return 0.3
+        default: return 1
         }
     }
 
     var onEvent: (@MainActor (SpeechEvent) -> Void)?
     private(set) var isRunning = false
 
-    private let recognizer = SFSpeechRecognizer(locale: OnDeviceSpeechListener.locale)
-    private let englishRecognizer = SFSpeechRecognizer(locale: OnDeviceSpeechListener.englishLocale)
+    private var recognizer = SFSpeechRecognizer(locale: OnDeviceSpeechListener.locale)
+    private var englishRecognizer = SFSpeechRecognizer(locale: OnDeviceSpeechListener.englishLocale)
     /// İngilizce yardımcı tanıyıcı çalışsın mı (ayardan okunur; her yeni görevde sorulur)
     private let wantsEnglish: () -> Bool
     private var englishTask: SFSpeechRecognitionTask?
@@ -163,6 +189,13 @@ final class OnDeviceSpeechListener: SpeechListening {
     var secondsSinceAudio: TimeInterval? {
         guard let last = sink.lastAudio else { return nil }
         return Date().timeIntervalSince(last)
+    }
+
+    var recognitionStreak: Int {
+        if quickFailures > 0, task != nil, Date().timeIntervalSince(taskStarted) >= OnDeviceSpeechListener.stableAfter {
+            quickFailures = 0   // görev birkaç saniyedir hata vermeden yaşıyor: tanıma sağlam
+        }
+        return quickFailures
     }
 
     /// Telefonda Türkçe çevrimdışı dikte var mı
@@ -251,7 +284,13 @@ final class OnDeviceSpeechListener: SpeechListening {
     // MARK: Tanıma görevi
 
     private func beginTask() {
-        guard isRunning, let recognizer = recognizer else { return }
+        guard isRunning else { return }
+        guard let recognizer = recognizer, recognizer.isAvailable, recognizer.supportsOnDeviceRecognition else {
+            tlog("[mikrofon] Türkçe tanıyıcı şu an kullanılamıyor")
+            pause()
+            onEvent?(.recognizerDown(message: ListenerError.unavailable.localizedDescription, permanent: false))
+            return
+        }
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
         request.requiresOnDeviceRecognition = true
@@ -263,16 +302,16 @@ final class OnDeviceSpeechListener: SpeechListening {
         task = recognizer.recognitionTask(with: request) { [weak self] result, error in
             let text = result?.bestTranscription.formattedString
             let finished = (result?.isFinal ?? false) || error != nil
-            let errorText = error.map { ($0 as NSError).domain + " " + String(($0 as NSError).code) + ": " + $0.localizedDescription }
+            let info = error.map { RecognitionErrorInfo(domain: ($0 as NSError).domain, code: ($0 as NSError).code, text: $0.localizedDescription) }
             Task { @MainActor in
-                self?.handle(text: text, finished: finished, failed: error != nil, errorText: errorText, request: request)
+                self?.handle(text: text, finished: finished, error: info, request: request)
             }
         }
     }
 
     /// Yardımcı İngilizce görev. Hata verirse ya da model yoksa sessizce vazgeçilir: Türkçe dinleme ve "Cevapla" etkilenmez.
     private func beginEnglishTask() {
-        guard isRunning, wantsEnglish(), !englishSuspended, englishQuickFailures < OnDeviceSpeechListener.maxQuickFailures,
+        guard isRunning, wantsEnglish(), !englishSuspended, quickFailures == 0, englishQuickFailures < OnDeviceSpeechListener.maxQuickFailures,
               let recognizer = englishRecognizer, recognizer.isAvailable, recognizer.supportsOnDeviceRecognition else { return }
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
@@ -304,7 +343,14 @@ final class OnDeviceSpeechListener: SpeechListening {
         beginEnglishTask()
     }
 
-    private func handle(text: String?, finished: Bool, failed: Bool, errorText: String? = nil, request: SFSpeechAudioBufferRecognitionRequest) {
+    private struct RecognitionErrorInfo: Sendable {
+        let domain: String
+        let code: Int
+        let text: String
+        var summary: String { return "\(domain) \(code): \(text)" }
+    }
+
+    private func handle(text: String?, finished: Bool, error: RecognitionErrorInfo?, request: SFSpeechAudioBufferRecognitionRequest) {
         // Eski (durdurulmuş ya da yenilenmiş) göreve ait gecikmiş sonuçları yok say
         guard isRunning, request === self.request else { return }
         if let text = text, !text.isEmpty {
@@ -312,30 +358,42 @@ final class OnDeviceSpeechListener: SpeechListening {
             onEvent?(.partial(text))
         }
         guard finished else { return }
-        if failed {
-            let quick = Date().timeIntervalSince(taskStarted) < 1.5
-            if quick { quickFailures += 1 }
-            tlog("[mikrofon] tanıma görevi hata verdi\(quick ? " (hemen, üst üste \(quickFailures))" : ""): \(errorText ?? "bilinmeyen")")
+        let age = Date().timeIntervalSince(taskStarted)
+        let quick = age < OnDeviceSpeechListener.quickLimit
+        if quick {
+            quickFailures += 1
+        } else if age >= OnDeviceSpeechListener.stableAfter {
+            quickFailures = 0   // uzun yaşadı: tanıma sağlam, eski çabuk hatalar unutulur
+        }
+        if let error = error {
+            tlog("[mikrofon] tanıma görevi hata verdi\(quick ? " (hemen, üst üste \(quickFailures))" : ""): \(error.summary)")
+        } else if quick {
+            tlog("[mikrofon] tanıma görevi hata vermeden hemen bitti (üst üste \(quickFailures))")
         }
         onEvent?(.taskEnded)
+        if let error = error, case .permanent(let message) = RecognitionFault.classify(domain: error.domain, code: error.code) {
+            pause()
+            onEvent?(.recognizerDown(message: message, permanent: true))
+            return
+        }
         if quickFailures >= OnDeviceSpeechListener.maxTurkishFailures {
             pause()
-            onEvent?(.failure("Konuşma tanıma üst üste hata verdi."))
+            onEvent?(.recognizerDown(message: error?.summary ?? "görev hemen bitiyor", permanent: false))
             return
         }
         task = nil
         sink.attach(nil)
-        if quickFailures >= OnDeviceSpeechListener.suspendEnglishAfter, !englishSuspended {
-            // İki çevrimdışı tanıyıcı aynı anda çalışırken Türkçe düşüyor olabilir: yardımcı İngilizce bırakılır, Türkçe korunur
-            englishSuspended = true
-            englishRequest?.endAudio()
-            englishTask?.cancel()
-            englishTask = nil
-            englishRequest = nil
-            sink.attachEnglish(nil)
-            tlog("[mikrofon] Türkçe tanıma düşüyor; yardımcı İngilizce tanıyıcı bu dinleme boyunca bırakıldı")
+        // Basamak 1: iki çevrimdışı tanıyıcı çakışıyor olabilir; Türkçe öncelikli, yardımcı İngilizce bırakılır
+        if quickFailures >= OnDeviceSpeechListener.suspendEnglishAfter { dropEnglish() }
+        // Basamak 2: tanıyıcı nesnesi bozulmuş olabilir (ses servisi sıfırlandıysa); yenileri yaratılır
+        if quickFailures == OnDeviceSpeechListener.renewRecognizerAt { renewRecognizers() }
+        // Basamak 3-4: ses motoru ve dinleme kancası baştan kurulur (giriş biçimi değişmiş olabilir)
+        if quickFailures >= OnDeviceSpeechListener.rebuildEngineFrom, !rebuildEngine() {
+            pause()
+            onEvent?(.engineStopped)
+            return
         }
-        // Sessizlik ya da süre sınırı yüzünden biten görev yerine hemen yenisi (hata sürerse bekleme süresi uzar): dinleme kesilmez
+        // Sessizlik ya da süre sınırı yüzünden biten görev yerine hemen yenisi: dinleme kesilmez
         let delay = OnDeviceSpeechListener.restartDelay(afterFailures: quickFailures)
         guard delay > 0 else {
             beginTask()
@@ -346,6 +404,35 @@ final class OnDeviceSpeechListener: SpeechListening {
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             guard !Task.isCancelled else { return }
             self?.beginTask()
+        }
+    }
+
+    private func dropEnglish() {
+        guard !englishSuspended else { return }
+        englishSuspended = true
+        englishRequest?.endAudio()
+        englishTask?.cancel()
+        englishTask = nil
+        englishRequest = nil
+        sink.attachEnglish(nil)
+        tlog("[mikrofon] Türkçe tanıma düştü; yardımcı İngilizce tanıyıcı bu dinleme boyunca bırakıldı")
+    }
+
+    private func renewRecognizers() {
+        recognizer = SFSpeechRecognizer(locale: OnDeviceSpeechListener.locale)
+        englishRecognizer = SFSpeechRecognizer(locale: OnDeviceSpeechListener.englishLocale)
+        tlog("[mikrofon] tanıyıcı nesneleri yeniden yaratıldı")
+    }
+
+    private func rebuildEngine() -> Bool {
+        tlog("[mikrofon] ses motoru yeniden kuruluyor")
+        stopEngine()
+        do {
+            try startEngine()
+            return true
+        } catch {
+            tlog("[mikrofon] ses motoru kurulamadı: \(error.localizedDescription)")
+            return false
         }
     }
 }

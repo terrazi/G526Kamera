@@ -75,8 +75,8 @@ final class LoopGuardTests: XCTestCase {
         h.listener.say("Türkiye'nin başkenti")
         let spoken = h.speaker.spoken.count
         await missTwoBeats(h)    // nabız "yok" der ama tam sınama (internet + Gemini) sağlam
-        let noted = await waitUntil { h.vm.netFalseAlarms == 1 }
-        XCTAssertTrue(noted, "Yanlış alarm sayıldı")
+        let noted = await waitUntil { h.vm.netProbeSlow }
+        XCTAssertTrue(noted, "Yanlış alarm anlaşıldı: nabız tam yoklamaya geçti")
         XCTAssertEqual(h.vm.phase, .listening, "Dinleme hiç kesilmedi")
         XCTAssertTrue(h.shortcuts.runs.isEmpty)
         XCTAssertEqual(h.speaker.spoken.count, spoken, "Hiçbir anons yapılmadı")
@@ -84,19 +84,36 @@ final class LoopGuardTests: XCTestCase {
         XCTAssertEqual(h.vm.netPulse, .up)
     }
 
-    func testRepeatedFalseAlarmsMuteTheHeartbeatRepair() async {
+    func testAFalseAlarmNeverMutesTheHeartbeatItSwitchesToTheFullProbe() async {
         let h = makeHarness()
         _ = await h.startListening()
         await missTwoBeats(h)
-        _ = await waitUntil { h.vm.netFalseAlarms == 1 }
-        await missTwoBeats(h)
-        let muted = await waitUntil { h.vm.netMutedUntil != nil }
-        XCTAssertTrue(muted, "İki yanlış alarmdan sonra nabızla onarım susturulur")
-        let checks = h.health.internetCalls
-        await missTwoBeats(h)
-        await missTwoBeats(h)
-        XCTAssertEqual(h.health.internetCalls, checks, "Susturulmuşken tam sınama bile başlatılmaz")
+        let slow = await waitUntil { h.vm.netProbeSlow }
+        XCTAssertTrue(slow)
+        // Susturma yok: sonraki nabızlar çalışmaya devam eder, yalnız hızlı yoklama yerine tam internet yoklaması kullanılır
+        let quick = h.health.quickCalls
+        let full = h.health.internetCalls
+        h.scheduler.advance(by: Double(T.netBeatEvery) * T.sentinelTick + 0.01)
+        await settle()
+        h.scheduler.advance(by: Double(T.netBeatEvery) * T.sentinelTick + 0.01)
+        await settle()
+        XCTAssertEqual(h.health.quickCalls, quick, "Hızlı yoklama artık kullanılmaz")
+        XCTAssertGreaterThanOrEqual(h.health.internetCalls, full + 2, "Nabız susmadı, tam yoklamayla bakıyor")
         XCTAssertEqual(h.vm.phase, .listening)
+    }
+
+    func testARealLossIsStillCaughtAfterTheSwitchToTheFullProbe() async {
+        let h = makeHarness()
+        _ = await h.startListening()
+        await missTwoBeats(h)
+        _ = await waitUntil { h.vm.netProbeSlow }
+        h.health.internet = false
+        h.scheduler.advance(by: Double(T.netBeatEvery) * T.sentinelTick + 0.01)
+        await settle()
+        h.scheduler.advance(by: Double(T.netRetryTicks) * T.sentinelTick + 0.01)
+        await settle()
+        let ran = await waitUntil { h.shortcuts.runs.first == "WiFi_Ac" }
+        XCTAssertTrue(ran, "Gerçek kopma susturulmadan, nabızla yakalanır")
     }
 
     func testRealInternetLossStillStartsTheRepair() async {
@@ -106,7 +123,7 @@ final class LoopGuardTests: XCTestCase {
         await missTwoBeats(h)
         let ran = await waitUntil { h.shortcuts.runs.first == "WiFi_Ac" }
         XCTAssertTrue(ran, "Gerçek kopmada onarım gecikmeden başlar")
-        XCTAssertEqual(h.vm.netFalseAlarms, 0)
+        XCTAssertFalse(h.vm.netProbeSlow, "Gerçek kopma yanlış alarm sayılmaz")
     }
 
     // MARK: Konuşma tanıma hatası
@@ -157,39 +174,106 @@ final class LoopGuardTests: XCTestCase {
         XCTAssertTrue(h.shortcuts.runs.isEmpty)
     }
 
-    // MARK: "Yeniden hazır" anonsu döngüsü
+    // MARK: Konuşma tanıma düşerse: gerçek onarım
 
-    func testReadyAnnouncementIsMutedAfterRepeatedRecoveriesWithoutAWord() async {
+    func testRecognizerDownWithAHealthyRouteRepairsTheRecognizerAndSaysReadyOnlyAfterProof() async {
         let h = makeHarness()
         _ = await h.startListening()
-        h.vm.resumesWithoutSpeech = T.maxSilentResumes
+        let starts = h.listener.startCalls
+        h.listener.onEvent?(.recognizerDown(message: "kAFAssistantErrorDomain 1101: bağlantı", permanent: false))
+        let back = await waitUntil { h.vm.phase == .listening && h.speaker.spoken.last == Say.recoveredShort }
+        XCTAssertTrue(back, "Onarılınca tek bir 'hazır' söylenir ve dinlemeye dönülür")
+        XCTAssertTrue(h.speaker.spoken.contains(Say.recognizerRestarting), "Önce ne olduğu söylenir; sessizlik kesinti sanılmasın")
+        XCTAssertTrue(h.shortcuts.runs.isEmpty, "Ses yolu sağlam: Bluetooth/uçak modu Kestirmeleri çalışmaz")
+        XCTAssertFalse(h.speaker.allCalls.map { $0.text }.contains(Say.hardwareRepairing), "Kulaklık ya da mikrofon suçlanmaz")
+        XCTAssertGreaterThanOrEqual(h.listener.startCalls, starts + 2, "Biri kanıt için, biri asıl dinleme için")
+        XCTAssertEqual(h.speaker.spoken.filter { $0 == Say.recoveredShort }.count, 1)
+    }
+
+    func testIfListeningCannotBeProvenTheReadyCueIsNotSpokenAndTheRealStateIsTold() async {
+        let h = makeHarness()
+        _ = await h.startListening()
+        h.listener.recognitionStreak = 2   // tanıyıcı yeniden kurulsa da görevler hemen düşüyor
+        h.listener.onEvent?(.recognizerDown(message: "x", permanent: false))
+        let stuck = await waitUntil { h.isHardwarePause && h.vm.holdForRetry }
+        XCTAssertTrue(stuck)
+        XCTAssertFalse(h.speaker.spoken.contains(Say.recoveredShort), "Kanıtlanmadan 'hazır' denmez")
+        XCTAssertEqual(h.vm.warnings.first { $0.id == "mikrofon" }?.text, Say.recognizerStuck, "Gerçek durum söylenir")
+        XCTAssertTrue(h.shortcuts.runs.isEmpty)
+        // Sessiz bekleme yok: 15 sn sonra yeniden denenir; bu sefer tanıma sağlam
+        h.listener.recognitionStreak = 0
+        h.scheduler.advance(by: T.recognizerRetry + 0.1)
+        let back = await waitUntil { h.vm.phase == .listening && h.speaker.spoken.last == Say.recoveredShort }
+        XCTAssertTrue(back)
+        XCTAssertEqual(h.speaker.spoken.filter { $0 == Say.recognizerRestarting }.count, 1, "Yeniden denemede anons tekrarlanmaz")
+    }
+
+    func testHeartbeatDoesNotUndoTheWaitBetweenRecognizerRetries() async {
+        let h = makeHarness()
+        _ = await h.startListening()
+        h.listener.recognitionStreak = 2
+        h.listener.onEvent?(.recognizerDown(message: "x", permanent: false))
+        _ = await waitUntil { h.isHardwarePause && h.vm.holdForRetry }
         let spoken = h.speaker.spoken.count
-        await h.vm.resumeAfterRecovery()
-        XCTAssertEqual(h.speaker.spoken.count, spoken, "Aynı anons tekrar tekrar söylenmez")
-        XCTAssertEqual(h.vm.phase, .listening, "Dinleme sessizce yeniden açılır")
+        for _ in 0..<10 {
+            h.scheduler.advance(by: 1)
+            await settle()
+        }
+        XCTAssertTrue(h.isHardwarePause, "Ses yolu sağlam görünse de nabız beklemeyi bozmaz")
+        XCTAssertEqual(h.speaker.spoken.count, spoken)
     }
 
-    func testAWordCounterResetsTheLoopBreaker() async {
+    func testPermanentRecognizerFaultStopsTheSessionWithTheRealReason() async {
         let h = makeHarness()
         _ = await h.startListening()
-        h.vm.resumesWithoutSpeech = 2
-        h.listener.say("Türkiye")
-        XCTAssertEqual(h.vm.resumesWithoutSpeech, 0)
+        h.listener.onEvent?(.recognizerDown(message: Say.dictationOff, permanent: true))
+        XCTAssertEqual(h.vm.phase, .idle, "Yeniden denemek işe yaramaz")
+        XCTAssertEqual(h.vm.warnings.first { $0.id == "durdu" }?.text, Say.dictationOff, "Ne yapılacağı söylenir")
+        XCTAssertTrue(h.shortcuts.runs.isEmpty)
     }
 
-    // MARK: Konuşma tanıma geri çekilmesi (saf yardımcılar)
+    func testRecognizerDownWithABrokenRouteStillUsesTheHardwareRepair() async {
+        let h = makeHarness()
+        _ = await h.startListening()
+        h.route.current = FakeRoute.noMic
+        h.listener.onEvent?(.recognizerDown(message: "x", permanent: false))
+        let ran = await waitUntil { !h.shortcuts.runs.isEmpty || h.isHardwarePause }
+        XCTAssertTrue(ran)
+    }
 
-    func testRecognizerRestartDelayGrowsThenStaysBounded() {
+    func testRecognizedWordResetsTheRepairCounter() async {
+        let h = makeHarness()
+        _ = await h.startListening()
+        h.vm.recognizerRepairs = 3
+        h.listener.say("Türkiye")
+        XCTAssertEqual(h.vm.recognizerRepairs, 0)
+    }
+
+    // MARK: Konuşma tanıma basamakları (saf yardımcılar)
+
+    func testApplesFaultCodesAreClassified() {
+        XCTAssertEqual(RecognitionFault.classify(domain: "kLSRErrorDomain", code: 201), .permanent(Say.dictationOff))
+        XCTAssertEqual(RecognitionFault.classify(domain: "kLSRErrorDomain", code: 102), .permanent(Say.noOnDevice))
+        XCTAssertEqual(RecognitionFault.classify(domain: "kLSRErrorDomain", code: 300), .transient)
+        XCTAssertEqual(RecognitionFault.classify(domain: "kAFAssistantErrorDomain", code: 1101), .transient)
+        XCTAssertEqual(RecognitionFault.classify(domain: "kAFAssistantErrorDomain", code: 1110), .transient)
+        XCTAssertEqual(RecognitionFault.classify(domain: "kAFAssistantErrorDomain", code: 201), .transient, "Başka alan adındaki 201 kalıcı sayılmaz")
+    }
+
+    func testRecognizerRestartDelayIsShortAndBounded() {
         let delays = (0...12).map { OnDeviceSpeechListener.restartDelay(afterFailures: $0) }
         XCTAssertEqual(Array(delays[0...2]), [0, 0, 0], "İlk hatalarda hemen yeniden denenir")
-        XCTAssertEqual(Array(delays[3...5]), [1, 2, 3])
-        XCTAssertEqual(delays[12], 5)
-        XCTAssertLessThanOrEqual(delays.max() ?? 0, 5)
+        XCTAssertEqual(delays[3], 0.3)
+        XCTAssertEqual(Array(delays[4...12]), Array(repeating: 1, count: 9))
     }
 
-    func testRecognizerGivesUpOnlyAfterALongStreakAndDropsTheEnglishHelperEarly() {
-        XCTAssertGreaterThanOrEqual(OnDeviceSpeechListener.maxTurkishFailures, 10)
-        XCTAssertLessThanOrEqual(OnDeviceSpeechListener.suspendEnglishAfter, 3)
+    func testRecognizerLadderRunsInOrderAndGivesUpQuickly() {
+        typealias L = OnDeviceSpeechListener
+        XCTAssertEqual(L.suspendEnglishAfter, 1, "Türkçe öncelikli: ilk çabuk hatada yardımcı İngilizce bırakılır")
+        XCTAssertLessThan(L.suspendEnglishAfter, L.renewRecognizerAt)
+        XCTAssertLessThan(L.renewRecognizerAt, L.rebuildEngineFrom)
+        XCTAssertLessThan(L.rebuildEngineFrom, L.maxTurkishFailures)
+        XCTAssertLessThanOrEqual(L.maxTurkishFailures, 6, "Basamaklar tükenince uzun süre sessiz denenmez; uygulama gerçek onarıma geçer")
     }
 
     // MARK: Hazır kestirme adları

@@ -24,7 +24,7 @@ final class SessionViewModel: ObservableObject {
         /// Üst üste bu kadar donanım onarımı arada tek kelime tanınmadan yapıldıysa sıfırlama döngüsü kesilir
         static let maxHardwareRecoveries = 3
         /// Döngü kesilince bir sonraki deneme için bekleme
-        static let hardwareCapRetry: TimeInterval = 300
+        static let hardwareCapRetry: TimeInterval = 60
         /// Kesinti sürerken (arama vb.) ses oturumunun yeniden açılıp açılamadığına bakma aralığı; bitiş bildirimi gelmezse yedek
         static let interruptionPoll: TimeInterval = 15
         /// Aynı uyarı cümlesi bu süre içinde kulaklıktan yeniden söylenmez (yol dalgalanınca konuşma yağmuru olmasın)
@@ -56,11 +56,13 @@ final class SessionViewModel: ObservableObject {
         static let mediaHealDelay: TimeInterval = 0.3
         /// Bu süreden kısa kesintiden sonra kısa "Hazır" anonsu
         static let briefOutage: TimeInterval = 8
-        /// Nabız art arda bu kadar kez boşuna alarm verirse (bağlantı sağlamdı) nabızla onarım bu kadar saniye susturulur
-        static let netFalseAlarmLimit = 2
-        static let netMuteSeconds: TimeInterval = 600
-        /// Arada tek kelime tanınmadan bu kadar "yeniden hazır" anonsundan sonra anons susturulur (döngü kesici)
-        static let maxSilentResumes = 3
+        /// Konuşma tanıma onarımı: dinlemenin gerçekten çalıştığı kanıtlanırken yoklama aralığı, en az ve en çok yoklama sayısı
+        /// (ilk yoklamalarda görev hemen düşüyorsa kanıtlanmış sayılmaz), bir onarımdaki tur sayısı ve açılamıyorsa yeniden deneme aralığı
+        static let proofPoll: TimeInterval = 0.5
+        static let proofMinPolls = 5
+        static let proofMaxPolls = 14
+        static let recognizerRounds = 3
+        static let recognizerRetry: TimeInterval = 15
     }
 
     // MARK: Ekranın gördüğü durum
@@ -155,13 +157,14 @@ final class SessionViewModel: ObservableObject {
     /// Sınır duraklaması (art arda onarım işe yaramadı): ses yolu sağlam görünse de süre dolana kadar devam edilmez. Yoksa nabız,
     /// "yol sağlam" diye hemen devam edip aynı onarım döngüsünü yeniden başlatır.
     var holdForRetry = false
-    /// İnternet nabzı boşuna alarm verdi (bağlantı sağlamdı) sayısı; art arda olursa nabızla onarım bir süre susturulur
-    var netFalseAlarms = 0
-    var netMutedUntil: Date?
+    /// Hızlı nabız yoklaması bir kez boşuna alarm verdi (tam yoklama bağlantıyı sağlam buldu): nabız bu oturumda daha uzun sınırlı
+    /// tam internet yoklamasıyla bakar. Onarım susturulmaz; gerçek kopma yine aynı hızda yakalanır.
+    var netProbeSlow = false
     /// Son ağ onarımı çağrısı yanlış alarmdı (bağlantı sağlamdı, hiçbir şey durdurulmadı)
     var lastNetworkAlarmWasFalse = false
-    /// Arada tek kelime tanınmadan art arda kaç kez "yeniden hazır" anonsu söylendi (döngü kesici)
-    var resumesWithoutSpeech = 0
+    /// Konuşma tanıma onarımı: arada tek kelime tanınmadan kaç kez düştü; bekleme zamanlayıcısı
+    var recognizerRepairs = 0
+    var recognizerRetryTask: ScheduledTask?
 
     init(settings: AppSettings, deps: SessionDependencies) {
         self.settings = settings
@@ -287,10 +290,11 @@ final class SessionViewModel: ObservableObject {
         outageStart = nil
         liveStatus = ""
         holdForRetry = false
-        netFalseAlarms = 0
-        netMutedUntil = nil
+        netProbeSlow = false
         lastNetworkAlarmWasFalse = false
-        resumesWithoutSpeech = 0
+        recognizerRepairs = 0
+        recognizerRetryTask?.cancel()
+        recognizerRetryTask = nil
     }
 
     func cancelWork() {
@@ -398,7 +402,7 @@ final class SessionViewModel: ObservableObject {
         case .partial(let text):
             guard accumulator.update(partial: text) else { return }
             hardwareRecoveries = 0   // mikrofon gerçekten çalışıyor
-            resumesWithoutSpeech = 0
+            recognizerRepairs = 0    // tanıma gerçekten çalışıyor
             liveText = accumulator.text
             watchdog.kick()
             reevaluateTrigger()
@@ -415,6 +419,17 @@ final class SessionViewModel: ObservableObject {
             // Dinleme yeniden kurulur; art arda olursa (healMic) Kestirmelere başvurulur.
             if settings.instantDetection, AudioRouting.verdict(deps.route.snapshot()).isSafe {
                 healMic("konuşma tanıma hata verdi")
+            } else {
+                work = Task { [weak self] in await self?.runRecovery(.hardware, force: true) }
+            }
+        case .recognizerDown(let message, let permanent):
+            tlog("[mikrofon] tanıyıcı düştü (\(permanent ? "kalıcı" : "geçici")): \(message)")
+            if permanent {
+                stopForGood(message)   // Dikte kapalı ya da model yok: yeniden denemek işe yaramaz, ne yapılacağı söylenir
+            } else if AudioRouting.verdict(deps.route.snapshot()).isSafe {
+                // Ses yolu sağlam: sorun tanıyıcıdadır. Bluetooth/uçak modu Kestirmeleri onu düzeltmez, kulaklığı koparır.
+                work?.cancel()
+                work = Task { [weak self] in await self?.repairRecognizer(message) }
             } else {
                 work = Task { [weak self] in await self?.runRecovery(.hardware, force: true) }
             }

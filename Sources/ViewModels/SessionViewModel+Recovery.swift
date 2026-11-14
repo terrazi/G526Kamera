@@ -256,7 +256,7 @@ extension SessionViewModel {
     func verify(_ reason: RecoveryReason, key: String) async -> Bool {
         switch reason {
         case .network: return await deps.health.connectionHealthy(key: key)
-        case .hardware: return AudioRouting.verdict(deps.route.snapshot()).isSafe
+        case .hardware, .recognition: return AudioRouting.verdict(deps.route.snapshot()).isSafe
         }
     }
 
@@ -298,7 +298,7 @@ extension SessionViewModel {
         if reason == .hardware, hardwareRecoveries >= Timing.maxHardwareRecoveries {
             // Art arda onarıldı ama mikrofon yine çalışmıyor: sonsuz sıfırlama döngüsüne girme, uyar, bir süre sonra bir kez daha dene
             hardwareRecoveries = Timing.maxHardwareRecoveries - 1
-            warn("onarim", "Mikrofon art arda onarıldı ama çalışmıyor. Kulaklığı ve mikrofon alıcısını kontrol edin.")
+            warn("onarim", "Mikrofon art arda onarıldı ama çalışmıyor. Kulaklığı ve mikrofon alıcısını kontrol edin. Her dakika yeniden deniyorum.")
             enterHardwarePause(AudioRouting.verdict(deps.route.snapshot()), grace: Timing.hardwareCapRetry)
             holdForRetry = true   // ses yolu sağlam görünse de süre dolmadan devam edilmez (nabız aynı döngüyü yeniden başlatmasın)
             return
@@ -339,6 +339,8 @@ extension SessionViewModel {
         case .hardware:
             // Başarısız onarımdan sonra sıfırlamayı hemen değil, daha seyrek dene (her 20 sn'de uçak modu açıp kapatılmasın)
             enterHardwarePause(AudioRouting.verdict(deps.route.snapshot()), grace: Timing.connectionRetry)
+        case .recognition:
+            break   // tanıma onarımı Kestirme kullanmaz; kendi akışı (repairRecognizer) bekleme ve yeniden denemeyi yönetir
         }
     }
 
@@ -376,16 +378,95 @@ extension SessionViewModel {
             beginListening()
             return
         }
-        // Döngü kesici: arada tek kelime tanınmadan art arda onarım oluyorsa asıl sorun başka yerdedir; aynı anonsu tekrar tekrar söylemek
-        // kullanıcıyı yalnız yanıltır. Bu durumda anons susturulur, dinleme sessizce yeniden açılır.
-        resumesWithoutSpeech += 1
-        if resumesWithoutSpeech > Timing.maxSilentResumes {
-            tlog("[onarım] arada konuşma tanınmadan \(resumesWithoutSpeech). onarım; anons susturuldu")
-            beginListening()
-            return
-        }
         let brief = settings.instantDetection && SessionViewModel.isBriefOutage(since: outageStart, now: deps.now())
         guard await speakNotice(brief ? Say.recoveredShort : Say.recovered) else { return }
         beginListening()
+    }
+
+    // MARK: Konuşma tanıma onarımı
+
+    /// Dinlemenin gerçekten çalıştığının kanıtı: dinleme açılır; birkaç yoklama boyunca mikrofon tamponları geliyor ve tanıyıcı hiçbir görevi
+    /// hemen düşürmüyorsa kanıtlanmış sayılır (dinleme açık kalır). Tanıyıcı kendi basamaklarını tüketip durursa ya da dinleme açılamazsa false.
+    func proveListening() async -> Bool {
+        deps.listener.pause()
+        do {
+            try deps.listener.start()
+        } catch {
+            tlog("[onarım] dinleme açılamadı: \(error.localizedDescription)")
+            if let known = error as? ListenerError, known == .noOnDeviceModel { stopForGood(known.localizedDescription) }
+            return false
+        }
+        var polls = 0
+        while polls < Timing.proofMaxPolls {
+            await deps.sleep(Timing.proofPoll)
+            guard !Task.isCancelled else { return false }
+            polls += 1
+            guard deps.listener.isRunning else { return false }   // tanıyıcı basamaklarını tüketip dinlemeyi kendisi durdurdu
+            let audioFlowing = (deps.listener.secondsSinceAudio ?? .infinity) < Timing.micStallLimit
+            if polls >= Timing.proofMinPolls, audioFlowing, deps.listener.recognitionStreak == 0 { return true }
+        }
+        return false
+    }
+
+    /// Ses yolu sağlam ama konuşma tanıyıcı düşmeye devam ediyor (tanıyıcı kendi basamaklarını tüketti). Bluetooth/uçak modu Kestirmeleri bunu
+    /// düzeltmez, kulaklığı koparır; bu yüzden hiç çalıştırılmaz. Kullanıcıya ne olduğu söylenir (sessizlik kesinti sanılmasın), ses oturumu baştan
+    /// kurulur ve dinleme KANITLANARAK açılır; "hazır" yalnız kanıttan sonra söylenir. Kanıtlanamazsa gerçek durum söylenir ve her
+    /// `recognizerRetry` saniyede bir yeniden denenir. `quiet`: yeniden denemelerde anons tekrarlanmaz.
+    func repairRecognizer(_ detail: String, quiet: Bool = false) async {
+        guard canRecover else { return }
+        recognizerRepairs += 1
+        tlog("[onarım] konuşma tanıma düşüyor (\(detail)); ses yolu sağlam, yalnız tanıma yeniden kuruluyor (\(recognizerRepairs). kez)")
+        accumulator.commitCurrent()
+        englishAccumulator.commitCurrent()
+        deps.listener.pause()
+        watchdog.disarm()
+        cancelTimers()
+        recognizerRetryTask?.cancel()
+        recognizerRetryTask = nil
+        holdForRetry = false
+        let recognizing = SessionPhase.recovering(.recognition)
+        phase = recognizing
+        statusNote = "Konuşma tanıma yeniden kuruluyor…"
+        if !quiet {
+            guard await speakNotice(recognizerRepairs > 1 ? Say.recognizerAgain : Say.recognizerRestarting) else { return }
+            phase = recognizing
+        }
+        for round in 1...Timing.recognizerRounds {
+            guard !Task.isCancelled, phase == recognizing else { return }
+            try? deps.route.configure()
+            deps.route.preferExternalInput()
+            let verdict = await settledRoute().verdict
+            guard !Task.isCancelled, phase == recognizing else { return }
+            guard verdict.isSafe else {
+                enterHardwarePause(verdict)
+                return
+            }
+            if await proveListening() {
+                guard !Task.isCancelled, phase == recognizing else { return }
+                tlog("[onarım] konuşma tanıma yeniden kuruldu ve kanıtlandı (\(round). tur)")
+                deps.listener.pause()
+                clearWarning("mikrofon")
+                statusNote = ""
+                guard await speakNotice(Say.recoveredShort) else { return }
+                beginListening()
+                return
+            }
+            guard !Task.isCancelled, phase == recognizing else { return }
+            deps.listener.pause()
+            await deps.sleep(Double(round))
+        }
+        tlog("[onarım] konuşma tanıma \(Timing.recognizerRounds) turda kurulamadı; \(Int(Timing.recognizerRetry)) saniyede bir yeniden denenecek")
+        if !quiet { warn("mikrofon", Say.recognizerStuck) }
+        statusNote = ""
+        holdForRetry = true   // ses yolu sağlam görünse de nabız bu beklemeyi bozmaz; yeniden deneme kendi zamanlayıcısıyla yapılır
+        phase = .paused(.hardware("konuşma tanıma"))
+        recognizerRetryTask = deps.scheduler.after(Timing.recognizerRetry) { [weak self] in self?.retryRecognizer() }
+    }
+
+    func retryRecognizer() {
+        recognizerRetryTask = nil
+        guard case .paused(.hardware) = phase, holdForRetry else { return }
+        holdForRetry = false
+        work = Task { [weak self] in await self?.repairRecognizer("yeniden deneme", quiet: true) }
     }
 }

@@ -155,7 +155,13 @@ extension SessionViewModel {
         netProbeBusy = true
         Task { [weak self] in
             guard let self = self else { return }
-            let ok = await self.deps.health.quickProbe()
+            // Hızlı yoklama bu ağda bir kez boşuna alarm verdiyse (bkz. noteFalseNetAlarm) tam internet yoklamasıyla (daha uzun sınır) bakılır
+            let ok: Bool
+            if self.netProbeSlow {
+                ok = await self.deps.health.internetReachable()
+            } else {
+                ok = await self.deps.health.quickProbe()
+            }
             self.netProbeBusy = false
             self.netBeatDone(ok: ok, reason: reason)
         }
@@ -178,10 +184,6 @@ extension SessionViewModel {
             return
         }
         guard phase == .listening else { return }
-        if let until = netMutedUntil, deps.now() < until {
-            netFails = 0
-            return   // nabız yakın zamanda boşuna alarm verdi: bir süre onarım başlatmaz (ağ yolu ve istek hataları yine yakalar)
-        }
         netFails += 1
         guard netFails >= Timing.netFailLimit else {
             netPulse = .suspect
@@ -199,18 +201,15 @@ extension SessionViewModel {
         }
     }
 
-    /// Nabız "internet yok" dedi ama tam sınama (internet + Gemini) sağlam çıktı: yoklama yanlış alarm verdi. Art arda olursa nabızla
-    /// onarım `netMuteSeconds` boyunca susturulur; dinleme hiç kesilmez.
+    /// Hızlı nabız "internet yok" dedi ama tam sınama (internet + Gemini) sağlam çıktı: yoklama boşuna alarm verdi (soğuk hücresel hat gibi yavaş
+    /// yanıtlarda olur). Hiçbir şey durmadı. Susturmak yerine, nabız bu oturumda daha uzun sınırlı tam internet yoklamasıyla bakar;
+    /// gerçek kopma aynı hızda yakalanmaya devam eder.
     func noteFalseNetAlarm() {
         lastNetworkAlarmWasFalse = false
-        netFalseAlarms += 1
         netPulse = .up
-        tlog("[tespit] nabız yanlış alarm verdi (\(netFalseAlarms). kez): internet ve Gemini sağlam, dinleme sürüyor")
-        if netFalseAlarms >= Timing.netFalseAlarmLimit {
-            netFalseAlarms = 0
-            netMutedUntil = deps.now().addingTimeInterval(Timing.netMuteSeconds)
-            tlog("[tespit] nabızla internet onarımı \(Int(Timing.netMuteSeconds)) sn susturuldu")
-        }
+        guard !netProbeSlow else { return }
+        netProbeSlow = true
+        tlog("[tespit] hızlı yoklama boşuna alarm verdi: internet ve Gemini sağlam, dinleme sürüyor; nabız tam internet yoklamasıyla bakacak")
     }
 
     // MARK: Canlı durum

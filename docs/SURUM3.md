@@ -32,7 +32,7 @@ gerçek kurulum `App/AppEnvironment`, testler sahtelerle (`Tests/Fakes`) kurar.
 - **Mikrofon seçimi:** ana ekranda yalnız harici girişler (Lightning/USB, kulaklık mikrofonu, hat girişi) listelenir;
   `AVAudioSession.setPreferredInput` ile seçilir, seçim saklanır ve açılış / yol değişiminde yeniden uygulanır. Sistemin ses yolu seçicisi
   yalnız çıkış içindir, bu yüzden giriş listesi uygulamadadır.
-- **Bluetooth yenileme adımı:** donanım sorununda önce hafif `Bluetooth_Yenile` kestirmesi, olmazsa `Sistemi_Sifirla`. Donanım doğrulaması
+- **Bluetooth yenileme adımı:** donanım sorununda önce hafif `Bluetooth` kestirmesi, olmazsa `Sistemi Sıfırla`. Donanım doğrulaması
   yalnız ses yolunun güvenli görünmesine bakar; bu yüzden mikrofon sessiz kaldığı için zorla başlatılan onarımda (`force`) yalnız sıfırlama
   çalışır, yoksa yol sağlam göründüğü için Bluetooth adımı sorunu çözmüş gibi görünürdü.
 - **Ana ekran soru listesi:** tek liste, "Yüklenen sorular". Okunmakta olan soru canlı görünür; "Cevapla" denince `QuestionEntry` olarak
@@ -48,7 +48,7 @@ gerçek kurulum `App/AppEnvironment`, testler sahtelerle (`Tests/Fakes`) kurar.
 - **MP3 yok:** iOS MP3 kodlayamaz; kayıtlar `.m4a` (AAC), Gemini sesi gelirse `.wav`.
 - **Tetikleyici:** yalnız metnin son sözcüğü "Cevapla"/"Gönder" ise ve 0,5 sn değişmeden kalırsa; "gönderi" ya da cümle ortasındaki "gönder" tetiklemez.
 - **30 sn sessizlik:** okuyucu soruyu düşünüyor da olabilir. Önce dinleme sessizce yenilenir ve mikrofonun ses verip vermediğine bakılır;
-  yalnız mikrofon donmuşsa (ya da yeniden açılamıyorsa) `Sistemi_Sifirla` çalışır.
+  yalnız mikrofon donmuşsa (ya da yeniden açılamıyorsa) `Sistemi Sıfırla` çalışır.
 - **Fail-safe:** çıkış Bluetooth kulaklık değilse ya da giriş harici mikrofon değilse (`AudioRouting.verdict`) ses anında durur, mikrofon
   kapanır; yol 1,5 sn sabit güvenli kalırsa devam edilir, 20 sn dönmezse sıfırlama kestirmesi çalışır. Hoparlör `overrideOutputAudioPort`
   ile de kullanılmaz.
@@ -118,19 +118,33 @@ Bu yüzden kopma ölçülerek yakalanır. Ayar: `AppSettings.instantDetection` (
 - **Ekran/günlük:** `liveStatus` ("Canlı: Kulaklık ✓ · Mikrofon ✓ · İnternet ✓"), günlükte `[tespit]` satırları.
 - **Bilinen sınır:** çıkış (kulaklık) için kopma yalnız iOS yol bildirimiyle ve `watchReturns` ile görülür; Bluetooth bağlantısı sessizce ölüp iOS yolu değiştirmezse ölçülemez.
 
-## Döngü kesiciler (anında tespit sonrası saha hatası)
+## Konuşma tanıma düşerse (anında tespit sonrası saha hatası)
 
-Sahada "Hazır. Son soruyu tekrar oku." anonsu durmadan tekrarlandı ve "Konuşma tanıma üst üste hata verdi" ile "Kulaklık ya da mikrofon sorunu var" çıktı,
-oysa kulaklık ve mikrofon sağlamdı. Sebepler ve önlemler:
+Sahada "Hazır. Son soruyu tekrar oku." anonsu durmadan tekrarlandı, "Konuşma tanıma üst üste hata verdi" ve "Kulaklık ya da mikrofon sorunu var" çıktı,
+oysa kulaklık ve mikrofon sağlamdı. Zincir: tanıma görevi hemen düşüyor → uygulama bunu donanım sanıp Bluetooth/uçak modu Kestirmelerini çalıştırıyor → "hazır"
+diyor → tanıma yine düşüyor. Susturmak bunu gizlerdi; çözüm tanımayı gerçekten onarmak ve ne olduğunu söylemektir.
 
-- **Sınır beklemesi bozuluyordu:** art arda 3 onarım işe yaramayınca 5 dk bekleme kurulur; yeni nabız "ses yolu sağlam" görüp bu beklemeyi 1 sn sonra bozuyor ve
-  aynı onarımı yeniden başlatıyordu. Artık `holdForRetry` varken nabız da yol bildirimi de devam ettirmez; süre dolunca bir kez daha denenir, ses yolu gerçekten
-  değişirse (kulaklık çıkıp gelirse) bekleme biter.
-- **İnternet nabzı yanlış alarm verebilir:** mikrofon açıkken `runRecovery(.network)` önce internet + Gemini'yi sessizce sınar; sağlamsa hiçbir şey durdurulmaz, anons
-  yapılmaz, yarım okunan soru silinmez (`[onarım] internet alarmı yanlıştı`). İki yanlış alarmdan sonra nabızla onarım 10 dk susturulur. Yoklama artık üç adrese
-  5 sn sınırla gider ve başarısızlık nedeni günlüğe yazılır (`[tespit] yoklama başarısız: …`).
-- **Konuşma tanıma hatası donanım sayılmaz:** ses yolu sağlamsa dinleme yeniden kurulur; Bluetooth/uçak modu Kestirmeleri yalnız art arda 4. hatada çalışır.
-  Dinleyici kendi içinde 1, 2, 3, 5 sn bekleyerek yeniden dener (12 üst üste hataya kadar), 3. hatada yardımcı İngilizce tanıyıcıyı bırakır ve her hatanın
-  kodunu günlüğe yazar (`[mikrofon] tanıma görevi hata verdi …`).
-- **Anons döngü kesici:** arada tek kelime tanınmadan 3 onarımdan sonra "yeniden hazır" anonsu söylenmez.
+**Apple'ın hata kodları** (SFSpeechRecognitionTask hata tablosu): `kLSRErrorDomain` 201 Siri/Dikte kapalı, 102 çevrimdışı model yüklü değil (kalıcı: yeniden denemek
+işe yaramaz, kullanıcıya ne yapacağı söylenir ve oturum kapanır); 300 tanıyıcı başlatılamadı, 301 iptal; `kAFAssistantErrorDomain` 1100 önceki görev sürerken yenisi
+başlatıldı, 1101/1107 konuşma sürecine bağlantı kesildi, 1110 konuşma tanınmadı, 203 genel hata (geçici: yeniden kurulur). Her hatanın kodu günlüğe yazılır
+(`[mikrofon] tanıma görevi hata verdi (hemen, üst üste N): alan kod: açıklama`).
 
+**Dinleyici kendi içinde, bir saniyeden kısa sürede kademeli onarır** (üst üste çabuk biten görev sayısına göre; bir görev 3 sn yaşar ya da metin gelirse sayaç sıfırlanır):
+1. hata: yardımcı İngilizce tanıyıcı bırakılır (Türkçe öncelikli; iki çevrimdışı tanıyıcının çakışması bilinen bir olasılık) ve görev yenilenir;
+2. hata: tanıyıcı nesneleri yeniden yaratılır; 3-4. hata: ses motoru ve dinleme kancası baştan kurulur (giriş biçimi değişmiş olabilir);
+5. hata: basamaklar tükendi, dinleme durur ve `recognizerDown` olayı gelir.
+
+**Uygulama tarafı** (`repairRecognizer`): ses yolu sağlamsa Kestirme çalışmaz (kulaklığı koparırdı). Kulaklıktan "Konuşma tanıma durdu, yeniden kuruluyor. Kulaklık ve
+mikrofon sağlam." denir (sessizlik kesinti sanılmasın), ses oturumu baştan kurulur ve dinleme **kanıtlanır**: mikrofon tamponları geliyor ve tanıyıcı yaklaşık 2,5 sn
+görevleri hemen düşürmüyorsa "Hazır. Son soruyu tekrar oku." söylenir; kanıtlanamazsa "hazır" denmez. 3 turda kanıtlanamazsa gerçek durum söylenir ("Konuşma tanıma açılamıyor.
+On beş saniyede bir yeniden deniyorum…"), ekranda kırmızı kutu kalır ve her 15 sn'de sessizce yeniden denenir; düzelince "Hazır" denir. Ses yolu bozuksa eski donanım onarımı çalışır.
+
+**Sınır beklemesi** (art arda 3 donanım onarımı işe yaramayınca): bekleme 5 dk değil 60 sn'dir ve ne olduğu söylenir; bu sürede nabız ya da yol bildirimi beklemeyi bozmaz
+(`holdForRetry`), süre dolunca bir kez daha denenir, ses yolu gerçekten değişirse bekleme biter.
+
+**İnternet nabzı boşuna alarm verebilir:** mikrofon açıkken `runRecovery(.network)` önce internet + Gemini'yi sessizce sınar; sağlamsa hiçbir şey durdurulmaz, anons yapılmaz,
+yarım okunan soru silinmez (`[onarım] internet alarmı yanlıştı`). Susturma yoktur: ilk yanlış alarmdan sonra nabız, bu oturumda hızlı yoklama yerine daha uzun sınırlı tam internet
+yoklamasıyla (`internetReachable`, 10 sn) bakar; gerçek kopma yine yakalanır (yaklaşık 25 sn). Hızlı yoklama üç adrese aynı anda 5 sn sınırla gider; başarısızlık nedeni günlüğe
+yazılır (`[tespit] yoklama başarısız: …`).
+
+Bunların hiçbiri cihazda denenmedi; ilk hatanın kök nedeni günlük olmadan bilinemez. Tekrarlarsa Ayarlar > Tanı ve günlük kaydındaki `[mikrofon]` satırları nedeni gösterir.

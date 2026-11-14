@@ -22,6 +22,8 @@ enum RecoveryStep: String, CaseIterable, Equatable {
 enum RecoveryReason: Equatable {
     case network
     case hardware
+    /// Konuşma tanıma düştü ama ses yolu sağlam: Kestirme çalışmaz, tanıyıcı ve ses oturumu yeniden kurulur
+    case recognition
 
     /// Bu neden için denenecek adımlar, sırasıyla. Donanımda internet kestirmeleri işe yaramaz: önce Bluetooth yenileme
     /// (internete dokunmaz), olmazsa sıfırlama.
@@ -29,6 +31,7 @@ enum RecoveryReason: Equatable {
         switch self {
         case .network: return [.wifi, .cellular, .reset]
         case .hardware: return [.bluetooth, .reset]
+        case .recognition: return []   // Bluetooth ya da uçak modu tanıyıcıyı düzeltmez, kulaklığı koparır
         }
     }
 
@@ -43,6 +46,7 @@ enum RecoveryReason: Equatable {
         switch self {
         case .network: return "internet"
         case .hardware: return "donanım"
+        case .recognition: return "konuşma tanıma"
         }
     }
 }

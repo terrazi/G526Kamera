@@ -69,17 +69,18 @@ Ayrıntılı işleyiş: `docs/SURUM3.md`.
 
 Uygulama ilk açıldığında Ayarlar'daki alanlara şu adları kendiliğinden yazar: **Wifi**, **Hücresel Veri**, **Bluetooth**, **Sistemi Sıfırla** ve **Çıkışı kulaklığa al** alanına **Kulaklık Düzeltme**. Kestirmeler uygulamasındaki kestirmelerin adı bunlarla birebir aynı olmalıdır. Başka ad kullanmak için alanı silip yenisini yazın (ya da boş bırakın); bir daha geri yazılmaz.
 
-Kestirmeler uygulamasında dört kestirme yapıp adlarını Ayarlar'a yazın (örnek adlar):
+Kestirmeler uygulamasında beş kestirme yapın; adları yukarıdakilerle birebir aynı olsun (adım adım, hiç bilmeyen biri için anlatım: **Kestirmeler_Kurulum_Rehberi** PDF/Word dosyası):
 
-1. `WiFi_Ac` — Wi-Fi'yi aç (gerekirse kapat, 2 sn bekle, aç).
-2. `Hücresel_Ac` — hücresel veriyi aç.
-3. `Bluetooth_Yenile` — Bluetooth'u kapat, 2 sn bekle, aç (kulaklık ya da mikrofon yolunu hafifçe yeniler).
-4. `Sistemi_Sifirla` — uçak modunu aç (**Uçak Modunu Ayarla: Aç**), 3 sn bekle, kapat (**Uçak Modunu Ayarla: Kapat**); ağ ve Bluetooth yeniden kurulur.
+1. `Wifi` — Wi-Fi'yi kapat, 2 sn bekle, aç.
+2. `Hücresel Veri` — hücresel veriyi aç.
+3. `Bluetooth` — Bluetooth'u kapat, 2 sn bekle, aç (kulaklık ya da mikrofon yolunu hafifçe yeniler).
+4. `Sistemi Sıfırla` — uçak modunu aç (**Uçak Modunu Ayarla: Aç**), 3 sn bekle, kapat (**Uçak Modunu Ayarla: Kapat**); ağ ve Bluetooth yeniden kurulur.
+5. `Kulaklık Düzeltme` — tek eylem: **Oynatma Hedefini Ayarla** (hedef: Bluetooth kulaklık; kulaklık bağlıyken seçilir).
 
-İnternet kopunca uygulama sırayla 1, 2, 4'ü çalıştırır; kulaklık ya da mikrofon koptuysa önce 3'ü, işe yaramazsa 4'ü çalıştırır. Her
+İnternet kopunca uygulama sırayla 1, 2, 4'ü çalıştırır; kulaklık yoldan çıkınca önce 5'i, kulaklık ya da mikrofon koptuysa 3'ü, işe yaramazsa 4'ü çalıştırır. Konuşma tanıma düşerse hiçbirini çalıştırmaz (aşağıdaki "Konuşma tanıma düşerse" bölümü). Her
 adımdan sonra durumu sınar (internet için internete ve Gemini'ye ulaşmayı, donanım için ses yolunu), düzelince "Bağlantı sorunu
 giderildi…" der ve mikrofonu yeniden açar; **son soruyu baştan okursunuz**. Mikrofon sessiz kaldığı için onarım gerekirse yalnız
-`Sistemi_Sifirla` çalışır (ses yolu sağlam görünürken Bluetooth yenilemesi sorunu çözmüş gibi görünürdü). Kestirmeler uygulaması öne gelip geri döner; bunun için **ekran açık ve kilitsiz** olmalıdır (oturum
+`Sistemi Sıfırla` çalışır (ses yolu sağlam görünürken Bluetooth yenilemesi sorunu çözmüş gibi görünürdü). Kestirmeler uygulaması öne gelip geri döner; bunun için **ekran açık ve kilitsiz** olmalıdır (oturum
 boyunca ekran kararmaz).
 
 **Zamanlı başlatma:** Kestirmeler > Otomasyon > Günün Saati > sınav saati > eylem **URL'yi Aç**: `seslikontrol://basla` > **Hemen
@@ -119,11 +120,12 @@ açık ve kilitsiz olmalı. Yedek: uygulama açıksa saat gelince kendisi başla
 
 ## Sorun giderme
 
-- **"Duraklatıldı: kulaklık, mikrofon ya da ses kesintisi":** kulaklık ve alıcı bağlı mı, çıkış düğmesinde kulaklık, mikrofon listesinde alıcı seçili mi? Geri gelince kendiliğinden devam eder; 20 sn dönmezse `Bluetooth_Yenile`, o da işe yaramazsa `Sistemi_Sifirla` çalışır.
+- **"Konuşma tanıma durdu, yeniden kuruluyor":** kulaklık ve mikrofon sağlam, yalnız iOS'un konuşma tanıması düştü. Hiçbir Kestirme çalışmaz; uygulama tanıyıcıyı ve ses oturumunu yeniden kurar, dinlemenin gerçekten çalıştığını gördükten sonra "Hazır" der (birkaç saniye). Kurulamazsa nedenini söyler ve her 15 sn'de yeniden dener. "Konuşma tanıma kapalı" derse iPhone Ayarlar > Genel > Klavye > Dikteyi Etkinleştir'i açın; çevrimdışı Türkçe dikte yoksa Ayarlar > Genel > Klavye > Dikte bölümünden Türkçe'yi ekleyip internetteyken indirin. Sürerse Ayarlar > Tanı ve günlük kaydındaki `[mikrofon]` satırlarını (hata kodları) gönderin.
+- **"Duraklatıldı: kulaklık, mikrofon ya da ses kesintisi":** kulaklık ve alıcı bağlı mı, çıkış düğmesinde kulaklık, mikrofon listesinde alıcı seçili mi? Geri gelince kendiliğinden devam eder; 20 sn dönmezse `Bluetooth`, o da işe yaramazsa `Sistemi Sıfırla` çalışır.
 - **"Ses şu an telefona gidiyor" / Sesi dene çalmıyor:** ana ekranın altındaki "Şu an: Çıkış: …" satırı sesin nereye gittiğini yazar. Çıkış telefon ise "Ses çıkışı" düğmesinden Bluetooth kulaklığı seçin. Kulaklık yalnız müzik (A2DP) olarak bağlanır; telefon (mikrofonlu) profili kapalıdır, çünkü mikrofon her zaman Lightning alıcıdan gelir.
 - **"Giriş: yok" ama mikrofon alıcısı takılı:** kulaklık seçildikten sonra iOS ses yolunu yeniden kurar; uygulama kontrolü bir buçuk saniye kadar bekleyip mikrofonu yeniden seçerek tekrarlar. Ana ekrandaki "Şu an" satırı alıcının adını ve "takılı ama ses yoluna girmedi" bilgisini yazar. Hâlâ girmiyorsa alttaki mikrofon listesinden alıcıya bir kez dokunun.
-- **Kulaklık düştü, yeniden bağlanmıyor:** Ayarlar > Bluetooth'ta kulaklığa dokunmak elle yapılır ve sınavda mümkün değildir; uygulama da Ayarlar'a girip dokunamaz (iOS izin vermez). Bu yüzden tek otomatik yol Kestirmeler'dir: aşağıdaki **Çıkışı kulaklığa al** kestirmesini kurun. Kulaklık yoldan çıkınca uygulama bunu ~3 sn sonra kendisi çalıştırır; düzelmezse 20 sn dolunca bir kez daha, o da olmazsa `Bluetooth_Yenile` ve `Sistemi_Sifirla`. Ana ekranda kulaklık yolda değilken hangi adımın bekleyeceği yazar.
-- **Ses iPhone'a düşüyor / "Bluetooth music" kendiliğinden seçilmiyor:** Kestirmeler'de tek eylemli bir kestirme yapın (ör. adı `Kulakliga_Al`): **Oynatma Hedefini Ayarla** eylemini ekleyin ve hedef olarak Bluetooth kulaklığınızı seçin. Adını Ayarlar > Kestirmeler > **Çıkışı kulaklığa al** alanına yazıp **Dene** ile sınayın. Uygulama bunu, açılışta kulaklık yolda değilse ve test sürerken kulaklık yoldan çıkınca ~3 sn sonra ve 20 sn dolunca **Bluetooth'u kapatıp açmadan önce** çalıştırır; art arda 6 denemede yol düzelmezse eski sıraya geçer, yol düzelince hak yenilenir. Kestirme herhangi bir eylem dizisi olabilir: uygulama onu çalıştırır, sonra ses yolunun düzelip düzelmediğine bakar. Güçlendirme önerileri (hiçbiri cihazda denenmedi):
+- **Kulaklık düştü, yeniden bağlanmıyor:** Ayarlar > Bluetooth'ta kulaklığa dokunmak elle yapılır ve sınavda mümkün değildir; uygulama da Ayarlar'a girip dokunamaz (iOS izin vermez). Bu yüzden tek otomatik yol Kestirmeler'dir: aşağıdaki **Çıkışı kulaklığa al** kestirmesini kurun. Kulaklık yoldan çıkınca uygulama bunu ~3 sn sonra kendisi çalıştırır; düzelmezse 20 sn dolunca bir kez daha, o da olmazsa `Bluetooth` ve `Sistemi Sıfırla`. Ana ekranda kulaklık yolda değilken hangi adımın bekleyeceği yazar.
+- **Ses iPhone'a düşüyor / "Bluetooth music" kendiliğinden seçilmiyor:** Kestirmeler'de tek eylemli bir kestirme yapın (ör. adı `Kulaklık Düzeltme`): **Oynatma Hedefini Ayarla** eylemini ekleyin ve hedef olarak Bluetooth kulaklığınızı seçin. Adını Ayarlar > Kestirmeler > **Çıkışı kulaklığa al** alanına yazıp **Dene** ile sınayın. Uygulama bunu, açılışta kulaklık yolda değilse ve test sürerken kulaklık yoldan çıkınca ~3 sn sonra ve 20 sn dolunca **Bluetooth'u kapatıp açmadan önce** çalıştırır; art arda 6 denemede yol düzelmezse eski sıraya geçer, yol düzelince hak yenilenir. Kestirme herhangi bir eylem dizisi olabilir: uygulama onu çalıştırır, sonra ses yolunun düzelip düzelmediğine bakar. Güçlendirme önerileri (hiçbiri cihazda denenmedi):
   - Eylemi iki kez koyun: **Oynatma Hedefini Ayarla** → **Bekle 3 sn** → **Oynatma Hedefini Ayarla** (aynı hedef). İlki bağlanmayı başlatır, ikincisi bağlanınca çıkışı seçer.
   - Uygulamadan bağımsız yedek: Kestirmeler > Otomasyon > Kişisel > **Bluetooth** > kulaklık > **Bağlantı Kesildi** > **Hemen Çalıştır** > aynı kestirme.
   - Ayarlar'daki "Bluetooth Music" satırına dokunmayı yaptırmak için **Anahtarla Denetim** kullanılabilir (Ayarlar > Erişilebilirlik > Anahtarla Denetim > Tarifler: tam ekran özel hareketle o satıra dokunuşu kaydedip **Başlatma Tarifi** yapın; kestirme sırası: **URL'yi Aç** `App-Prefs:Bluetooth` > **Anahtarla Denetim'i Ayarla: Aç** > bekle > **Anahtarla Denetim'i Ayarla: Kapat**). Zayıf yanları: dokunuş ekran koordinatına bağlıdır (aygıt listesi değişirse yanlış yere dokunur), Başlatma Tarifi'nin açılır açılmaz kendiliğinden çalışıp çalışmadığı bildirilen kullanıcı deneyimlerine göre değişiyor (bir tıklama isteyebilir) ve `App-Prefs` bağlantısı iOS sürümüne göre açılmayabilir. Önce elle deneyip çalıştığını görün, sonra kestirmeye alın.

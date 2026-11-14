@@ -18,6 +18,11 @@ enum Say {
     /// Onarım başlarken kulaklıktan söylenen kısa bilgiler
     static let networkLost = "İnternet bağlantısı yok. Test duraklatıldı, bağlantı onarılıyor."
     static let hardwareRepairing = "Kulaklık ya da mikrofon sorunu var. Test duraklatıldı, onarılıyor."
+    /// Konuşma tanıma düştü; kulaklık ve mikrofon sağlam. Kullanıcı neyin onarıldığını bilsin, sessizlik kesinti gibi görünmesin.
+    static let recognizerRestarting = "Konuşma tanıma durdu, yeniden kuruluyor. Kulaklık ve mikrofon sağlam."
+    static let recognizerAgain = "Konuşma tanıma yine düştü, yeniden kuruluyor."
+    static let recognizerStuck = "Konuşma tanıma açılamıyor. On beş saniyede bir yeniden deniyorum. Düzelmezse telefonu yeniden başlatın."
+    static let dictationOff = "Konuşma tanıma kapalı. Ayarlar, Genel, Klavye bölümünde Dikteyi Etkinleştir seçeneğini açın."
     static let answerFailed = "Cevap alınamadı. Soruyu yeniden oku."
     static let receiverNotRouted = "Mikrofon alıcısı takılı ama ses yoluna girmiyor. Alttaki mikrofon listesinden alıcıya bir kez dokunun. Kulaklık sağlam göründüğü için Kestirme çalıştırılmıyor (bağlantıyı koparırdı)."
     static let noKeyShort = "Gemini API anahtarı girilmemiş. Ayarlardan yapıştırın."

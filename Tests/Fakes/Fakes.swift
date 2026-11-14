@@ -96,6 +96,8 @@ final class FakeListener: SpeechListening {
     var onEvent: (@MainActor (SpeechEvent) -> Void)?
     private(set) var isRunning = false
     var secondsSinceAudio: TimeInterval? = 0.2
+    /// Üst üste çabuk biten tanıma görevi sayısı (0: sağlam); testler artırarak tanıyıcının düştüğünü gösterir
+    var recognitionStreak = 0
     private(set) var startCalls = 0
     private(set) var pauseCalls = 0
     /// Sırayla fırlatılacak başlatma hataları (boşsa başarılı)

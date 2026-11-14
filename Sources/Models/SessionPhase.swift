@@ -30,6 +30,7 @@ enum SessionPhase: Equatable {
         case .paused(.hardware): return "Duraklatıldı: kulaklık, mikrofon ya da ses kesintisi"
         case .paused(.noConnection): return "Duraklatıldı: bağlantı yok"
         case .paused(.manual): return "Duraklatıldı: devam etmek için “Devam et”e basın"
+        case .recovering(.recognition): return "Konuşma tanıma yeniden kuruluyor"
         case .recovering: return "Bağlantı onarılıyor (Kestirmeler)"
         case .finished: return "Test bitti"
         case .replaying: return "Cevaplar çevrimdışı tekrarlanıyor"
