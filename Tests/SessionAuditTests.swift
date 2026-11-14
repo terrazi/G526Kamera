@@ -149,8 +149,9 @@ final class SessionAuditTests: XCTestCase {
         h.listener.onEvent?(.failure("Mikrofon durdu"))
         let capped = await waitUntil { h.isHardwarePause }
         XCTAssertTrue(capped)
-        XCTAssertEqual(h.shortcuts.runs.count, SessionViewModel.Timing.maxHardwareRecoveries,
-                       "Mikrofon onarılmasına rağmen çalışmıyorsa uçak modu kestirmesi sonsuza dek tekrarlanmaz")
+        XCTAssertTrue(h.shortcuts.runs.isEmpty, "Kulaklık sağlam: mikrofon için hiçbir Kestirme çalışmaz")
+        XCTAssertEqual(h.vm.hardwareRecoveries, SessionViewModel.Timing.maxHardwareRecoveries - 1,
+                       "Mikrofon yeniden kurulmasına rağmen çalışmıyorsa onarım sonsuza dek tekrarlanmaz, sınır devreye girer")
         XCTAssertTrue(h.vm.warnings.contains { $0.id == "onarim" })
     }
 

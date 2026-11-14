@@ -102,6 +102,10 @@ enum Say {
     static let transcriptFailed = "Cevaplar yazı dosyasına eklenemedi. Telefonda yer kalmamış ya da kayıt klasörüne erişim gitmiş olabilir."
     static let answerFailed = "Cevap alınamadı. Soruyu yeniden oku."
     static let receiverNotRouted = "Mikrofon alıcısı takılı ama ses yoluna girmiyor. Alttaki mikrofon listesinden alıcıya bir kez dokunun. Kulaklık sağlam göründüğü için Kestirme çalıştırılmıyor (bağlantıyı koparırdı)."
+    /// Kulaklık sağlam, mikrofon alıcısı hiç görünmüyor (yaka mikrofonu çıkarıldı ya da gevşedi)
+    static let micMissing = "Yaka mikrofonu görünmüyor. Mikrofonu ve alıcıyı kontrol edin; takılınca kendiliğinden devam edilir. Kulaklık sağlam olduğu için Kestirme çalıştırılmıyor."
+    /// Kulaklık sağlam, mikrofon tarafı onarılıyor (Kestirme çalışmaz)
+    static let micRepairing = "Mikrofon sorunu var. Test duraklatıldı, mikrofon yeniden kuruluyor."
     static let noKeyShort = "Gemini API anahtarı girilmemiş. Ayarlardan yapıştırın."
     static let noOnDevice = "Bu telefonda çevrimdışı Türkçe dikte yüklü değil. Ayarlar, Genel, Klavye, Dikte bölümünden Türkçe'yi ekleyip internetteyken bir kez indirin."
     static let permissionDenied = "Mikrofon ve konuşma tanıma izni gerekli. Ayarlar, Sesli Kontrol bölümünden izin verin."

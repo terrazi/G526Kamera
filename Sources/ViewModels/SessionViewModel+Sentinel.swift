@@ -82,7 +82,9 @@ extension SessionViewModel {
         tlog("[tespit] mikrofon: \(reason) (\(micHealCount). onarım)")
         if micHealCount > Timing.maxMicHeals {
             micHealCount = 0
-            warn("mikrofon", "Mikrofon art arda yeniden kurulamadı; Kestirmelerle onarılıyor.")
+            let headphonesFine = AudioRouting.verdict(deps.route.snapshot()).headphonesOK
+            warn("mikrofon", headphonesFine ? "Mikrofon art arda yeniden kurulamadı; ses oturumu baştan kuruluyor, Kestirme çalıştırılmıyor."
+                                            : "Mikrofon art arda yeniden kurulamadı; Kestirmelerle onarılıyor.")
             work?.cancel()   // kuyrukta bekleyen eski bir onarım görevi varsa o düşer; tek onarım çalışır
             work = Task { [weak self] in await self?.runRecovery(.hardware, force: true) }
             return

@@ -141,7 +141,7 @@ final class LoopGuardTests: XCTestCase {
         XCTAssertTrue(h.shortcuts.runs.isEmpty, "Ses yolu sağlam: Bluetooth/uçak modu Kestirmeleri çalışmaz (kulaklığı koparırdı)")
     }
 
-    func testRecognizerFailuresThatKeepComingEscalateOnlyAtTheEnd() async {
+    func testRecognizerFailuresThatKeepComingRebuildEverythingButNeverRunShortcuts() async {
         let h = makeHarness()
         _ = await h.startListening()
         for _ in 0..<T.maxMicHeals {
@@ -149,18 +149,21 @@ final class LoopGuardTests: XCTestCase {
             await settle()
         }
         XCTAssertTrue(h.shortcuts.runs.isEmpty, "İlk birkaç hatada yalnız dinleme yeniden kurulur")
+        let starts = h.listener.startCalls
         h.listener.onEvent?(.failure("Konuşma tanıma üst üste hata verdi."))
-        let ran = await waitUntil { !h.shortcuts.runs.isEmpty }
-        XCTAssertTrue(ran, "Sürerse son çare olarak Kestirmeler çalışır")
+        let rebuilt = await waitUntil { h.listener.startCalls > starts && h.vm.phase == .listening }
+        XCTAssertTrue(rebuilt, "Sürerse son çare olarak ses oturumu ve dinleme baştan kurulur")
+        XCTAssertTrue(h.shortcuts.runs.isEmpty, "Kulaklık sağlam: hiçbir Kestirme çalışmaz")
     }
 
-    func testRecognizerFailureWithABrokenRouteStillUsesTheOldRepair() async {
+    func testRecognizerFailureWithAMissingMicWaitsAndNeverRunsShortcuts() async {
         let h = makeHarness()
         _ = await h.startListening()
         h.route.current = FakeRoute.noMic
         h.listener.onEvent?(.failure("Konuşma tanıma üst üste hata verdi."))
-        let ran = await waitUntil { !h.shortcuts.runs.isEmpty || h.isHardwarePause }
-        XCTAssertTrue(ran)
+        let paused = await waitUntil { h.isHardwarePause }
+        XCTAssertTrue(paused, "Mikrofon yok: beklenir")
+        XCTAssertTrue(h.shortcuts.runs.isEmpty, "Kulaklık sağlam: Kestirme çalışmaz")
     }
 
     func testEngineStoppedEventsDoNotCountTowardTheEscalation() async {
@@ -234,13 +237,14 @@ final class LoopGuardTests: XCTestCase {
         XCTAssertTrue(h.shortcuts.runs.isEmpty)
     }
 
-    func testRecognizerDownWithABrokenRouteStillUsesTheHardwareRepair() async {
+    func testRecognizerDownWithAMissingMicWaitsAndNeverRunsShortcuts() async {
         let h = makeHarness()
         _ = await h.startListening()
         h.route.current = FakeRoute.noMic
         h.listener.onEvent?(.recognizerDown(message: "x", permanent: false))
-        let ran = await waitUntil { !h.shortcuts.runs.isEmpty || h.isHardwarePause }
-        XCTAssertTrue(ran)
+        let paused = await waitUntil { h.isHardwarePause }
+        XCTAssertTrue(paused, "Mikrofon yok: beklenir")
+        XCTAssertTrue(h.shortcuts.runs.isEmpty, "Kulaklık sağlam: Kestirme çalışmaz")
     }
 
     func testRecognizedWordResetsTheRepairCounter() async {

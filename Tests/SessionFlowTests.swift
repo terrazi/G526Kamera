@@ -306,15 +306,16 @@ final class SessionFlowTests: XCTestCase {
         XCTAssertEqual(h.vm.phase, .listening)
     }
 
-    func testSilenceWithDeadMicrophoneRunsResetShortcut() async {
+    func testSilenceWithDeadMicrophoneRebuildsListeningButNeverRunsShortcuts() async {
         let h = SessionHarness()
         _ = await h.startListening()
-        h.listener.secondsSinceAudio = nil   // mikrofondan hiç ses gelmiyor
-        h.shortcuts.onRun = { _ in h.listener.secondsSinceAudio = 0.1 }
+        let starts = h.listener.startCalls
+        h.listener.secondsSinceAudio = nil   // mikrofondan hiç ses gelmiyor, kulaklık sağlam
         h.scheduler.advance(by: SilenceWatchdog.limit + 0.1)
         let done = await waitUntil { h.speaker.spoken.last == Say.recovered && h.vm.phase == .listening }
         XCTAssertTrue(done)
-        XCTAssertEqual(h.shortcuts.runs, ["Sistemi_Sifirla"])
+        XCTAssertTrue(h.shortcuts.runs.isEmpty, "Lightning mikrofon için Kestirme yok; Bluetooth/uçak modu kulaklığı koparırdı")
+        XCTAssertGreaterThan(h.listener.startCalls, starts, "Dinleme ve ses oturumu yine de baştan kurulur")
     }
 
     func testEveryWordRestartsTheSilenceClock() async {
@@ -411,13 +412,13 @@ final class SessionFlowTests: XCTestCase {
         XCTAssertEqual(h.vm.warnings.first(where: { $0.id == "onarim" })?.text, Say.notConfigured)
     }
 
-    func testListenerFailureTriggersHardwareRecovery() async {
+    func testListenerFailureRebuildsListeningWithoutShortcuts() async {
         let h = SessionHarness()
         _ = await h.startListening()
         h.listener.onEvent?(.failure("Mikrofon durdu"))
         let done = await waitUntil { h.speaker.spoken.last == Say.recovered && h.vm.phase == .listening }
         XCTAssertTrue(done)
-        XCTAssertEqual(h.shortcuts.runs, ["Sistemi_Sifirla"])
+        XCTAssertTrue(h.shortcuts.runs.isEmpty, "Kulaklık sağlam: sorun mikrofon tarafında, Kestirme çalışmaz")
         XCTAssertEqual(h.listener.startCalls, 2, "Onarımdan sonra mikrofon yeniden açılır")
     }
 

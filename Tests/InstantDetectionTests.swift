@@ -61,16 +61,19 @@ final class InstantDetectionTests: XCTestCase {
         XCTAssertEqual(h.vm.phase, .listening)
     }
 
-    func testRepeatedStallsEscalateToTheShortcuts() async {
+    func testRepeatedStallsNeverRunTheShortcutsAndEndInAWait() async {
         let h = makeHarness()
         _ = await h.startListening()
-        h.listener.secondsSinceAudio = 9
-        for _ in 0..<12 {
+        h.listener.secondsSinceAudio = 9    // mikrofon tamponları hiç gelmiyor, kulaklık sağlam
+        var waiting = false
+        for _ in 0..<200 where !waiting {
             h.scheduler.advance(by: 2)
             await settle()
+            waiting = h.isHardwarePause
         }
-        let ran = await waitUntil { !h.shortcuts.runs.isEmpty }
-        XCTAssertTrue(ran, "Dinleme art arda kurulamayınca Kestirmeler çalışır")
+        XCTAssertTrue(waiting, "Mikrofon düzelmezse program uyarıp bekleme durumuna geçer")
+        XCTAssertTrue(h.shortcuts.runs.isEmpty, "Lightning mikrofon için Kestirme yok; Bluetooth/uçak modu kulaklığı koparırdı")
+        XCTAssertTrue(h.vm.warnings.contains { $0.id == "onarim" })
     }
 
     func testEngineStoppedEventRebuildsListeningAtOnce() async {

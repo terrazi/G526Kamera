@@ -603,17 +603,54 @@ final class ReceiverNotRoutedTests: XCTestCase {
         XCTAssertTrue(h.shortcuts.runs.isEmpty)
     }
 
-    func testReceiverReallyGoneStillRunsTheShortcuts() async {
+    func testReceiverReallyGoneNeverRunsTheShortcutsEither() async {
         let h = SessionHarness()
-        h.route.inputs = []                    // alıcı hiç görünmüyor: gerçek kopma
+        h.route.inputs = []                    // alıcı hiç görünmüyor (yaka mikrofonu çıkarıldı); kulaklık sağlam
         h.route.current = unsettled()
         h.vm.start()
         let paused = await waitUntil { h.isHardwarePause }
         XCTAssertTrue(paused)
-        h.shortcuts.onRun = { _ in h.route.current = FakeRoute.good }
         h.scheduler.advance(by: SessionViewModel.Timing.hardwareGrace + 0.1)
-        let ran = await waitUntil { !h.shortcuts.runs.isEmpty }
-        XCTAssertTrue(ran, "Alıcı yoksa Kestirme çalışır")
+        await settle()
+        XCTAssertTrue(h.shortcuts.runs.isEmpty, "Lightning mikrofon için Kestirme yok; Bluetooth/uçak modu kulaklığı koparırdı")
+        XCTAssertTrue(h.isHardwarePause)
+        XCTAssertEqual(h.vm.warnings.first(where: { $0.id == "donanim" })?.text, "Duraklatıldı: " + Say.micMissing)
+        // Dakikalarca beklese de Kestirme çalışmaz
+        for _ in 0..<6 {
+            h.scheduler.advance(by: SessionViewModel.Timing.hardwareGrace + 0.1)
+            await settle()
+        }
+        XCTAssertTrue(h.shortcuts.runs.isEmpty)
+        XCTAssertTrue(h.isHardwarePause)
+        // Mikrofon takılınca kendiliğinden devam edilir
+        h.route.inputs = [InputChoice(uid: "lightning", name: "Boya Mikrofon", port: .usbAudio, isCurrent: true)]
+        h.route.change(to: FakeRoute.good)
+        h.scheduler.advance(by: SessionViewModel.Timing.routeStable + 0.1)
+        let back = await waitUntil { h.vm.phase == .listening }
+        XCTAssertTrue(back, "Mikrofon dönünce test kendiliğinden başlar")
+        XCTAssertTrue(h.shortcuts.runs.isEmpty)
+    }
+
+    func testMicUnpluggedDuringTheTestNeverRunsTheShortcuts() async {
+        let h = SessionHarness()
+        _ = await h.startListening()
+        let lightning = h.route.inputs
+        h.route.inputs = []                    // alıcı fiziksel olarak çıkarıldı
+        h.route.change(to: FakeRoute.noMic)    // ses telefonun kendi mikrofonuna düştü, Bluetooth kulaklık çalışıyor
+        XCTAssertTrue(h.isHardwarePause)
+        for _ in 0..<8 {
+            h.scheduler.advance(by: SessionViewModel.Timing.hardwareGrace + 0.1)
+            await settle()
+        }
+        XCTAssertTrue(h.shortcuts.runs.isEmpty, "Kulaklık sağlamken mikrofon için hiçbir Kestirme çalışmaz")
+        XCTAssertTrue(h.isHardwarePause)
+        XCTAssertEqual(h.vm.warnings.first(where: { $0.id == "donanim" })?.text, "Duraklatıldı: " + Say.micMissing)
+        h.route.inputs = lightning             // yaka mikrofonu yeniden takıldı
+        h.route.change(to: FakeRoute.good)
+        h.scheduler.advance(by: SessionViewModel.Timing.routeStable + 0.1)
+        let back = await waitUntil { h.vm.phase == .listening && h.speaker.spoken.last == Say.recovered }
+        XCTAssertTrue(back, "Mikrofon takılınca kendiliğinden devam edilir")
+        XCTAssertTrue(h.shortcuts.runs.isEmpty)
     }
 
     func testHeadphonesMissingStillRunsTheShortcuts() async {
