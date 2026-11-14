@@ -7,8 +7,15 @@ extension SessionViewModel {
         checkSystemAtStart()
         do {
             // Beklenmedik kapanmadan sonra aynı klasöre ve numaraya devam edilir (cevaplar ikiye bölünmesin, soru_N ezilmesin)
+            choiceOffer = nil
             if let name = resume?.folder, let existing = deps.library.existingSessionFolder(named: name) {
                 sessionFolder = existing
+            } else if resume == nil, let remembered = rememberedSession() {
+                // Önceki kayıt var (içinde cevap olan klasör): klasör ve numara geçici olarak onunki sayılır, kontrol bitince sesli sorulur:
+                // "önceki kayıttan devam mı, yeni sınav mı?". Seçilene kadar klasöre hiçbir şey yazılmaz.
+                sessionFolder = remembered.folder
+                nextNumber = remembered.next
+                choiceOffer = ChoiceOffer(answers: remembered.count, next: remembered.next, recent: remembered.recent)
             } else {
                 sessionFolder = try deps.library.newSessionFolder(for: deps.now())
             }
@@ -123,9 +130,30 @@ extension SessionViewModel {
             }
             return
         }
+        if let offer = choiceOffer {
+            guard await speakNotice(Say.readyAskContinue(answers: offer.answers, next: offer.next)) else { return }
+            pendingStart = false
+            beginListening(mode: .startChoice)
+            return
+        }
         guard await speakNotice(Say.ready) else { return }
         pendingStart = false
         beginListening()
+    }
+
+    /// Hatırlanan önceki oturum: klasör hâlâ varsa ve içinde cevap dosyası varsa (klasör, sıradaki numara, cevap sayısı, yeni mi);
+    /// aksi hâlde nil. Numara, defterdeki ile klasördeki en büyük soru numarasının bir fazlasından büyük olanıdır.
+    func rememberedSession() -> (folder: URL, next: Int, count: Int, recent: Bool)? {
+        guard let carry = carry, let url = deps.library.existingSessionFolder(named: carry.folder) else { return nil }
+        // Hem ses dosyalarına (soru_N) hem düz yazıdaki (cevaplar.txt) satırlara bakılır: biri eksik olsa da kayıt hatırlanır
+        var numbers = Set<Int>()
+        for file in deps.library.answerFiles(in: url) {
+            if let number = AnswerLibrary.questionNumber(fromFileName: file.lastPathComponent) { numbers.insert(number) }
+        }
+        for record in deps.library.transcriptRecords(in: url) { numbers.insert(record.number) }
+        guard !numbers.isEmpty else { return nil }
+        let recent = deps.now().timeIntervalSince(carry.at) <= Timing.rememberWindow
+        return (url, max(carry.nextNumber, (numbers.max() ?? 0) + 1), numbers.count, recent)
     }
 
     /// Açılış kontrolü başarısız: sebep kırmızı kutuya yazılır, kulaklık varsa söylenir, oturum başlamaz

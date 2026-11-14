@@ -19,6 +19,22 @@ enum Say {
     /// Soru Gemini'ye gittikten sonra kesinti olup düzelince (yarım kalmış olabilir)
     static let recoveredAfterSend = "Bağlantı yeniden onarıldı. Sorunuz yarım kaldıysa son soruyu tekrar okuyunuz."
 
+    /// Sesli "testi bitir" komutu: önce onay istenir; "evet" denirse kısa bilgi verilir ve test biter
+    static let confirmEnd = "Testi bitirmek istiyor musunuz? Bitirmek için evet, devam etmek için hayır deyin."
+    static let endCancelled = "Tamam, test devam ediyor. Soruyu okuyabilirsiniz."
+    /// Program açılırken önceki kayıt bulundu: hazır anonsu ve soru bir arada
+    static func readyAskContinue(answers: Int, next: Int) -> String {
+        return "Ben hazırım, sistem kontrol edildi ve problem yok. Önceki kayıtta \(answers) cevap var, sıradaki soru \(next). Önceki kayıttan devam mı, yeni sınav mı? Devam ya da yeni deyin."
+    }
+    static let askChoiceAgain = "Önceki kayıttan devam mı, yeni sınav mı? Devam ya da yeni deyin."
+    static func continuingPrevious(next: Int) -> String {
+        return "Önceki kayıttan devam ediliyor. Sıradaki soru \(next). Soruyu okuyabilirsiniz."
+    }
+    static let startingNew = "Yeni sınav başladı. İlk soruyu okuyabilirsiniz."
+    /// Sesli "testi bitir" komutu onaylandı: kısa bilgi, sonra test biter
+    static func endingTest(_ answers: Int) -> String {
+        return answers > 0 ? "Test bitiriliyor. \(answers) cevap kaydedildi." : "Test bitiriliyor."
+    }
     /// Cevap duyulduktan sonra, dinlemeye geçmeden: program sıradaki soruyu kendisi ister
     static let nextQuestion = "Lütfen sonraki soruyu okuyun."
     static let askNumber = "Lütfen okuduğunuz sorunun numarasını söyleyin."

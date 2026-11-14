@@ -135,6 +135,19 @@ struct AnswerLibrary {
             .map { folder.appendingPathComponent($0.1) }
     }
 
+    /// Düz yazıdaki ("cevaplar.txt") cevap satırları; her satır "Soru N, …" biçimindedir. Önceki kayıttan devam edilirken cevap listesini ve
+    /// "son cevabı tekrarla" komutunu besler. Dosya yoksa ya da okunamazsa boş.
+    func transcriptRecords(in folder: URL) -> [AnswerRecord] {
+        let url = folder.appendingPathComponent(AnswerLibrary.transcriptName)
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return [] }
+        return text.split(separator: "\n", omittingEmptySubsequences: true).compactMap { raw -> AnswerRecord? in
+            let line = String(raw)
+            guard line.hasPrefix("Soru ") else { return nil }
+            guard let number = Int(line.dropFirst("Soru ".count).prefix(while: { $0.isNumber })) else { return nil }
+            return AnswerRecord(number: number, option: "", text: "", spoken: line)
+        }
+    }
+
     /// Soru yeniden okunup cevaplandıysa düz yazıdaki eski satırı yenisiyle değiştirir (aynı numaralı iki çelişen satır kalmasın); numaranın
     /// satırı yoksa sona ekler. Dosya okunamazsa üzerine yazılmaz (önceki cevaplar kaybolmasın). Yazılamadıysa false.
     @discardableResult

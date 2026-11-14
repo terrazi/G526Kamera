@@ -231,6 +231,10 @@ extension SessionViewModel {
             work = Task { [weak self] in await self?.numberSilence() }   // numara söylenmedi: hatırlatılır, olmazsa sıradaki numara verilir
             return
         }
+        if listenMode == .confirmEnd || listenMode == .startChoice {
+            work = Task { [weak self] in await self?.choiceSilence() }
+            return
+        }
         work = Task { [weak self] in await self?.handleSilence() }
     }
 

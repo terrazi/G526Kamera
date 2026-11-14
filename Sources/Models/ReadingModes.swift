@@ -10,6 +10,10 @@ enum ListenMode: Equatable {
     case passageTargets
     /// Soru okundu ama numarası söylenmedi; numara bekleniyor ("soru yedi")
     case missingNumber
+    /// "Testi bitir" denmiş; onay bekleniyor: "evet" bitirir, "hayır" devam eder
+    case confirmEnd
+    /// Program açılırken önceki kayıt bulundu; "devam" (önceki kayıttan) ya da "yeni" (yeni sınav) bekleniyor
+    case startChoice
 }
 
 /// Kayıtlı ortak paragraf: ait olduğu sorulardan biri her sorulduğunda Gemini'ye soruyla birlikte gider
@@ -59,6 +63,81 @@ enum PassageCommand {
 
     private static func tokens(_ text: String) -> [String] {
         return text.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+    }
+}
+
+/// Sesli komut ve cevaplar için sözcük ayrıştırma: noktalama atılır, büyük/küçük harf ve Türkçe harf farkları (ı/i, ö/o, ş/s…) yok sayılır,
+/// baştaki ve sondaki "lütfen" atılır
+enum SpokenWords {
+    static func of(_ text: String) -> [String] {
+        var words = text.split(whereSeparator: { $0.isWhitespace })
+            .map { TriggerDetector.fold(String($0)).replacingOccurrences(of: "ı", with: "i") }
+            .filter { !$0.isEmpty }
+        while words.first == "lutfen" { words.removeFirst() }
+        while words.last == "lutfen" { words.removeLast() }
+        return words
+    }
+}
+
+/// Tek başına söylenen sesli komutlar ("testi bitir", "sınavı bitir", "son cevabı tekrarla"). Yalnız metin TAMAMEN komutsa tanınır: sorunun
+/// içinde geçen "testi bitirmek…" gibi cümleler komut sayılmaz, soru olarak gider. "Cevapla"/"Gönder" ile bitiyorsa da çalışır
+/// ("testi bitir cevapla"): o durumda `parse` komut kısmına uygulanır.
+enum VoiceCommand: Equatable {
+    case endTest
+    case repeatLast
+
+    private static let subjects: Set<String> = ["test", "testi", "sinav", "sinavi"]
+    private static let endVerbs: Set<String> = ["bitir", "bitirin", "bitirelim", "bitsin", "bitti", "sonlandir", "sonlandirin",
+                                                 "tamamla", "tamamlayin", "tamamlandi", "sona erdi", "sona ersin"]
+    private static let repeatPhrases: Set<String> = ["tekrarla", "tekrar et", "tekrar oku", "cevabi tekrarla", "cevabi tekrar et",
+                                                      "cevabi tekrar oku", "son cevabi tekrarla", "son cevabi tekrar et",
+                                                      "son cevabi tekrar oku", "cevabi tekrar okuyun", "son cevabi tekrar okuyun"]
+
+    static func parse(_ text: String) -> VoiceCommand? {
+        var words = SpokenWords.of(text)
+        if words.first == "deneme", words.count > 1 { words.removeFirst() }
+        guard !words.isEmpty, words.count <= 4 else { return nil }
+        let phrase = words.joined(separator: " ")
+        if repeatPhrases.contains(phrase) { return .repeatLast }
+        guard let subject = words.first, subjects.contains(subject), words.count >= 2 else { return nil }
+        return endVerbs.contains(words.dropFirst().joined(separator: " ")) ? .endTest : nil
+    }
+}
+
+/// Programın sorduğu kısa sorulara verilen sözlü cevaplar. Yalnız metin TAMAMEN cevapsa tanınır; başka sözcükler karışırsa nil.
+enum SpokenReply {
+    enum YesNo: Equatable { case yes, no }
+    enum Start: Equatable { case continuePrevious, startNew }
+
+    private static let yes: Set<String> = ["evet", "tamam", "bitir", "bitirin", "evet bitir", "evet bitirin", "evet tamam", "onayliyorum",
+                                            "evet onayliyorum", "bitirelim", "evet bitirelim"]
+    private static let no: Set<String> = ["hayir", "vazgec", "vazgectim", "devam", "devam et", "hayir devam", "hayir devam et", "bitirme",
+                                           "hayir bitirme", "iptal", "hayir vazgec"]
+    private static let continuePrevious: Set<String> = ["devam", "devam et", "devam edelim", "onceki", "onceki kayit", "onceki kayittan",
+                                                         "onceki kayittan devam", "onceki kayittan devam et", "kaldigi yerden",
+                                                         "kaldigim yerden", "kaldigimiz yerden", "aynen", "aynen devam"]
+    private static let startNew: Set<String> = ["yeni", "yeni sinav", "yeni test", "yeni kayit", "yeni baslat", "yeni baslayalim", "sifirdan",
+                                                 "bastan", "bastan basla", "sifirdan basla"]
+
+    private static func phrase(_ text: String) -> String {
+        let words = SpokenWords.of(text)
+        return words.count <= 5 ? words.joined(separator: " ") : ""
+    }
+
+    static func yesNo(_ text: String) -> YesNo? {
+        let p = phrase(text)
+        if yes.contains(p) { return .yes }
+        // Onay sorusuna komutu yeniden söylemek ("testi bitir") de evet demektir
+        if VoiceCommand.parse(text) == .endTest { return .yes }
+        if no.contains(p) { return .no }
+        return nil
+    }
+
+    static func start(_ text: String) -> Start? {
+        let p = phrase(text)
+        if continuePrevious.contains(p) { return .continuePrevious }
+        if startNew.contains(p) { return .startNew }
+        return nil
     }
 }
 

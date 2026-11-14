@@ -87,6 +87,10 @@ final class SessionViewModel: ObservableObject {
         /// Beklenmedik kapanma: bu süre (sn) içinde bu kadar kez olursa otomatik başlatma durdurulur (açılış döngüsü)
         static let loopWindow: TimeInterval = 120
         static let loopLimit = 3
+        /// Önceki kayıt bu süreden (12 saat) eskiyse sesli soruya cevap gelmezse "yeni sınav" sayılır (eski cevapların üzerine yazılmasın)
+        static let rememberWindow: TimeInterval = 12 * 3600
+        /// "Devam mı, yeni mi?" sorusu cevapsız kalırsa en çok bu kadar hatırlatılır, sonra varsayılan uygulanır
+        static let choiceReminderLimit = 1
         /// "Programı kapat" düğmesi: basılı tutma süresi (sn) ve günlüğün/panonun yazılması için kapanıştan önceki kısa bekleme
         static let closeHold: TimeInterval = 3
         static let closeDelay: TimeInterval = 0.4
@@ -175,6 +179,22 @@ final class SessionViewModel: ObservableObject {
     var englishAccumulator = TranscriptAccumulator()
     var sessionFolder: URL?
     var nextNumber = 1
+    /// Önceki oturumdan hatırlanan klasör ve sıradaki numara: uygulama açılırken defterden, "Testi bitir"de bellekten. Yeni başlatmada
+    /// içinde cevap varsa "önceki kayıttan devam mı, yeni sınav mı?" diye sorulur.
+    struct Carry: Equatable {
+        var folder: String
+        var nextNumber: Int
+        var at: Date
+    }
+    var carry: Carry?
+    /// Başlatırken bulunan ve henüz cevaplanmamış "devam mı, yeni mi?" sorusu
+    struct ChoiceOffer: Equatable {
+        var answers: Int
+        var next: Int
+        var recent: Bool
+    }
+    var choiceOffer: ChoiceOffer?
+    var choiceReminders = 0
     /// Kulaklıktan söylenmeyi bekleyen uyarılar, şu an çalan söyleme görevi, her cümlenin son söylenme zamanı ve söylenenlerin kaydı
     var voiceQueue: [PendingAnnouncement] = []
     var voiceTask: Task<Void, Never>?
@@ -330,6 +350,10 @@ final class SessionViewModel: ObservableObject {
         deps.network.stop()
         deps.screen.keepAwake(false)
         phase = .finished
+        if let folder = sessionFolder {
+            carry = Carry(folder: folder.lastPathComponent, nextNumber: nextNumber, at: deps.now())
+        }
+        choiceOffer = nil
         passage = nil
         heldQuestion = nil
         passageDraft = nil
@@ -367,6 +391,10 @@ final class SessionViewModel: ObservableObject {
         launchHandled = true
         let run = deps.journal.beginRun()
         tlog("[açılış] önceki çalışma: \(run.exit.logText)")
+        // Önceki oturumun klasörü ve numarası hatırlanır: yeni başlatmada içinde cevap varsa "devam mı, yeni mi?" diye sorulur
+        if let folder = run.folder {
+            carry = Carry(folder: folder, nextNumber: run.nextNumber, at: deps.now().addingTimeInterval(-Double(run.downSeconds ?? 0)))
+        }
         guard case .unexpected(let cause) = run.exit else { return }
         guard !run.loop else {
             deps.journal.setSessionOpen(false)
@@ -415,6 +443,8 @@ final class SessionViewModel: ObservableObject {
         checkup = []
         statusNote = ""
         nextNumber = 1
+        choiceOffer = nil
+        choiceReminders = 0
         pendingStart = false
         unheard = nil
         hardwareRecoveries = 0
@@ -646,11 +676,22 @@ final class SessionViewModel: ObservableObject {
         var delay = Timing.triggerConfirm
         switch listenMode {
         case .question, .passageTargets:
+            // Tek başına söylenen komut ("testi bitir"): kısa süre sabit kalırsa çalışır, "Cevapla" demek gerekmez
+            if listenMode == .question, VoiceCommand.parse(text) != nil {
+                confirmTask = deps.scheduler.after(Timing.numberConfirm) { [weak self] in self?.fireVoiceCommand() }
+                return
+            }
             guard TriggerDetector.match(in: text) != nil else { return }
         case .passage:
             guard TriggerDetector.match(in: text, words: PassageCommand.finishWords) != nil else { return }
         case .missingNumber:
             guard heldQuestion != nil, SpokenNumber.standalone(from: text) != nil || SpokenNumber.wantsSequence(text) else { return }
+            delay = Timing.numberConfirm
+        case .confirmEnd:
+            guard SpokenReply.yesNo(text) != nil else { return }
+            delay = Timing.numberConfirm
+        case .startChoice:
+            guard SpokenReply.start(text) != nil else { return }
             delay = Timing.numberConfirm
         }
         confirmTask = deps.scheduler.after(delay) { [weak self] in self?.fireTrigger() }
@@ -664,6 +705,8 @@ final class SessionViewModel: ObservableObject {
         case .passage: firePassage()
         case .passageTargets: fireTargets()
         case .missingNumber: fireNumber()
+        case .confirmEnd: fireConfirmEnd()
+        case .startChoice: fireStartChoice()
         }
     }
 
@@ -673,8 +716,136 @@ final class SessionViewModel: ObservableObject {
         watchdog.disarm()
     }
 
+    /// Tek başına söylenen sesli komutu uygular (soru olarak Gemini'ye gitmez)
+    func fireVoiceCommand() {
+        confirmTask = nil
+        guard phase == .listening, listenMode == .question, let command = VoiceCommand.parse(accumulator.text) else { return }
+        run(command)
+    }
+
+    private func run(_ command: VoiceCommand) {
+        closeListening()
+        accumulator.clear()
+        englishAccumulator.clear()
+        liveText = ""
+        liveEnglish = ""
+        deps.recorder.reset()
+        phase = .speaking
+        switch command {
+        case .endTest:
+            // Yanlış tanımaya karşı önce onay istenir: "evet" bitirir, "hayır" (ya da cevapsızlık) devam ettirir
+            tlog("[komut] sesli komut: testi bitir; onay isteniyor")
+            work = Task { [weak self] in
+                guard let self = self, await self.speakNotice(Say.confirmEnd) else { return }
+                self.beginListening(mode: .confirmEnd)
+            }
+        case .repeatLast:
+            tlog("[komut] sesli komut: son cevabı tekrarla")
+            work = Task { [weak self] in
+                guard let self = self else { return }
+                guard await self.speakNotice(self.answers.last?.spoken ?? Say.nothingToReplay) else { return }
+                self.beginListening()
+            }
+        }
+    }
+
+    /// "Testi bitirmek istiyor musunuz?" sorusuna cevap: evet bitirir, hayır devam ettirir
+    private func fireConfirmEnd() {
+        guard let reply = SpokenReply.yesNo(accumulator.text) else { return }
+        closeListening()
+        accumulator.clear()
+        englishAccumulator.clear()
+        liveText = ""
+        liveEnglish = ""
+        deps.recorder.reset()
+        phase = .speaking
+        switch reply {
+        case .yes:
+            let count = answers.count
+            tlog("[komut] testi bitirme onaylandı (\(count) cevap)")
+            work = Task { [weak self] in
+                guard let self = self else { return }
+                await self.speakNotice(Say.endingTest(count))
+                guard !Task.isCancelled else { return }
+                self.endTest()
+            }
+        case .no:
+            tlog("[komut] testi bitirmekten vazgeçildi")
+            work = Task { [weak self] in
+                guard let self = self, await self.speakNotice(Say.endCancelled) else { return }
+                self.beginListening(mode: .question)
+            }
+        }
+    }
+
+    /// Cevap gelmedi ("evet/hayır" ya da "devam/yeni" denmedi): testi bitirme sorusunda bitirilmez; başlangıç sorusunda bir kez hatırlatılır,
+    /// yine olmazsa varsayılan uygulanır (önceki kayıt 12 saatten yeniyse devam, değilse yeni sınav)
+    func choiceSilence() async {
+        closeListening()
+        phase = .speaking
+        switch listenMode {
+        case .confirmEnd:
+            tlog("[komut] testi bitirme sorusu cevapsız kaldı; test devam ediyor")
+            guard await speakNotice(Say.endCancelled) else { return }
+            beginListening(mode: .question)
+        case .startChoice:
+            choiceReminders += 1
+            if choiceReminders <= Timing.choiceReminderLimit {
+                guard await speakNotice(Say.askChoiceAgain) else { return }
+                beginListening(mode: .startChoice)
+            } else {
+                await applyStartChoice(continuePrevious: choiceOffer?.recent ?? true)
+            }
+        default:
+            beginListening(mode: .question)
+        }
+    }
+
+    /// "Önceki kayıttan devam mı, yeni sınav mı?" sorusuna cevap
+    private func fireStartChoice() {
+        guard let reply = SpokenReply.start(accumulator.text) else { return }
+        closeListening()
+        phase = .speaking
+        work = Task { [weak self] in await self?.applyStartChoice(continuePrevious: reply == .continuePrevious) }
+    }
+
+    /// Devam: önceki klasör ve numara korunur, önceki cevaplar yüklenir. Yeni: yeni klasör, numara 1.
+    func applyStartChoice(continuePrevious: Bool) async {
+        let offer = choiceOffer
+        choiceOffer = nil
+        choiceReminders = 0
+        var goOn = continuePrevious
+        if !goOn {
+            do {
+                sessionFolder = try deps.library.newSessionFolder(for: deps.now())
+                nextNumber = 1
+                answers = []
+                deps.journal.saveNextNumber(1)
+                if let folder = sessionFolder { deps.journal.saveFolder(folder.lastPathComponent) }
+                carry = nil
+                tlog("[açılış] yeni sınav seçildi: yeni klasör, numara 1")
+            } catch {
+                goOn = true
+                warn("klasor", "Yeni klasör açılamadı: \(error.localizedDescription). Önceki kayıttan devam ediliyor.")
+            }
+        }
+        if goOn {
+            if let folder = sessionFolder { answers = deps.library.transcriptRecords(in: folder) }
+            deps.journal.saveNextNumber(nextNumber)
+            tlog("[açılış] önceki kayıttan devam: \(offer?.answers ?? answers.count) cevap, sıradaki soru \(nextNumber)")
+        }
+        let text = goOn ? Say.continuingPrevious(next: nextNumber) : Say.startingNew
+        guard await speakNotice(text) else { return }
+        beginListening(mode: .question)
+    }
+
     private func fireQuestion() {
         guard let match = TriggerDetector.match(in: accumulator.text) else { return }
+        // "Testi bitir, Cevapla": komut kısmı soru gibi gönderilmez
+        if let command = VoiceCommand.parse(match.question) {
+            run(command)
+            return
+        }
         guard !match.question.isEmpty else {
             // Yalnız "cevapla" denmiş: boş soru gönderilmez; sesteki "cevapla" sözcüğü bir sonraki soruya karışmasın
             accumulator.clear()

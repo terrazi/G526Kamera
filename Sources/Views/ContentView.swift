@@ -107,10 +107,12 @@ struct ContentView: View {
     /// Mikrofon şu an ne bekliyor
     private var modeNote: String {
         switch session.listenMode {
-        case .question: return "Bekliyor: “Cevapla” demenizi bekliyor"
+        case .question: return "Okunuyor: sorunuz bitince “Cevapla” deyin"
         case .passage: return "Ortak paragraf okunuyor: bitirince “Tamamlandı” deyin"
         case .passageTargets: return "Paragraf alındı: hangi sorulara ait olduğunu söyleyip “Cevapla” deyin"
         case .missingNumber: return "Soru numarası bekleniyor: numarayı söyleyin (ör. “yedi”)"
+        case .confirmEnd: return "Testi bitirmek için “evet”, devam etmek için “hayır” deyin"
+        case .startChoice: return "Önceki kayıttan devam için “devam”, yeni sınav için “yeni” deyin"
         }
     }
 
