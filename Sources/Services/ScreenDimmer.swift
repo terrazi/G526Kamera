@@ -97,8 +97,9 @@ final class ScreenDimmer {
     private(set) var reapplied = 0
     var isDimmed: Bool { return saved != nil }
 
-    init(hardware: DimHardware = SystemDimHardware(), defaults: UserDefaults = .standard, monitorInterval: TimeInterval = 5) {
-        self.hardware = hardware
+    /// `hardware` verilmezse gerçek ekran kullanılır (varsayılan değer init gövdesinde kurulur: SystemDimHardware ana iş parçacığına bağlıdır)
+    init(hardware: DimHardware? = nil, defaults: UserDefaults = .standard, monitorInterval: TimeInterval = 5) {
+        self.hardware = hardware ?? SystemDimHardware()
         self.defaults = defaults
         self.monitorInterval = monitorInterval
     }
