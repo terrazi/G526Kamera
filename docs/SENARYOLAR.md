@@ -13,6 +13,11 @@ Durum: ✅ önlem var ve testli · 🛠 bu incelemede bulundu ve düzeltildi · 
 | Yaka mikrofonu çıktı / ses telefonun kendi mikrofonuna düştü (kulaklık sağlam) | Aynı duraklama; **hiçbir Kestirme çalışmaz** (Lightning mikrofon için Kestirme yok, Bluetooth/uçak modu çalışan kulaklığı koparırdı). Mikrofon yeniden seçilir, kırmızı kutuda neden yazar (alıcı hiç görünmüyorsa "Yaka mikrofonu görünmüyor…", takılı ama girişte yoksa "alıcı yola girmiyor…"), her 20 sn bakılır, mikrofon dönünce 1 sn sabit kalırsa kendiliğinden devam edilir | ✅ |
 | Çıkış kulaklıktan telefona düştü ama kulaklık bağlı | "Çıkışı kulaklığa al" kestirmesi 1 sn içinde, bir oturumda en çok 6 kez | ✅ |
 | Cevap okunup bitti | Program kendisi "Lütfen sonraki soruyu okuyun" der (kayda yazılmaz), sonra dinler; yarıda kesilirse (kulaklık koptu) onarımdan sonra "Hazır. Son soruyu tekrar oku." denir. Ayardan kapatılabilir | ✅ |
+| "Testi bitir" / "Sınavı bitir" denildi | Program "Testi bitirmek istiyor musunuz?" diye sorar; evet bitirir, hayır ya da cevapsızlık sürdürür; Gemini'ye gitmez | ✅ |
+| Soru içinde "testi bitirmek için…" geçti | Komut sayılmaz, normal soru olarak Gemini'ye gider | ✅ |
+| "Son cevabı tekrarla" | Son cevap yeniden okunur; cevap yoksa "Tekrarlanacak cevap yok" | ✅ |
+| Program kapanıp açıldı / Testi bitirip yeniden başlatıldı, önceki klasörde cevap var | "Devam mı, yeni sınav mı?" diye sorar; devam aynı klasör ve numaradan sürer, yeni yeni klasör ve numara 1; cevapsızsa bir hatırlatma, sonra 12 saatten yeniyse devam | ✅ |
+| Önceki klasörde cevap yok / ilk açılış | Soru sorulmaz, "Hazır" denir | ✅ |
 | Mikrofon donuyor (tampon gelmiyor), kulaklık sağlam | Nöbetçi 0,5 sn'de yakalar, dinlemeyi yeniden kurar, yarım metin korunur; art arda olursa ses oturumu ve dinleme baştan kurulur (Kestirme çalışmaz); 3 kez işe yaramazsa uyarı + dakikada bir deneme | ✅ |
 | iOS ses servisi çöktü/sıfırlandı | Her şey durur, ses oturumu hemen yeniden kurulur, 5 kez denenir | ✅ |
 | Onarım işe yaramıyor, döngü | 3 onarımdan sonra 60 sn bekleme + bir deneme; ne olduğu söylenir; sayaç tek kelime tanınınca sıfırlanır | ✅ |

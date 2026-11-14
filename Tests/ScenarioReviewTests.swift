@@ -204,6 +204,12 @@ final class ScenarioReviewTests: XCTestCase {
         XCTAssertNotEqual(h.vm.phase, .listening)
         let again = await h.startListening()
         XCTAssertTrue(again, "İkinci oturum sorunsuz açılır")
+        // Önceki kayıtta cevap var: program "devam mı, yeni mi?" diye sorar; "yeni" denince temiz başlar
+        XCTAssertEqual(h.vm.listenMode, .startChoice)
+        h.listener.say("Yeni sınav")
+        h.scheduler.advance(by: SessionViewModel.Timing.numberConfirm + 0.1)
+        let fresh = await waitUntil { h.vm.listenMode == .question && h.vm.phase == .listening }
+        XCTAssertTrue(fresh)
         XCTAssertTrue(h.vm.answers.isEmpty, "Önceki oturumun cevapları yeni oturuma karışmaz")
         h.ask("İkinci oturum sorusu")
         let ok = await waitUntil { h.vm.answers.count == 1 && h.vm.phase == .listening }

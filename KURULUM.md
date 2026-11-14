@@ -65,6 +65,28 @@ Ayrıntılı işleyiş: `docs/SURUM3.md`.
   kalıcıdır); ayarın altındaki yazı o an kısılıp kısılmadığını ve kısılmıyorsa nedenini (uyarı metniyle) söyler.
 - **Anında tespit (nabız):** (açık gelir) Dinlerken mikrofonun ses verip vermediğine yarım saniyede bir, internete 5 saniyede bir (ağ yolu değişince hemen) bakılır. Mikrofon bir saniyeden uzun ses vermezse dinleme hemen yeniden kurulur ve yarım metin korunur; art arda 3 kez işe yaramazsa ses oturumu ve dinleme baştan kurulur (kulaklık sağlamsa Kestirme hiç çalışmaz; yalnız kulaklık yoldan çıkmışsa çalışır). iOS'un ses servisi çökerse ve ses motoru kendiliğinden durursa bildirim gelir gelmez aynı onarım başlar. İnternet için art arda iki nabız yoksa onarım başlar; bağlantı yokken her 2 saniyede bir bakıldığından internet dönünce 60 saniyelik yeniden deneme beklenmeden devam edilir. Kulaklık yoldan çıkınca çıkış kestirmesi 1 saniye sonra çalışır. Kısa kesintiden sonra uzun anons yerine yalnız "Hazır. Son soruyu tekrar oku." denir. Ana ekranda "Canlı: Kulaklık ✓ · Mikrofon ✓ · İnternet ✓" satırı görünür; Tanı ve günlük'te "[tespit]" satırları neyin ne zaman yakalandığını gösterir. Sorun çıkarsa Ayarlar'dan kapatılabilir.
 - **Cevaptan sonra sonraki soruyu iste:** (açık gelir) Cevap kulaklıktan okunup bitince program kendisi "Lütfen sonraki soruyu okuyun" der, ondan sonra dinlemeye geçer; "Cevapla" deyip numara sorulmasına kadar ne yapacağınızı düşünmeniz gerekmez. Bu cümle kayda yazılmaz (soru_N dosyasında yalnız cevap vardır). Cevap alınamadıysa söylenmez (zaten "Soruyu yeniden okuyun" denir). Ayarlardan kapatılabilir.
+
+## Sesli komutlar
+
+Mikrofon açıkken, soruyu okumadan **tek başına** söylenen komutlar tanınır (cümle içinde geçen "testi bitirmek için…" komut sayılmaz, soru olarak gider):
+
+| Söyleyin | Ne olur |
+|---|---|
+| "Testi bitir" / "Sınavı bitir" / "sınav bitti" / "sınavı sonlandır" | Program "Testi bitirmek istiyor musunuz?" diye sorar. **Evet** (ya da komutu yeniden söylemek) bitirir; **hayır / vazgeç** ya da hiç cevap vermemek testi sürdürür. Yanlış tanımada test kapanmaz. |
+| "Son cevabı tekrarla" / "Tekrarla" | Son cevap yeniden okunur, Gemini'ye gitmez. |
+| "Cevapla" / "Gönder" | Okuduğunuz soruyu Gemini'ye gönderir (komutlarla birlikte söylenirse komut soru olarak gitmez). |
+| "Ortak paragraf" … "Tamamlandı" | Ortak paragraf kipi. |
+
+Ekrandaki "Okunuyor: sorunuz bitince Cevapla deyin" notu, okunan metin varken görünür; program bir şey beklemiyor, yalnız dinliyor demektir.
+
+## Önceki kaydı hatırlama
+
+Uygulama kapanıp açıldığında ya da "Testi bitir"den sonra yeniden başlatıldığında, önceki klasörde cevap varsa program **"Önceki kayıtta N cevap var, sıradaki soru M. Devam mı, yeni sınav mı?"** diye sorar:
+
+- **"Devam"** (ya da "önceki kayıttan devam", "kaldığı yerden"): aynı klasör, numaralama kaldığı yerden sürer; önceki cevaplar yüklenir ("Son cevabı tekrarla" onlardan okur).
+- **"Yeni"** (ya da "yeni sınav", "baştan"): yeni klasör açılır, numara 1'den başlar; eski cevapların üzerine yazılmaz.
+- Cevap vermezseniz bir kez hatırlatılır; yine olmazsa önceki kayıt 12 saatten **yeniyse devam**, eskiyse yeni sınav sayılır.
+- Beklenmedik kapanmadan sonra (çökme, iOS kapattı) soru sorulmaz: kaldığı yerden otomatik sürer. Önceki kayıtta hiç cevap yoksa da soru sorulmaz.
 - **Soru numarası okunmadıysa sor:** (açık gelir) Soruyu okuyup "Cevapla" dediniz ama numara söylemediyseniz program "Lütfen okuduğunuz sorunun numarasını söyleyin" der. "Yedi" ya da "soru yedi" demeniz yeter; numara sorunun başına yazılıp Gemini'ye öyle gider. Bilmiyorsanız "sıradaki" deyin, sıradaki numara verilir. Hiç söylemezseniz iki kez hatırlatılır, sonra sıradaki numarayla gönderilir (soru kaybolmaz). Kapalıyken numara sorulmaz, sıradaki numara verilir.
 - **Gemini beklerken bilgi ver:** (açık gelir) "Cevapla" deyince kulaklıktan "Soru başarıyla alınıp Gemini'ye gönderildi, cevap bekleniyor" denir; cevap uzarsa 30 saniyede bir "Cevap bekleniyor" denir. Gemini **3 dakikada** cevap vermezse bekleme bırakılır, "soruyu tekrar okuyun" denir ve dinlemeye dönülür. Kapalıyken bu anonslar ve 3 dakikalık sınır yoktur.
 - **Kesintiden sonra akıllı devam:** (açık gelir) Soru Gemini'ye gittikten sonra bağlantı koptu ve onarıldıysa "Bağlantı yeniden onarıldı. Sorunuz yarım kaldıysa son soruyu tekrar okuyunuz" denir. Okurken kesilirse program soru numarasını ve en son okuduğunuz cümleyi söyler ("En son üçüncü soruda şu cümleyi okudunuz: … Buradan devam edebilirsiniz"); devam ettiğiniz metin öncekiyle birleştirilir. Uygulama tümüyle kapanıp yeniden açılırsa yarım metin ve ortak paragraf korunamaz (soru baştan okunur). Kapalıyken eski davranış: "Lütfen en son kaldığın soruyu tekrar oku" ve yarım metin silinir.

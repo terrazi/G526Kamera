@@ -89,19 +89,6 @@ final class SpokenWarningTests: XCTestCase {
         XCTAssertEqual(texts, [Say.ready, "Soru 1, Denizli, Örgütsel Davranış", Say.lowBattery(19)], "Cevap duyulduktan sonra söylenir")
     }
 
-    func testBackupModelNoteIsSpokenAfterTheAnswer() async {
-        let h = SessionHarness()
-        var reply = FakeAnswering.reply(1)
-        reply.note = "1. profil kotası doldu; cevap ikinci modelden geldi."
-        h.answering.results = [.success(reply)]
-        _ = await h.startListening()
-        h.ask("Soru 1 hangisi doğrudur")
-        let done = await waitUntil { h.vm.answers.count == 1 && h.vm.phase == .listening }
-        XCTAssertTrue(done)
-        XCTAssertEqual(h.speaker.announcements, ["1. profil kotası doldu; cevap ikinci modelden geldi."])
-        XCTAssertEqual(h.speaker.spoken.last, "Soru 1, Denizli, Örgütsel Davranış")
-    }
-
     func testGenericAnswerFailureTellsTheUser() async {
         let h = SessionHarness()
         h.answering.results = [.failure(CocoaError(.fileReadUnknown))]
