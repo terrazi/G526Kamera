@@ -85,6 +85,7 @@ jobs:
 
   tests:
     name: Unit tests (simulator)
+    timeout-minutes: 40
     runs-on: macos-15
     continue-on-error: true
 

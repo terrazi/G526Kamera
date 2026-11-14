@@ -13,7 +13,7 @@ struct AnswerRecord: Identifiable, Equatable {
     var id: Int { return number }
 }
 
-/// Gemini cevabının satırını çözer: "[Soru No], [Şık], [Doğru Cevap]" (ayraç virgül, tire ya da iki nokta olabilir)
+/// Gemini cevabının satırını çözer: "[Soru No], [Şık], [Doğru Cevap]" (ayraç virgül, tire ya da iki nokta olabilir; "Soru: 3", "Soru No 3" de çözülür)
 enum AnswerParser {
     struct Parsed: Equatable {
         var number: Int?
@@ -29,7 +29,7 @@ enum AnswerParser {
         let line = firstLine(of: cleaned(raw))
         var number: Int?
         var rest = line
-        if let head = line.range(of: "^\\s*(?:soru\\s*)?(\\d+)\\s*[\\.\\)]?", options: [.regularExpression, .caseInsensitive]) {
+        if let head = line.range(of: "^\\s*(?:soru(?:\\s*(?:no|numara|numarası))?\\s*[:\\.\\-–—]?\\s*)?(\\d+)\\s*[\\.\\)]?", options: [.regularExpression, .caseInsensitive]) {
             number = Int(line[head].filter { $0.isNumber })
             rest = String(line[head.upperBound...])
         }

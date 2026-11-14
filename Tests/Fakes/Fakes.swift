@@ -29,14 +29,23 @@ final class ManualScheduler: Scheduling {
         return ScheduledTask(cancel: { [weak self] in self?.items[id] = nil })
     }
 
+    /// Bir `advance` içinde çalışan iş sayısı için üst sınır: kendini 0 sn ile yeniden kuran bir zamanlayıcı testi sonsuza kadar kilitlerdi
+    static let actionLimit = 50_000
+
     func advance(by seconds: TimeInterval) {
         let target = now + seconds
+        var executed = 0
         while let next = items.values.filter({ $0.due <= target }).min(by: { ($0.due, $0.id) < ($1.due, $1.id) }) {
             items[next.id] = nil
             now = max(now, next.due)
             next.action()
+            executed += 1
+            if executed > ManualScheduler.actionLimit {
+                XCTFail("Zamanlayıcı döngüsü: \(seconds) sn ilerletirken \(executed) iş çalıştı (kendini 0 sn ile yeniden kuran bir iş var)")
+                break
+            }
         }
-        now = target
+        now = max(now, target)
     }
 }
 
@@ -253,6 +262,14 @@ final class FakeAnswering: Answering {
 
     private(set) var calls: [Call] = []
     var results: [Result<GeminiReply, Error>] = []
+    /// true iken cevap `release()` gelene kadar bekler (Gemini takıldı)
+    var hold = false
+    private var gate: CheckedContinuation<Void, Never>?
+
+    func release() {
+        gate?.resume()
+        gate = nil
+    }
 
     static func reply(_ number: Int, option: String = "Denizli", text: String = "Örgütsel Davranış") -> GeminiReply {
         return GeminiReply(number: number, option: option, text: text, spoken: "Soru \(number), \(option), \(text)", model: "fake")
@@ -260,6 +277,7 @@ final class FakeAnswering: Answering {
 
     func answer(question: String, english: String, expectedNumber: Int, audio: Data?) async throws -> GeminiReply {
         calls.append(Call(question: question, english: english, expectedNumber: expectedNumber, audio: audio))
+        if hold { await withCheckedContinuation { gate = $0 } }
         guard !results.isEmpty else { throw GeminiError("Cevap hazırlanmadı.", .error) }
         return try results.removeFirst().get()
     }

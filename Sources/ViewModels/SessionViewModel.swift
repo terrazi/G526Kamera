@@ -25,6 +25,8 @@ final class SessionViewModel: ObservableObject {
         static let maxHardwareRecoveries = 3
         /// Döngü kesilince bir sonraki deneme için bekleme
         static let hardwareCapRetry: TimeInterval = 60
+        /// Cevap okunamayınca ikinci okuma denemesinden önceki kısa bekleme (sn)
+        static let speakRetryDelay: TimeInterval = 1
         /// Kesinti sürerken (arama vb.) ses oturumunun yeniden açılıp açılamadığına bakma aralığı; bitiş bildirimi gelmezse yedek
         static let interruptionPoll: TimeInterval = 15
         /// Aynı uyarı cümlesi bu süre içinde kulaklıktan yeniden söylenmez (yol dalgalanınca konuşma yağmuru olmasın)
@@ -520,6 +522,7 @@ final class SessionViewModel: ObservableObject {
             unheard = nil
             clearWarning("cevap")
             clearWarning("ses")
+            verifyRecording(number: number, requested: base != nil)
             refreshReplayAvailability()
             await settleAnnouncements()   // cevap duyulduktan sonra bekleyen uyarılar (şarj, yedek model…) söylenir
             guard !Task.isCancelled, phase == .speaking else { return }
@@ -527,7 +530,7 @@ final class SessionViewModel: ObservableObject {
         } catch is CancellationError {
             return
         } catch let error as SpeakError {
-            handleSpeakError(error)
+            await handleSpeakError(error)
         } catch let error as GeminiError {
             await handleGeminiError(error)
         } catch {
@@ -574,10 +577,12 @@ final class SessionViewModel: ObservableObject {
             answers.append(record)
             answers.sort { $0.number < $1.number }
         }
-        if let folder = sessionFolder { deps.library.appendTranscript(record.spoken, in: folder) }
+        if let folder = sessionFolder, !deps.library.appendTranscript(record.spoken, in: folder) {
+            warn("kayit", Say.transcriptFailed)
+        }
     }
 
-    private func handleSpeakError(_ error: SpeakError) {
+    private func handleSpeakError(_ error: SpeakError) async {
         switch error {
         case .stopped:
             break
@@ -585,7 +590,40 @@ final class SessionViewModel: ObservableObject {
             enterHardwarePause(AudioRouting.verdict(deps.route.snapshot()))
         case .failed(let message):
             warn("ses", message)
-            if phase == .speaking { beginListening() }
+            guard phase == .speaking else { return }
+            // Cevap duyulmadan geçilmesin (sınavda cevap kaybı olur): bir kez, kayıtsız (dosya yazmadan) yeniden okunur.
+            // Yine olmazsa cevabın metni kırmızı kutuda kalır; sesli söylenemediği için ayrıca anons edilmez.
+            if let record = unheard {
+                await deps.sleep(Timing.speakRetryDelay)
+                guard !Task.isCancelled, phase == .speaking else { return }
+                do {
+                    try await deps.speaker.speak(record.spoken, saveAs: nil)
+                    unheard = nil
+                    clearWarning("ses")
+                    tlog("[ses] okuma ikinci denemede oldu: soru \(record.number)")
+                } catch SpeakError.routeUnsafe {
+                    enterHardwarePause(AudioRouting.verdict(deps.route.snapshot()))
+                    return
+                } catch SpeakError.failed(_) {
+                    warn("cevap", "Cevap okunamadı: \(record.spoken)")
+                    tlog("[ses] okuma ikinci denemede de olmadı: soru \(record.number)")
+                } catch {
+                    return
+                }
+            }
+            guard !Task.isCancelled, phase == .speaking else { return }
+            beginListening()
+        }
+    }
+
+    /// Cevabın ses dosyası klasöre gerçekten yazıldı mı: yazılamadıysa (yer doldu, klasör erişimi gitti) kırmızı kutuda ve kulaklıktan bildirilir
+    private func verifyRecording(number: Int, requested: Bool) {
+        guard requested, let folder = sessionFolder else { return }
+        let saved = deps.library.answerFiles(in: folder).contains { AnswerLibrary.questionNumber(fromFileName: $0.lastPathComponent) == number }
+        if saved {
+            clearWarning("kayit")
+        } else {
+            warn("kayit", Say.recordingFailed(number))
         }
     }
 

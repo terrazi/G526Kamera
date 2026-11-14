@@ -127,16 +127,28 @@ struct AnswerLibrary {
             .map { folder.appendingPathComponent($0.1) }
     }
 
-    /// Cevapları düz yazı olarak da tutar: sesler silinse de cevaplar okunabilir kalır
-    func appendTranscript(_ line: String, in folder: URL) {
+    /// Cevapları düz yazı olarak da tutar: sesler silinse de cevaplar okunabilir kalır. Yazılamadıysa (yer doldu, klasör erişimi gitti) false.
+    /// Dosya varsa yalnız sonuna eklenir; açılamazsa üzerine yazılmaz (önceki cevapların satırları kaybolmasın).
+    @discardableResult
+    func appendTranscript(_ line: String, in folder: URL) -> Bool {
         let url = folder.appendingPathComponent(AnswerLibrary.transcriptName)
         let data = Data((line + "\n").utf8)
-        if let handle = try? FileHandle(forWritingTo: url) {
-            handle.seekToEndOfFile()
-            handle.write(data)
-            try? handle.close()
-        } else {
-            try? data.write(to: url, options: .atomic)
+        if fileManager.fileExists(atPath: url.path) {
+            guard let handle = try? FileHandle(forWritingTo: url) else { return false }
+            defer { try? handle.close() }
+            do {
+                _ = try handle.seekToEnd()
+                try handle.write(contentsOf: data)
+                return true
+            } catch {
+                return false
+            }
+        }
+        do {
+            try data.write(to: url, options: .atomic)
+            return true
+        } catch {
+            return false
         }
     }
 }
