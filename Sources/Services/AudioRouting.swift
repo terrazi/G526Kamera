@@ -74,6 +74,15 @@ enum AudioRouting {
         return "Çıkış: \(list(snapshot.outputs)). Giriş: \(list(snapshot.inputs))."
     }
 
+    /// Ham port adları ("BluetoothA2DPOutput", "USBAudio"…): Türkçe karşılıklar farklı portları aynı adla gösterebilir; günlükte kesin ne
+    /// görüldüğü bununla anlaşılır (kulaklık çalışıyor ama program sorun görüyorsa hangi portun neden güvenli sayılmadığı)
+    static func describeRaw(_ snapshot: RouteSnapshot) -> String {
+        func list(_ ports: [AVAudioSession.Port]) -> String {
+            return ports.isEmpty ? "yok" : ports.map { $0.rawValue }.joined(separator: ", ")
+        }
+        return "ham çıkış: \(list(snapshot.outputs)); ham giriş: \(list(snapshot.inputs))"
+    }
+
     private static func hint(outputs: [AVAudioSession.Port], headphonesOK: Bool) -> String {
         if headphonesOK { return "" }
         if outputs.contains(where: { $0 == .usbAudio || $0 == .lineOut }) {

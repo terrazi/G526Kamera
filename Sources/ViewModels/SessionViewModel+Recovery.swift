@@ -37,6 +37,11 @@ extension SessionViewModel {
         let verdict = AudioRouting.verdict(snapshot)
         routeVerdict = verdict
         tlog("[ses yolu] \(AudioRouting.describe(snapshot)) \(verdict.isSafe ? "Güvenli." : "Güvenli değil: " + verdict.summary)")
+        if !verdict.isSafe {
+            // Kulaklık çalışırken program sorun görüyorsa nedeni günlükten okunabilsin: ham port adları ve bağlı girişler
+            let inputs = deps.route.availableInputs().map { "\($0.name) (\($0.port.rawValue)\($0.isCurrent ? ", yolda" : ""))" }
+            tlog("[ses yolu] \(AudioRouting.describeRaw(snapshot)); kulaklık \(verdict.headphonesOK ? "tamam" : "SORUNLU"), mikrofon \(verdict.micOK ? "tamam" : "SORUNLU"); bağlı girişler: \(inputs.isEmpty ? "yok" : inputs.joined(separator: ", "))")
+        }
         refreshInputs()
         switch phase {
         case .listening, .answering, .speaking:

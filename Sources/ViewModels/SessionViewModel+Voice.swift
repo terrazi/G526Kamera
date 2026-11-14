@@ -107,7 +107,8 @@ extension SessionViewModel {
         try? deps.route.configure()
         deps.route.preferExternalInput()
         let verdict = await settledRoute().verdict
-        tlog("[çıkış] kestirmeden sonra: \(AudioRouting.describe(deps.route.snapshot()))")
+        let after = deps.route.snapshot()
+        tlog("[çıkış] kestirmeden sonra: \(AudioRouting.describe(after)) (\(AudioRouting.describeRaw(after))); \(verdict.isSafe ? "güvenli" : "güvenli değil: " + verdict.summary)")
         return verdict
     }
 

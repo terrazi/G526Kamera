@@ -1,4 +1,5 @@
 import XCTest
+import AVFoundation
 @testable import G526CameraDrive
 
 /// Sahte ekran: parlaklık ataması yok sayılabilir, sistem kendi başına parlaklığı değiştirebilir, örtü görünür/gizli
@@ -209,5 +210,30 @@ final class ScreenAndClipboardTests: XCTestCase {
         let count = board.changeCount
         _ = journal().beginRun()
         XCTAssertEqual(board.changeCount, count, "Açılışta pano yalnız sayaçla yoklanır; yazılmaz, okunmaz")
+    }
+}
+
+/// Ses yolu günlüğünde ham port adları (kulaklık çalışırken program sorun görüyorsa nedeni bulmak için)
+final class RouteRawLogTests: XCTestCase {
+    func testRawDescriptionNamesEveryPortExactly() {
+        let snapshot = RouteSnapshot(outputs: [.bluetoothA2DP, .usbAudio], inputs: [.usbAudio])
+        let text = AudioRouting.describeRaw(snapshot)
+        XCTAssertTrue(text.contains(AVAudioSession.Port.bluetoothA2DP.rawValue))
+        XCTAssertTrue(text.contains(AVAudioSession.Port.usbAudio.rawValue))
+        XCTAssertTrue(text.contains("ham çıkış"))
+        XCTAssertTrue(text.contains("ham giriş"))
+    }
+
+    func testRawDescriptionSaysNoneForEmptyLists() {
+        let text = AudioRouting.describeRaw(RouteSnapshot(outputs: [], inputs: []))
+        XCTAssertEqual(text, "ham çıkış: yok; ham giriş: yok")
+    }
+
+    func testTwoOutputsAreNeverSafeEvenWhenOneIsTheHeadphones() {
+        // Kulaklık çalışırken program sorun görüyorsa olası nedenlerden biri: yolda ikinci bir çıkış (ör. Lightning alıcı) görünüyor
+        let both = RouteSnapshot(outputs: [.bluetoothA2DP, .usbAudio], inputs: [.usbAudio])
+        let verdict = AudioRouting.verdict(both)
+        XCTAssertFalse(verdict.headphonesOK, "Çıkışların hepsi kulaklık olmalı (KURAL 1): biri başka yerse güvenli sayılmaz")
+        XCTAssertTrue(verdict.micOK)
     }
 }

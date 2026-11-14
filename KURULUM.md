@@ -72,6 +72,9 @@ Ayrıntılı işleyiş: `docs/SURUM3.md`.
   satırları da** gelir (kalan bellek, ısı, takılma gecikmeleri, son olaylar); neden orada aranır.
 - **Kestirmeler:** dört kestirmenin adı (aşağıda) ve isteğe bağlı beşincisi **Çıkışı kulaklığa al**. Boş bırakılan adım atlanır.
 - **Cevaplar arası boşluk:** 0-10 saniye (varsayılan 3), test sonundaki tekrar için.
+  Kulaklık çalışırken program "Duraklatıldı" diyorsa: günlükteki `[ses yolu] … Güvenli değil` satırını ve ondan sonraki "ham çıkış / ham giriş;
+  kulaklık tamam|SORUNLU, mikrofon tamam|SORUNLU; bağlı girişler" satırını gönderin; hangi tarafın (kulaklık mı, mikrofon mu) neden güvenli
+  sayılmadığını kesin gösterir. Kestirmeden sonraki `[çıkış] kestirmeden sonra:` satırı da aynı ayrıntıyı verir.
 
 ## 5) iOS Kestirmeler (sınavdan önce, bir kez)
 
