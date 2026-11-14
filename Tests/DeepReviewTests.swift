@@ -168,6 +168,55 @@ final class DeepReviewTests: XCTestCase {
         XCTAssertNil(journal.beginRun().passage)
     }
 
+    // MARK: Cevap dosyası (düz yazı)
+
+    private func transcript(_ h: SessionHarness) -> [String] {
+        guard let folder = h.vm.sessionFolder,
+              let text = try? String(contentsOf: folder.appendingPathComponent(AnswerLibrary.transcriptName), encoding: .utf8) else { return [] }
+        return text.split(separator: "\n").map(String.init)
+    }
+
+    func testTranscriptReplacesTheLineOfAQuestionThatWasAnsweredAgain() {
+        let library = AnswerLibrary(root: makeTempFolder("g526-cevaplar"))
+        let folder = makeTempFolder("g526-cevaplar-klasor")
+        library.appendTranscript("Soru 1, Adana, Birinci", in: folder)
+        library.appendTranscript("Soru 10, Bursa, Onuncu", in: folder)
+        library.appendTranscript("Soru 2, Ceyhan, İkinci", in: folder)
+        XCTAssertTrue(library.upsertTranscript("Soru 1, Erzurum, Yeni birinci", number: 1, in: folder))
+        let text = (try? String(contentsOf: folder.appendingPathComponent(AnswerLibrary.transcriptName), encoding: .utf8)) ?? ""
+        XCTAssertEqual(text.split(separator: "\n").map(String.init),
+                       ["Soru 1, Erzurum, Yeni birinci", "Soru 10, Bursa, Onuncu", "Soru 2, Ceyhan, İkinci"],
+                       "Yalnız 1. soru değişir (10. soru karışmaz), sıra bozulmaz")
+        XCTAssertTrue(library.upsertTranscript("Soru 3, Denizli, Üçüncü", number: 3, in: folder))
+        let after = (try? String(contentsOf: folder.appendingPathComponent(AnswerLibrary.transcriptName), encoding: .utf8)) ?? ""
+        XCTAssertTrue(after.hasSuffix("Soru 3, Denizli, Üçüncü\n"), "Yeni numara sona eklenir")
+    }
+
+    func testTranscriptIsNotOverwrittenWhenItCannotBeRead() {
+        let library = AnswerLibrary(root: makeTempFolder("g526-cevaplar-x"))
+        let folder = makeTempFolder("g526-cevaplar-klasor-x")
+        try? FileManager.default.createDirectory(at: folder.appendingPathComponent(AnswerLibrary.transcriptName), withIntermediateDirectories: true)
+        XCTAssertFalse(library.upsertTranscript("Soru 1, Adana, x", number: 1, in: folder))
+    }
+
+    func testAnsweringTheSameQuestionTwiceLeavesOneLineInTheTranscript() async {
+        let h = harness()
+        h.answering.results = [.success(FakeAnswering.reply(1, option: "Adana", text: "Eski cevap")),
+                               .success(FakeAnswering.reply(1, option: "Bursa", text: "Yeni cevap")),
+                               .success(FakeAnswering.reply(2, option: "Ceyhan", text: "Öteki"))]
+        _ = await h.startListening()
+        h.ask("Soru 1 ilk okuma")
+        var back = await waitUntil { h.vm.answers.count == 1 && h.vm.phase == .listening }
+        XCTAssertTrue(back)
+        h.ask("Soru 1 yeniden okuma")
+        back = await waitUntil { h.vm.answers.first?.option == "Bursa" && h.vm.phase == .listening }
+        XCTAssertTrue(back)
+        h.ask("Soru 2 başka soru")
+        back = await waitUntil { h.vm.answers.count == 2 && h.vm.phase == .listening }
+        XCTAssertTrue(back)
+        XCTAssertEqual(transcript(h), ["Soru 1, Bursa, Yeni cevap", "Soru 2, Ceyhan, Öteki"], "Eski cevap düz yazıdan silinir: ses dosyasıyla tutarlı kalır")
+    }
+
     // MARK: Günlüğü kopyala
 
     func testCopiedLogIncludesTheEndOfThePreviousRunAfterARelaunch() {

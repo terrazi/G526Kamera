@@ -135,6 +135,27 @@ struct AnswerLibrary {
             .map { folder.appendingPathComponent($0.1) }
     }
 
+    /// Soru yeniden okunup cevaplandıysa düz yazıdaki eski satırı yenisiyle değiştirir (aynı numaralı iki çelişen satır kalmasın); numaranın
+    /// satırı yoksa sona ekler. Dosya okunamazsa üzerine yazılmaz (önceki cevaplar kaybolmasın). Yazılamadıysa false.
+    @discardableResult
+    func upsertTranscript(_ line: String, number: Int, in folder: URL) -> Bool {
+        let url = folder.appendingPathComponent(AnswerLibrary.transcriptName)
+        guard fileManager.fileExists(atPath: url.path) else { return appendTranscript(line, in: folder) }
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return false }
+        var lines = text.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
+        let prefix = "Soru \(number),"
+        let matches = lines.indices.filter { lines[$0].hasPrefix(prefix) }
+        guard let first = matches.first else { return appendTranscript(line, in: folder) }
+        lines[first] = line
+        for index in matches.dropFirst().reversed() { lines.remove(at: index) }
+        do {
+            try (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
+            return true
+        } catch {
+            return false
+        }
+    }
+
     /// Cevapları düz yazı olarak da tutar: sesler silinse de cevaplar okunabilir kalır. Yazılamadıysa (yer doldu, klasör erişimi gitti) false.
     /// Dosya varsa yalnız sonuna eklenir; açılamazsa üzerine yazılmaz (önceki cevapların satırları kaybolmasın).
     @discardableResult
