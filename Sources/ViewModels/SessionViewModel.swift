@@ -107,6 +107,12 @@ final class SessionViewModel: ObservableObject {
                     // Oturumun açık olduğu deftere ve günlüğe işlenir: uygulama bu arada kapanırsa sonraki açılış bunu görür
                     deps.journal.setSessionOpen(open)
                     tlog(open ? ExitAnalyzer.startedMark : "\(ExitAnalyzer.endedMark): \(phase.title)")
+                    if !open {
+                        // Oturum kapandı: bir sonraki başlatma eski bir kapanmanın "devamı" sayılmasın (kendiliğinden başlayan oturum
+                        // kontrolde takılıp bittiyse "kaldığınız yerden sürüyorum" demesin, eski yarım iş yeniden sorulmasın)
+                        resume = nil
+                        deps.journal.savePending(nil)
+                    }
                 }
                 drainAnnouncementsIfQuiet()
             }

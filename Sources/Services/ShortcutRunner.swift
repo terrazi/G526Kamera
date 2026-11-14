@@ -92,8 +92,24 @@ final class ShortcutRunner: ShortcutRunning {
     private var opening = false
     private var earlyOutcome: ShortcutOutcome?
 
+    /// Uygulama bilerek Kestirmeler'e geçerken ve dönünce çağrılır: "uygulama kapanınca yeniden aç" otomasyonu uygulamayı bu sırada
+    /// geri çekmesin diye pano işareti yazılıp silinir (iOS "Kapatıldı" tetikleyicisini uygulamadan başka uygulamaya geçişte de çalıştırır)
+    var onLeaving: (@MainActor () -> Void)?
+    var onReturned: (@MainActor () -> Void)?
+    /// İç içe çalıştırmalarda (yenisi eskisini iptal eder) dönüş bildirimi yalnız sonuncu bitince verilir
+    private var activeRuns = 0
+
     func run(name: String) async -> ShortcutOutcome {
         guard let url = ShortcutLink.runURL(name: name) else { return .notConfigured }
+        activeRuns += 1
+        onLeaving?()
+        let outcome = await launch(url)
+        activeRuns -= 1
+        if activeRuns == 0 { onReturned?() }
+        return outcome
+    }
+
+    private func launch(_ url: URL) async -> ShortcutOutcome {
         if pending != nil { finish(.cancelled) }
         opening = true
         earlyOutcome = nil

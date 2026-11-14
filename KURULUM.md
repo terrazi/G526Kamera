@@ -94,7 +94,7 @@ yalnız Kestirmeler yapabilir. Uygulama kapanınca (iOS belleği boşaltmak içi
 yeniden açılması için:
 1. Kestirmeler > **Otomasyon** > **+** > **Uygulama** > **Seç** > "Sesli Kontrol" > yalnız **Kapatıldı** işaretli kalsın (Açıldı kapalı) > **İleri**.
 2. **Yeni Boş Otomasyon** > eylem ekle: **Panoyu Al**.
-3. Eylem ekle: **Eğer** > "Pano" **içerir** > `SESLIKONTROL-KAPALI`.
+3. Eylem ekle: **Eğer** > "Pano" **içerir** > `SESLIKONTROL-` (büyük harf, sonunda tire; devamı yok).
 4. "Eğer"in içine: **Bu Kestirmeyi Durdur**. ("Aksi hâlde" bölümüne dokunmayın.)
 5. "Aksi hâlde" bölümüne: **URL'yi Aç** > `seslikontrol://yeniden`.
 6. **İleri** > **Çalıştırmadan Önce Sor: KAPALI** > **Bitti**.
@@ -104,14 +104,23 @@ başlar** (telefona dokunmanız gerekmez), kulaklıktan ne olduğunu söyler ("P
 neden: …"), Gemini'ye gitmiş ama cevabı duyulmamış son soruyu yeniden sorar ya da cevabı yeniden okur. Soruyu söylerken kapanmışsa
 son soruyu baştan okumanızı ister. Cevap klasörü ve soru numarası kaldığı yerden sürer.
 
-**Bilerek kapatmak:** ana ekranın altındaki **Programı kapat** düğmesine **3 saniye basılı tutun**. Bu kapanış "bilerek" sayılır:
-oturum biter, uygulama panoya `SESLIKONTROL-KAPALI` yazar, otomasyon bunu görüp uygulamayı yeniden açmaz (panoyu bir sonraki açılışta
-uygulama siler; o sırada panonuzdaki eski içerik de silinir). Bu düğme dışındaki her kapanış beklenmedik sayılır.
+**Pano işareti (otomasyonun "açma" işareti):** Apple'a göre "Kapatıldı" tetikleyicisi uygulamadan başka uygulamaya geçildiğinde de çalışır,
+yalnız kaydırıp kapatınca değil. Bu yüzden uygulama, yeniden açılmasını istemediği anlarda panoya `SESLIKONTROL-` ile başlayan bir işaret
+yazar: **oturum yokken** (ilk açılış, test bitti, başlatma başarısız), **"Programı kapat"** ile kapatırken ve **Kestirmeler'i bilerek açarken**
+(`SESLIKONTROL-ONARIM`; onarım ve "Dene" sırasında otomasyon uygulamayı geri çekip onarımı bozmasın). **Oturum sürerken panoda işaret
+yoktur**: o sırada uygulama kapanırsa ya da ekrandan çıkılırsa otomasyon uygulamayı geri açar. İşaret yalnız kendi yazdığı hâlde silinir;
+arada başka bir şey kopyaladıysanız panonuza dokunulmaz (silmek için panoyu okumak da gerekmez, iOS'un "yapıştırmaya izin ver" sorusu çıkmaz).
 
-Sınırlar (dürüstçe): (1) Bu otomasyon telefonda denenmeden güvenilmemeli: sınavdan önce uygulamayı yukarı kaydırıp kapatın, birkaç saniye
-içinde yeniden açılmalı. (2) iOS "Kapatıldı" tetikleyicisini uygulama öndeyken ekrandan çıkıldığında da çalıştırabilir; bu durumda uygulama
-öne geri gelir (bu çoğu zaman istenendir). (3) Telefon kilitliyken iOS başka uygulama açtırmayabilir; yeniden açılma kilit açılana kadar
-bekleyebilir. (4) Kısa sürede (2 dk içinde) üç kez beklenmedik kapanırsa açılış döngüsüne girmemek için otomatik başlatma durur ve ekranda yazar.
+**Bilerek kapatmak:** ana ekranın altındaki **Programı kapat** düğmesine **3 saniye basılı tutun**. Bu kapanış "bilerek" sayılır:
+oturum biter, uygulama panoya `SESLIKONTROL-KAPALI` yazar, otomasyon bunu görüp uygulamayı yeniden açmaz. Bu düğme dışındaki her
+kapanış (oturum sürerken) beklenmedik sayılır.
+
+Sınırlar (dürüstçe): (1) Bu otomasyon telefonda denenmeden güvenilmemeli. Evde dört deneme: Başlat'tan sonra uygulamayı yukarı kaydırıp
+kapatın (birkaç saniyede yeniden açılmalı); "Programı kapat" ile kapatın (açılmamalı); Başlat > Testi Bitir > başka uygulamaya geçin
+(geri gelmemeli); Ayarlar'dan bir kestirmeyi "Dene" ile çalıştırın (kestirme çalışıp uygulamaya dönmeli). (2) Oturum sürerken başka uygulamaya
+geçerseniz otomasyon Sesli Kontrol'ü öne geri getirir (sınav okuyucusu için çoğu zaman istenen budur). (3) Telefon kilitliyken iOS başka
+uygulama açtırmayabilir; yeniden açılma kilit açılana kadar bekleyebilir. (4) Kısa sürede (2 dk içinde) üç kez beklenmedik kapanırsa açılış
+döngüsüne girmemek için otomatik başlatma durur ve ekranda yazar. (5) Panonuz bir süre `SESLIKONTROL-…` içerebilir.
 
 ## 6) Sınav günü
 

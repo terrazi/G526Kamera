@@ -72,6 +72,8 @@ protocol RunJournaling: AnyObject {
     func saveFolder(_ name: String?)
     /// Kullanıcı kapattı: bir sonraki açılış bunu beklenmedik saymaz, Kestirmeler otomasyonu da yeniden açmaz
     func markDeliberateClose()
+    /// Uygulama bilerek başka uygulamaya geçiyor (Kestirme çalıştırmak için) ya da döndü: "Kapatıldı" otomasyonu uygulamayı bu sırada geri çekmesin
+    func setAway(_ away: Bool)
 }
 
 /// Defter tutmayan ortam (varsayılan)
@@ -84,6 +86,7 @@ final class NoJournal: RunJournaling {
     func saveNextNumber(_ number: Int) {}
     func saveFolder(_ name: String?) {}
     func markDeliberateClose() {}
+    func setAway(_ away: Bool) {}
 }
 
 /// Önceki çalışmanın günlüğünü tarayıp nasıl bittiğini ve olası nedenini çıkarır (saf işlev, kolay denenir)
@@ -134,13 +137,49 @@ enum ExitAnalyzer {
     }
 }
 
-/// Gerçek defter: UserDefaults + önceki çalışmanın günlüğü. Kullanıcı kapatınca panoya bir işaret yazar: Kestirmeler'deki "uygulama
-/// kapanınca yeniden aç" otomasyonu panoda bu işareti görürse açmaz (iOS uygulamanın kendini yeniden açmasına izin vermez).
+/// Panodaki işaret. Kestirmeler'deki "uygulama kapanınca yeniden aç" otomasyonu panoyu okur: `SESLIKONTROL-` ile başlayan bir şey varsa
+/// uygulamayı açmaz. iOS "Kapatıldı" tetikleyicisini uygulamadan başka uygulamaya geçildiğinde de çalıştırır; bu yüzden işaret şu
+/// anlarda yazılır: oturum yokken (kapat düğmesi, test bitti), uygulama kestirme çalıştırmak için bilerek başka uygulamaya geçerken.
+/// Oturum sürerken panoda işaret yoktur: o sırada uygulama kapanırsa otomasyon onu geri açar.
+/// Kullanıcının panosuna saygı: işaret ancak panoyu başka biri değiştirmediyse (değişim sayacı aynıysa) silinir.
+final class ClipboardFlag {
+    static let prefix = "SESLIKONTROL-"
+    /// Oturum yok ya da kullanıcı bilerek kapattı
+    static let closed = "SESLIKONTROL-KAPALI"
+    /// Uygulama kestirme çalıştırmak için bilerek başka uygulamaya geçti
+    static let repair = "SESLIKONTROL-ONARIM"
+
+    private static let tokenKey = "journal.clipboardToken"
+    private let defaults: UserDefaults
+    private let write: (String) -> Void
+    private let changeCount: () -> Int
+
+    init(defaults: UserDefaults = .standard,
+         write: @escaping (String) -> Void = { UIPasteboard.general.string = $0 },
+         changeCount: @escaping () -> Int = { UIPasteboard.general.changeCount }) {
+        self.defaults = defaults
+        self.write = write
+        self.changeCount = changeCount
+    }
+
+    /// İşareti panoya yazar ve o andaki değişim sayacını saklar (sonradan başkası panoyu değiştirirse anlaşılsın diye)
+    func set(_ marker: String) {
+        write(marker)
+        defaults.set(changeCount(), forKey: ClipboardFlag.tokenKey)
+    }
+
+    /// Pano hâlâ bizim yazdığımızsa siler; kullanıcı arada başka bir şey kopyaladıysa dokunmaz
+    func clearIfOurs() {
+        guard defaults.object(forKey: ClipboardFlag.tokenKey) != nil else { return }
+        if defaults.integer(forKey: ClipboardFlag.tokenKey) == changeCount() { write("") }
+        defaults.removeObject(forKey: ClipboardFlag.tokenKey)
+    }
+}
+
+/// Gerçek defter: UserDefaults + önceki çalışmanın günlüğü + pano işareti (iOS uygulamanın kendini yeniden açmasına izin vermez;
+/// yeniden açmayı yalnız Kestirmeler otomasyonu yapar, işareti de o okur).
 @MainActor
 final class RunJournal: RunJournaling {
-    /// Kestirmeler otomasyonunun panoda arayacağı işaret
-    static let clipboardMarker = "SESLIKONTROL-KAPALI"
-
     private enum Key {
         static let hasRun = "journal.hasRun"
         static let open = "journal.sessionOpen"
@@ -155,29 +194,31 @@ final class RunJournal: RunJournaling {
     private let defaults: UserDefaults
     private let previousLog: [String]
     private let now: () -> Date
-    private let writeClipboard: (String) -> Void
+    private let clipboard: ClipboardFlag
+    /// Şu an oturum açık mı (yalnız bu çalışma için; pano işareti buna göre yönetilir)
+    private var open = false
 
     init(defaults: UserDefaults = .standard,
          previousLog: [String] = AppLog.shared.previousRun,
          now: @escaping () -> Date = { Date() },
-         writeClipboard: @escaping (String) -> Void = { UIPasteboard.general.string = $0 }) {
+         clipboard: ClipboardFlag? = nil) {
         self.defaults = defaults
         self.previousLog = previousLog
         self.now = now
-        self.writeClipboard = writeClipboard
+        self.clipboard = clipboard ?? ClipboardFlag(defaults: defaults)
     }
 
     func beginRun() -> RunStart {
         let hadRun = defaults.bool(forKey: Key.hasRun)
-        let open = defaults.bool(forKey: Key.open)
+        let wasOpen = defaults.bool(forKey: Key.open)
         let deliberate = defaults.bool(forKey: Key.deliberate)
         let alive = defaults.object(forKey: Key.alive) as? Double
         defaults.set(true, forKey: Key.hasRun)
         defaults.set(false, forKey: Key.deliberate)
-        // Kapat düğmesinin panoya yazdığı işaret, yeni açılışta silinir (sonraki gerçek bir çökme yeniden açılabilsin)
-        if deliberate { writeClipboard("") }
+        // İlk açılışta oturum yok: otomasyon uygulamayı geri çekmesin (kurulum ve denemeler sırasında)
+        if !hadRun { clipboard.set(ClipboardFlag.closed) }
 
-        let exit: PreviousExit = hadRun ? ExitAnalyzer.analyze(sessionOpen: open, deliberate: deliberate, previous: previousLog) : .firstRun
+        let exit: PreviousExit = hadRun ? ExitAnalyzer.analyze(sessionOpen: wasOpen, deliberate: deliberate, previous: previousLog) : .firstRun
         let stamp = now().timeIntervalSince1970
         var loop = false
         if case .unexpected = exit {
@@ -200,8 +241,24 @@ final class RunJournal: RunJournaling {
     }
 
     func setSessionOpen(_ open: Bool) {
+        self.open = open
         defaults.set(open, forKey: Key.open)
-        if open { heartbeat() }
+        if open {
+            heartbeat()
+            clipboard.clearIfOurs()   // oturum sürerken panoda işaret olmaz: uygulama kapanırsa otomasyon geri açar
+        } else {
+            clipboard.set(ClipboardFlag.closed)
+        }
+    }
+
+    func setAway(_ away: Bool) {
+        if away {
+            clipboard.set(ClipboardFlag.repair)
+        } else if open {
+            clipboard.clearIfOurs()
+        } else {
+            clipboard.set(ClipboardFlag.closed)
+        }
     }
 
     func heartbeat() {
@@ -225,8 +282,10 @@ final class RunJournal: RunJournaling {
     }
 
     func markDeliberateClose() {
+        open = false
         defaults.set(true, forKey: Key.deliberate)
         defaults.set(false, forKey: Key.open)
-        writeClipboard(RunJournal.clipboardMarker)
+        clipboard.set(ClipboardFlag.closed)
+        defaults.synchronize()   // program hemen çıkacak: bayrakların diske yazılması beklenir
     }
 }

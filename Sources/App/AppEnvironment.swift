@@ -30,6 +30,9 @@ final class AppEnvironment: ObservableObject {
             engines: { saving in saving && settings.geminiVoice ? [geminiVoice, phoneVoice] : [phoneVoice] },
             voice: { SpeechVoiceChooser.voice(preferredID: settings.phoneVoiceID) })
         let shortcuts = ShortcutRunner()
+        let journal = RunJournal()
+        shortcuts.onLeaving = { journal.setAway(true) }
+        shortcuts.onReturned = { journal.setAway(false) }
         let deps = SessionDependencies(route: route,
                                        listener: listener,
                                        recorder: recorder,
@@ -45,7 +48,7 @@ final class AppEnvironment: ObservableObject {
                                        library: AnswerLibrary(resolver: { folderStore.resolution() }, refresh: { folderStore.refresh() }),
                                        battery: SystemBattery(),
                                        system: SystemHealthMonitor(),
-                                       journal: RunJournal())
+                                       journal: journal)
         let session = SessionViewModel(settings: settings, deps: deps)
         self.settings = settings
         self.session = session

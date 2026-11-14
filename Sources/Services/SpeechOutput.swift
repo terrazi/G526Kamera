@@ -121,28 +121,36 @@ private final class RenderSink: @unchecked Sendable {
     }
 }
 
+/// Bitiş bildirimlerini konuşma (utterance) başına eşler: zaman aşımına uğramış ya da iptal edilmiş eski bir konuşmanın gecikmiş
+/// "bitti" bildirimi, sonradan başlayan yeni sentezi (henüz hiç tampon yazılmamışken) boş bitirmesin.
 private final class SynthDelegate: NSObject, AVSpeechSynthesizerDelegate {
     private let lock = NSLock()
-    private var sink: RenderSink?
+    private var sinks: [ObjectIdentifier: (utterance: AVSpeechUtterance, sink: RenderSink)] = [:]
 
-    func attach(_ sink: RenderSink?) {
+    func attach(_ sink: RenderSink, to utterance: AVSpeechUtterance) {
         lock.lock()
-        self.sink = sink
+        sinks[ObjectIdentifier(utterance)] = (utterance, sink)
         lock.unlock()
     }
 
-    private func current() -> RenderSink? {
+    func detach(_ utterance: AVSpeechUtterance) {
+        lock.lock()
+        sinks.removeValue(forKey: ObjectIdentifier(utterance))
+        lock.unlock()
+    }
+
+    private func take(_ utterance: AVSpeechUtterance) -> RenderSink? {
         lock.lock()
         defer { lock.unlock() }
-        return sink
+        return sinks.removeValue(forKey: ObjectIdentifier(utterance))?.sink
     }
 
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
-        current()?.complete()
+        take(utterance)?.complete()
     }
 
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
-        current()?.complete()
+        take(utterance)?.complete()
     }
 }
 
@@ -167,15 +175,16 @@ final class SpeechRenderer: SpeechSynthesizing {
     /// `base`: uzantısız hedef yol. Dönen değer gerçekten yazılan dosyadır (.m4a ya da .caf).
     func render(_ text: String, voice: AVSpeechSynthesisVoice?, to base: URL) async throws -> URL {
         let sink = RenderSink(base: base)
-        delegate.attach(sink)
         let utterance = AVSpeechUtterance(string: text)
         utterance.voice = voice
+        delegate.attach(sink, to: utterance)
         return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URL, Error>) in
             sink.completion = { continuation.resume(with: $0) }
             synthesizer.write(utterance) { buffer in sink.handle(buffer) }
             Task {
                 try? await Task.sleep(nanoseconds: UInt64(SpeechRenderer.timeout * 1_000_000_000))
                 sink.fail(RenderError.timeout)
+                self.delegate.detach(utterance)
             }
         }
     }

@@ -401,6 +401,8 @@ final class FakeJournal: RunJournaling {
         deliberate = true
         sessionOpen = false
     }
+    private(set) var awayHistory: [Bool] = []
+    func setAway(_ away: Bool) { awayHistory.append(away) }
 }
 
 /// Kapanma sayacı ("Programı kapat" gerçekten çıkışı istedi mi)
