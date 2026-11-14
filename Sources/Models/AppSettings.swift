@@ -18,6 +18,7 @@ final class AppSettings: ObservableObject {
         static let geminiProfiles = "v3.geminiProfiles"
         static let dimScreen = "v3.dimScreen"
         static let spokenWarnings = "v3.spokenWarnings"
+        static let shortcutOutput = "v3.shortcutOutput"
         static let phoneVoice = "v3.phoneVoice"
     }
 
@@ -56,6 +57,11 @@ final class AppSettings: ObservableObject {
 
     @Published var resetShortcut: String {
         didSet { defaults.set(resetShortcut, forKey: Key.shortcutReset) }
+    }
+
+    /// İsteğe bağlı: "Oynatma Hedefini Ayarla → Bluetooth kulaklık" kestirmesi. Ses iPhone'a düşünce çıkışı kulaklığa alır (Bluetooth'u kapatıp açmaz)
+    @Published var outputShortcut: String {
+        didSet { defaults.set(outputShortcut, forKey: Key.shortcutOutput) }
     }
 
     /// Tekrar modunda iki cevap arasında beklenecek saniye (0...10)
@@ -119,6 +125,7 @@ final class AppSettings: ObservableObject {
         cellularShortcut = defaults.string(forKey: Key.shortcutCellular) ?? ""
         bluetoothShortcut = defaults.string(forKey: Key.shortcutBluetooth) ?? ""
         resetShortcut = defaults.string(forKey: Key.shortcutReset) ?? ""
+        outputShortcut = defaults.string(forKey: Key.shortcutOutput) ?? ""
         replayGap = AppSettings.clampGap(defaults.object(forKey: Key.replayGap) as? Double ?? AppSettings.defaultReplayGap)
         sendAudio = defaults.object(forKey: Key.sendAudio) as? Bool ?? true
         englishDictation = defaults.object(forKey: Key.englishDictation) as? Bool ?? true

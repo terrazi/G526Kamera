@@ -33,6 +33,8 @@ final class SessionViewModel: ObservableObject {
         static let announceMaxAge: TimeInterval = 180
         /// Aynı anda bekleyebilecek sesli uyarı sayısı
         static let maxQueuedAnnouncements = 6
+        /// Bir oturumda "çıkışı kulaklığa al" kestirmesinin en çok kaç kez çalıştırılacağı (kestirme çözüyor ama yol yine düşüyorsa sonsuz döngü olmasın)
+        static let maxOutputTries = 6
     }
 
     // MARK: Ekranın gördüğü durum
@@ -85,6 +87,8 @@ final class SessionViewModel: ObservableObject {
     var voiceTask: Task<Void, Never>?
     var lastVoiced: [String: Date] = [:]
     var announced: [String] = []
+    /// Bu oturumda "çıkışı kulaklığa al" kestirmesi kaç kez çalıştı
+    var outputTries = 0
     var pendingStart = false
     /// Alındığı ve kaydedildiği hâlde kulaklıktan duyulamamış cevap (okunurken ses yolu koptu); yol dönünce yeniden okunur
     var unheard: AnswerRecord?
@@ -209,6 +213,7 @@ final class SessionViewModel: ObservableObject {
         sessionFolder = nil
         voiceQueue = []
         lastVoiced = [:]
+        outputTries = 0
     }
 
     func cancelWork() {

@@ -176,6 +176,22 @@ struct SettingsView: View {
             shortcutRow("Hücresel aç", placeholder: "Hücresel_Ac", step: .cellular, text: $settings.cellularShortcut)
             shortcutRow("Bluetooth yenile", placeholder: "Bluetooth_Yenile", step: .bluetooth, text: $settings.bluetoothShortcut)
             shortcutRow("Sistemi sıfırla", placeholder: "Sistemi_Sifirla", step: .reset, text: $settings.resetShortcut)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Çıkışı kulaklığa al")
+                    TextField("Kulakliga_Al (isteğe bağlı)", text: $settings.outputShortcut)
+                        .textInputAutocapitalization(.never)
+                        .disableAutocorrection(true)
+                        .multilineTextAlignment(.trailing)
+                    Button(model.testingOutputShortcut ? "…" : "Dene") { Task { await model.testOutputShortcut() } }
+                        .buttonStyle(.borderless)
+                        .disabled(model.testingOutputShortcut)
+                }
+                if !model.outputShortcutResult.isEmpty {
+                    Text(model.outputShortcutResult).font(.footnote).foregroundColor(.secondary)
+                }
+            }
+            HelpRow("“Çıkışı kulaklığa al” isteğe bağlıdır: Kestirmeler'de tek eylemli bir kestirme yapın, “Oynatma Hedefini Ayarla” eylemini ekleyip hedef olarak Bluetooth kulaklığınızı (listede “Bluetooth music” gibi görünür) seçin. Ses iPhone'a düşerse ya da açılışta kulaklık yolda değilse uygulama önce bunu çalıştırır; Bluetooth'u kapatıp açmaz, kulaklığı koparmaz. Çözmezse eskisi gibi “Bluetooth yenile” ve “Sistemi sıfırla” devreye girer. iOS bir uygulamanın Bluetooth ayarlarına girip bağlantıyı kesmesine ya da yeniden bağlamasına izin vermez; bunu yalnız Kestirmeler yapabilir.")
             HelpRow("Kestirmeler uygulamasında yaptığınız kestirmelerin adları. İnternet koparsa sırayla Wi-Fi, hücresel, sıfırlama; kulaklık ya da mikrofon koparsa önce Bluetooth yenileme, olmazsa sıfırlama çalışır. Ad boşsa o adım atlanır.")
         }
     }

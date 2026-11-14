@@ -61,7 +61,7 @@ Ayrıntılı işleyiş: `docs/SURUM3.md`.
   (Kestirmeler için gerekir). Kırmızı uyarı çıkınca ya da uygulamadan çıkınca/test bitince parlaklık geri verilir.
 - **Tanı ve günlük:** ayarların en altında; cihaz özeti (şarj, ısı, boş yer) ve olay günlüğü. Bir sorun olursa **Günlüğü kopyala** ile
   yapıştırıp bana gönderin; nedeni Mac olmadan okunur.
-- **Kestirmeler:** dört kestirmenin adı (aşağıda). Boş bırakılan adım atlanır.
+- **Kestirmeler:** dört kestirmenin adı (aşağıda) ve isteğe bağlı beşincisi **Çıkışı kulaklığa al**. Boş bırakılan adım atlanır.
 - **Cevaplar arası boşluk:** 0-10 saniye (varsayılan 3), test sonundaki tekrar için.
 
 ## 5) iOS Kestirmeler (sınavdan önce, bir kez)
@@ -119,6 +119,7 @@ açık ve kilitsiz olmalı. Yedek: uygulama açıksa saat gelince kendisi başla
 - **"Duraklatıldı: kulaklık, mikrofon ya da ses kesintisi":** kulaklık ve alıcı bağlı mı, çıkış düğmesinde kulaklık, mikrofon listesinde alıcı seçili mi? Geri gelince kendiliğinden devam eder; 20 sn dönmezse `Bluetooth_Yenile`, o da işe yaramazsa `Sistemi_Sifirla` çalışır.
 - **"Ses şu an telefona gidiyor" / Sesi dene çalmıyor:** ana ekranın altındaki "Şu an: Çıkış: …" satırı sesin nereye gittiğini yazar. Çıkış telefon ise "Ses çıkışı" düğmesinden Bluetooth kulaklığı seçin. Kulaklık yalnız müzik (A2DP) olarak bağlanır; telefon (mikrofonlu) profili kapalıdır, çünkü mikrofon her zaman Lightning alıcıdan gelir.
 - **"Giriş: yok" ama mikrofon alıcısı takılı:** kulaklık seçildikten sonra iOS ses yolunu yeniden kurar; uygulama kontrolü bir buçuk saniye kadar bekleyip mikrofonu yeniden seçerek tekrarlar. Ana ekrandaki "Şu an" satırı alıcının adını ve "takılı ama ses yoluna girmedi" bilgisini yazar. Hâlâ girmiyorsa alttaki mikrofon listesinden alıcıya bir kez dokunun.
+- **Ses iPhone'a düşüyor / "Bluetooth music" kendiliğinden seçilmiyor:** iOS bir uygulamanın Bluetooth ayarlarına girip bağlantıyı kesmesine ya da yeniden bağlamasına izin vermez; bunu yalnız Kestirmeler yapar. Kestirmeler'de tek eylemli bir kestirme yapın (ör. adı `Kulakliga_Al`): **Oynatma Hedefini Ayarla** eylemini ekleyin ve hedef olarak Bluetooth kulaklığınızı seçin. Adını Ayarlar > Kestirmeler > **Çıkışı kulaklığa al** alanına yazıp **Dene** ile sınayın. Uygulama bunu, açılışta kulaklık yolda değilse ve test sürerken ses iPhone'a düşüp 20 sn dönmezse **Bluetooth'u kapatıp açmadan önce** kendisi çalıştırır (oturum başına en çok 6 kez). Çözmezse eski sıra devam eder.
 - **"Kestirme ikide bir çalışıyor":** kulaklık sağlamken yalnız mikrofon girişi yola girmemişse (alıcı takılı) Kestirme **çalıştırılmaz**; Bluetooth/uçak modunu kapatıp açmak kulaklığı da koparırdı. Bunun yerine mikrofon yeniden seçilir, kırmızı kutuda nedeni yazar ve yol oturunca kendiliğinden devam edilir. Kestirme yalnız kulaklık yolda değilse ya da alıcı hiç görünmüyorsa çalışır.
 - **Mikrofon listesi boş:** alıcıyı çıkarıp takın, **Yenile**'ye basın.
 - **Kırmızı kutuda "çevrimdışı dikte yüklü değil":** 3. bölümdeki 1. adım.

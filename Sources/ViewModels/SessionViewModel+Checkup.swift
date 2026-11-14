@@ -40,7 +40,9 @@ extension SessionViewModel {
             return
         }
         deps.route.preferExternalInput()
-        let verdict = await settledRoute().verdict
+        var verdict = await settledRoute().verdict
+        // Ses iPhone'da kaldıysa ("Bluetooth music" seçili değil) ve kestirme tanımlıysa önce çıkış kulaklığa alınır
+        if !verdict.headphonesOK, let fixed = await switchOutputToHeadphones() { verdict = fixed }
         guard !Task.isCancelled else { return }
         routeVerdict = verdict
         refreshInputs()

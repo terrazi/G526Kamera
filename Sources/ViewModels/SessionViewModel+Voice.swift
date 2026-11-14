@@ -70,3 +70,34 @@ extension SessionViewModel {
         }
     }
 }
+
+/// "Çıkışı kulaklığa al" kestirmesi: Kestirmeler'deki "Oynatma Hedefini Ayarla" eylemi çıkışı Bluetooth kulaklığa (listede "Bluetooth music"
+/// gibi görünür) alır. iOS bir uygulamanın Bluetooth ayarlarında bağlantı kesip kurmasına izin vermez; bunu yalnız Kestirmeler yapabilir.
+extension SessionViewModel {
+    /// Kestirme tanımlıysa (ve bu oturumda hakkı bittiyse değilse) çalıştırır, ses oturumunu yeniler ve yeni yol değerlendirmesini verir.
+    /// Tanımlı değilse ya da hak bittiyse nil.
+    func switchOutputToHeadphones() async -> RouteVerdict? {
+        let name = settings.outputShortcut.trimmed
+        guard !name.isEmpty, outputTries < Timing.maxOutputTries else { return nil }
+        outputTries += 1
+        tlog("[çıkış] kulaklığa alma kestirmesi çalışıyor: \(name) (\(outputTries). deneme)")
+        let outcome = await deps.shortcuts.run(name: name)
+        tlog("[çıkış] \(name): \(outcome)")
+        guard !Task.isCancelled else { return nil }
+        try? deps.route.configure()
+        deps.route.preferExternalInput()
+        let verdict = await settledRoute().verdict
+        tlog("[çıkış] kestirmeden sonra: \(AudioRouting.describe(deps.route.snapshot()))")
+        return verdict
+    }
+
+    /// Duraklatılmışken kulaklık yolda değilse önce çıkış kestirmesi denenir. true: yol düzeldi, Bluetooth yenileme/sıfırlama gerekmez
+    /// (yol sabit kalınca kendiliğinden devam edilir).
+    func outputShortcutFixedRoute() async -> Bool {
+        guard case .paused(.hardware) = phase, !AudioRouting.verdict(deps.route.snapshot()).headphonesOK,
+              let verdict = await switchOutputToHeadphones() else { return false }
+        guard !Task.isCancelled, case .paused(.hardware) = phase else { return true }
+        routeChanged(deps.route.snapshot())
+        return verdict.isSafe
+    }
+}

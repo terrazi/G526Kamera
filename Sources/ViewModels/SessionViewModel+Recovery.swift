@@ -149,7 +149,12 @@ extension SessionViewModel {
             routeChanged(deps.route.snapshot())
             return
         }
-        work = Task { [weak self] in await self?.runRecovery(.hardware) }
+        work = Task { [weak self] in
+            guard let self = self else { return }
+            // Kulaklık yolda değilse önce hafif çare: çıkışı kulaklığa alan kestirme (Bluetooth'a dokunmaz)
+            if await self.outputShortcutFixedRoute() { return }
+            await self.runRecovery(.hardware)
+        }
     }
 
     // MARK: Ölümcül sessizlik (Modül 4)

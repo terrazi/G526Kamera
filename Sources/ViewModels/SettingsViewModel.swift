@@ -16,6 +16,8 @@ final class SettingsViewModel: ObservableObject {
     @Published var testingKeySlot = 0
     @Published var shortcutResults: [RecoveryStep: String] = [:]
     @Published var runningShortcut: RecoveryStep?
+    @Published var outputShortcutResult = ""
+    @Published var testingOutputShortcut = false
     /// Profil numarası → anahtarın gördüğü, metin üretebilen modeller ("Modelleri listele")
     @Published var modelLists: [Int: [String]] = [:]
     /// Şu an modelleri listelenen profil (0 = yok)
@@ -149,6 +151,18 @@ final class SettingsViewModel: ObservableObject {
         runningShortcut = step
         defer { runningShortcut = nil }
         shortcutResults[step] = SettingsViewModel.text(for: await shortcuts.run(name: name))
+    }
+
+    /// "Çıkışı kulaklığa al" kestirmesini dener (isteğe bağlı kestirme)
+    func testOutputShortcut() async {
+        let name = settings.outputShortcut.trimmed
+        guard !name.isEmpty else {
+            outputShortcutResult = "Önce kestirmenin adını yazın."
+            return
+        }
+        testingOutputShortcut = true
+        defer { testingOutputShortcut = false }
+        outputShortcutResult = SettingsViewModel.text(for: await shortcuts.run(name: name))
     }
 
     static func text(for outcome: ShortcutOutcome) -> String {
