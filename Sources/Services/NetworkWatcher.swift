@@ -7,6 +7,8 @@ protocol NetworkWatching: AnyObject {
     var isOnline: Bool { get }
     /// Çevrimiçi durumu her değiştiğinde çağrılır
     var onChange: (@MainActor (Bool) -> Void)? { get set }
+    /// Ağ yolu her değiştiğinde (Wi-Fi ↔ hücresel dahil, çevrimiçi durumu aynı kalsa da) çağrılır; hemen bir nabız atılır
+    var onPathChange: (@MainActor () -> Void)? { get set }
     func start()
     func stop()
 }
@@ -14,6 +16,7 @@ protocol NetworkWatching: AnyObject {
 @MainActor
 final class NetworkWatcher: NetworkWatching {
     var onChange: (@MainActor (Bool) -> Void)?
+    var onPathChange: (@MainActor () -> Void)?
     private(set) var isOnline = true
     private var monitor: NWPathMonitor?
 
@@ -22,7 +25,10 @@ final class NetworkWatcher: NetworkWatching {
         let monitor = NWPathMonitor()
         monitor.pathUpdateHandler = { [weak self] path in
             let online = path.status == .satisfied
-            Task { @MainActor in self?.update(online) }
+            Task { @MainActor in
+                self?.update(online)
+                self?.pathChanged()
+            }
         }
         monitor.start(queue: DispatchQueue(label: "g526.network"))
         self.monitor = monitor
@@ -31,6 +37,11 @@ final class NetworkWatcher: NetworkWatching {
     func stop() {
         monitor?.cancel()
         monitor = nil
+    }
+
+    private func pathChanged() {
+        guard monitor != nil else { return }
+        onPathChange?()
     }
 
     private func update(_ online: Bool) {

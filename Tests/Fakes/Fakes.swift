@@ -48,6 +48,7 @@ final class FakeRoute: AudioRouteProviding {
 
     var onChange: (@MainActor (RouteSnapshot) -> Void)?
     var onInterruption: (@MainActor (Bool) -> Void)?
+    var onMediaServicesReset: (@MainActor () -> Void)?
     var current = FakeRoute.good
     var configureError: Error?
     private(set) var configureCalls = 0
@@ -173,6 +174,7 @@ final class FakeSpeaker: AnswerSpeaking {
 final class FakeNetwork: NetworkWatching {
     var isOnline = true
     var onChange: (@MainActor (Bool) -> Void)?
+    var onPathChange: (@MainActor () -> Void)?
     private(set) var startCalls = 0
     private(set) var stopCalls = 0
 
@@ -204,6 +206,16 @@ final class FakeHealth: HealthChecking {
         geminiCalls += 1
         geminiKeysAsked.append(key)
         return geminiResults[key] ?? geminiResult
+    }
+
+    /// Nabız yoklaması: sırayla verilecek sonuçlar (boşsa `internet`) ve çağrı sayısı
+    var quickResults: [Bool] = []
+    private(set) var quickCalls = 0
+
+    func quickProbe() async -> Bool {
+        quickCalls += 1
+        if !quickResults.isEmpty { return quickResults.removeFirst() }
+        return internet
     }
 }
 

@@ -93,6 +93,8 @@ protocol AudioRouteProviding: AnyObject {
     var onChange: (@MainActor (RouteSnapshot) -> Void)? { get set }
     /// Ses kesintisi (arama, alarm, Siri) başlayınca true, bitince false ile çağrılır
     var onInterruption: (@MainActor (Bool) -> Void)? { get set }
+    /// iOS'un ses servisi (mediaserviced) kayboldu ya da sıfırlandı: ses oturumu, motor ve çalan her şey baştan kurulmalıdır
+    var onMediaServicesReset: (@MainActor () -> Void)? { get set }
     func configure() throws
     func snapshot() -> RouteSnapshot
     /// Harici mikrofon varsa girişi ona sabitler (Bluetooth kulaklığın kendi mikrofonuna düşmesin)
@@ -115,6 +117,7 @@ final class AudioSessionGuard: AudioRouteProviding {
 
     var onChange: (@MainActor (RouteSnapshot) -> Void)?
     var onInterruption: (@MainActor (Bool) -> Void)?
+    var onMediaServicesReset: (@MainActor () -> Void)?
 
     private static let chosenInputKey = "v3.chosenInputUID"
 
@@ -127,6 +130,7 @@ final class AudioSessionGuard: AudioRouteProviding {
     private var assumedInput = false
     private var observer: NSObjectProtocol?
     private var interruptionObserver: NSObjectProtocol?
+    private var mediaObservers: [NSObjectProtocol] = []
 
     init(session: AVAudioSession = .sharedInstance(), defaults: UserDefaults = .standard) {
         self.session = session
@@ -143,11 +147,20 @@ final class AudioSessionGuard: AudioRouteProviding {
             let began = type == .began
             Task { @MainActor in self?.onInterruption?(began) }
         }
+        // Ses servisi çökünce bundan önce hiçbir yol ya da kesinti bildirimi gelmeyebilir; ayrıca dinlenir
+        for name in [AVAudioSession.mediaServicesWereLostNotification, AVAudioSession.mediaServicesWereResetNotification] {
+            let observer = NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                let lost = name == AVAudioSession.mediaServicesWereLostNotification
+                Task { @MainActor in self?.mediaServicesEvent(lost: lost) }
+            }
+            mediaObservers.append(observer)
+        }
     }
 
     deinit {
         if let observer = observer { NotificationCenter.default.removeObserver(observer) }
         if let observer = interruptionObserver { NotificationCenter.default.removeObserver(observer) }
+        for observer in mediaObservers { NotificationCenter.default.removeObserver(observer) }
     }
 
     func configure() throws {
@@ -220,5 +233,10 @@ final class AudioSessionGuard: AudioRouteProviding {
     private func routeDidChange() {
         preferExternalInput()
         onChange?(snapshot())
+    }
+
+    private func mediaServicesEvent(lost: Bool) {
+        tlog("[ses yolu] ses servisi \(lost ? "kayboldu" : "sıfırlandı")")
+        onMediaServicesReset?()
     }
 }

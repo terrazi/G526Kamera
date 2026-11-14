@@ -9,6 +9,9 @@ enum SpeechEvent: Equatable {
     case taskEnded
     /// Dinleme durdu (donanım ya da tanıyıcı hatası)
     case failure(String)
+    /// Ses motorunun yapılandırması değişti (giriş cihazı çıktı/geldi, ses servisi sıfırlandı): motor durmuş olabilir, tamponlar gelmeyebilir.
+    /// Bildirim gelir gelmez, nabzı beklemeden dinleme yeniden kurulmalıdır.
+    case engineStopped
     /// Yardımcı İngilizce tanıyıcının son kısmi metni. "Cevapla" aramasında KULLANILMAZ; yalnız Gemini'ye ikinci metin olarak gider.
     case englishPartial(String)
     /// İngilizce görev bitti ve yenisi başladı: eldeki İngilizce metin bölüm olarak saklanmalı
@@ -131,6 +134,7 @@ final class OnDeviceSpeechListener: SpeechListening {
         self.wantsEnglish = wantsEnglish
     }
     private var engine: AVAudioEngine?
+    private var configObserver: NSObjectProtocol?
     private var task: SFSpeechRecognitionTask?
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private let sink: AudioSink
@@ -199,9 +203,23 @@ final class OnDeviceSpeechListener: SpeechListening {
             throw ListenerError.engine(error.localizedDescription)
         }
         self.engine = engine
+        configObserver = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine,
+                                                                queue: .main) { [weak self] _ in
+            Task { @MainActor in self?.engineConfigurationChanged() }
+        }
+    }
+
+    private func engineConfigurationChanged() {
+        guard isRunning else { return }
+        tlog("[mikrofon] ses motorunun yapılandırması değişti")
+        onEvent?(.engineStopped)
     }
 
     private func stopEngine() {
+        if let observer = configObserver {
+            NotificationCenter.default.removeObserver(observer)
+            configObserver = nil
+        }
         guard let engine = engine else { return }
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()

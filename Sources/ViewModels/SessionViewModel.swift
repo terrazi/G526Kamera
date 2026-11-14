@@ -11,12 +11,12 @@ final class SessionViewModel: ObservableObject {
     enum Timing {
         /// Tetikleyici sözcük bu kadar değişmeden kalırsa gerçekten söylenmiş sayılır ("gönder" → "gönderi" yanlış alarmını önler)
         static let triggerConfirm: TimeInterval = 0.5
-        /// Ağ bu kadar süre kesik kalırsa onarım başlar (kısa dalgalanmalar yok sayılır)
-        static let offlineDebounce: TimeInterval = 3
+        /// Ağ bu kadar süre kesik kalırsa onarım başlar. Onarım önce bağlantıyı sınar, sağlamsa Kestirme çalıştırmaz; bu yüzden kısa tutulur.
+        static let offlineDebounce: TimeInterval = 1
         /// Kulaklık/mikrofon bu kadar süre dönmezse sıfırlama kestirmesi çalışır
         static let hardwareGrace: TimeInterval = 20
         /// Donanım geri geldikten sonra bu kadar süre sabit kalırsa devam edilir
-        static let routeStable: TimeInterval = 1.5
+        static let routeStable: TimeInterval = 1
         /// Sessizlikte dinlemeyi yenileyip sağlığa bakmadan önce beklenen süre
         static let silenceProbe: TimeInterval = 4
         /// Bağlantı onarılamazsa yeniden deneme aralığı
@@ -38,7 +38,24 @@ final class SessionViewModel: ObservableObject {
         static let maxOutputTries = 6
         /// Kulaklık yoldan çıkınca "çıkışı kulaklığa al" kestirmesinin ilk kez çalıştırılacağı süre (yol bildirimleri otursun diye kısa bir bekleme;
         /// 20 sn'lik donanım beklemesini beklemez)
-        static let outputQuickDelay: TimeInterval = 3
+        static let outputQuickDelay: TimeInterval = 1
+        /// Anında tespit (nabız): aralık, mikrofonun "takıldı" sayılacağı sessiz tampon süresi ve dinleme başlayınca beklenen nabız sayısı
+        static let sentinelTick: TimeInterval = 0.5
+        static let micStallLimit: TimeInterval = 1.2
+        static let micWarmupTicks = 4
+        /// Mikrofon art arda bu kadar yeniden kurulduysa Kestirmeler çalışır; bu kadar nabız sağlıklıysa sayaç sıfırlanır
+        static let maxMicHeals = 3
+        static let micHealthyTicks = 10
+        /// İnternet yoklaması her bu kadar nabızda bir (dinlerken); bağlantı yokken (duraklatılmış) daha sık
+        static let netBeatEvery = 10
+        static let netPausedBeatEvery = 4
+        /// Yoklama başarısızsa bir sonrakine kalan nabız sayısı ve art arda kaç başarısız yoklamada onarım başlayacağı
+        static let netRetryTicks = 2
+        static let netFailLimit = 2
+        /// Ses servisi sıfırlanınca ses oturumunun yeniden kurulmasına kadar bekleme
+        static let mediaHealDelay: TimeInterval = 0.3
+        /// Bu süreden kısa kesintiden sonra kısa "Hazır" anonsu
+        static let briefOutage: TimeInterval = 8
     }
 
     // MARK: Ekranın gördüğü durum
@@ -68,6 +85,8 @@ final class SessionViewModel: ObservableObject {
     @Published var routeVerdict: RouteVerdict?
     /// Şu anki ses yolu, ana ekranda küçük yazıyla ("Çıkış: Bluetooth kulaklık. Giriş: Lightning/USB mikrofon.")
     @Published var routeText = ""
+    /// "Canlı: Kulaklık ✓ · Mikrofon ✓ · İnternet ✓" (anında tespit açıksa)
+    @Published var liveStatus = ""
     /// Okunmakta olan sorunun İngilizce tanıyıcıdan çıkan hâli (ana ekranda küçük yazıyla)
     @Published var liveEnglish = ""
 
@@ -115,6 +134,19 @@ final class SessionViewModel: ObservableObject {
     /// Arama/alarm/Siri kesintisi sürüyor
     var interruptionActive = false
     var interruptionPoll: ScheduledTask?
+    /// Anında tespit (nabız) durumu: döngü, mikrofon sağlığı ve onarım sayacı, internet nabzı
+    var sentinel: ScheduledTask?
+    var micCooldown = 0
+    var micOKTicks = 0
+    var micHealCount = 0
+    var micAlive = true
+    var netBeatTicks = 0
+    var netFails = 0
+    var netProbeBusy = false
+    var netReconnecting = false
+    var netPulse: NetPulse = .unknown
+    /// Duraklama/onarım ilk başladığı an (kısa kesintide kısa anons için)
+    var outageStart: Date?
 
     init(settings: AppSettings, deps: SessionDependencies) {
         self.settings = settings
@@ -130,6 +162,8 @@ final class SessionViewModel: ObservableObject {
         deps.route.onChange = { [weak self] snapshot in self?.routeChanged(snapshot) }
         deps.route.onInterruption = { [weak self] began in self?.interrupted(began) }
         deps.network.onChange = { [weak self] online in self?.networkChanged(online) }
+        deps.network.onPathChange = { [weak self] in self?.networkPathChanged() }
+        deps.route.onMediaServicesReset = { [weak self] in self?.mediaServicesReset() }
         deps.battery.onChange = { [weak self] in self?.batteryChanged() }
         deps.listener.onEvent = { [weak self] event in self?.handleSpeech(event) }
         watchdog.onExpire = { [weak self] in self?.silenceExpired() }
@@ -172,6 +206,7 @@ final class SessionViewModel: ObservableObject {
         phase = .checking
         deps.screen.keepAwake(true)
         deps.network.start()
+        startSentinel()
         work = Task { [weak self] in await self?.runStartup() }
     }
 
@@ -225,6 +260,17 @@ final class SessionViewModel: ObservableObject {
         outputQuick = nil
         outputQuickRun?.cancel()
         outputQuickRun = nil
+        micCooldown = 0
+        micOKTicks = 0
+        micHealCount = 0
+        micAlive = true
+        netBeatTicks = 0
+        netFails = 0
+        netProbeBusy = false
+        netReconnecting = false
+        netPulse = .unknown
+        outageStart = nil
+        liveStatus = ""
     }
 
     func cancelWork() {
@@ -317,6 +363,10 @@ final class SessionViewModel: ObservableObject {
         clearWarning("mikrofon")
         phase = .listening
         statusNote = ""
+        micCooldown = Timing.micWarmupTicks
+        micOKTicks = 0
+        micAlive = true
+        outageStart = nil
         watchdog.kick()
         if !deps.network.isOnline { scheduleOfflineCheck() }
         batteryChanged()
@@ -341,6 +391,10 @@ final class SessionViewModel: ObservableObject {
         case .failure(let message):
             warn("mikrofon", message)
             work = Task { [weak self] in await self?.runRecovery(.hardware, force: true) }
+        case .engineStopped:
+            // Dinleme yeni (yeniden) başladıysa bekleme süresinde yok sayılır; gerçekten durduysa nabız yine yakalar
+            guard settings.instantDetection, micCooldown == 0 else { return }
+            healMic("ses motoru durdu")
         }
     }
 

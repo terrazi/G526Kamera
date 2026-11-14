@@ -16,19 +16,18 @@ enum InternetProbe {
     ]
     static let address = targets[0].url
     static let timeout: TimeInterval = 10
+    /// Nabız yoklamasının sınırı: yol ölüyse bu kadar sonra "yok" denir
+    static let quickTimeout: TimeInterval = 3
 
     static func isOnline() async -> Bool {
         return await check().online
     }
 
-    /// İlk adres olmazsa diğer ikisi aynı anda denenir; biri olursa internet var. Olmazsa kısa neden döner ("gstatic.com hata -1001, …").
+    /// Üç adres aynı anda denenir; ilk başaran internet var demektir (hepsi susarsa tek bir zaman aşımı kadar beklenir, art arda
+    /// değil). Olmazsa kısa neden döner ("gstatic.com hata -1001, …").
     static func check() async -> (online: Bool, detail: String) {
-        let first = await attempt(targets[0])
-        if first.ok { return (true, "") }
-        var reasons = ["\(targets[0].host) \(first.reason)"]
-        let others = Array(targets.dropFirst())
         let result: (Bool, [String]) = await withTaskGroup(of: (Bool, String).self) { group in
-            for t in others {
+            for t in targets {
                 group.addTask {
                     let r = await attempt(t)
                     return (r.ok, "\(t.host) \(r.reason)")
@@ -44,12 +43,26 @@ enum InternetProbe {
             }
             return (false, list)
         }
-        if result.0 { return (true, "") }
-        reasons.append(contentsOf: result.1)
-        return (false, reasons.joined(separator: ", "))
+        return result.0 ? (true, "") : (false, result.1.joined(separator: ", "))
     }
 
-    private static func attempt(_ target: Target) async -> (ok: Bool, reason: String) {
+    /// Nabız: ilk iki adrese aynı anda, kısa sınırla; biri cevap verirse yol canlıdır
+    static func quick() async -> Bool {
+        return await withTaskGroup(of: Bool.self) { group in
+            for t in targets.prefix(2) {
+                group.addTask { return await attempt(t, timeout: quickTimeout).ok }
+            }
+            for await ok in group {
+                if ok {
+                    group.cancelAll()
+                    return true
+                }
+            }
+            return false
+        }
+    }
+
+    private static func attempt(_ target: Target, timeout: TimeInterval = InternetProbe.timeout) async -> (ok: Bool, reason: String) {
         guard let url = URL(string: target.url) else { return (false, "adres hatalı") }
         var request = URLRequest(url: url)
         request.timeoutInterval = timeout

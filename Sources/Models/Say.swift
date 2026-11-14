@@ -6,6 +6,8 @@ enum Say {
     static let ready = "Ben hazırım, sistem kontrol edildi ve problem yok, şimdi ilk soruyu okumanı bekliyorum."
     /// Modül 4: kestirme çalışıp bağlantı düzelince
     static let recovered = "Bağlantı sorunu giderildi ve sistem yeniden hazır. Lütfen en son kaldığın soruyu tekrar oku."
+    /// Kısa kesintide (birkaç saniye) uzun anons yerine
+    static let recoveredShort = "Hazır. Son soruyu tekrar oku."
 
     static let soundTest = "Ses denemesi. Beni kulaklığınızdan duyuyorsanız ses yolu çalışıyor."
     static func lowBattery(_ percent: Int) -> String {

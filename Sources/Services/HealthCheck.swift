@@ -16,6 +16,8 @@ protocol HealthChecking: AnyObject {
     func internetReachable() async -> Bool
     /// Gemini'ye anahtarla ping (model listesinin ilk sayfası; belirteç harcamaz)
     func gemini(key: String) async -> GeminiHealth
+    /// Nabız: tek hafif yoklama (en çok ~3 sn); yol şu an canlı mı. Gemini anahtarına dokunmaz.
+    func quickProbe() async -> Bool
 }
 
 extension HealthChecking {
@@ -44,6 +46,10 @@ final class NetworkHealth: HealthChecking {
 
     func internetReachable() async -> Bool {
         return await InternetProbe.isOnline()
+    }
+
+    func quickProbe() async -> Bool {
+        return await InternetProbe.quick()
     }
 
     func gemini(key: String) async -> GeminiHealth {

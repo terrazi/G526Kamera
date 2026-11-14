@@ -13,7 +13,8 @@ extension SessionViewModel {
         pauseForHardware(summary: verdict.summary, detail: detail, grace: grace)
     }
 
-    private func pauseForHardware(summary: String, detail: String, grace: TimeInterval?) {
+    func pauseForHardware(summary: String, detail: String, grace: TimeInterval?) {
+        if outageStart == nil { outageStart = deps.now() }
         work?.cancel()
         work = nil
         deps.speaker.stop()
@@ -229,7 +230,7 @@ extension SessionViewModel {
         work = Task { [weak self] in await self?.runRecovery(.network) }
     }
 
-    private func reconnectIfHealthy() async {
+    func reconnectIfHealthy() async {
         guard await verify(.network, key: settings.primaryKey) else { return }
         guard !Task.isCancelled, case .paused(.noConnection) = phase else { return }
         retryTask?.cancel()
@@ -249,6 +250,7 @@ extension SessionViewModel {
 
     /// Mikrofon kapanır, Kestirmeler sırayla çalışır (Wi-Fi → hücresel → sıfırlama). Sonucu çağıran işler.
     func performRecovery(_ reason: RecoveryReason, force: Bool = false) async -> RecoveryCoordinator.Result {
+        if outageStart == nil { outageStart = deps.now() }
         deps.listener.pause()
         watchdog.disarm()
         cancelTimers()
@@ -349,7 +351,8 @@ extension SessionViewModel {
             beginListening()
             return
         }
-        guard await speakNotice(Say.recovered) else { return }
+        let brief = settings.instantDetection && SessionViewModel.isBriefOutage(since: outageStart, now: deps.now())
+        guard await speakNotice(brief ? Say.recoveredShort : Say.recovered) else { return }
         beginListening()
     }
 }

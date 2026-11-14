@@ -25,6 +25,8 @@ final class SessionHarness {
         root = makeTempFolder("g526-oturum")
         let defaults = UserDefaults(suiteName: "g526.testler.\(UUID().uuidString)")!
         settings = AppSettings(defaults: defaults)
+        // Anında tespit (nabız) varsayılan olarak açıktır; eski testlerin zamanlaması bozulmasın diye burada kapalı, ona ait testler açar
+        settings.instantDetection = false
         if shortcutNames {
             settings.wifiShortcut = "WiFi_Ac"
             settings.cellularShortcut = "Hücresel_Ac"

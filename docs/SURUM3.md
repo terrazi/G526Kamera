@@ -97,3 +97,24 @@ Cihazda denenmedi: Lightning mikrofon + Bluetooth çıkışın aynı anda çalı
 ücretsiz kotası ve gecikmesi, Kestirmelerin uygulamaya dönmesi, kilitli ekranda davranış, kayıt klasörü seçicisi, ekran kilidi
 penceresi ve ekran kısma, Duraklat/Devam et ve Sesi dene'nin gerçek kulaklıkla davranışı, `AQ.` ile başlayan anahtarların kabulü. Arama ve mesaj engelleme uygulamadan
 yapılamaz (Odak + Kestirme önerilir).
+
+## Anında tespit (nabız) — `SessionViewModel+Sentinel.swift`
+
+iOS bildirimleri kopmayı geç ya da hiç bildirmeyebilir (ses servisi çökünce önceden bildirim yok; Wi-Fi "bağlı" ama ölü; motor sessizce durur).
+Bu yüzden kopma ölçülerek yakalanır. Ayar: `AppSettings.instantDetection` (varsayılan açık; testlerde `SessionHarness` kapatır).
+
+- **Döngü:** `sentinelTick` (0,5 sn), `start()` ile kurulur, oturum bitince kendiliğinden durur.
+- **Mikrofon:** dinlerken `secondsSinceAudio` (son ses tamponu) `micStallLimit` (1,2 sn) aşılırsa ya da dinleyici durduysa `healMic`: eldeki metin `commitCurrent` ile korunur,
+  ses oturumu yeniden etkinleştirilir, yol güvenliyse dinleme yeniden başlar. Art arda `maxMicHeals`=3 onarım işe yaramazsa `runRecovery(.hardware, force: true)`.
+  Dinleme başlayınca `micWarmupTicks` kadar nabız beklenir. `SpeechEvent.engineStopped` (AVAudioEngineConfigurationChange) aynı onarımı bildirim gelir gelmez başlatır.
+- **Ses servisi:** `mediaServicesWereLost/Reset` → `onMediaServicesReset` → `mediaServicesReset`: duraklat, `mediaHealDelay` (0,3 sn) sonra `configure()`; servis dönmediyse
+  1 sn arayla 5 kez denenir; yol güvenliyse `routeStable` sonra devam.
+- **İnternet:** `netBeat` (`InternetProbe.quick`, 3 sn sınır, iki adres paralel). Her `netBeatEvery`=10 nabızda (5 sn) ve `NWPathMonitor` her yol değişiminde (`onPathChange`). Art arda
+  `netFailLimit`=2 yoklama başarısızsa (ikincisi ~1 sn sonra) `runRecovery(.network)`. `.paused(.noConnection)` iken her 2 sn'de yoklanır; başarılıysa `reconnectIfHealthy`.
+  `InternetProbe.check` üç adresi artık paralel dener (en kötü durumda 20 sn yerine 10 sn).
+- **Donanım dönüşü:** `.paused(.hardware)` iken yol güvenli hâle geldiyse (bildirim gelmese de) `routeStable` sonra devam (`watchReturns`).
+- **Gecikmeler kısaltıldı:** `outputQuickDelay` 3→1 sn, `routeStable` 1,5→1 sn, `offlineDebounce` 3→1 sn (onarım önce bağlantıyı sınar, sağlamsa Kestirme çalıştırmaz).
+- **Kısa kesinti:** `briefOutage` (8 sn) altındaysa `Say.recoveredShort`.
+- **Ekran/günlük:** `liveStatus` ("Canlı: Kulaklık ✓ · Mikrofon ✓ · İnternet ✓"), günlükte `[tespit]` satırları.
+- **Bilinen sınır:** çıkış (kulaklık) için kopma yalnız iOS yol bildirimiyle ve `watchReturns` ile görülür; Bluetooth bağlantısı sessizce ölüp iOS yolu değiştirmezse ölçülemez.
+

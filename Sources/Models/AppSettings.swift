@@ -18,6 +18,7 @@ final class AppSettings: ObservableObject {
         static let geminiProfiles = "v3.geminiProfiles"
         static let dimScreen = "v3.dimScreen"
         static let spokenWarnings = "v3.spokenWarnings"
+        static let instantDetection = "v3.instantDetection"
         static let shortcutOutput = "v3.shortcutOutput"
         static let phoneVoice = "v3.phoneVoice"
     }
@@ -93,6 +94,11 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(spokenWarnings, forKey: Key.spokenWarnings) }
     }
 
+    /// Anında tespit: mikrofon ve internet için yarım saniyelik nabız; kopmayı bildirim beklemeden yakalar ve hemen onarır
+    @Published var instantDetection: Bool {
+        didSet { defaults.set(instantDetection, forKey: Key.instantDetection) }
+    }
+
     /// Test sürerken (kırmızı uyarı yokken) ekran pil için kısılsın mı
     @Published var dimScreen: Bool {
         didSet { defaults.set(dimScreen, forKey: Key.dimScreen) }
@@ -132,6 +138,7 @@ final class AppSettings: ObservableObject {
         geminiVoice = defaults.object(forKey: Key.geminiVoice) as? Bool ?? true
         dimScreen = defaults.object(forKey: Key.dimScreen) as? Bool ?? false
         spokenWarnings = defaults.object(forKey: Key.spokenWarnings) as? Bool ?? true
+        instantDetection = defaults.object(forKey: Key.instantDetection) as? Bool ?? true
         phoneVoiceID = defaults.string(forKey: Key.phoneVoice) ?? ""
         let saved = defaults.data(forKey: Key.geminiProfiles).flatMap { try? JSONDecoder().decode([GeminiProfile].self, from: $0) }
         geminiProfiles = GeminiProfiles.migrated(saved ?? [])

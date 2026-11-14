@@ -290,6 +290,12 @@ struct ContentView: View {
                     .foregroundColor(session.routeVerdict?.isSafe == false ? .orange : .secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            if !session.liveStatus.isEmpty {
+                Text(session.liveStatus)
+                    .font(.footnote)
+                    .foregroundColor(session.liveStatus.contains("✗") ? .orange : .secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if session.routeVerdict?.headphonesOK == false {
                 // Elle bağlanılamaz (sınavdaki kişi telefona dokunamaz): kulaklığı yalnız Kestirmeler kendiliğinden geri alabilir
                 Text(settings.outputShortcut.trimmed.isEmpty
