@@ -101,7 +101,7 @@ extension SessionViewModel {
 
     /// Donanım duraklamasında yol bildirimi gelmeden düzeldiyse devam edilmesini başlatır
     func watchReturns() {
-        guard case .paused(.hardware) = phase, stableTask == nil, !interruptionActive, !holdForRetry,
+        guard case .paused(.hardware) = phase, work == nil, stableTask == nil, !interruptionActive, !holdForRetry,
               AudioRouting.verdict(deps.route.snapshot()).isSafe else { return }
         tlog("[tespit] ses yolu geri geldi (bildirim gelmeden); devam ediliyor")
         stableTask = deps.scheduler.after(Timing.routeStable) { [weak self] in self?.hardwareReturned() }
