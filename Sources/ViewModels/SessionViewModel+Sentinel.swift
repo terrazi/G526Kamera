@@ -29,6 +29,14 @@ extension SessionViewModel {
             if !liveStatus.isEmpty { liveStatus = "" }
             return
         }
+        noteTickLateness()
+        heartbeatTicks += 1
+        if heartbeatTicks >= Timing.heartbeatEveryTicks {
+            heartbeatTicks = 0
+            deps.journal.heartbeat()
+        }
+        systemTick()
+        superviseStuck()
         watchMic()
         watchReturns()
         netBeatTicks += 1

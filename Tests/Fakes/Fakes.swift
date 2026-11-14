@@ -123,6 +123,10 @@ final class FakeListener: SpeechListening {
         isRunning = false
     }
 
+    /// Bellek baskısında yardımcı İngilizce tanıyıcının kapatılıp açılması (true: kapatıldı)
+    private(set) var trimStates: [Bool] = []
+    func trimMemory(_ on: Bool) { trimStates.append(on) }
+
     /// Kullanıcı konuştu: dikte kısmi metni
     func say(_ text: String) { onEvent?(.partial(text)) }
 }
@@ -355,4 +359,51 @@ func waitUntil(_ timeout: TimeInterval = 3, _ condition: @MainActor () -> Bool) 
 @MainActor
 func settle(_ rounds: Int = 40) async {
     for _ in 0..<rounds { await Task.yield() }
+}
+
+
+/// Telefonun kaynak durumu: testler `current` değerini değiştirip sistemin bildirimlerini tetikler
+@MainActor
+final class FakeSystem: SystemHealthProviding {
+    var current = SystemSnapshot(availableMemoryMB: 1500, footprintMB: 200, thermal: .nominal, lowPowerMode: false, freeDiskMB: 5000)
+    var onMemoryWarning: (() -> Void)?
+    var onThermalChange: (() -> Void)?
+    var onPowerModeChange: (() -> Void)?
+    func snapshot() -> SystemSnapshot { return current }
+}
+
+/// Çalışmalar arası defter: testler `start` ile "önceki çalışma böyle bitti" der, yazılanları `saved*` alanlarından okur
+@MainActor
+final class FakeJournal: RunJournaling {
+    var start = RunStart.fresh
+    private(set) var beginCalls = 0
+    private(set) var sessionOpen = false
+    private(set) var openHistory: [Bool] = []
+    private(set) var heartbeats = 0
+    private(set) var pending: PendingWork?
+    private(set) var nextNumber = 1
+    private(set) var folder: String?
+    private(set) var deliberate = false
+
+    func beginRun() -> RunStart {
+        beginCalls += 1
+        return start
+    }
+    func setSessionOpen(_ open: Bool) {
+        sessionOpen = open
+        openHistory.append(open)
+    }
+    func heartbeat() { heartbeats += 1 }
+    func savePending(_ work: PendingWork?) { pending = work }
+    func saveNextNumber(_ number: Int) { nextNumber = number }
+    func saveFolder(_ name: String?) { folder = name }
+    func markDeliberateClose() {
+        deliberate = true
+        sessionOpen = false
+    }
+}
+
+/// Kapanma sayacı ("Programı kapat" gerçekten çıkışı istedi mi)
+final class ExitCounter {
+    var count = 0
 }

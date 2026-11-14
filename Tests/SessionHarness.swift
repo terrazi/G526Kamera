@@ -16,6 +16,9 @@ final class SessionHarness {
     let player = FakePlayer()
     let screen = FakeScreen()
     let battery = FakeBattery()
+    let system = FakeSystem()
+    let journal = FakeJournal()
+    let exits = ExitCounter()
     let scheduler = ManualScheduler()
     let root: URL
     let settings: AppSettings
@@ -33,6 +36,7 @@ final class SessionHarness {
             settings.bluetoothShortcut = "Bluetooth_Yenile"
             settings.resetShortcut = "Sistemi_Sifirla"
         }
+        let exitCounter = exits
         let deps = SessionDependencies(route: route,
                                        listener: listener,
                                        recorder: recorder,
@@ -50,7 +54,10 @@ final class SessionHarness {
                                        sleep: { _ in },
                                        recoveryConfig: RecoveryCoordinator.Config(settle: 0, verifyWindow: 0, verifyInterval: 1,
                                                                                   cycleGap: 0, maxCycles: 1),
-                                       battery: battery)
+                                       battery: battery,
+                                       system: system,
+                                       journal: journal,
+                                       terminate: { exitCounter.count += 1 })
         vm = SessionViewModel(settings: settings, deps: deps)
         let announcedBy = vm
         speaker.isAnnouncement = { text in announcedBy.announced.contains(text) }

@@ -4,8 +4,24 @@ import Foundation
 extension SessionViewModel {
     func runStartup() async {
         deps.library.prepare()
+        checkSystemAtStart()
         do {
-            sessionFolder = try deps.library.newSessionFolder(for: deps.now())
+            // Beklenmedik kapanmadan sonra aynı klasöre ve numaraya devam edilir (cevaplar ikiye bölünmesin, soru_N ezilmesin)
+            if let name = resume?.folder, let existing = deps.library.existingSessionFolder(named: name) {
+                sessionFolder = existing
+            } else {
+                sessionFolder = try deps.library.newSessionFolder(for: deps.now())
+            }
+            if let folder = sessionFolder { deps.journal.saveFolder(folder.lastPathComponent) }
+            if let resume = resume {
+                var onDisk = 0
+                if let folder = sessionFolder {
+                    for file in deps.library.answerFiles(in: folder) {
+                        onDisk = max(onDisk, AnswerLibrary.questionNumber(fromFileName: file.lastPathComponent) ?? 0)
+                    }
+                }
+                nextNumber = max(nextNumber, resume.nextNumber, onDisk + 1)
+            }
         } catch {
             await failStart("Cevap klasörü açılamadı: \(error.localizedDescription)")
             return
@@ -92,6 +108,19 @@ extension SessionViewModel {
         // 5) Hepsi tamam: anons ve dinleme. Anons yarıda kesilirse (kulaklık koptu) açılış kontrolü yol dönünce baştan yapılır
         clearWarning("start")
         pendingStart = true
+        if let resumed = resume {
+            // Beklenmedik kapanmadan sonra yeniden açıldık: ne olduğu söylenir, yarım kalan soru tamamlanır. Anons yarıda kesilirse
+            // (kulaklık koptu) `resume` durur ve kontrol yol dönünce baştan yapılır.
+            guard await speakNotice(Say.resumed(cause: resumed.cause, downSeconds: resumed.downSeconds, pending: resumed.pending)) else { return }
+            pendingStart = false
+            resume = nil
+            if let pending = resumed.pending {
+                await resumePending(pending)
+            } else {
+                beginListening()
+            }
+            return
+        }
         guard await speakNotice(Say.ready) else { return }
         pendingStart = false
         beginListening()

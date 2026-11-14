@@ -43,7 +43,9 @@ final class AppEnvironment: ObservableObject {
                                        screen: SystemScreen(),
                                        scheduler: DispatchScheduler(),
                                        library: AnswerLibrary(resolver: { folderStore.resolution() }, refresh: { folderStore.refresh() }),
-                                       battery: SystemBattery())
+                                       battery: SystemBattery(),
+                                       system: SystemHealthMonitor(),
+                                       journal: RunJournal())
         let session = SessionViewModel(settings: settings, deps: deps)
         self.settings = settings
         self.session = session
@@ -72,6 +74,7 @@ final class AppEnvironment: ObservableObject {
 
     /// Uygulama arka plana ya da pasife geçerken kullanıcının parlaklığı geri verilir
     func appBecameInactive() {
+        tlog("[uygulama] arka plana ya da pasife geçti")
         isActive = false
         syncDimming()
     }
@@ -91,6 +94,7 @@ final class AppEnvironment: ObservableObject {
 
     /// Uygulama öne gelince zamanlayıcı yeniden kurulur (arka planda zamanlayıcılar duraklar); duraklatılmışsa ses yoluna yeniden bakılır
     func appBecameActive() {
+        tlog("[uygulama] öne geldi")
         isActive = true
         syncDimming()
         starter.apply(enabled: settings.startEnabled, minutes: settings.startMinutes)

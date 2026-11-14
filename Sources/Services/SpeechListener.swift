@@ -74,6 +74,8 @@ protocol SpeechListening: AnyObject {
     func start() throws
     /// Mikrofonu ve tanıyıcıyı kapatır; bekleyen sonuçlar yok sayılır
     func pause()
+    /// Bellek ya da ısı baskısında yardımcı İngilizce tanıyıcı bırakılır (true), rahatlayınca geri açılır (false). Türkçe dinleme sürer.
+    func trimMemory(_ on: Bool)
 }
 
 /// Mikrofon tamponlarını ses iş parçacığından tanıma isteğine taşıyan, iş parçacığı güvenli kutu
@@ -185,6 +187,8 @@ final class OnDeviceSpeechListener: SpeechListening {
     private var restartTask: Task<Void, Never>?
     /// Bu dinleme boyunca yardımcı İngilizce tanıyıcı bırakıldı (Türkçe görev üst üste hata verdi)
     private var englishSuspended = false
+    /// Bellek ya da ısı baskısı yüzünden yardımcı İngilizce tanıyıcı kapalı (baskı geçince açılır)
+    private var memoryTrimmed = false
 
     var secondsSinceAudio: TimeInterval? {
         guard let last = sink.lastAudio else { return nil }
@@ -213,12 +217,32 @@ final class OnDeviceSpeechListener: SpeechListening {
         guard let recognizer = recognizer, recognizer.isAvailable else { throw ListenerError.unavailable }
         guard recognizer.supportsOnDeviceRecognition else { throw ListenerError.noOnDeviceModel }
         quickFailures = 0
-        englishSuspended = false
+        englishSuspended = memoryTrimmed
         try startEngine()
         isRunning = true
         beginTask()
         englishQuickFailures = 0
         beginEnglishTask()
+    }
+
+    func trimMemory(_ on: Bool) {
+        guard on != memoryTrimmed else { return }
+        memoryTrimmed = on
+        if on {
+            englishSuspended = true
+            englishRequest?.endAudio()
+            englishTask?.cancel()
+            englishTask = nil
+            englishRequest = nil
+            sink.attachEnglish(nil)
+            englishRecognizer = nil   // modelin belleği bırakılır
+            tlog("[sistem] yardımcı İngilizce tanıyıcı bellek için bırakıldı")
+        } else {
+            englishRecognizer = SFSpeechRecognizer(locale: OnDeviceSpeechListener.englishLocale)
+            englishSuspended = false
+            if isRunning { beginEnglishTask() }
+            tlog("[sistem] yardımcı İngilizce tanıyıcı geri açıldı")
+        }
     }
 
     func pause() {
@@ -420,7 +444,7 @@ final class OnDeviceSpeechListener: SpeechListening {
 
     private func renewRecognizers() {
         recognizer = SFSpeechRecognizer(locale: OnDeviceSpeechListener.locale)
-        englishRecognizer = SFSpeechRecognizer(locale: OnDeviceSpeechListener.englishLocale)
+        englishRecognizer = memoryTrimmed ? nil : SFSpeechRecognizer(locale: OnDeviceSpeechListener.englishLocale)
         tlog("[mikrofon] tanıyıcı nesneleri yeniden yaratıldı")
     }
 

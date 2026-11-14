@@ -84,6 +84,14 @@ struct AnswerLibrary {
         }
     }
 
+    /// Adı verilen oturum klasörü varsa (beklenmedik kapanmadan sonra aynı klasöre devam etmek için) adresi; yoksa nil
+    func existingSessionFolder(named name: String) -> URL? {
+        guard AnswerLibrary.parseFolderName(name) != nil else { return nil }
+        let url = root.appendingPathComponent(name, isDirectory: true)
+        var isDirectory: ObjCBool = false
+        return fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue ? url : nil
+    }
+
     /// İçinde cevap dosyası olan en yeni gün klasörü (tekrar modu için); yoksa nil
     func latestFolder() -> URL? {
         let names = (try? fileManager.contentsOfDirectory(atPath: root.path)) ?? []

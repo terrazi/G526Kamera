@@ -22,6 +22,12 @@ struct SessionDependencies {
     }
     var recoveryConfig = RecoveryCoordinator.Config()
     var battery: BatteryProviding = NoBattery()
+    /// Telefonun kaynak durumu (bellek, ısı, güç modu, boş yer) ve sistemin uyarıları
+    var system: SystemHealthProviding = NoSystemHealth()
+    /// Çalışmalar arası kalıcı defter (beklenmedik kapanmayı anlamak ve yarım kalan işi tamamlamak için)
+    var journal: RunJournaling = NoJournal()
+    /// Programı gerçekten kapatır ("Programı kapat" düğmesi); testlerde sahtesi verilir
+    var terminate: () -> Void = { exit(0) }
 }
 
 /// Donanım kontrolü maddesi (ekranda ✓ / ✗)

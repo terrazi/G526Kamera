@@ -65,6 +65,11 @@ enum ShortcutLink {
     static func isStartURL(_ url: URL) -> Bool {
         return isOurs(url) && url.host == "basla"
     }
+
+    /// seslikontrol://yeniden: Kestirmeler'deki "uygulama kapanınca yeniden aç" otomasyonu bu adresi açar (oturumu açılışta `launched` sürdürür)
+    static func isReopenURL(_ url: URL) -> Bool {
+        return isOurs(url) && url.host == "yeniden"
+    }
 }
 
 @MainActor

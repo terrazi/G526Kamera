@@ -240,6 +240,8 @@ struct ContentView: View {
                     .buttonStyle(.borderedProminent)
                     .tint(.red)
             }
+            HoldToCloseButton(seconds: SessionViewModel.Timing.closeHold) { session.closeByUser() }
+                .padding(.top, 6)
         }
         .frame(maxWidth: .infinity)
     }

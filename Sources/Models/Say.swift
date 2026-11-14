@@ -9,6 +9,37 @@ enum Say {
     /// Kısa kesintide (birkaç saniye) uzun anons yerine
     static let recoveredShort = "Hazır. Son soruyu tekrar oku."
 
+    // MARK: Beklenmedik kapanma, sistem sağlığı, takılma
+
+    /// Program beklenmedik kapanıp yeniden açılınca (sesli): ne oldu, yarım iş ne olacak
+    static func resumed(cause: String, downSeconds: Int?, pending: PendingWork?) -> String {
+        var text = "Program beklenmedik biçimde kapanıp yeniden açıldı"
+        if let seconds = downSeconds, seconds >= 3 { text += ", yaklaşık \(duration(seconds)) kapalı kaldı" }
+        text += ". Olası neden: \(cause)."
+        if let pending = pending {
+            text += pending.spoken != nil
+                ? " Son sorunun cevabını yeniden okuyorum."
+                : " Son sorunuz Gemini'ye gitmişti, cevabı yeniden alıyorum."
+        } else {
+            text += " Sistem hazır. Soru yarım kaldıysa lütfen son soruyu baştan okuyun."
+        }
+        return text
+    }
+
+    static func duration(_ seconds: Int) -> String {
+        return seconds < 90 ? "\(seconds) saniye" : "\(seconds / 60) dakika"
+    }
+
+    static let restartLoop = "Program kısa sürede art arda beklenmedik biçimde kapandı; açılış döngüsüne girmemek için otomatik başlatma durduruldu. Hazır olunca Başlat'a basın."
+    static let memoryLow = "Telefonun belleği azaldı. Yük azaltıldı: yardımcı İngilizce tanıma kapatıldı. Test sürüyor."
+    static let hot = "Telefon ısındı ve yavaşlayabilir. Mümkünse serin tutun. Test sürüyor."
+    static let veryHot = "Telefon çok ısındı ve kapanabilir. Mümkünse hemen serin bir yere alın."
+    static let lowPowerMode = "Telefon düşük güç modunda. Arka plandaki işler kısıtlanır; Ayarlar'dan düşük güç modunu kapatın."
+    static func lowDisk(_ megabytes: Int) -> String {
+        return "Telefonda yalnız \(megabytes) megabayt boş yer kaldı. Ses kayıtları yazılamayabilir."
+    }
+    static let stuckRestarting = "Bir adım beklenenden uzun sürdü; sistem yeniden kuruluyor."
+
     static let soundTest = "Ses denemesi. Beni kulaklığınızdan duyuyorsanız ses yolu çalışıyor."
     static func lowBattery(_ percent: Int) -> String {
         return "Telefonun şarjı yüzde \(percent). Telefonu şarja takın."

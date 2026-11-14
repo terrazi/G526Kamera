@@ -17,6 +17,7 @@ struct G526CameraDriveApp: App {
                 .environmentObject(environment.settings)
                 .environmentObject(environment.settingsModel)
                 .onOpenURL { environment.session.handleURL($0) }
+                .onAppear { environment.session.launched() }
                 .onChange(of: scenePhase) { phase in
                     if phase == .active {
                         environment.appBecameActive()

@@ -65,6 +65,35 @@ final class SessionViewModel: ObservableObject {
         static let proofMaxPolls = 14
         static let recognizerRounds = 3
         static let recognizerRetry: TimeInterval = 15
+        /// Sistem sağlığı: iOS'un kapatma eşiğine bu kadar bellek (MB) kalınca yük azaltılır, bu kadar toparlanınca geri açılır
+        static let lowMemoryMB = 250
+        static let memoryOKMB = 400
+        /// Boş yer bu kadar MB'ın altına inince uyarılır (ses kayıtları yazılamayabilir)
+        static let lowDiskMB = 200
+        /// Kaynak durumu her bu kadar nabızda bir (60 sn) günlüğe yazılıp denetlenir
+        static let systemEveryTicks = 120
+        /// Nabız bu kadar saniyeden geç gelirse günlüğe yazılır (ana iş parçacığı takıldı ya da uygulama askıya alındı)
+        static let tickLateLog: TimeInterval = 3
+        /// Uygulamanın yaşadığı her bu kadar nabızda bir deftere işlenir (5 sn)
+        static let heartbeatEveryTicks = 10
+        /// Beklenmedik kapanma: bu süre (sn) içinde bu kadar kez olursa otomatik başlatma durdurulur (açılış döngüsü)
+        static let loopWindow: TimeInterval = 120
+        static let loopLimit = 3
+        /// "Programı kapat" düğmesi: basılı tutma süresi (sn) ve günlüğün/panonun yazılması için kapanıştan önceki kısa bekleme
+        static let closeHold: TimeInterval = 3
+        static let closeDelay: TimeInterval = 0.4
+
+        /// Bir aşama bu süreden (sn) uzun hiç değişmezse takıldığı varsayılır (nil: o aşama sınırsız bekleyebilir, örn. dinleme ve duraklatmalar).
+        /// Sınırlar, aşamanın kendi en uzun meşru süresinin üstündedir (örn. Gemini zincirinin en kötü sessiz bekleyişi ~10 dk).
+        static func stuckLimit(for phase: SessionPhase) -> TimeInterval? {
+            switch phase {
+            case .checking: return 240
+            case .answering: return 660
+            case .speaking: return 180
+            case .recovering: return 360
+            default: return nil
+            }
+        }
     }
 
     // MARK: Ekranın gördüğü durum
@@ -73,6 +102,12 @@ final class SessionViewModel: ObservableObject {
         didSet {
             if phase != oldValue {
                 tlog("[oturum] \(phase.title)")
+                let open = SessionViewModel.countsAsSession(phase)
+                if open != SessionViewModel.countsAsSession(oldValue) {
+                    // Oturumun açık olduğu deftere ve günlüğe işlenir: uygulama bu arada kapanırsa sonraki açılış bunu görür
+                    deps.journal.setSessionOpen(open)
+                    tlog(open ? ExitAnalyzer.startedMark : "\(ExitAnalyzer.endedMark): \(phase.title)")
+                }
                 drainAnnouncementsIfQuiet()
             }
         }
@@ -167,6 +202,18 @@ final class SessionViewModel: ObservableObject {
     /// Konuşma tanıma onarımı: arada tek kelime tanınmadan kaç kez düştü; bekleme zamanlayıcısı
     var recognizerRepairs = 0
     var recognizerRetryTask: ScheduledTask?
+    /// Beklenmedik kapanmadan sonra oturum sürdürülüyor: anons edilip tüketilene kadar durur
+    var resume: ResumeInfo?
+    var launchHandled = false
+    /// Sistem sağlığı: bellek yükü azaltılmış mı, dakikalık sayaç, takılma gözcüsü ve nabız gecikmesi
+    var memoryLowActive = false
+    var thermalTrimmed = false
+    var systemTicks = 0
+    var watchedPhase: SessionPhase?
+    var watchedTicks = 0
+    var stuckTrips = 0
+    var lastTickAt: Date?
+    var heartbeatTicks = 0
 
     init(settings: AppSettings, deps: SessionDependencies) {
         self.settings = settings
@@ -185,6 +232,9 @@ final class SessionViewModel: ObservableObject {
         deps.network.onPathChange = { [weak self] in self?.networkPathChanged() }
         deps.route.onMediaServicesReset = { [weak self] in self?.mediaServicesReset() }
         deps.battery.onChange = { [weak self] in self?.batteryChanged() }
+        deps.system.onMemoryWarning = { [weak self] in self?.memoryWarningReceived() }
+        deps.system.onThermalChange = { [weak self] in self?.thermalChanged() }
+        deps.system.onPowerModeChange = { [weak self] in self?.powerModeChanged() }
         deps.listener.onEvent = { [weak self] event in self?.handleSpeech(event) }
         watchdog.onExpire = { [weak self] in self?.silenceExpired() }
         replay.onState = { [weak self] state in self?.replayChanged(state) }
@@ -244,13 +294,64 @@ final class SessionViewModel: ObservableObject {
         refreshReplayAvailability()
     }
 
-    /// seslikontrol://basla ve Kestirmeler dönüşleri
+    /// seslikontrol://basla (zamanlı başlatma), seslikontrol://yeniden (Kestirmeler "uygulama kapanınca aç" otomasyonu) ve Kestirmeler dönüşleri
     func handleURL(_ url: URL) {
         if ShortcutLink.isStartURL(url) {
             start()
             return
         }
+        if ShortcutLink.isReopenURL(url) {
+            // Yeniden açılış: uygulama kapanmışsa `launched` önceki oturumu zaten sürdürür; açıksa yalnız öne gelir
+            tlog("[açılış] otomasyon uygulamayı yeniden açtı (seslikontrol://yeniden)")
+            return
+        }
         deps.shortcuts.handleCallback(url)
+    }
+
+    // MARK: Açılış ve kapanış
+
+    /// Oturumun "açık" sayıldığı aşamalar: tekrar (replay) bir oturum değildir
+    static func countsAsSession(_ phase: SessionPhase) -> Bool {
+        return phase.isRunning && phase != .replaying
+    }
+
+    /// Uygulama açılınca bir kez çağrılır. Önceki çalışma oturum sürerken beklenmedik kapandıysa (iOS belleği, çökme, elle kapatma)
+    /// oturum kendiliğinden yeniden başlar ve yarım kalan iş tamamlanır. Kullanıcı "Programı kapat" ile kapattıysa ya da oturum düzgün
+    /// bittiyse hiçbir şey başlamaz. Kısa sürede art arda kapanma varsa (açılış döngüsü) otomatik başlatma yapılmaz.
+    func launched() {
+        guard !launchHandled else { return }
+        launchHandled = true
+        let run = deps.journal.beginRun()
+        tlog("[açılış] önceki çalışma: \(run.exit.logText)")
+        guard case .unexpected(let cause) = run.exit else { return }
+        guard !run.loop else {
+            deps.journal.setSessionOpen(false)
+            deps.journal.savePending(nil)
+            warn("kapanma", Say.restartLoop)
+            tlog("[açılış] kısa sürede art arda beklenmedik kapanma: otomatik başlatma durduruldu")
+            return
+        }
+        guard phase.isAtRest else { return }
+        resume = ResumeInfo(cause: cause, downSeconds: run.downSeconds, pending: run.pending, nextNumber: run.nextNumber, folder: run.folder)
+        tlog("[açılış] oturum kendiliğinden yeniden başlatılıyor (kapalı kalma: \(run.downSeconds.map { "\($0) sn" } ?? "bilinmiyor"), yarım iş: \(run.pending == nil ? "yok" : "var"))")
+        start()
+    }
+
+    /// "Programı kapat" düğmesine 3 saniye basıldı: oturum kapanır, defter ve pano "kullanıcı kapattı" olarak işaretlenir (yeniden açılmasın),
+    /// günlük diske yazılır ve program gerçekten çıkar.
+    func closeByUser() {
+        tlog("[kapanış] kullanıcı kapattı (düğmeye \(Int(Timing.closeHold)) sn basıldı)")
+        deps.journal.markDeliberateClose()
+        deps.journal.savePending(nil)
+        if phase == .replaying { stopReplay() }
+        if phase.isRunning { endTest() }
+        AppLog.shared.flush()
+        Task { [weak self] in
+            guard let self = self else { return }
+            await self.deps.sleep(Timing.closeDelay)
+            AppLog.shared.flush()
+            self.deps.terminate()
+        }
     }
 
     func resetSession() {
@@ -297,6 +398,14 @@ final class SessionViewModel: ObservableObject {
         recognizerRepairs = 0
         recognizerRetryTask?.cancel()
         recognizerRetryTask = nil
+        if memoryLowActive || thermalTrimmed { deps.listener.trimMemory(false) }
+        memoryLowActive = false
+        thermalTrimmed = false
+        systemTicks = 0
+        watchedPhase = nil
+        watchedTicks = 0
+        lastTickAt = nil
+        heartbeatTicks = 0
     }
 
     func cancelWork() {
@@ -329,7 +438,7 @@ final class SessionViewModel: ObservableObject {
 
     /// Kulaklıktan zaten başka yerde söylenen ("start": Kontrol başarısız, "cevap": Gemini hatası) ya da kulaklıktan söylenemeyen
     /// ("ses": okuma hatası) uyarılar ayrıca söylenmez
-    private static let silentWarnings: Set<String> = ["start", "cevap", "ses"]
+    private static let silentWarnings: Set<String> = ["start", "cevap", "ses", "kapanma", "gozcu"]
 
     /// Uyarıyı ekrana yazar; yeni ya da değişmişse kulaklıktan da söyler (`announce`)
     func warn(_ id: String, _ text: String) {
@@ -374,6 +483,7 @@ final class SessionViewModel: ObservableObject {
     func beginListening() {
         cancelTimers()
         abandonEntry("Cevap alınamadı. Soruyu yeniden okuyun.")
+        deps.journal.savePending(nil)   // dinlemeye dönüldüyse yarım kalan iş yoktur
         unheard = nil
         accumulator.clear()
         englishAccumulator.clear()
@@ -482,11 +592,32 @@ final class SessionViewModel: ObservableObject {
         statusNote = ""
         let question = match.question
         // Kayıt, okunan numarayla yapılır: kullanıcı soruları sırayla okumak zorunda değildir
-        let spokenNumber = SpokenNumber.extract(from: question)
+        dispatchQuestion(question, english: english, audio: audio, spokenNumber: SpokenNumber.extract(from: question))
+    }
+
+    /// Soruyu listeye işler, "yarım kalan iş" olarak deftere yazar (uygulama bu arada kapanırsa yeniden sorulur) ve Gemini'ye gönderir
+    func dispatchQuestion(_ question: String, english: String, audio: Data?, spokenNumber: Int?) {
         let announced = spokenNumber ?? nextNumber
         beginEntry(text: question, withAudio: audio != nil, number: announced)
+        deps.journal.savePending(PendingWork(question: question, english: english, spokenNumber: spokenNumber, number: nil, spoken: nil))
         tlog("[soru \(announced)] Gemini'ye gönderildi (\(audio != nil ? "ses kaydıyla" : "yalnız metin"), \(question.count) karakter; numara \(spokenNumber != nil ? "okundu" : "okunmadı, sıradaki"))")
         work = Task { [weak self] in await self?.answer(question: question, english: english, audio: audio, spokenNumber: spokenNumber) }
+    }
+
+    /// Beklenmedik kapanmadan önce Gemini'ye gitmiş soru yeniden sorulur (ses kaydı kaybolduğu için yalnız metinle); cevabı alınmış ama
+    /// duyulmamışsa yalnız cevap yeniden okunur
+    func resumePending(_ pending: PendingWork) async {
+        if let spoken = pending.spoken, let number = pending.number {
+            tlog("[soru \(number)] kapanmadan önce alınan cevap yeniden okunuyor")
+            guard await speakNotice(spoken) else { return }
+            beginListening()
+            return
+        }
+        phase = .answering
+        statusNote = ""
+        liveText = pending.question
+        tlog("[soru] kapanmadan önce gönderilen soru yeniden soruluyor (yalnız metin)")
+        dispatchQuestion(pending.question, english: pending.english, audio: nil, spokenNumber: pending.spokenNumber)
     }
 
     // MARK: Cevaplama ve seslendirme (Modül 5)
@@ -507,6 +638,8 @@ final class SessionViewModel: ObservableObject {
             // Cevap yedek profilden geldiyse sebebi kırmızı kutuda yazılır; ilk profilden gelince silinir
             if reply.note.isEmpty { clearWarning("yedek") } else { warn("yedek", reply.note) }
             store(record)
+            deps.journal.saveNextNumber(nextNumber)
+            deps.journal.savePending(PendingWork(question: question, english: english, spokenNumber: spokenNumber, number: number, spoken: record.spoken))
             phase = .speaking
             unheard = record
             var base: URL?
@@ -556,7 +689,9 @@ final class SessionViewModel: ObservableObject {
         questions[index].state = state
         switch state {
         case .answered: tlog("[soru \(number ?? questions[index].number)] cevap geldi (\(model))")
-        case .failed(let reason): tlog("[soru \(questions[index].number)] gitmedi: \(reason)")
+        case .failed(let reason):
+            tlog("[soru \(questions[index].number)] gitmedi: \(reason)")
+            deps.journal.savePending(nil)   // kullanıcıdan soruyu yeniden okuması istenir; yarım kalan iş kalmaz
         case .sending: break
         }
         if let number = number { questions[index].number = number }
