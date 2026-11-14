@@ -123,12 +123,11 @@ arada başka bir şey kopyaladıysanız panonuza dokunulmaz (silmek için panoyu
 oturum biter, uygulama panoya `SESLIKONTROL-KAPALI` yazar, otomasyon bunu görüp uygulamayı yeniden açmaz. Bu düğme dışındaki her
 kapanış (oturum sürerken) beklenmedik sayılır.
 
-Sınırlar (dürüstçe): (0) **2026-11-14 evde denemede: oturum sürerken uygulamayı yukarı kaydırıp kapatınca uygulama yeniden AÇILMADI.**
-Nedeni kesin bilinmiyor (otomasyon kurulu olmayabilir, panoda işaret kalmış olabilir ya da iOS "Kapatıldı" tetikleyicisini zorla
-kapatmadan sonra çalıştırmıyor olabilir; kamuya açık bildirimlere göre tetikleyici uygulamadan çıkınca/ekran kilitlenince/Denetim
-Merkezi açılınca çalışır, zorla kapatmayı garanti etmez). Bu yüzden **kaydırıp kapatmadan sonra otomatik yeniden açılma garanti
-edilmez**; uygulamayı elle açtığınızda oturum kaldığı yerden sürer. Açılışta günlüğe "[açılış] pano işareti: …" satırı yazılır:
-işaret engel olduysa orada görünür. (1) Bu otomasyon telefonda denenmeden güvenilmemeli. Evde dört deneme: Başlat'tan sonra uygulamayı yukarı kaydırıp
+Sınırlar (dürüstçe): (0) 2026-11-14 evde denemede ilk bakışta oturum sürerken yukarı kaydırıp kapatınca uygulama açılmamış görünmüştü; sonradan
+kullanıcı ikisinin de (yeniden açılma ve ekran kısma) çalıştığını bildirdi. Yine de iOS "Kapatıldı" tetikleyicisini zorla kapatmadan sonra
+çalıştırmayı belgelemiyor (kamuya açık bildirimlere göre uygulamadan çıkınca/ekran kilitlenince/Denetim Merkezi açılınca da çalışır), bu yüzden
+her iOS sürümünde aynı olacağı garanti edilmez. Açılışta günlüğe "[açılış] pano işareti: …" satırı yazılır: otomasyon bir gün açmazsa işaretin
+engel olup olmadığı orada görünür. (1) Bu otomasyon telefonda denenmeden güvenilmemeli. Evde dört deneme: Başlat'tan sonra uygulamayı yukarı kaydırıp
 kapatın (birkaç saniyede yeniden açılmalı); "Programı kapat" ile kapatın (açılmamalı); Başlat > Testi Bitir > başka uygulamaya geçin
 (geri gelmemeli); Ayarlar'dan bir kestirmeyi "Dene" ile çalıştırın (kestirme çalışıp uygulamaya dönmeli). (2) Oturum sürerken başka uygulamaya
 geçerseniz otomasyon Sesli Kontrol'ü öne geri getirir (sınav okuyucusu için çoğu zaman istenen budur). (3) Telefon kilitliyken iOS başka
