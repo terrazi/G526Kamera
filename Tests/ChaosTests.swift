@@ -20,9 +20,13 @@ final class ChaosTests: XCTestCase {
         }
     }
 
+    /// Tohum sayıları (kalıcı); bir arama turunda geçici olarak büyütülür
+    static let realisticSeeds = 1500
+    static let burstSeeds = 2500
+
     /// Olay havuzu: sık görülenler birden çok kez yazılarak ağırlıklandırılır
     private static let pool: [Int] = [0, 0, 0, 1, 2, 3, 3, 4, 5, 5, 5, 6, 7, 7, 8, 9, 9, 10, 11, 12, 13, 14, 14, 15, 16,
-                                      17, 17, 17, 17, 18, 19, 20, 21, 22, 22, 23, 24, 25, 26, 26]
+                                      17, 17, 17, 17, 18, 19, 20, 21, 22, 22, 23, 24, 25, 26, 26, 27, 28]
 
     /// Zamanı ilerletir. `burst`: süre tek hamlede geçer (tüm nöbetçi vuruşları görevlere nefes aldırmadan art arda çalışır; uç durum);
     /// aksi hâlde yarım saniyelik adımlarla geçer ve her adımda görevlerin ilerlemesine izin verilir (gerçek zamana yakın).
@@ -85,6 +89,8 @@ final class ChaosTests: XCTestCase {
         case 23: h.health.quickResults = [false, false]; return "internet nabzı kaçtı"
         case 24: h.answering.hold = true; return "Gemini takıldı"
         case 25: h.answering.hold = false; h.answering.release(); return "Gemini yanıt verdi"
+        case 27: h.vm.recheckHardware(); return "uygulama öne geldi"
+        case 28: h.network.onPathChange?(); return "ağ yolu değişti"
         default: h.speaker.hold = false; h.speaker.release(); return "okuma devam etti"
         }
     }
@@ -169,7 +175,7 @@ final class ChaosTests: XCTestCase {
     /// Gerçek zamana yakın: zaman yarım saniyelik adımlarla geçer, görevler her adımda ilerler
     func testRandomOutagesNeverDeadlockTheSession() async {
         var failed = 0
-        for seed in 1...100 {
+        for seed in 1...ChaosTests.realisticSeeds {
             let problems = await runSequence(seed: UInt64(seed), burst: false)
             if !problems.isEmpty {
                 failed += 1
@@ -182,7 +188,7 @@ final class ChaosTests: XCTestCase {
     /// Uç durum: ana iş parçacığı bir süre tıkanıp sayaçlar art arda ateşlenirse (ya da zaman tek hamlede geçerse) de oturum kilitlenmez
     func testRandomOutagesWithBurstedTimeNeverDeadlockTheSession() async {
         var failed = 0
-        for seed in 1...160 {
+        for seed in 1...ChaosTests.burstSeeds {
             let problems = await runSequence(seed: UInt64(seed), burst: true)
             if !problems.isEmpty {
                 failed += 1
