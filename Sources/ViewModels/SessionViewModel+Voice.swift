@@ -72,8 +72,28 @@ extension SessionViewModel {
 }
 
 /// "Çıkışı kulaklığa al" kestirmesi: Kestirmeler'deki "Oynatma Hedefini Ayarla" eylemi çıkışı Bluetooth kulaklığa (listede "Bluetooth music"
-/// gibi görünür) alır. iOS bir uygulamanın Bluetooth ayarlarında bağlantı kesip kurmasına izin vermez; bunu yalnız Kestirmeler yapabilir.
+/// gibi görünür) alır. iOS bir uygulamanın Bluetooth ayarlarında bağlantı kesip kurmasına izin vermez ve ayarlardaki aygıta dokunamaz;
+/// bunu yalnız Kestirmeler yapabilir. Elle yapılacak bir yol yoktur: sınavdaki kişi telefona dokunamaz, her şey kendiliğinden olmalıdır.
 extension SessionViewModel {
+    /// Kulaklık yoldan çıkıp duraklatılınca, 20 sn'lik donanım beklemesini beklemeden birkaç saniye sonra kestirme bir kez çalıştırılır.
+    /// Kestirme tanımlı değilse ya da hak bittiyse hiçbir şey kurulmaz.
+    func scheduleQuickOutputFix() {
+        outputQuick?.cancel()
+        outputQuick = nil
+        guard !settings.outputShortcut.trimmed.isEmpty, outputTries < Timing.maxOutputTries else { return }
+        outputQuick = deps.scheduler.after(Timing.outputQuickDelay) { [weak self] in self?.quickOutputFix() }
+    }
+
+    private func quickOutputFix() {
+        outputQuick = nil
+        guard !interruptionActive, case .paused(.hardware) = phase,
+              !AudioRouting.verdict(deps.route.snapshot()).headphonesOK else { return }
+        outputQuickRun = Task { [weak self] in
+            guard let self = self else { return }
+            _ = await self.outputShortcutFixedRoute()
+        }
+    }
+
     /// Kestirme tanımlıysa (ve bu oturumda hakkı bittiyse değilse) çalıştırır, ses oturumunu yeniler ve yeni yol değerlendirmesini verir.
     /// Tanımlı değilse ya da hak bittiyse nil.
     func switchOutputToHeadphones() async -> RouteVerdict? {

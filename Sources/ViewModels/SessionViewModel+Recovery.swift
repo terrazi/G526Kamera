@@ -27,6 +27,7 @@ extension SessionViewModel {
         phase = .paused(.hardware(summary))
         if let grace = grace {
             hardwareGrace = deps.scheduler.after(grace) { [weak self] in self?.hardwareGraceExpired() }
+            scheduleQuickOutputFix()
         }
     }
 
@@ -91,6 +92,7 @@ extension SessionViewModel {
         deps.route.preferExternalInput()
         if hardwareGrace == nil {
             hardwareGrace = deps.scheduler.after(Timing.hardwareGrace) { [weak self] in self?.hardwareGraceExpired() }
+            scheduleQuickOutputFix()
         }
         recheckHardware()
     }
@@ -128,6 +130,9 @@ extension SessionViewModel {
               AudioRouting.verdict(deps.route.snapshot()).isSafe else { return }
         hardwareGrace?.cancel()
         hardwareGrace = nil
+        outputQuick?.cancel()
+        outputQuick = nil
+        outputTries = 0          // yol döndü: çıkış kestirmesinin hakkı yenilenir
         hardwareRecoveries = 0   // kullanıcı donanımı düzeltti: sayaç sıfırlanır
         clearWarning("donanim")
         work = Task { [weak self] in await self?.resumeAfterRecovery() }
@@ -151,6 +156,10 @@ extension SessionViewModel {
         }
         work = Task { [weak self] in
             guard let self = self else { return }
+            // Hemen çalıştırılan çıkış kestirmesi sürüyorsa bitmesi beklenir (iki kestirme iç içe çalışmaz); yol düzeldiyse devam edilir
+            await self.outputQuickRun?.value
+            guard !Task.isCancelled, case .paused(.hardware) = self.phase else { return }
+            if AudioRouting.verdict(self.deps.route.snapshot()).isSafe { return }
             // Kulaklık yolda değilse önce hafif çare: çıkışı kulaklığa alan kestirme (Bluetooth'a dokunmaz)
             if await self.outputShortcutFixedRoute() { return }
             await self.runRecovery(.hardware)

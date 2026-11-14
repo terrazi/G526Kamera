@@ -33,8 +33,12 @@ final class SessionViewModel: ObservableObject {
         static let announceMaxAge: TimeInterval = 180
         /// Aynı anda bekleyebilecek sesli uyarı sayısı
         static let maxQueuedAnnouncements = 6
-        /// Bir oturumda "çıkışı kulaklığa al" kestirmesinin en çok kaç kez çalıştırılacağı (kestirme çözüyor ama yol yine düşüyorsa sonsuz döngü olmasın)
+        /// Art arda kaç denemede yol düzelmezse "çıkışı kulaklığa al" kestirmesinin bırakılıp eski onarım sırasına dönüleceği
+        /// (yol her düzelişte sayaç sıfırlanır; çözmeyen kestirme sonsuz döngü olmasın)
         static let maxOutputTries = 6
+        /// Kulaklık yoldan çıkınca "çıkışı kulaklığa al" kestirmesinin ilk kez çalıştırılacağı süre (yol bildirimleri otursun diye kısa bir bekleme;
+        /// 20 sn'lik donanım beklemesini beklemez)
+        static let outputQuickDelay: TimeInterval = 3
     }
 
     // MARK: Ekranın gördüğü durum
@@ -87,8 +91,11 @@ final class SessionViewModel: ObservableObject {
     var voiceTask: Task<Void, Never>?
     var lastVoiced: [String: Date] = [:]
     var announced: [String] = []
-    /// Bu oturumda "çıkışı kulaklığa al" kestirmesi kaç kez çalıştı
+    /// Yol düzelmeden "çıkışı kulaklığa al" kestirmesi art arda kaç kez çalıştı (yol düzelince sıfırlanır)
     var outputTries = 0
+    /// Kulaklık yoldan çıkınca kestirmeyi hemen çalıştıracak zamanlayıcı ve çalışan deneme
+    var outputQuick: ScheduledTask?
+    var outputQuickRun: Task<Void, Never>?
     var pendingStart = false
     /// Alındığı ve kaydedildiği hâlde kulaklıktan duyulamamış cevap (okunurken ses yolu koptu); yol dönünce yeniden okunur
     var unheard: AnswerRecord?
@@ -214,6 +221,10 @@ final class SessionViewModel: ObservableObject {
         voiceQueue = []
         lastVoiced = [:]
         outputTries = 0
+        outputQuick?.cancel()
+        outputQuick = nil
+        outputQuickRun?.cancel()
+        outputQuickRun = nil
     }
 
     func cancelWork() {
@@ -238,6 +249,8 @@ final class SessionViewModel: ObservableObject {
         stableTask = nil
         interruptionPoll?.cancel()
         interruptionPoll = nil
+        outputQuick?.cancel()
+        outputQuick = nil
     }
 
     // MARK: Uyarılar ve kontrol maddeleri

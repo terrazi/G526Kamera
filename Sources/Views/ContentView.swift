@@ -291,10 +291,13 @@ struct ContentView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             if session.routeVerdict?.headphonesOK == false {
-                // Kulaklık düştüyse elle bağlamanın en kısa yolu: Ayarlar > Bluetooth > Aygıtlarım'da kulaklığa bir kez dokunmak
-                Button("Bluetooth ayarlarını aç (kulaklığa bir kez dokunun)") { SystemSettings.openBluetooth() }
+                // Elle bağlanılamaz (sınavdaki kişi telefona dokunamaz): kulaklığı yalnız Kestirmeler kendiliğinden geri alabilir
+                Text(settings.outputShortcut.trimmed.isEmpty
+                     ? "Kulaklık düşünce kendiliğinden bağlanması için Ayarlar > Kestirmeler > “Çıkışı kulaklığa al” alanına kestirmenin adını yazın."
+                     : "Kulaklık yolda değil; uygulama “\(settings.outputShortcut.trimmed)” kestirmesini kendisi çalıştırır.")
                     .font(.footnote)
-                    .buttonStyle(.bordered)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
