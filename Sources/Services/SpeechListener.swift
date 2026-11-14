@@ -15,6 +15,9 @@ enum SpeechEvent: Equatable {
     /// Ses motorunun yapılandırması değişti (giriş cihazı çıktı/geldi, ses servisi sıfırlandı): motor durmuş olabilir, tamponlar gelmeyebilir.
     /// Bildirim gelir gelmez, nabzı beklemeden dinleme yeniden kurulmalıdır.
     case engineStopped
+    /// Son kısmi metnin son sözcükleri için tanıyıcının alternatif okumaları: her sözcük için bir liste, en iyi okuma önde. Komut ve sayı
+    /// anlamada, en iyi okuma anlaşılmazsa alternatiflere bakılır. `.partial` olayından hemen önce gelir.
+    case alternatives([[String]])
     /// Yardımcı İngilizce tanıyıcının son kısmi metni. "Cevapla" aramasında KULLANILMAZ; yalnız Gemini'ye ikinci metin olarak gider.
     case englishPartial(String)
     /// İngilizce görev bitti ve yenisi başladı: eldeki İngilizce metin bölüm olarak saklanmalı
@@ -59,6 +62,26 @@ enum RecognitionFault: Equatable {
         case 102: return .permanent(Say.noOnDevice)        // Assets are not installed
         default: return .transient                         // 300 başlatılamadı, 301 iptal
         }
+    }
+}
+
+/// Tanıyıcının son sözcükler için verdiği alternatif okumalar. Konuşma API'sinin her sözcük (segment) için `alternativeSubstrings` verip
+/// vermediği cihaza ve modele bağlıdır; vermezse liste boş döner ve yalnız en iyi okuma kullanılır.
+enum RecognitionOptions {
+    /// Alternatif okuması gönderilen son sözcük sayısı ve sözcük başına alternatif sayısı
+    static let maxSegments = 8
+    static let maxPerSegment = 4
+
+    static func of(_ result: SFSpeechRecognitionResult?) -> [[String]] {
+        guard let segments = result?.bestTranscription.segments else { return [] }
+        let tail = segments.suffix(maxSegments).map { segment -> [String] in
+            var list = [segment.substring]
+            for alternative in segment.alternativeSubstrings.prefix(maxPerSegment) where !list.contains(alternative) {
+                list.append(alternative)
+            }
+            return list
+        }
+        return tail.contains(where: { $0.count > 1 }) ? tail : []
     }
 }
 
@@ -132,8 +155,20 @@ private final class AudioSink: @unchecked Sendable {
 @MainActor
 final class OnDeviceSpeechListener: SpeechListening {
     static let locale = Locale(identifier: "tr-TR")
-    /// Tanıyıcıya ipucu: tetikleyici sözcükler ve şık sözcükleri daha doğru yazılsın
-    static let contextualStrings = ["Cevapla", "Gönder", "Adana", "Bursa", "Ceyhan", "Denizli", "Erzurum"]
+    /// Tanıyıcıya ipucu: komut sözcükleri, menü sözcükleri, sayılar ve şık sözcükleri daha doğru yazılsın (Apple en çok yüz kadar ipucu önerir)
+    static let contextualStrings: [String] = [
+        // Gönderme ve paragraf
+        "Cevapla", "Gönder", "Tamam", "Tamamlandı", "Ortak paragraf", "Soru",
+        // Sesli komutlar ve sorular
+        "Testi bitir", "Sınavı bitir", "Cevapları tekrarla", "Son cevabı tekrarla", "Evet", "Hayır", "Devam", "Tekrar", "Bitir",
+        "Yeni sınav", "Önceki kayıt", "Sıradaki",
+        // Sayılar (iki sözcüklü sayılar bunlardan kurulur) ve sıra sayıları
+        "bir", "iki", "üç", "dört", "beş", "altı", "yedi", "sekiz", "dokuz", "on", "yirmi", "otuz", "kırk", "elli", "altmış", "yetmiş",
+        "seksen", "doksan", "yüz",
+        "birinci", "ikinci", "üçüncü", "dördüncü", "beşinci", "altıncı", "yedinci", "sekizinci", "dokuzuncu", "onuncu",
+        // Şık sözcükleri
+        "Adana", "Bursa", "Ceyhan", "Denizli", "Erzurum"
+    ]
     /// Yardımcı İngilizce tanıyıcı: Türkçe tanıyıcı İngilizce cümleleri Türkçe okunuşlu anlamsız sözcüklerle yazar; aynı ses bir de
     /// İngilizce tanıyıcıdan geçirilir ve Gemini'ye ikinci metin olarak gider ("Cevapla" yine yalnız Türkçe metinde aranır).
     static let englishLocale = Locale(identifier: "en-US")
@@ -325,10 +360,11 @@ final class OnDeviceSpeechListener: SpeechListening {
         taskStarted = Date()
         task = recognizer.recognitionTask(with: request) { [weak self] result, error in
             let text = result?.bestTranscription.formattedString
+            let options = RecognitionOptions.of(result)
             let finished = (result?.isFinal ?? false) || error != nil
             let info = error.map { RecognitionErrorInfo(domain: ($0 as NSError).domain, code: ($0 as NSError).code, text: $0.localizedDescription) }
             Task { @MainActor in
-                self?.handle(text: text, finished: finished, error: info, request: request)
+                self?.handle(text: text, options: options, finished: finished, error: info, request: request)
             }
         }
     }
@@ -374,11 +410,12 @@ final class OnDeviceSpeechListener: SpeechListening {
         var summary: String { return "\(domain) \(code): \(text)" }
     }
 
-    private func handle(text: String?, finished: Bool, error: RecognitionErrorInfo?, request: SFSpeechAudioBufferRecognitionRequest) {
+    private func handle(text: String?, options: [[String]], finished: Bool, error: RecognitionErrorInfo?, request: SFSpeechAudioBufferRecognitionRequest) {
         // Eski (durdurulmuş ya da yenilenmiş) göreve ait gecikmiş sonuçları yok say
         guard isRunning, request === self.request else { return }
         if let text = text, !text.isEmpty {
             quickFailures = 0
+            onEvent?(.alternatives(options))
             onEvent?(.partial(text))
         }
         guard finished else { return }

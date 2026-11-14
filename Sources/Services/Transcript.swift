@@ -57,7 +57,8 @@ struct TriggerMatch: Equatable {
 
 /// "Cevapla" / "Gönder" tetikleyicisini bulur. Yalnız metnin SON sözcüğü tetikleyiciyse tetiklenir: soru metninin ortasındaki
 /// "gönder…" gibi sözcükler (ya da tam "gönder" geçen bir cümle) yanlış alarm vermez. Büyük/küçük harf, noktalama ve Türkçe
-/// harf farkı (ö/o) yok sayılır.
+/// harf farkı (ö/o) yok sayılır. Tanıyıcı tetikleyiciyi yakın sesle yazabilir ("cevabla") ya da ikiye bölebilir ("cevap la", "ceva pla"):
+/// aynı sese gelen yazımlar tetikleyici sayılır; "cevaplar", "cevap" gibi gerçek sözcükler sayılmaz.
 enum TriggerDetector {
     static let defaultWords = ["Cevapla", "Gönder"]
 
@@ -66,15 +67,22 @@ enum TriggerDetector {
         var end = tokens.count
         while end > 0, fold(tokens[end - 1]).isEmpty { end -= 1 }
         guard end > 0 else { return nil }
-        let last = fold(tokens[end - 1])
-        // Tanıyıcı "Cevapla"yı bazen "cevap la" diye böler: iki sözcük de tetikleyici sayılır
-        if last == "la", end >= 2, fold(tokens[end - 2]) == "cevap", let word = words.first(where: { fold($0) == "cevapla" }) {
-            let question = tokens[0..<(end - 2)].joined(separator: " ").trimmed
+        func sameSound(_ word: String, _ heard: String) -> Bool {
+            return SpokenWords.key(SpokenWords.fold(word)) == SpokenWords.key(SpokenWords.fold(heard))
+        }
+        if let word = words.first(where: { sameSound($0, tokens[end - 1]) }) {
+            let question = tokens[0..<(end - 1)].joined(separator: " ").trimmed
             return TriggerMatch(word: word, question: question)
         }
-        guard let word = words.first(where: { fold($0) == last }) else { return nil }
-        let question = tokens[0..<(end - 1)].joined(separator: " ").trimmed
-        return TriggerMatch(word: word, question: question)
+        // Tanıyıcı sözcüğü bölmüş olabilir: son iki sözcük birleşince tetikleyiciyse ikisi de tetikleyici sayılır
+        if end >= 2 {
+            let joined = SpokenWords.fold(tokens[end - 2]) + SpokenWords.fold(tokens[end - 1])
+            if let word = words.first(where: { sameSound($0, joined) }) {
+                let question = tokens[0..<(end - 2)].joined(separator: " ").trimmed
+                return TriggerMatch(word: word, question: question)
+            }
+        }
+        return nil
     }
 
     static func fold(_ token: String) -> String {

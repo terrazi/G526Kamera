@@ -270,8 +270,17 @@ final class SessionViewModel: ObservableObject {
     var numberReminders = 0
     var targetReminders = 0
     var endReminders = 0
-    /// Sesle bitirme sonrası kendiliğinden başlayan tekrar: bitince "Cevapların hepsi okundu" denir
-    var autoReplayAtEnd = false
+    /// Cevaplar baştan okunuyor (oturum açık kalır; okuma bitince "Devam, Tekrar ya da Bitir" sorulur)
+    var reviewing = false
+    /// Okunan cevap dosyası sayısı (okuma sonunda "N sorunun cevabı okundu" raporu için)
+    var reviewCount = 0
+    /// Okuma bitince "Devam" denirse dönülecek dinleme kipi
+    var reviewReturn: ListenMode = .question
+    /// Okumayı kim istedi: testi bitirme isteği mi, yalnız cevapları tekrarlama isteği mi (sessizlikte varsayılan buna göre seçilir)
+    var reviewOrigin: ReviewOrigin = .repeatRequest
+    var reviewReminders = 0
+    /// Tanıyıcının son kısmi metindeki sözcükler için alternatif okumaları (her sözcük için en iyi okuma önde)
+    var heardOptions: [[String]] = []
     /// Kesinti (onarım, donanım beklemesi) hangi aşamadayken başladı: dinlerken mi, soru gitmişken (cevap beklenirken) mi
     var interruptedFrom: SessionPhase?
     /// Cevap beklenirken "cevap bekleniyor" anonsu ve 3 dakikalık bekleme sınırı için zamanlayıcı
@@ -454,7 +463,9 @@ final class SessionViewModel: ObservableObject {
         choiceOffer = nil
         choiceReminders = 0
         targetReminders = 0
-        autoReplayAtEnd = false
+        reviewing = false
+        reviewReminders = 0
+        heardOptions = []
         pendingStart = false
         unheard = nil
         hardwareRecoveries = 0
@@ -504,6 +515,7 @@ final class SessionViewModel: ObservableObject {
     }
 
     func cancelWork() {
+        abortReview()
         abandonEntry("Kesildi: cevap gelmeden iş durdu. Soruyu yeniden okuyun.")
         work?.cancel()
         work = nil
@@ -583,6 +595,7 @@ final class SessionViewModel: ObservableObject {
         abandonEntry("Cevap alınamadı. Soruyu yeniden okuyun.")
         deps.journal.savePending(nil)   // dinlemeye dönüldüyse yarım kalan iş yoktur
         unheard = nil
+        heardOptions = []
         if keepPartial, !accumulator.isEmpty {
             accumulator.commitCurrent()   // eski görevin yarım metni bölüm olur; yeni görevin metni onun arkasına eklenir
             englishAccumulator.commitCurrent()
@@ -632,8 +645,11 @@ final class SessionViewModel: ObservableObject {
                 tlog("[paragraf] ortak paragraf kipi açıldı")
             }
             reevaluateTrigger()
+        case .alternatives(let options):
+            heardOptions = options
         case .taskEnded:
             accumulator.commitCurrent()
+            heardOptions = []
         case .englishPartial(let text):
             guard englishAccumulator.update(partial: text) else { return }
             liveEnglish = englishAccumulator.text
@@ -684,16 +700,21 @@ final class SessionViewModel: ObservableObject {
         confirmTask = nil
         let text = accumulator.text
         var delay = Timing.triggerConfirm
+        // "Cevapları tekrarla": soru, onay, numara ve paragraf numarası beklenirken her an söylenebilir; kısa süre sabit kalırsa çalışır
+        if [ListenMode.question, .confirmEnd, .missingNumber, .passageTargets].contains(listenMode), interpret(VoiceCommand.parse) == .replayAnswers {
+            confirmTask = deps.scheduler.after(Timing.numberConfirm) { [weak self] in self?.fireVoiceCommand() }
+            return
+        }
         switch listenMode {
         case .question:
             // Tek başına söylenen komut ("testi bitir"): kısa süre sabit kalırsa çalışır, "Cevapla" demek gerekmez
-            if VoiceCommand.parse(text) != nil {
+            if interpret(VoiceCommand.parse) != nil {
                 confirmTask = deps.scheduler.after(Timing.numberConfirm) { [weak self] in self?.fireVoiceCommand() }
                 return
             }
             guard TriggerDetector.match(in: text) != nil else { return }
         case .passageTargets:
-            guard TriggerDetector.match(in: text, words: PassageCommand.targetWords) != nil else { return }
+            guard interpret({ TriggerDetector.match(in: $0, words: PassageCommand.targetWords) }) != nil else { return }
         case .passage:
             // Yalnız "ortak paragraf" denmiş, paragraf henüz okunmaya başlanmamış: kısa süre sabit kalırsa kulaklıktan okuma istenir
             if PassageCommand.startsWith(text), PassageCommand.stripStart(text).isEmpty {
@@ -705,7 +726,7 @@ final class SessionViewModel: ObservableObject {
             if TriggerDetector.fold(match.word) == "tamam" { delay = Timing.numberConfirm }
         case .missingNumber:
             guard heldQuestion != nil else { return }
-            if SpokenNumber.standalone(from: text) != nil || SpokenNumber.wantsSequence(text) {
+            if numberReply() != nil {
                 delay = Timing.numberConfirm
             } else {
                 // Kısa ama numara olmayan bir söz duyuldu ("peş", "yedi mi"): 30 sn beklemeden yeniden sorulur. Uzun metin, kullanıcının
@@ -715,10 +736,13 @@ final class SessionViewModel: ObservableObject {
                 return
             }
         case .confirmEnd:
-            guard SpokenReply.yesNo(text) != nil else { scheduleChoiceUnclear(); return }
+            guard interpret(SpokenReply.yesNo) != nil else { scheduleChoiceUnclear(); return }
             delay = Timing.numberConfirm
         case .startChoice:
-            guard SpokenReply.start(text) != nil else { scheduleChoiceUnclear(); return }
+            guard interpret(SpokenReply.start) != nil else { scheduleChoiceUnclear(); return }
+            delay = Timing.numberConfirm
+        case .reviewMenu:
+            guard interpret(SpokenReply.review) != nil else { scheduleChoiceUnclear(); return }
             delay = Timing.numberConfirm
         }
         confirmTask = deps.scheduler.after(delay) { [weak self] in self?.fireTrigger() }
@@ -734,23 +758,34 @@ final class SessionViewModel: ObservableObject {
         case .missingNumber: fireNumber()
         case .confirmEnd: fireConfirmEnd()
         case .startChoice: fireStartChoice()
+        case .reviewMenu: fireReview()
         }
     }
 
     /// Mikrofonu kapatır (ses kaydı ve İngilizce metin `fire*` işlevlerinde önceden alınır; dinleme yeniden açılırken metin silinir)
-    private func closeListening() {
+    func closeListening() {
         deps.listener.pause()
         watchdog.disarm()
     }
 
-    /// Tek başına söylenen sesli komutu uygular (soru olarak Gemini'ye gitmez)
+    /// Tek başına söylenen sesli komutu uygular (soru olarak Gemini'ye gitmez). Soru dinlenirken her komut, onay ve numara beklenirken yalnız
+    /// "cevapları tekrarla" çalışır.
     func fireVoiceCommand() {
         confirmTask = nil
-        guard phase == .listening, listenMode == .question, let command = VoiceCommand.parse(accumulator.text) else { return }
+        guard phase == .listening, let command = interpret(VoiceCommand.parse) else { return }
+        switch listenMode {
+        case .question:
+            break
+        case .confirmEnd, .missingNumber, .passageTargets:
+            guard command == .replayAnswers else { return }
+        default:
+            return
+        }
         run(command)
     }
 
     private func run(_ command: VoiceCommand) {
+        let back = listenMode   // cevaplar okunduktan sonra "Devam" denirse buraya dönülür
         closeListening()
         accumulator.clear()
         englishAccumulator.clear()
@@ -774,12 +809,19 @@ final class SessionViewModel: ObservableObject {
                 guard await self.speakNotice(self.answers.last?.spoken ?? Say.nothingToReplay) else { return }
                 self.beginListening()
             }
+        case .replayAnswers:
+            tlog("[komut] sesli komut: cevapları tekrarla")
+            work = Task { [weak self] in await self?.beginReview(origin: .repeatRequest, returnTo: back) }
         }
     }
 
-    /// "Testi bitirmek istiyor musunuz?" sorusuna cevap: evet bitirir, hayır devam ettirir
+    /// "Testi bitirmek istiyor musunuz?" sorusuna cevap: evet bitirir (önce cevaplar okunur), hayır devam ettirir
     private func fireConfirmEnd() {
-        guard let reply = SpokenReply.yesNo(accumulator.text) else { return }
+        if interpret(VoiceCommand.parse) == .replayAnswers {
+            fireVoiceCommand()
+            return
+        }
+        guard let reply = interpret(SpokenReply.yesNo) else { return }
         clearWarning("duyulan")
         closeListening()
         accumulator.clear()
@@ -793,16 +835,13 @@ final class SessionViewModel: ObservableObject {
             let count = answers.count
             let reading = settings.readAnswersAtEnd && count > 0
             tlog("[komut] testi bitirme onaylandı (\(count) cevap\(reading ? ", cevaplar okunacak" : ""))")
+            // Prosedür: bitirmeden önce kaydedilen cevaplar sırayla okunur, ardından "Devam, Tekrar ya da Bitir" sorulur (Modül 6)
             work = Task { [weak self] in
                 guard let self = self else { return }
-                await self.speakNotice(reading ? Say.endingTestReading(count) : Say.endingTest(count))
-                guard !Task.isCancelled else { return }
-                self.endTest()
-                // Prosedür: test sonunda kaydedilen cevaplar sırayla yeniden okunur (Modül 6)
                 if reading {
-                    self.autoReplayAtEnd = true
-                    self.startReplay()
-                    if self.phase != .replaying { self.autoReplayAtEnd = false }
+                    await self.beginReview(origin: .endRequest, returnTo: .question)
+                } else {
+                    await self.completeTestByVoice()
                 }
             }
         case .no:
@@ -822,10 +861,11 @@ final class SessionViewModel: ObservableObject {
 
     func choiceUnclear() {
         confirmTask = nil
-        guard phase == .listening, listenMode == .confirmEnd || listenMode == .startChoice else { return }
+        guard phase == .listening, listenMode == .confirmEnd || listenMode == .startChoice || listenMode == .reviewMenu else { return }
         let heard = accumulator.text
-        if listenMode == .confirmEnd, SpokenReply.yesNo(heard) != nil { return }
-        if listenMode == .startChoice, SpokenReply.start(heard) != nil { return }
+        if listenMode == .confirmEnd, interpret(SpokenReply.yesNo) != nil { return }
+        if listenMode == .startChoice, interpret(SpokenReply.start) != nil { return }
+        if listenMode == .reviewMenu, interpret(SpokenReply.review) != nil { return }
         tlog("[komut] cevap anlaşılamadı; duyulan: \"\(heard)\"")
         warn("duyulan", "Duyulan: “\(heard)”. Cevap anlaşılamadı.")
         work = Task { [weak self] in await self?.choiceSilence() }
@@ -856,6 +896,8 @@ final class SessionViewModel: ObservableObject {
             } else {
                 await applyStartChoice(continuePrevious: choiceOffer?.recent ?? true)
             }
+        case .reviewMenu:
+            await reviewSilence()
         default:
             beginListening(mode: .question)
         }
@@ -863,7 +905,7 @@ final class SessionViewModel: ObservableObject {
 
     /// "Önceki kayıttan devam mı, yeni sınav mı?" sorusuna cevap
     private func fireStartChoice() {
-        guard let reply = SpokenReply.start(accumulator.text) else { return }
+        guard let reply = interpret(SpokenReply.start) else { return }
         clearWarning("duyulan")
         closeListening()
         phase = .speaking
@@ -959,14 +1001,11 @@ final class SessionViewModel: ObservableObject {
             listenMode = .question
             return
         }
-        let text = accumulator.text
         let number: Int
-        if let heard = SpokenNumber.standalone(from: text) {
-            number = heard
-        } else if SpokenNumber.wantsSequence(text) {
-            number = nextNumber
-        } else {
-            return
+        switch numberReply() {
+        case .number(let heard)?: number = heard
+        case .sequence?: number = nextNumber
+        case nil: return
         }
         closeListening()
         heldQuestion = nil
@@ -985,7 +1024,7 @@ final class SessionViewModel: ObservableObject {
         confirmTask = nil
         guard phase == .listening, listenMode == .missingNumber, heldQuestion != nil else { return }
         let heard = accumulator.text
-        guard SpokenNumber.standalone(from: heard) == nil, !SpokenNumber.wantsSequence(heard) else { return }
+        guard numberReply() == nil else { return }
         tlog("[soru] numara anlaşılamadı; duyulan: \"\(heard)\"")
         warn("numara", "Duyulan: “\(heard)”. Numara anlaşılamadı.")
         work = Task { [weak self] in await self?.numberSilence() }
@@ -1063,8 +1102,8 @@ final class SessionViewModel: ObservableObject {
 
     /// Paragrafın ait olduğu soru numaraları ("beş altı yedi, Cevapla") alınır; paragraf o sorularla birlikte gider
     private func fireTargets() {
-        guard let match = TriggerDetector.match(in: accumulator.text, words: PassageCommand.targetWords) else { return }
-        var numbers = SpokenNumber.list(from: match.question)
+        guard let match = interpret({ TriggerDetector.match(in: $0, words: PassageCommand.targetWords) }) else { return }
+        var numbers = bestNumbers(primary: SpokenNumber.list(from: match.question))
         closeListening()
         liveText = ""
         phase = .speaking

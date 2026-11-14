@@ -14,6 +14,7 @@ extension SessionViewModel {
     }
 
     func pauseForHardware(summary: String, detail: String, grace: TimeInterval?) {
+        abortReview()
         holdForRetry = false
         if outageStart == nil { outageStart = deps.now() }
         work?.cancel()
@@ -231,7 +232,7 @@ extension SessionViewModel {
             work = Task { [weak self] in await self?.numberSilence() }   // numara söylenmedi: hatırlatılır, olmazsa sıradaki numara verilir
             return
         }
-        if listenMode == .confirmEnd || listenMode == .startChoice {
+        if listenMode == .confirmEnd || listenMode == .startChoice || listenMode == .reviewMenu {
             work = Task { [weak self] in await self?.choiceSilence() }
             return
         }

@@ -14,6 +14,8 @@ enum ListenMode: Equatable {
     case confirmEnd
     /// Program açılırken önceki kayıt bulundu; "devam" (önceki kayıttan) ya da "yeni" (yeni sınav) bekleniyor
     case startChoice
+    /// Cevaplar okundu; "devam" (teste devam), "tekrar" (cevapları yeniden oku) ya da "bitir" (testi tamamla) bekleniyor
+    case reviewMenu
 }
 
 /// Kayıtlı ortak paragraf: ait olduğu sorulardan biri her sorulduğunda Gemini'ye soruyla birlikte gider
@@ -52,16 +54,27 @@ enum PassageCommand {
     /// bu yüzden "Tamam" denir. Alışkanlıkla "Cevapla", "Gönder" ya da "Tamamlandı" denirse de aynı işi görür.
     static let targetWords = ["Tamam", "Tamamlandı", "Tamamlandi", "Cevapla", "Gönder"]
 
-    /// Metin "ortak paragraf" ile mi başlıyor (dikte "paragrafı" gibi ek de yazabilir)
+    /// Metnin başındaki "ortak paragraf" ifadesinin kapladığı sözcük sayısı (0: ifade yok). Tanıyıcı ifadeyi bozabilir: "ortak paragrafı"
+    /// (ek), "ortag baragraf" (b/p, g/k karışması), "ortak para graf" (bölünmüş) ve "ortakparagraf" (bitişik) kabul edilir.
+    static func startLength(_ text: String) -> Int {
+        let head = tokens(text).prefix(3).map { SpokenWords.fold($0) }
+        guard !head.isEmpty else { return 0 }
+        if head.count >= 2, SpokenWords.matches(head[0], ["ortak"]), SpokenWords.startsLike(head[1], "paragraf") { return 2 }
+        if head.count >= 3, SpokenWords.matches(head[0], ["ortak"]), SpokenWords.startsLike(head[1] + head[2], "paragraf") { return 3 }
+        if SpokenWords.startsLike(head[0], "ortakparagraf") { return 1 }
+        return 0
+    }
+
+    /// Metin "ortak paragraf" ile mi başlıyor
     static func startsWith(_ text: String) -> Bool {
-        let head = tokens(text).prefix(2).map { TriggerDetector.fold($0) }
-        return head.count == 2 && head[0] == "ortak" && head[1].hasPrefix("paragraf")
+        return startLength(text) > 0
     }
 
     /// Baştaki komut sözcüklerini atar (komut yoksa metni olduğu gibi döndürür)
     static func stripStart(_ text: String) -> String {
-        guard startsWith(text) else { return text.trimmed }
-        return tokens(text).dropFirst(2).joined(separator: " ").trimmed
+        let length = startLength(text)
+        guard length > 0 else { return text.trimmed }
+        return tokens(text).dropFirst(length).joined(separator: " ").trimmed
     }
 
     private static func tokens(_ text: String) -> [String] {
@@ -70,48 +83,149 @@ enum PassageCommand {
 }
 
 /// Sesli komut ve cevaplar için sözcük ayrıştırma: noktalama atılır, büyük/küçük harf ve Türkçe harf farkları (ı/i, ö/o, ş/s…) yok sayılır,
-/// baştaki ve sondaki "lütfen" atılır
+/// baştaki ve sondaki "lütfen" atılır. Tanıyıcı sözcüğü yakın sesle yazabilir ("beş" yerine "peş", "yedi" yerine "yeti"): sözcükler ayrıca
+/// ses anahtarıyla karşılaştırılır (`key`) ve beş harften uzun sözcüklerde tek harf farkı (`withinOneEdit`) hoşgörülür.
 enum SpokenWords {
     static func of(_ text: String) -> [String] {
         var words = text.split(whereSeparator: { $0.isWhitespace })
-            .map { TriggerDetector.fold(String($0)).replacingOccurrences(of: "ı", with: "i") }
+            .map { fold(String($0)) }
             .filter { !$0.isEmpty }
         while words.first == "lutfen" { words.removeFirst() }
         while words.last == "lutfen" { words.removeLast() }
         return words
     }
+
+    /// Küçük harf, noktalama atılmış, Türkçe harfler sadeleştirilmiş (ı → i dahil) tek sözcük
+    static func fold(_ token: String) -> String {
+        return TriggerDetector.fold(token).replacingOccurrences(of: "ı", with: "i")
+    }
+
+    /// Ses anahtarı: sesli/sessiz ünsüz çiftleri tek harfe indirilir (p→b, t→d, k→g, s→z). Tanıyıcı "beş"i "peş", "dört"ü "dörd" yazabilir.
+    static func key(_ word: String) -> String {
+        return String(word.map { ch -> Character in
+            switch ch {
+            case "p": return "b"
+            case "t": return "d"
+            case "k": return "g"
+            case "s": return "z"
+            default: return ch
+            }
+        })
+    }
+
+    /// Tek harf ekleme, silme, değiştirme ya da bitişik iki harfin yer değiştirmesiyle birbirine dönüşüyor mu (eşitse de true)
+    static func withinOneEdit(_ a: String, _ b: String) -> Bool {
+        let x = Array(a)
+        let y = Array(b)
+        if x == y { return true }
+        if abs(x.count - y.count) > 1 { return false }
+        var i = 0
+        while i < x.count, i < y.count, x[i] == y[i] { i += 1 }
+        if x.count == y.count {
+            if Array(x[(i + 1)...]) == Array(y[(i + 1)...]) { return true }
+            if i + 1 < x.count, x[i] == y[i + 1], x[i + 1] == y[i], Array(x[(i + 2)...]) == Array(y[(i + 2)...]) { return true }
+            return false
+        }
+        let long = x.count > y.count ? x : y
+        let short = x.count > y.count ? y : x
+        return Array(long[(i + 1)...]) == Array(short[i...])
+    }
+
+    /// Sözcük sözlükte var mı: aynen, aynı sesle ("peş" = "beş") ya da (anahtarı beş harften uzunsa) tek harf farkla
+    static func matches(_ word: String, _ vocabulary: Set<String>) -> Bool {
+        if vocabulary.contains(word) { return true }
+        let k = key(word)
+        for entry in vocabulary {
+            let ke = key(entry)
+            if ke == k { return true }
+            if k.count >= 5, ke.count >= 5, withinOneEdit(k, ke) { return true }
+        }
+        return false
+    }
+
+    /// Sözcük `stem` ile mi başlıyor (ek alabilir: "paragrafı"); yakın sesler ve tek harf farkı hoşgörülür
+    static func startsLike(_ word: String, _ stem: String) -> Bool {
+        let ks = key(stem)
+        let kw = key(word)
+        if kw.hasPrefix(ks) { return true }
+        guard ks.count >= 5, kw.count >= ks.count - 1 else { return false }
+        for length in [ks.count - 1, ks.count, ks.count + 1] where length > 0 && length <= kw.count {
+            if withinOneEdit(String(kw.prefix(length)), ks) { return true }
+        }
+        return false
+    }
 }
 
-/// Tek başına söylenen sesli komutlar ("testi bitir", "sınavı bitirelim", "son cevabı tekrarla"). Yalnız metin TAMAMEN komutsa tanınır: sorunun
-/// içinde geçen "testi bitirmek için hangisi…" gibi cümleler komut sayılmaz, soru olarak gider. Söyleyiş esnektir ("lütfen", "artık", "istiyorum"
-/// gibi dolgu sözcükler ve fiil ekleri kabul edilir). "Cevapla"/"Gönder" ile bitiyorsa da çalışır ("testi bitir cevapla"): o durumda `parse`
-/// komut kısmına uygulanır.
+/// Tek başına söylenen sesli komutlar ("testi bitir", "sınavı bitirelim", "son cevabı tekrarla", "cevapları tekrarla"). Yalnız metin TAMAMEN
+/// komutsa tanınır: sorunun içinde geçen "testi bitirmek için hangisi…" gibi cümleler komut sayılmaz, soru olarak gider. Söyleyiş esnektir
+/// ("lütfen", "artık", "istiyorum" gibi dolgu sözcükler, fiil ekleri, yakın sesli yazımlar kabul edilir). "Cevapla"/"Gönder" ile bitiyorsa da
+/// çalışır ("testi bitir cevapla"): o durumda `parse` komut kısmına uygulanır.
+///
+/// - `endTest`: "testi bitir", "sınavı sonlandır", "bitirelim"
+/// - `repeatLast`: "tekrarla", "son cevabı tekrar et", "cevabı oku" (tek cevap: son cevap)
+/// - `replayAnswers`: "cevapları tekrarla", "tüm cevapları oku", "hepsini baştan dinleyelim" (çoğul: bütün cevaplar)
 enum VoiceCommand: Equatable {
     case endTest
     case repeatLast
+    case replayAnswers
 
-    private static let subjects: Set<String> = ["test", "testi", "testimi", "sinav", "sinavi", "sinavimi", "denemeyi", "deneme"]
-    private static let endVerbs: Set<String> = [
+    static let subjects: Set<String> = ["test", "testi", "testimi", "teste", "sinav", "sinavi", "sinavimi", "sinava", "denemeyi", "deneme"]
+    static let endVerbs: Set<String> = [
         "bitir", "bitirin", "bitirelim", "bitirsek", "bitirmek", "bitirir", "bitirsene", "bitti", "bitsin", "bitmistir",
         "sonlandir", "sonlandirin", "sonlandiralim", "sonlandirmak", "sonlandirsak",
         "tamamla", "tamamlayin", "tamamlayalim", "tamamlamak", "tamamlandi", "tamamlansin",
         "sona", "erdi", "ersin", "erdirelim", "erdirin"
     ]
+    /// Konu sözcüğü olmadan da tek başına komut olan bitirme sözcükleri ("bitir"); "tamamla" gibi başka işlerde de söylenenler değil
+    static let bareEndVerbs: Set<String> = ["bitir", "bitirin", "bitirelim", "bitirsek", "sonlandir", "sonlandirin", "sonlandiralim"]
     /// Komutun anlamını değiştirmeyen dolgu sözcükler
-    private static let fillers: Set<String> = ["lutfen", "artik", "simdi", "istiyorum", "isterim", "isteriz", "hadi", "bence", "yani", "evet", "tamam", "su", "bu"]
-    private static let repeatWords: Set<String> = ["tekrarla", "tekrar", "tekrarlayin", "tekrarlar", "tekrarlasana", "et", "oku", "okuyun", "cevabi", "cevap", "son", "sonuncu", "cevabini", "sesli"]
+    static let fillers: Set<String> = [
+        "lutfen", "artik", "simdi", "istiyorum", "isterim", "isteriz", "hadi", "bence", "yani", "evet", "tamam", "su", "bu",
+        "et", "eder", "edin", "edelim", "mi", "mu", "misin", "musun", "misiniz", "musunuz", "bir"
+    ]
+    static let repeatVerbs: Set<String> = [
+        "tekrar", "tekrarla", "tekrarlayin", "tekrarlar", "tekrarlasana", "tekrarlayalim", "tekrarlansin", "tekrarlamak",
+        "oku", "okuyun", "okur", "okusana", "okuyalim", "okunsun", "okumak",
+        "dinle", "dinleyelim", "dinlemek", "dinletin", "dinlet", "dinletir",
+        "yeniden", "bastan", "yine", "daha", "sesli", "soyle", "soyler", "soylesene", "oynat", "oynatin", "oynatir"
+    ]
+    /// Çoğul: bütün cevaplar
+    static let allMarkers: Set<String> = [
+        "cevaplari", "cevaplar", "cevaplarimi", "cevaplarimizi", "cevaplarin", "tum", "tumu", "tumunu", "butun", "hepsi", "hepsini", "butunu"
+    ]
+    /// Tekil: son cevap
+    static let lastMarkers: Set<String> = ["cevabi", "cevap", "cevabini", "cevabim", "son", "sonuncu", "sonuncuyu"]
 
     static func parse(_ text: String) -> VoiceCommand? {
         let all = SpokenWords.of(text)
-        guard !all.isEmpty, all.count <= 6 else { return nil }
-        let words = all.filter { !fillers.contains($0) }
+        guard !all.isEmpty, all.count <= 7 else { return nil }
+        let words = all.filter { !SpokenWords.matches($0, fillers) }
         guard !words.isEmpty else { return nil }
-        // Son cevabı tekrarla: "tekrarla", "cevabı tekrar et", "son cevabı tekrar oku"
-        if words.contains(where: { $0.hasPrefix("tekrar") }), words.allSatisfy({ repeatWords.contains($0) }) { return .repeatLast }
-        // Testi bitir: konu sözcüğü + bitirme fiili (başka sözcük yok)
-        guard words.contains(where: { subjects.contains($0) }),
-              words.contains(where: { endVerbs.contains($0) }),
-              words.allSatisfy({ subjects.contains($0) || endVerbs.contains($0) }) else { return nil }
+        var hasSubject = false, hasEnd = false, hasBareEnd = false, hasRepeat = false, hasTekrar = false, hasAll = false, hasLast = false
+        for word in words {
+            if SpokenWords.matches(word, subjects) {
+                hasSubject = true
+            } else if SpokenWords.matches(word, endVerbs) {
+                hasEnd = true
+                if SpokenWords.matches(word, bareEndVerbs) { hasBareEnd = true }
+            } else if SpokenWords.matches(word, allMarkers) {
+                hasAll = true
+            } else if SpokenWords.matches(word, lastMarkers) {
+                hasLast = true
+            } else if SpokenWords.matches(word, repeatVerbs) || SpokenWords.startsLike(word, "tekrar") {
+                hasRepeat = true
+                if SpokenWords.startsLike(word, "tekrar") { hasTekrar = true }
+            } else {
+                return nil   // tanınmayan sözcük: komut değil, soru metni olabilir
+            }
+        }
+        if hasRepeat || hasAll || hasLast {
+            if hasEnd || hasSubject || (hasAll && hasLast) { return nil }
+            if hasAll { return hasRepeat ? .replayAnswers : nil }
+            if hasLast { return hasRepeat ? .repeatLast : nil }
+            return hasTekrar ? .repeatLast : nil   // yalnız "tekrarla"
+        }
+        guard hasEnd, hasSubject || hasBareEnd else { return nil }
         return .endTest
     }
 }
@@ -121,11 +235,21 @@ enum VoiceCommand: Equatable {
 enum SpokenReply {
     enum YesNo: Equatable { case yes, no }
     enum Start: Equatable { case continuePrevious, startNew }
+    /// Cevaplar okunduktan sonra: teste devam, cevapları yeniden oku, testi tamamla
+    enum Review: Equatable { case continueTest, repeatAnswers, finishTest }
 
-    private static let yes: Set<String> = ["evet", "tamam", "bitir", "bitirin", "bitirelim", "onayliyorum", "onay", "olur", "aynen", "kesinlikle", "tabii", "tabi", "dogru"]
-    private static let no: Set<String> = ["hayir", "vazgec", "vazgectim", "vazgecelim", "devam", "iptal", "bitirme", "bitirmeyin", "olmaz", "istemiyorum", "yok", "dur", "degil"]
-    private static let continueWords: Set<String> = ["devam", "onceki", "eski", "kaldigi", "kaldigim", "kaldigimiz", "aynen", "surdur", "surdurelim", "surdurun"]
-    private static let newWords: Set<String> = ["yeni", "sifirdan", "bastan", "temiz"]
+    static let yes: Set<String> = ["evet", "tamam", "bitir", "bitirin", "bitirelim", "onayliyorum", "onay", "olur", "aynen", "kesinlikle", "tabii", "tabi", "dogru"]
+    static let no: Set<String> = ["hayir", "vazgec", "vazgectim", "vazgecelim", "devam", "iptal", "bitirme", "bitirmeyin", "olmaz", "istemiyorum", "yok", "dur", "degil"]
+    static let continueWords: Set<String> = ["devam", "onceki", "eski", "kaldigi", "kaldigim", "kaldigimiz", "aynen", "surdur", "surdurelim", "surdurun"]
+    static let newWords: Set<String> = ["yeni", "sifirdan", "bastan", "temiz"]
+    static let reviewFinish: Set<String> = [
+        "bitir", "bitirin", "bitirelim", "bitirsek", "bitirmek", "bitsin", "sonlandir", "sonlandirin", "sonlandiralim", "sonlandirmak",
+        "tamamla", "tamamlayin", "tamamlayalim", "tamamlamak", "tamamlansin", "kapat", "kapatalim", "cikis", "yeter"
+    ]
+    static let reviewContinue: Set<String> = [
+        "devam", "surdur", "surdurelim", "surdurun", "kaldigim", "kaldigimiz", "kaldigi", "yerden", "ilerle", "ilerleyelim", "gecelim",
+        "sonraki", "siradaki", "sorulara", "soruya"
+    ]
 
     private static func words(_ text: String, max: Int) -> [String] {
         let all = SpokenWords.of(text)
@@ -135,8 +259,8 @@ enum SpokenReply {
     static func yesNo(_ text: String) -> YesNo? {
         let w = words(text, max: 8)
         guard !w.isEmpty else { return nil }
-        let hasNo = w.contains(where: { no.contains($0) })
-        let hasYes = w.contains(where: { yes.contains($0) })
+        let hasNo = w.contains(where: { SpokenWords.matches($0, no) })
+        let hasYes = w.contains(where: { SpokenWords.matches($0, yes) })
         if hasNo && hasYes { return nil }   // çelişen söz ("evet hayır"): anlaşılmamış sayılır, yeniden sorulur
         if hasNo { return .no }
         if hasYes { return .yes }
@@ -148,11 +272,24 @@ enum SpokenReply {
     static func start(_ text: String) -> Start? {
         let w = words(text, max: 8)
         guard !w.isEmpty else { return nil }
-        let cont = w.contains(where: { continueWords.contains($0) })
-        let new = w.contains(where: { newWords.contains($0) })
+        let cont = w.contains(where: { SpokenWords.matches($0, continueWords) })
+        let new = w.contains(where: { SpokenWords.matches($0, newWords) })
         if cont && !new { return .continuePrevious }
         if new && !cont { return .startNew }
         return nil
+    }
+
+    /// "Devam, Tekrar ya da Bitir" sorusuna cevap. Üç seçenekten tam biri anlaşılmalı; hiçbiri ya da çelişen ikisi nil verir ("tamam" gibi
+    /// hangisi olduğu belli olmayan söz de nil: yeniden sorulur).
+    static func review(_ text: String) -> Review? {
+        let w = words(text, max: 8)
+        guard !w.isEmpty else { return nil }
+        let finish = w.contains(where: { SpokenWords.matches($0, reviewFinish) })
+        let again = w.contains(where: { SpokenWords.matches($0, VoiceCommand.repeatVerbs) || SpokenWords.startsLike($0, "tekrar") })
+        let proceed = w.contains(where: { SpokenWords.matches($0, reviewContinue) })
+        guard [finish, again, proceed].filter({ $0 }).count == 1 else { return nil }
+        if finish { return .finishTest }
+        return again ? .repeatAnswers : .continueTest
     }
 }
 

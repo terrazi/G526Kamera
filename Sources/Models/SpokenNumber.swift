@@ -26,7 +26,8 @@ enum SpokenNumber {
 
     /// Metinde okunan soru numarası; yoksa ya da anlaşılamadıysa nil (1...999)
     static func extract(from text: String) -> Int? {
-        let words = tokens(text)
+        // Baştaki sözcüklerde yakın sesli yazımlar düzeltilir ("peşinci soru", "soru yeti"); numara hep okumanın başında söylenir
+        let words = tokens(text).enumerated().map { $0.offset < headWords + 4 ? numberWord($0.element) : $0.element }
         let limit = min(words.count, headWords)
         guard limit > 0 else { return nil }
         for index in 0..<limit where words[index] == "soru" {
@@ -127,6 +128,50 @@ enum SpokenNumber {
     }
 }
 
+// MARK: - Yakın sesli yazımlar
+
+extension SpokenNumber {
+    /// Sayı sözcükleri (birler, onlar ve sıra sayıları) ve ses anahtarları: tanıyıcı "beş"i "peş", "yedi"yi "yeti", "dört"ü "dörd" diye yazabilir
+    private static let numberWordList: [String] = {
+        return Array(SpokenNumber.units.keys) + Array(SpokenNumber.unitOrdinals.keys) + Array(SpokenNumber.tens.keys)
+            + Array(SpokenNumber.tenOrdinals.keys) + ["yuz", "yuzuncu"]
+    }()
+
+    private static let phoneticIndex: [String: String] = {
+        var index: [String: String] = [:]
+        for word in SpokenNumber.numberWordList { index[SpokenWords.key(word)] = word }
+        return index
+    }()
+
+    /// Sayı beklenirken karışmaması gereken sözcükler (dolgu, bağlaç, ek): bunlara yakın ses eşleştirmesi uygulanmaz
+    private static var protectedWords: Set<String> {
+        return fillerWords.union(sequenceWords).union(rangeLinks).union(rangeEnds).union(digitSuffixes).union(["soru", "ortak", "paragraf"])
+    }
+
+    /// Sözcük gerçek bir sayı sözcüğüne yakın sesliyse ("peş" → "bes", "yeti" → "yedi") onun yazımı, değilse sözcüğün kendisi.
+    /// Yalnız sayı beklenen yerlerde kullanılır.
+    static func canonical(_ word: String) -> String {
+        if Int(word) != nil || protectedWords.contains(word) || numberWordList.contains(word) { return word }
+        let key = SpokenWords.key(word)
+        if let exact = phoneticIndex[key] { return exact }
+        // Beş harften uzun anahtarlarda tek harf farkı ("sekizz", "dokus", "altmiş"): yalnız tek bir sözcüğe yakınsa
+        guard key.count >= 5 else { return word }
+        let near = phoneticIndex.filter { $0.key.count >= 5 && SpokenWords.withinOneEdit(key, $0.key) }
+        return near.count == 1 ? near.first!.value : word
+    }
+
+    /// Sayı sözcüğünün yakın sesli yazımı düzeltilmiş ve hâl eki (beşten, yediye) atılmış hâli; sayı değilse sözcük olduğu gibi
+    static func numberWord(_ word: String) -> String {
+        let direct = canonical(word)
+        if units[direct] != nil || tens[direct] != nil || unitOrdinals[direct] != nil || tenOrdinals[direct] != nil || direct == "yuz" { return direct }
+        for suffix in caseSuffixes where word.hasSuffix(suffix) {
+            let stem = canonical(String(word.dropLast(suffix.count)))
+            if units[stem] != nil || tens[stem] != nil { return stem }
+        }
+        return word
+    }
+}
+
 // MARK: - Numara istenince verilen kısa yanıtlar
 
 extension SpokenNumber {
@@ -143,7 +188,7 @@ extension SpokenNumber {
     /// "Lütfen sorunun numarasını söyleyin" yanıtı: kısa bir cümledeki tek numara ("yedi", "soru yedi", "yedinci soru", "yirmi beş").
     /// Uzun metinde (kullanıcı sonraki soruyu okumaya başladıysa) nil.
     static func standalone(from text: String) -> Int? {
-        let words = tokens(text).filter { !fillerWords.contains($0) }
+        let words = tokens(text).filter { !fillerWords.contains($0) }.map { numberWord($0) }
         guard !words.isEmpty, words.count <= 4 else { return nil }
         guard let parsed = parse(words), parsed.consumed == words.count else { return nil }
         return parsed.value
@@ -152,19 +197,10 @@ extension SpokenNumber {
     /// Yanıt "sıradaki numarayı ver" mi ("sıradaki", "geç", "atla")
     static func wantsSequence(_ text: String) -> Bool {
         let words = tokens(text)
-        return !words.isEmpty && words.count <= 4 && words.contains(where: { sequenceWords.contains($0) })
+        return !words.isEmpty && words.count <= 4 && words.contains(where: { SpokenWords.matches($0, sequenceWords) })
     }
 
-    /// "beşten", "yediye", "ona": hâl ekli sayı sözcüğünün kökü (yalnız kalan tam bir birler/onlar sözcüğüyse); aksi hâlde nil
-    private static let caseSuffixes = ["ten", "tan", "den", "dan", "ye", "ya", "e", "a"]
-    private static func numberStem(_ word: String) -> String {
-        if units[word] != nil || tens[word] != nil { return word }
-        for suffix in caseSuffixes where word.hasSuffix(suffix) {
-            let stem = String(word.dropLast(suffix.count))
-            if units[stem] != nil || tens[stem] != nil { return stem }
-        }
-        return word
-    }
+    fileprivate static let caseSuffixes = ["ten", "tan", "den", "dan", "ye", "ya", "e", "a"]
 
     /// Paragrafın hangi sorulara ait olduğu: "5 6 7", "beş, altı ve yedi", "5 ile 7 arası", "beşten yediye kadar", "5-7" → [5, 6, 7]
     static func list(from text: String) -> [Int] {
@@ -175,7 +211,7 @@ extension SpokenNumber {
                 return token.map { String($0) }
             }
             return [token]
-        }.map { numberStem($0) }
+        }.map { numberWord($0) }
         struct Hit { let value: Int; let start: Int; let end: Int }
         var hits: [Hit] = []
         var i = 0

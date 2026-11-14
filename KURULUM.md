@@ -72,7 +72,8 @@ Mikrofon açıkken, soruyu okumadan **tek başına** söylenen komutlar tanını
 
 | Söyleyin | Ne olur |
 |---|---|
-| "Testi bitir" / "Sınavı bitir" / "sınav bitti" / "sınavı sonlandır" | Program "Testi bitirmek istiyor musunuz?" diye sorar. **Evet** (ya da komutu yeniden söylemek) bitirir ve kaydedilen cevapları numara sırasıyla baştan sona okur ("Cevapların hepsi okundu" der; Ayarlar > "Testi bitirince cevapları oku" ile kapatılır); **hayır / vazgeç** ya da hiç cevap vermemek testi sürdürür. Yanlış tanımada test kapanmaz. |
+| "Testi bitir" / "Sınavı bitir" / "sınav bitti" / "sınavı sonlandır" | Program "Testi bitirmek istiyor musunuz?" diye sorar. **Evet** (ya da komutu yeniden söylemek) kaydedilen cevapları numara sırasıyla baştan sona okutur, sonra "N sorunun cevabı okundu" der ve sorar: **Devam** (teste devam), **Tekrar** (cevapları yeniden oku), **Bitir** (testi tamamla). Söz gelmezse bitirme isteğiyle gelindiği için test tamamlanır. Ayarlar > "Testi bitirince cevapları oku" kapatılırsa onaydan sonra test doğrudan tamamlanır. **Hayır / vazgeç** ya da hiç cevap vermemek testi sürdürür. Yanlış tanımada test kapanmaz. |
+| "Cevapları tekrarla" / "Tüm cevapları oku" | Test sürerken (soru beklerken, bitirme onayında, eksik numara ve paragraf numaraları beklenirken) bütün cevaplar baştan okunur; sonra "N sorunun cevabı okundu" der ve **Devam / Tekrar / Bitir** diye sorar. Söz gelmezse teste devam edilir. |
 | "Son cevabı tekrarla" / "Tekrarla" | Son cevap yeniden okunur, Gemini'ye gitmez. |
 | "Cevapla" / "Gönder" | Okuduğunuz soruyu Gemini'ye gönderir (komutlarla birlikte söylenirse komut soru olarak gitmez). |
 | "Ortak paragraf" (duraklayın) … "Tamam" | Program kulaklıktan "Lütfen ortak paragrafı okuyun, bitince Tamam deyin" der; paragrafı okuyup "Tamam" dersiniz. Sonra hangi sorulara ait olduğunu söyleyip yine "Tamam" dersiniz. |

@@ -34,14 +34,32 @@ enum Say {
         return "Önceki kayıttan devam ediliyor. Sıradaki soru \(next). Soruyu okuyabilirsiniz."
     }
     static let startingNew = "Yeni sınav başladı. İlk soruyu okuyabilirsiniz."
-    /// Sesli "testi bitir" komutu onaylandı: kısa bilgi, sonra test biter
-    /// "Testi bitir" onaylandı ve cevaplar baştan sona okunacak
-    static func endingTestReading(_ answers: Int) -> String {
-        return "Test bitiriliyor. \(answers) cevap kaydedildi. Cevaplar sırayla okunuyor."
+    // MARK: Cevapları okuma ("cevapları tekrarla", "testi bitir" onayından sonra)
+
+    /// Okuma başlarken: bitirme isteğiyle geldiyse test henüz bitmemiştir, cevaplar okununca ne yapılacağı sorulacaktır
+    static func reviewStart(_ count: Int, ending: Bool) -> String {
+        return ending ? "\(count) cevap kaydedildi. Bitirmeden önce cevaplar sırayla okunuyor."
+                      : "Cevaplar baştan sona okunuyor. Toplam \(count) cevap."
     }
-    static let replayDone = "Cevapların hepsi okundu."
-    static func endingTest(_ answers: Int) -> String {
-        return answers > 0 ? "Test bitiriliyor. \(answers) cevap kaydedildi." : "Test bitiriliyor."
+    /// Okuma bitince: ne kadarının okunduğu
+    static func reviewReport(count: Int, failed: Int) -> String {
+        guard failed > 0 else { return "\(count) sorunun cevabı okundu." }
+        return "\(count) cevaptan \(max(count - failed, 0)) tanesi okundu, \(failed) cevap dosyası çalınamadı."
+    }
+    static let reviewStopped = "Cevaplar okunamadı."
+    /// Rapordan hemen sonra: üç seçenek, birbirine benzemeyen üç sözcükle
+    static let reviewMenu = "Ne yapmak istersiniz? Teste kaldığınız yerden devam etmek için Devam, cevapları yeniden dinlemek için Tekrar, testi tamamlamak için Bitir deyin."
+    static let reviewMenuAgain = "Anlayamadım. Devam, Tekrar ya da Bitir deyin."
+    /// İki hatırlatmaya da cevap gelmedi
+    static let reviewNoAnswer = "Yanıt alınamadı."
+    /// Okuma ya da menü sırasında kesinti oldu ve düzeldi
+    static let reviewResume = "Kesinti bitti. Teste devam etmek için Devam, cevapları yeniden dinlemek için Tekrar, testi tamamlamak için Bitir deyin."
+    static let reviewBackToQuestion = "Teste devam ediyoruz. Lütfen sonraki soruyu okuyun."
+    static let reviewBackToNumber = "Teste devam ediyoruz. Lütfen okuduğunuz sorunun numarasını söyleyin."
+    static let reviewBackToTargets = "Teste devam ediyoruz. Ortak paragraf hangi sorulara ait? Soru numaralarını söyleyip Tamam deyin."
+    /// Test sesle tamamlandı
+    static func testCompleted(_ answers: Int) -> String {
+        return answers > 0 ? "Test tamamlandı. \(answers) cevap kaydedildi." : "Test tamamlandı."
     }
     /// Cevap duyulduktan sonra, dinlemeye geçmeden: program sıradaki soruyu kendisi ister
     static let nextQuestion = "Lütfen sonraki soruyu okuyun."

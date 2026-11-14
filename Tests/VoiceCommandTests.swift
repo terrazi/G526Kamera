@@ -10,9 +10,35 @@ final class VoiceCommandParseTests: XCTestCase {
                      "testi bitir lütfen", "Evet testi bitir"] {
             XCTAssertEqual(VoiceCommand.parse(text), .endTest, text)
         }
-        for text in ["Testi bitirmek için hangisi doğrudur", "soru yedi testi bitir", "sınavı bitirmeden önce", "bitir", "testi", "", "soru yedi testi bitir"] {
+        for text in ["Testi bitirmek için hangisi doğrudur", "soru yedi testi bitir", "sınavı bitirmeden önce", "testi", "", "tamamla", "sınavı"] {
             XCTAssertNil(VoiceCommand.parse(text), text)
         }
+    }
+
+    func testReplayAllAnswersCommandIsDifferentFromRepeatLast() {
+        for text in ["Cevapları tekrarla", "cevapları tekrar et", "tüm cevapları oku", "bütün cevapları baştan oku", "cevapları yeniden oku",
+                     "cevapları dinleyelim", "cevapları dinlemek istiyorum", "hepsini tekrarla", "hepsini oku", "cevapları bir daha oku",
+                     "lütfen cevapları tekrar eder misin", "cevapları tekrarlar mısın", "cevaplari tekrarla", "cevapları tekrarlasana"] {
+            XCTAssertEqual(VoiceCommand.parse(text), .replayAnswers, text)
+        }
+        for text in ["Tekrarla", "tekrar et", "son cevabı tekrarla", "cevabı tekrar et", "cevabı oku", "son cevabı oku", "sonuncuyu tekrar oku"] {
+            XCTAssertEqual(VoiceCommand.parse(text), .repeatLast, text)
+        }
+        for text in ["cevapları", "hepsi", "oku", "cevap", "son", "yeniden", "testi tekrarla", "cevapları tekrarla testi bitir", "tekrar eden bir sayı",
+                     "aşağıdaki cevapları tekrar okuyunuz ve işaretleyiniz", "soruyu tekrarla"] {
+            XCTAssertNil(VoiceCommand.parse(text), text)
+        }
+    }
+
+    func testBareEndWordsAreCommandsButOtherSingleWordsAreNot() {
+        for text in ["bitir", "bitirelim", "Bitirin", "sonlandır"] { XCTAssertEqual(VoiceCommand.parse(text), .endTest, text) }
+        for text in ["tamam", "tamamla", "evet", "bitti", "sona"] { XCTAssertNil(VoiceCommand.parse(text), text) }
+    }
+
+    func testSimilarSoundingSpellingsAreUnderstood() {
+        XCTAssertEqual(VoiceCommand.parse("testi pitir"), .endTest, "b/p karışması")
+        XCTAssertEqual(VoiceCommand.parse("sınavı bitirelim"), .endTest)
+        XCTAssertEqual(VoiceCommand.parse("cevapları dekrarla"), .replayAnswers, "t/d karışması")
     }
 
     func testRepeatCommand() {
@@ -70,10 +96,10 @@ final class VoiceCommandFlowTests: XCTestCase {
         h.scheduler.advance(by: T.numberConfirm + 0.1)
         let ended = await waitUntil { h.vm.phase == .finished }
         XCTAssertTrue(ended)
-        XCTAssertEqual(h.speaker.spoken.last, Say.endingTest(1))
+        XCTAssertEqual(h.speaker.spoken.last, Say.testCompleted(1))
     }
 
-    func testConfirmedEndReadsAllAnswersBackThenSaysDone() async {
+    func testConfirmedEndReadsAllAnswersBackThenAsksWhatToDo() async {
         let h = SessionHarness()
         _ = await h.startListening()
         await answerOne(h, number: 1)
@@ -83,18 +109,24 @@ final class VoiceCommandFlowTests: XCTestCase {
         _ = await waitUntil { h.vm.listenMode == .confirmEnd && h.vm.phase == .listening }
         h.listener.say("Evet")
         h.scheduler.advance(by: T.numberConfirm + 0.1)
-        let replaying = await waitUntil { h.vm.phase == .replaying }
-        XCTAssertTrue(replaying, "Test bitince cevaplar kendiliğinden okunmaya başlar")
-        XCTAssertEqual(h.speaker.spoken.last, Say.endingTestReading(2))
+        let reading = await waitUntil { h.vm.reviewing }
+        XCTAssertTrue(reading, "Onaydan sonra cevaplar okunmaya başlar; test henüz bitmemiştir")
+        XCTAssertEqual(h.speaker.spoken.last, Say.reviewStart(2, ending: true))
+        XCTAssertTrue(h.vm.phase.isRunning, "Oturum açık kalır")
         XCTAssertEqual(h.player.played.map { $0.lastPathComponent }, ["soru_1.m4a"])
         h.player.finish()
         h.scheduler.advance(by: 3.1)
         XCTAssertEqual(h.player.played.map { $0.lastPathComponent }, ["soru_1.m4a", "soru_2.m4a"], "Numara sırasıyla")
         h.player.finish()
-        let done = await waitUntil { h.vm.phase == .finished }
-        XCTAssertTrue(done)
-        let said = await waitUntil { h.speaker.announcements.contains(Say.replayDone) }
-        XCTAssertTrue(said, "Sonunda 'Cevapların hepsi okundu' denir")
+        let asked = await waitUntil { h.vm.listenMode == .reviewMenu && h.vm.phase == .listening }
+        XCTAssertTrue(asked, "Okuma bitince ne yapılacağı sorulur")
+        XCTAssertEqual(h.speaker.spoken.last, Say.reviewReport(count: 2, failed: 0) + " " + Say.reviewMenu)
+        XCTAssertTrue(h.speaker.spoken.last?.hasPrefix("2 sorunun cevabı okundu.") ?? false)
+        h.listener.say("Bitir")
+        h.scheduler.advance(by: T.numberConfirm + 0.1)
+        let ended = await waitUntil { h.vm.phase == .finished }
+        XCTAssertTrue(ended)
+        XCTAssertEqual(h.speaker.spoken.last, Say.testCompleted(2))
     }
 
     func testConfirmedEndWithoutAnswersJustEnds() async {
@@ -107,7 +139,7 @@ final class VoiceCommandFlowTests: XCTestCase {
         h.scheduler.advance(by: T.numberConfirm + 0.1)
         let ended = await waitUntil { h.vm.phase == .finished }
         XCTAssertTrue(ended)
-        XCTAssertEqual(h.speaker.spoken.last, Say.endingTest(0))
+        XCTAssertEqual(h.speaker.spoken.last, Say.testCompleted(0))
         XCTAssertTrue(h.player.played.isEmpty)
     }
 
@@ -123,7 +155,7 @@ final class VoiceCommandFlowTests: XCTestCase {
         h.scheduler.advance(by: T.numberConfirm + 0.1)
         let ended = await waitUntil { h.vm.phase == .finished }
         XCTAssertTrue(ended)
-        XCTAssertEqual(h.speaker.spoken.last, Say.endingTest(1))
+        XCTAssertEqual(h.speaker.spoken.last, Say.testCompleted(1))
         XCTAssertTrue(h.player.played.isEmpty)
     }
 

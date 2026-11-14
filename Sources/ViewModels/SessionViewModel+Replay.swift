@@ -33,26 +33,33 @@ extension SessionViewModel {
     }
 
     func replayChanged(_ state: ReplayController.State) {
-        guard phase == .replaying else { return }
+        guard phase == .replaying || reviewing else { return }
         switch state {
         case .idle:
             break
         case .playing(let index, let total):
             statusNote = "Cevap \(index)/\(total) okunuyor"
+            if reviewing { watchedTicks = 0 }   // uzun okuma "takıldı" sayılmasın: her cevapta ilerleme var
         case .gap(let next, let total):
             statusNote = "Sıradaki cevap \(next)/\(total), bekleniyor"
+            if reviewing { watchedTicks = 0 }
         case .finished:
             let failed = replay.failedCount
-            let announceEnd = autoReplayAtEnd && failed == 0
+            if reviewing {
+                reviewPlaybackEnded(failed: failed)
+                return
+            }
             finishReplay(failed == 0 ? "Tekrar bitti." : "Tekrar bitti; \(failed) cevap dosyası çalınamadı.")
-            if announceEnd { announce(Say.replayDone) }
         case .stopped(let reason):
+            if reviewing {
+                reviewPlaybackStopped(reason)
+                return
+            }
             finishReplay(reason)
         }
     }
 
     private func finishReplay(_ note: String) {
-        autoReplayAtEnd = false
         phase = .finished
         statusNote = note
         deps.screen.keepAwake(false)
