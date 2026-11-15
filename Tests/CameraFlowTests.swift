@@ -7,12 +7,12 @@ final class CameraFlowTests: XCTestCase {
     typealias T = SessionViewModel.Timing
 
     /// Kameraya geçince internet gider, "Hücresele Geç" kestirmesi interneti getirir
-    private func harness(shots: [Result<CapturedQuestion, CameraFailure>] = [.success(FakeCamera.shot())],
-                         replies: [Result<GeminiReply, Error>] = [.success(FakeAnswering.reply(1))],
+    private func harness(shots: [Result<CapturedQuestion, CameraFailure>]? = nil,
+                         replies: [Result<GeminiReply, Error>]? = nil,
                          internetBack: Bool = true) -> SessionHarness {
         let h = SessionHarness(cameraFlow: true)
-        h.camera.results = shots
-        h.answering.results = replies
+        h.camera.results = shots ?? [.success(FakeCamera.shot())]
+        h.answering.results = replies ?? [.success(FakeAnswering.reply(1))]
         h.trackEvents { name in
             if name == "Kameraya_Gec" { h.health.internet = false }
             if name == "Hücresele_Gec" && internetBack { h.health.internet = true }
@@ -211,6 +211,7 @@ final class CameraFlowTests: XCTestCase {
 }
 
 /// Sürüm 4: Gemini'ye giden çekim isteği
+@MainActor
 final class CaptureRequestTests: XCTestCase {
     private func parts(_ data: Data) throws -> [[String: Any]] {
         let object = try JSONSerialization.jsonObject(with: data) as! [String: Any]
@@ -327,6 +328,7 @@ final class GuidanceFocusTests: XCTestCase {
     }
 }
 
+@MainActor
 final class CameraSupportTests: XCTestCase {
     func testDiskGuardLevels() {
         XCTAssertEqual(DiskGuard.level(freeMB: -1), .ok, "Ölçülemeyen boş yer sorun sayılmaz")
