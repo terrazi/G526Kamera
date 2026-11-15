@@ -81,6 +81,25 @@ final class CameraFlowTests: XCTestCase {
         XCTAssertEqual(h.vm.stuckTrips, 0)
     }
 
+    /// Çekim sürerken arama gelir (V3 işi iptal eder): kamera kapanmalı, takılı kalmamalı; arama bitince kamera sorusu yeniden sorulmalı
+    func testInterruptionDuringCaptureClosesTheCameraAndAsksAgainAfterwards() async {
+        let h = harness()
+        _ = await h.startListening()
+        h.camera.hold = true
+        reply(h, "evet")
+        let capturing = await waitUntil { h.camera.captures == 1 && h.vm.phase == .answering }
+        XCTAssertTrue(capturing)
+        h.route.interrupt(began: true)
+        let closed = await waitUntil { h.camera.cancels >= 1 && !h.vm.cameraBusy }
+        XCTAssertTrue(closed, "İş iptal edilince kamera da kapanır ve akış takılı (meşgul) kalmaz")
+        XCTAssertTrue(h.vm.pendingShots.isEmpty)
+        h.route.interrupt(began: false)
+        h.scheduler.advance(by: T.routeStable + 0.1)
+        let asked = await waitUntil(5) { self.cameraQuestionOpen(h) }
+        XCTAssertTrue(asked, "Kesintiden sonra kamera sorusu yeniden sorulur (sessizce sesle okumaya dönülmez)")
+        XCTAssertFalse(h.shortcuts.runs.contains("Kamera_Onar"), "İptal edilen çekim için bağlantı onarımı çalışmaz")
+    }
+
     func testNoLetsTheUserReadTheQuestionAsInVersionThree() async {
         let h = harness(shots: [], replies: [.success(FakeAnswering.reply(1)), .success(FakeAnswering.reply(2))])
         _ = await h.startListening()

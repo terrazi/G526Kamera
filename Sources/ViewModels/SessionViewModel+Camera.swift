@@ -87,7 +87,10 @@ extension SessionViewModel {
             await fallBackToVoice(Say.cameraShortcutsMissing)
             return
         }
-        guard await speakNotice(Say.cameraConnecting) else { return }
+        guard await speakNotice(Say.cameraConnecting) else {
+            offerCamera = true   // kesildi (kulaklık, arama, onarım): onarımdan sonra kamera sorusu yeniden sorulur
+            return
+        }
         phase = .answering
         statusNote = "Kameraya geçiliyor (hücresel kesiliyor)"
         tlog("[kamera] hücresel kesilip kameranın Wi-Fi ağına geçiliyor: kestirme “\(cameraName)”")
@@ -104,13 +107,19 @@ extension SessionViewModel {
             result = .success(shot)
             keepPending(shot)
         }
-        guard !Task.isCancelled, phase == .answering else { return }
+        guard !Task.isCancelled, phase == .answering else {
+            offerCamera = true
+            return
+        }
         if case .success = result { sayGuidance(Say.cameraCaptured) }
         // Kamera kapandı: Wi-Fi bırakılır, hücresel açılır
         statusNote = "İnternete geçiliyor (Wi-Fi bırakılıyor)"
         let online = await returnToInternet(shortcut: internetName)
         await waitForGuidanceSpeech()
-        guard !Task.isCancelled, phase == .answering else { return }
+        guard !Task.isCancelled, phase == .answering else {
+            if pendingShots.isEmpty { offerCamera = true }   // çekim telefonda bekliyorsa önce o gönderilir (bkz. beginListening)
+            return
+        }
         switch result {
         case .failure(let failure):
             tlog("[kamera] çekim olmadı: \(failure.message)")
@@ -210,11 +219,17 @@ extension SessionViewModel {
             }
             let outcome = await deps.shortcuts.run(name: name)
             guard !Task.isCancelled, phase == .answering else { return .failure(.cancelled) }
+            let camera = deps.camera
             // Zaman aşımında kestirme çalışmış ama dönüş haberi gelmemiş olabilir: kameranın kendisi karar verir
             if outcome == .success || outcome == .timedOut {
                 deps.camera.onSay = { [weak self] text in self?.sayGuidance(text) }
                 deps.camera.onStatus = { [weak self] text in self?.statusNote = text }
-                result = await deps.camera.capture()
+                // V3 işi iptal ederse (kulaklık, arama, onarım: `work?.cancel()`) kamera da kapanır; yoksa 70 sn boyunca açık kalırdı
+                result = await withTaskCancellationHandler {
+                    await camera.capture()
+                } onCancel: {
+                    Task { @MainActor in camera.cancel() }
+                }
                 deps.camera.onSay = nil
                 deps.camera.onStatus = nil
                 await waitForGuidanceSpeech()
@@ -222,7 +237,10 @@ extension SessionViewModel {
                 tlog("[kamera] kestirme çalışmadı (\(outcome)): kameraya geçilemedi")
                 result = .failure(.notConnected)
             }
-            guard !Task.isCancelled, phase == .answering else { return .failure(.cancelled) }
+            guard !Task.isCancelled, phase == .answering else {
+                if case .success(let shot) = result { shot.discard() }   // kesilirken çekilmiş olabilir: video dosyası sahipsiz kalmasın
+                return .failure(.cancelled)
+            }
             if case .failure(let failure) = result, failure == .notConnected || failure == .noFrames { continue }
             break
         }
