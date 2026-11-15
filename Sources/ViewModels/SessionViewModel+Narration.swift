@@ -59,14 +59,16 @@ extension SessionViewModel {
             if quiet >= 1 { speakProgress(text) }
             return
         }
-        if quiet >= 3, cameraProbeIsSafe, idleCuesInRow < idleCueLimit {
+        if quiet >= 3, !idleCueBusy, cameraProbeIsSafe, idleCuesInRow < idleCueLimit {
             idleCuesInRow += 1
+            idleCueBusy = true
             work = Task { [weak self] in await self?.speakIdleCue() }
         }
     }
 
     /// "Dinliyorum": mikrofon kısa süre kapanır (kendi sesini duymasın), söylenir, aynı kipte yeniden açılır
     func speakIdleCue() async {
+        defer { idleCueBusy = false }
         guard cameraProbeIsSafe else { return }
         closeListening()
         guard await speakNotice(Say.listeningNow, remember: false) else { return }

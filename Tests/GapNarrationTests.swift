@@ -13,8 +13,9 @@ final class GapNarrationTests: XCTestCase {
         return h
     }
 
+    /// Bilgi cümleleri uyarı anonsu gibi sayılır (`announced`), "Dinliyorum" normal anons olarak söylenir: ikisine de bakılır
     private func count(_ h: SessionHarness, _ text: String) -> Int {
-        return h.speaker.spoken.filter { $0 == text }.count
+        return (h.speaker.spoken + h.speaker.announcements).filter { $0 == text }.count
     }
 
     // MARK: Ayar
@@ -88,11 +89,11 @@ final class GapNarrationTests: XCTestCase {
         h.vm.phase = .checking
         h.scheduler.advance(by: 25)
         let checking = await waitUntil { self.count(h, Say.gapChecking) >= 1 }
-        XCTAssertTrue(checking, "açılış kontrolü uzarsa sessiz kalınmaz: \(h.speaker.spoken)")
+        XCTAssertTrue(checking, "açılış kontrolü uzarsa sessiz kalınmaz: \(h.speaker.spoken + h.speaker.announcements)")
         h.vm.phase = .recovering(.network)
         h.scheduler.advance(by: 25)
         let repairing = await waitUntil { self.count(h, Say.gapRepairing) >= 1 }
-        XCTAssertTrue(repairing, "onarım sürerken sessiz kalınmaz: \(h.speaker.spoken)")
+        XCTAssertTrue(repairing, "onarım sürerken sessiz kalınmaz: \(h.speaker.spoken + h.speaker.announcements)")
     }
 
     // MARK: Boşta "Dinliyorum"
@@ -105,7 +106,7 @@ final class GapNarrationTests: XCTestCase {
         XCTAssertEqual(count(h, Say.listeningNow), 0, "üç adım sessizlik dolmadan söylenmez")
         h.scheduler.advance(by: 30)
         let said = await waitUntil { self.count(h, Say.listeningNow) == 1 && h.vm.phase == .listening }
-        XCTAssertTrue(said, "uzun sessizlikte 'Dinliyorum' denir ve dinlemeye dönülür: \(h.speaker.spoken)")
+        XCTAssertTrue(said, "uzun sessizlikte 'Dinliyorum' denir ve dinlemeye dönülür: \(h.speaker.spoken + h.speaker.announcements)")
         XCTAssertEqual(h.vm.listenMode, .question)
     }
 

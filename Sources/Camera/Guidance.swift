@@ -971,9 +971,6 @@ struct GuidanceDecision: Equatable {
     var scale = 1.0
     /// Kaydırma önerilerinde (sola/sağa/yukarı/aşağı) yazı bloğunu ortalamak için gereken kaydırma, kadraj boyutunun oranı (0: yok)
     var shift = 0.0
-    /// Yazı iki kenara birden dayalıysa (köşe) ikinci yön ve kaydırması: "sola ve yukarı"
-    var also: GuidanceAdvice?
-    var alsoShift = 0.0
 }
 
 /// Ölçülerden öneri çıkarır (saf fonksiyon; birim testle denenir).
@@ -1080,10 +1077,8 @@ final class GuidanceEngine {
     /// Son kararın yazı doluluğu ve gereken büyütme: bulanıklık ve "yaklaşın" cümlelerini seçmek için
     private var lastFill = 0.0
     private var lastScale = 1.0
-    /// Son kararın kaydırma miktarı ve (köşedeyse) ikinci yönü: cümledeki "azıcık / biraz / epey" ve "sola ve yukarı" için
+    /// Son kararın kaydırma miktarı: cümledeki "azıcık / biraz / epey" için
     private var lastShift = 0.0
-    private var lastAlso: GuidanceAdvice?
-    private var lastAlsoShift = 0.0
     /// Düzeltmenin gidişi (doğru yöne mi gidiliyor)
     private var trendTracker = GuidanceTrendTracker()
     /// Son ölçümün tarifi ve bu çekim için söylenen son tarif (aynı tarif tekrar söylenmez, değişince yeniden söylenir)
@@ -1114,14 +1109,8 @@ final class GuidanceEngine {
     func phrase(for advice: GuidanceAdvice, again: Bool = false, trend: GuidanceTrend = .steady, stuck: Bool = false) -> String {
         switch advice {
         case .moveLeft, .moveRight, .moveUp, .moveDown:
-            // Köşeye dayalıysa iki yön tek cümlede; miktar sözcüğü büyük olana göre
-            var dir = advice.directionWord
-            var amount = lastShift
-            if let other = lastAlso {
-                dir += " ve " + other.directionWord
-                amount = max(amount, lastAlsoShift)
-            }
-            let word = GuidanceAdvisor.amountWord(shift: amount, config: config)
+            let dir = advice.directionWord
+            let word = GuidanceAdvisor.amountWord(shift: lastShift, config: config)
             switch trend {
             case .better: return "Doğru. \(capitalised(word)) daha \(dir) kaydırın."
             case .worse: return "Ters yöne gittiniz. Kamerayı \(word) \(dir) kaydırın."
@@ -1197,8 +1186,6 @@ final class GuidanceEngine {
         lastFill = d.fill
         lastScale = d.scale
         lastShift = d.shift
-        lastAlso = d.also
-        lastAlsoShift = d.alsoShift
         lastScene = describeScene && d.advice != .noText
             ? GuidanceScene.describe(GuidanceScene.parts(metrics, config: config), edges: GuidanceScene.usableEdges(metrics)) : nil
         var a = d.advice

@@ -41,8 +41,9 @@ final class GuidanceTests: XCTestCase {
         XCTAssertEqual(decide(metrics(x0: 0.4, x1: 0.995)).advice, .moveRight)
         XCTAssertEqual(decide(metrics(x0: 0.005, x1: 0.6)).advice, .moveLeft)
         XCTAssertEqual(decide(metrics(x0: 0.005, x1: 0.995)).advice, .farther)
-        XCTAssertEqual(decide(metrics(x0: 0.2, x1: 0.8, y0: GuidanceAnalyzer.skipTop + 0.005, y1: 0.8)).advice, .moveUp)
-        XCTAssertEqual(decide(metrics(x0: 0.2, x1: 0.8, y0: 0.3, y1: 0.995)).advice, .moveDown)
+        // üst ve alt kenardan taşma sorun sayılmaz: komşu sorular yukarı ve aşağı doğru devam eder
+        XCTAssertEqual(decide(metrics(x0: 0.2, x1: 0.8, y0: GuidanceAnalyzer.skipTop + 0.005, y1: 0.8)).advice, .ok)
+        XCTAssertEqual(decide(metrics(x0: 0.2, x1: 0.8, y0: 0.3, y1: 0.995)).advice, .ok)
         XCTAssertEqual(decide(metrics(x0: 0.4, x1: 0.6, y0: 0.4, y1: 0.6, cells: 150)).advice, .closer)
         XCTAssertEqual(decide(metrics(x0: 0.2, x1: 0.8, sharp: 0.2)).advice, .blurry)
     }
@@ -314,8 +315,9 @@ final class GuidanceTests: XCTestCase {
         // yazı küçük ama kenara yakın: yakınlaşınca taşar, önce o yöne kaydırılır
         XCTAssertEqual(decide(metrics(x0: 0.05, x1: 0.30, y0: 0.30, y1: 0.50, cells: 150)).advice, .moveLeft)
         XCTAssertEqual(decide(metrics(x0: 0.70, x1: 0.95, y0: 0.30, y1: 0.50, cells: 150)).advice, .moveRight)
-        XCTAssertEqual(decide(metrics(x0: 0.40, x1: 0.60, y0: 0.12, y1: 0.25, cells: 150)).advice, .moveUp)
-        XCTAssertEqual(decide(metrics(x0: 0.40, x1: 0.60, y0: 0.75, y1: 0.97, cells: 150)).advice, .moveDown)
+        // üstte ya da altta kalan küçük yazı için yukarı / aşağı kaydırma istenmez (dikey taşma sorun sayılmaz): doğrudan yaklaşılır
+        XCTAssertEqual(decide(metrics(x0: 0.40, x1: 0.60, y0: 0.12, y1: 0.25, cells: 150)).advice, .closer)
+        XCTAssertEqual(decide(metrics(x0: 0.40, x1: 0.60, y0: 0.75, y1: 0.97, cells: 150)).advice, .closer)
         // ortadaysa doğrudan yaklaşılır
         XCTAssertEqual(decide(metrics(x0: 0.40, x1: 0.60, y0: 0.40, y1: 0.60, cells: 150)).advice, .closer)
     }
@@ -401,19 +403,15 @@ final class GuidanceTests: XCTestCase {
         let d = decide(metrics(x0: 0.05, x1: 0.30, y0: 0.30, y1: 0.50, cells: 150))
         XCTAssertEqual(d.advice, .moveLeft)
         XCTAssertEqual(d.shift, 0.156, accuracy: 0.003, "yakınlaşınca taşacak miktar, büyütmeye bölünür")
-        XCTAssertNil(d.also)
     }
 
-    func testCornerTextNamesBothDirectionsInOneSentence() {
+    func testCornerTextOnlyNamesTheSideDirection() {
+        // köşeye dayalı yazıda yalnız yan kenar söylenir (üst kenar sorun sayılmaz)
         let corner = metrics(x0: 0.004, x1: 0.80, y0: GuidanceAnalyzer.skipTop + 0.01, y1: 0.80)
         let d = decide(corner)
         XCTAssertEqual(d.advice, .moveLeft)
-        XCTAssertEqual(d.also, .moveUp)
         XCTAssertEqual(d.shift, 0.098, accuracy: 0.003)
-        XCTAssertEqual(d.alsoShift, 0.095, accuracy: 0.003)
-        XCTAssertEqual(firstSpeech(GuidanceEngine(), corner), "Kamerayı biraz sola ve yukarı kaydırın.")
-        // tek kenara dayalıysa ikinci yön yok
-        XCTAssertNil(decide(metrics(x0: 0.005, x1: 0.6)).also)
+        XCTAssertEqual(firstSpeech(GuidanceEngine(), corner), "Kamerayı biraz sola kaydırın.")
     }
 
     func testSaysRightWhenTheCameraMovedTheRightWay() {

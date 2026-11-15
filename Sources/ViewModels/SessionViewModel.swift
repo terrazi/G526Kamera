@@ -381,6 +381,8 @@ final class SessionViewModel: ObservableObject {
     var narrationTask: ScheduledTask?
     var quietTicks = 0
     var idleCuesInRow = 0
+    /// "Dinliyorum" söylenirken yenisi başlatılmaz (konuşma bir adımdan uzun sürerse üst üste binmesin)
+    var idleCueBusy = false
 
     // MARK: Sürüm 4: kamera
     /// Kamera ayarları
@@ -595,6 +597,7 @@ final class SessionViewModel: ObservableObject {
         narrationTask?.cancel()
         narrationTask = nil
         idleCuesInRow = 0
+        idleCueBusy = false
         cameraDownSince = nil
         questions = []
         currentEntry = nil
