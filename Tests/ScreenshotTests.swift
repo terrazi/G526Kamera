@@ -147,17 +147,17 @@ final class ScreenshotTests: XCTestCase {
 
         // 1) Açılış: test başlamadan önceki ana ekran
         let idle = rig()
-        await render(withEnvironment(ContentView(), idle), "01-ana-ekran-hazir")
+        await render(withEnvironment(ContentView(), idle), "01-ana-ekran-hazir", height: 1400)
 
         // 2) Sürüm 3 gibi: dinliyor (kamera sorusu kapalı)
         let listening = rig()
         _ = await listening.h.startListening()
-        await render(withEnvironment(ContentView(), listening), "02-ana-ekran-dinliyor")
+        await render(withEnvironment(ContentView(), listening), "02-ana-ekran-dinliyor", height: 1400)
 
         // 3) Sürüm 4: "Bu soruyu kamera ile çekip göndermek ister misiniz?" beklenirken
         let camera = rig(cameraFlow: true)
         _ = await camera.h.startListening()
-        await render(withEnvironment(ContentView(), camera), "03-ana-ekran-kamera-sorusu")
+        await render(withEnvironment(ContentView(), camera), "03-ana-ekran-kamera-sorusu", height: 1400)
 
         // 3b) Kamera çekimi sürerken: canlı görüntü kartı (simülatörde kamera yoktur; görüntü kutusu siyah kalır)
         let shooting = rig(cameraFlow: true)
@@ -178,7 +178,7 @@ final class ScreenshotTests: XCTestCase {
         _ = await previewOff.h.startListening()
         previewOff.h.cameraSettings.previewOff = true
         previewOff.controller.showForScreenshots(state: .streaming, status: "Sayfa konumlandırılıyor", battery: .level(3))
-        await render(withEnvironment(ContentView(), previewOff), "03c-ana-ekran-onizleme-kapali")
+        await render(withEnvironment(ContentView(), previewOff), "03c-ana-ekran-onizleme-kapali", height: 1400)
 
         // 4) Bir soru sorulmuş ve cevaplanmış
         let asked = rig()
@@ -186,14 +186,14 @@ final class ScreenshotTests: XCTestCase {
         _ = await asked.h.startListening()
         asked.h.ask("Soru 1. Türkiye'nin başkenti neresidir? A seçeneği Ankara, B seçeneği İstanbul")
         _ = await waitUntil(45) { asked.h.vm.answers.count == 1 }
-        await render(withEnvironment(ContentView(), asked), "04-ana-ekran-soru-cevaplandi")
+        await render(withEnvironment(ContentView(), asked), "04-ana-ekran-soru-cevaplandi", height: 1400)
 
         // 5) Kırmızı uyarılar: ses çok kısık ve pil düşük
         let warned = rig()
         warned.h.system.current.outputVolume = 0.05
         _ = await warned.h.startListening()
         warned.h.vm.warn("gorsel", "Pil yüzde 18: şarja takın.")
-        await render(withEnvironment(ContentView(), warned), "05-ana-ekran-uyarilar")
+        await render(withEnvironment(ContentView(), warned), "05-ana-ekran-uyarilar", height: 1400)
 
         // 6) Ayarlar (gerçek varsayılanlarla; uzun liste tek görüntüde)
         let defaults = UserDefaults(suiteName: "g526.ekran.\(UUID().uuidString)")!

@@ -80,7 +80,10 @@ struct ContentView: View {
     /// Sürüm 4: kamera kutusu V1'deki gibi ana ekranda hep durur (görüntü yokken siyahtır). Üstünde kamera durumu, altında bildirim bandı;
     /// önizleme ve ekran kısma buradan açılıp kapatılır; "Şimdi çek" yalnız çekim sürerken çalışır.
     private var cameraCard: some View {
-        let size = PreviewLayout.box(screen: UIScreen.main.bounds.size, portrait: camera.guidanceFrame == 1)
+        // Kutu, kartın içindeki genişliğe oranla (yatay 16:9, dikey 9:16) oturur; sabit ekran genişliğinden hesaplanırsa kart + kenar boşluğu taşırdı
+        let portrait = camera.guidanceFrame == 1
+        let ratio: CGFloat = portrait ? 9.0 / 16.0 : 16.0 / 9.0
+        let maxWidth: CGFloat = portrait ? UIScreen.main.bounds.height * 0.6 * ratio : .infinity
         let previewOn = Binding<Bool>(get: { !camera.previewOff }, set: { camera.previewOff = !$0 })
         return VStack(alignment: .leading, spacing: 8) {
             if camera.previewOff {
@@ -89,7 +92,7 @@ struct ContentView: View {
             } else {
                 ZStack(alignment: .topLeading) {
                     VideoLayerView(renderer: cameraController.renderer, orientation: camera.imageOrientation)
-                        .frame(width: size.width, height: size.height)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .background(Color.black)
                         .cornerRadius(12)
                     cameraStateLine
@@ -99,7 +102,8 @@ struct ContentView: View {
                         .cornerRadius(10)
                         .padding(8)
                 }
-                .frame(width: size.width, height: size.height)
+                .aspectRatio(ratio, contentMode: .fit)
+                .frame(maxWidth: maxWidth, alignment: .leading)
                 .overlay(alignment: .bottom) {
                     if cameraController.active, !cameraController.statusText.isEmpty {
                         Text(cameraController.statusText)
@@ -135,7 +139,7 @@ struct ContentView: View {
                 .font(.caption)
                 .lineLimit(2)
             if let battery = cameraController.cameraBattery {
-                Text(battery.shortText).font(.caption2).foregroundColor(.secondary)
+                Text(battery.shortText).font(.caption2)
             }
         }
     }

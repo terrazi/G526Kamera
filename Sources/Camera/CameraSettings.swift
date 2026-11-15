@@ -108,6 +108,11 @@ final class CameraSettings: ObservableObject {
          "Kullanıcı kararı (2026-11-15): kadraj tarifi ve \"soru bölünüyor\" uyarıları verilmesin; odak çalışılan sorudur")
     ]
 
+    /// V1'de olmayan, V4'e özgü ayarlar (anahtar, gerekçe). Bunlar `allKeys` içindedir ama V1 varsayılan tablosunda yoktur.
+    static let v4Only: [(key: String, reason: String)] = [
+        ("lastShotOff", "Kullanıcı isteği (2026-11-15): ana ekrandaki \"Son fotoğraf\" kartı ayardan kapatılabilsin; V1'de böyle bir seçenek yoktu")
+    ]
+
     /// V1'de olup V4'e alınmayan ayarlar ve nedenleri. V1'deki her ayar ya `allKeys` içindedir ya da burada; üçüncü bir durum yoktur (testle denetlenir).
     static let excluded: [(key: String, reason: String)] = [
         ("dimScreen", "V3'te aynı işi `AppSettings.dimScreen` (v3.dimScreen) yapıyor"),

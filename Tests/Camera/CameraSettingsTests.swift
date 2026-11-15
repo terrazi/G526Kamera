@@ -114,9 +114,13 @@ final class CameraSettingsTests: XCTestCase {
             XCTAssertTrue(ported.contains(key) || excluded.contains(key), "V1 ayarı hesapta yok: \(key)")
             XCTAssertFalse(ported.contains(key) && excluded.contains(key), "hem alındı hem dışarıda: \(key)")
         }
-        XCTAssertTrue(ported.isSubset(of: Set(Self.v1Keys)), "V1'de olmayan anahtar: \(ported.subtracting(Self.v1Keys))")
+        let v4Only = Set(CameraSettings.v4Only.map { $0.key })
+        XCTAssertTrue(v4Only.isSubset(of: ported), "V4'e özgü ayar listede değil")
+        XCTAssertTrue(v4Only.isDisjoint(with: Set(Self.v1Keys)), "V4'e özgü diye yazılan ayar V1'de var")
+        for item in CameraSettings.v4Only { XCTAssertGreaterThan(item.reason.count, 10, "gerekçe yok: \(item.key)") }
+        XCTAssertTrue(ported.subtracting(v4Only).isSubset(of: Set(Self.v1Keys)), "V1'de olmayan anahtar: \(ported.subtracting(v4Only).subtracting(Self.v1Keys))")
         XCTAssertTrue(excluded.isSubset(of: Set(Self.v1Keys)), "V1'de olmayan dışarıda anahtar: \(excluded.subtracting(Self.v1Keys))")
-        XCTAssertEqual(ported.count + excluded.count, Set(Self.v1Keys).count)
+        XCTAssertEqual(ported.subtracting(v4Only).count + excluded.count, Set(Self.v1Keys).count)
         for item in CameraSettings.excluded { XCTAssertGreaterThan(item.reason.count, 10, "gerekçe yok: \(item.key)") }
         XCTAssertEqual(CameraSettings.excluded.count, Set(CameraSettings.excluded.map { $0.key }).count, "tekrarlı dışarıda anahtar")
     }
@@ -175,7 +179,9 @@ final class CameraSettingsTests: XCTestCase {
         let now = current(s)
         let v1 = v1Defaults()
         // tablo bütün ayarları kapsıyor mu
-        XCTAssertEqual(Set(v1.keys), Set(CameraSettings.allKeys), "varsayılan tablosu ayar listesiyle örtüşmüyor")
+        let v4Only = Set(CameraSettings.v4Only.map { $0.key })
+        XCTAssertEqual(Set(v1.keys).union(v4Only), Set(CameraSettings.allKeys), "varsayılan tablosu ayar listesiyle örtüşmüyor")
+        XCTAssertFalse(s.lastShotOff, "V4'e özgü \"son fotoğrafı gösterme\" varsayılanı: gösterilir")
         let deviating = Set(CameraSettings.deviations.map { $0.key })
         for (key, expected) in v1 {
             let actual = now[key]

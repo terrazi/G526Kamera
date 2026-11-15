@@ -77,8 +77,9 @@ final class UnderstandingTests: XCTestCase {
         XCTAssertTrue(asking)
         XCTAssertEqual(h.listener.startedHints.last, .number, "Numara beklenirken dar sayı listesi")
         say(h, "Testi bitir", confirm: T.numberConfirm)
-        _ = await waitUntil { h.vm.phase == .listening }
-        XCTAssertEqual(h.vm.listenMode, .missingNumber, "Numara beklerken komut çalışmaz (yalnız cevapları tekrarla)")
+        let confirming = await waitUntil { h.vm.listenMode == .confirmEnd && h.vm.phase == .listening }
+        XCTAssertTrue(confirming, "Numara beklerken de bitirme onayı istenir (bekleyen soru gönderilmeyeceği söylenir; ayrıntı EndWhileWaitingTests)")
+        XCTAssertEqual(h.listener.startedHints.last, .choice, "Onay sorulurken evet/hayır listesi")
     }
 
     // MARK: Anlaşılmayan komut
