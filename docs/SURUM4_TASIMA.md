@@ -63,11 +63,11 @@ V1 (`pdf-toplu-gonderim` dalı) kamera uygulamasından V4'e (`surum-4`) neyin, n
 | `SelfHeal.swift` | Alınmadı | V1 kendini onarma: V3 RecoveryCoordinator kullanılır |
 | `StatusReport.swift` | Alınmadı | V1 durum raporu: V3'ün kendi durum bildirimi var |
 | `NoticeQueue.swift` | Alınmadı | V1 haber kuyruğu: V3 speakNotice / warn kullanılır |
-| `AppModel.swift` | BEKLİYOR | CameraCapture (SessionViewModel+Camera): kamera yaşam döngüsü, bağlantı izleme, çekim, sesli konumlandırma, sayfa videosu, kapatma |
-| `ContentView.swift` | BEKLİYOR | Kamera önizleme kutusu ve durum satırları (ana ekran) |
-| `ConnectionAnnouncer.swift` | BEKLİYOR | Kamera bağlandı / koptu duyurusu |
-| `GeminiVideo.swift` | BEKLİYOR | Video + fotoğrafı V3 Gemini zincirine gönderme (yükleme, mediaResolution) |
-| `Health.swift` | BEKLİYOR | DiskGuard: video öncesi boş yer denetimi (diğer sınıflar V3 SystemHealth ile karşılanır) |
+| `AppModel.swift` | Uyarlandı | `CameraCaptureController` (Sources/Camera) + `SessionViewModel+Camera`: kamera yaşam döngüsü, bağlantı izleme (8 sn görüntü gelmezse kopma), çekim, sesle konumlandırma, sayfa videosu, kamerayı kapatma, bağlantı onarımı |
+| `ContentView.swift` | Uyarlandı | Ana ekrandaki kamera kartı: canlı önizleme, durum satırı, pil, çekim sırasında "Şimdi çek" düğmesi |
+| `ConnectionAnnouncer.swift` | Uyarlandı | Kamera bağlandı / koptu cümleleri çekim akışının içinde (`CameraSay`, `Say.camera…`); "Kamera ve gönderim durumunu da söyle" ayarıyla açılıp kapanır |
+| `GeminiVideo.swift` | Uyarlandı | `GeminiAnswerService.answer(capture:expectedNumber:)`: fotoğraf + video (inline, fps, yüksek medya çözünürlüğü) V3'ün profil zincirinden gider |
+| `Health.swift` | Uyarlandı | `DiskGuard`: video öncesi boş yer denetimi (1500 MB altı uyarı, 400 MB altı çekim yok); diğer sınıflar V3 SystemHealth ile karşılanır |
 
 Özet: Aynen alındı 19, Uyarlandı 5, V3'te var 13, BEKLİYOR 5, Alınmadı 20
 
@@ -149,10 +149,26 @@ V1'e göre bilerek değişen varsayılanlar:
 
 `ProtocolTests`, `CameraProbeTests`, `ImageOrientationTests`, `PageEdgesTests`, `PreviewLayoutTests`, `VideoRecorderTests`, `DocumentGateTests`, `RealFrameFixtures`, `TimestampTests`, `PowerSavingTests`, `GuidanceTests`, `AutoPickTests`, `GhostTests`, `BatteryTests` (V1 testlerinin V4'te var olan türlere uyarlanmış hâli; PDF, belge klasörü, sesli video komutu ve rapor cümleleri testleri kodlarıyla birlikte alınmadı). Yeni: `CameraSettingsTests` (ayar eksiksizliği, varsayılan eşitliği, kalıcılık, sınırlar, geçişler), `PortManifestTests` (dosya kaydının eksiksizliği).
 
-## Bekleyen iş (V4 akışı, bu belge güncellenecek)
+## Bekleyen iş
 
-- `AppModel.swift`: CameraCapture (SessionViewModel+Camera): kamera yaşam döngüsü, bağlantı izleme, çekim, sesli konumlandırma, sayfa videosu, kapatma
-- `ContentView.swift`: Kamera önizleme kutusu ve durum satırları (ana ekran)
-- `ConnectionAnnouncer.swift`: Kamera bağlandı / koptu duyurusu
-- `GeminiVideo.swift`: Video + fotoğrafı V3 Gemini zincirine gönderme (yükleme, mediaResolution)
-- `Health.swift`: DiskGuard: video öncesi boş yer denetimi (diğer sınıflar V3 SystemHealth ile karşılanır)
+Yok: V1'in 62 dosyasının hepsi ya alındı, uyarlandı, V3'te karşılığı var ya da gerekçesiyle alınmadı (`PortManifestTests.testNothingIsLeftPending` bekleyen kaydı kabul etmez).
+
+## V4'te işlemeyen V1 kamera ayarları
+
+Anahtarlar ve varsayılanlar V1'le birebir korunur (V1'e dönülürse aynı değerler çalışır; `CameraSettingsTests` anahtar eksiksizliğini denetler), ama V4 akışı şunları kullanmaz; ayar ekranında sönük ve açıklamalı görünür:
+
+- Görüntü değişince çek (hareket tetiği) ve duyarlılık: kamera yalnız "evet" denince açılıp tek soru çeker.
+- Sesli komutla çek, tetikleme sözcüğü, çekimler arası bekleme: kamera açıkken mikrofon soru okumaya ayrılmıştır; yardım eden biri için ekranda "Şimdi çek" düğmesi vardır.
+- Konum uygunsa kendiliğinden çek, tam sığan bölümü kendiliğinden seç, video sırasında konum tarifi: çekim her zaman kendiliğinden yapılır, bölüm sorulmaz (kadrajın ortasındaki bölüm hedeflenir), video sırasında tarif verilmez.
+
+"Sesle konumlandır" kapalıysa konumlandırma atlanır ve kamera bağlanır bağlanmaz çeker.
+
+## V4 akışı
+
+Soru başına: "Bu soruyu kamera ile çekip göndermek ister misiniz?" Evet: (1) `Kameraya Geç` kestirmesi (hücresel kapanır, kameranın Wi-Fi'sine bağlanır); (2) kamera açılır, soru kadraja alınır, video + fotoğraf çekilir, kamera kapanır; (3) `Hücresele Geç` kestirmesi (Wi-Fi kapanır, hücresel açılır), internet gelene kadar beklenir; (4) çekim Gemini'ye gider, cevap V3'teki gibi okunur ve kaydedilir; (5) sıradaki soru için yine sorulur. Toplu gönderim ve yedek Wi-Fi interneti yoktur.
+
+- Kameraya bağlanılamazsa `Kamera Bağlantısını Onar` kestirmesi (Ayarlar'daki Wi-Fi adımı; yazılmamışsa `Kameraya Geç` yeniden) en çok iki kez çalışır ve çekim yeniden denenir.
+- İnternet gelmezse V3'ün internet onarımı çalışır (hücresel, sıfırlama); Wi-Fi artık internet onarım adımı değildir.
+- Çekilen soru gönderilemezse (ağ hatası) telefonda bekler, bir sonraki soru sınırında bir kez yeniden denenir; en çok 3 çekim saklanır. Engellenen ya da çok büyük çekim saklanmaz.
+- Soru numarasını Gemini görüntüden okur; okuyamazsa sıra numarası kullanılır (sesle sorulmaz). Kadrajdaki yarım görünen komşu sorular Gemini'ye yok sayılması söylenerek gönderilir.
+- Çekilen fotoğraf ve video cevap klasörüne kaydedilmez; yalnız gönderilir, video gönderimden sonra silinir.

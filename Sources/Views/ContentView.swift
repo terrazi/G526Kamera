@@ -142,6 +142,7 @@ struct ContentView: View {
         case .passageTargets: return "Paragraf alındı: hangi sorulara ait olduğunu söyleyip “Tamam” deyin"
         case .missingNumber: return "Soru numarası bekleniyor: numarayı söyleyin (ör. “yedi”)"
         case .confirmEnd: return "Testi bitirmek için “evet”, devam etmek için “hayır” deyin"
+        case .cameraChoice: return "Kamera ile çekmek için “evet”, sesle okumak için “hayır” deyin"
         case .startChoice: return "Önceki kayıttan devam için “devam”, yeni sınav için “yeni” deyin"
         case .reviewMenu: return "Cevaplar okundu: teste “Devam”, yeniden dinlemek için “Tekrar”, testi tamamlamak için “Bitir” deyin"
         }

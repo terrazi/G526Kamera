@@ -106,17 +106,28 @@ Uygulama ilk açıldığında Ayarlar'daki alanlara şu adları kendiliğinden y
 
 Kestirmeler uygulamasında beş kestirme yapın; adları yukarıdakilerle birebir aynı olsun (adım adım, hiç bilmeyen biri için anlatım: **Kestirmeler_Kurulum_Rehberi** PDF/Word dosyası):
 
-1. `Wifi` — Wi-Fi'yi kapat, 2 sn bekle, aç.
+1. `Wifi` — Wi-Fi'yi kapat, 2 sn bekle, aç. (Sürüm 4'te bu adım **Kamera Bağlantısını Onar** adını alır; aşağıdaki Sürüm 4 bölümüne bakın.)
 2. `Hücresel Veri` — hücresel veriyi aç.
 3. `Bluetooth` — Bluetooth'u kapat, 2 sn bekle, aç (kulaklık ya da mikrofon yolunu hafifçe yeniler).
 4. `Sistemi Sıfırla` — uçak modunu aç (**Uçak Modunu Ayarla: Aç**), 3 sn bekle, kapat (**Uçak Modunu Ayarla: Kapat**); ağ ve Bluetooth yeniden kurulur.
 5. `Kulaklık Düzeltme` — tek eylem: **Oynatma Hedefini Ayarla** (hedef: Bluetooth kulaklık; kulaklık bağlıyken seçilir).
 
-İnternet kopunca uygulama sırayla 1, 2, 4'ü çalıştırır; kulaklık yoldan çıkınca önce 5'i, kulaklık ya da mikrofon koptuysa 3'ü, işe yaramazsa 4'ü çalıştırır. Konuşma tanıma düşerse hiçbirini çalıştırmaz (aşağıdaki "Konuşma tanıma düşerse" bölümü). Her
+İnternet kopunca uygulama sırayla 2, 4'ü çalıştırır (Sürüm 4; Sürüm 3'te önce 1); kulaklık yoldan çıkınca önce 5'i, kulaklık ya da mikrofon koptuysa 3'ü, işe yaramazsa 4'ü çalıştırır. Konuşma tanıma düşerse hiçbirini çalıştırmaz (aşağıdaki "Konuşma tanıma düşerse" bölümü). Her
 adımdan sonra durumu sınar (internet için internete ve Gemini'ye ulaşmayı, donanım için ses yolunu), düzelince "Bağlantı sorunu
 giderildi…" der ve mikrofonu yeniden açar; **son soruyu baştan okursunuz**. Mikrofon sessiz kaldığı için onarım gerekirse yalnız
 `Sistemi Sıfırla` çalışır (ses yolu sağlam görünürken Bluetooth yenilemesi sorunu çözmüş gibi görünürdü). Kestirmeler uygulaması öne gelip geri döner; bunun için **ekran açık ve kilitsiz** olmalıdır (oturum
 boyunca ekran kararmaz).
+
+### Sürüm 4: kamera için üç kestirme
+
+Kamera ile çekim için Kestirmeler'de üç kestirme daha yapın; adları Ayarlar'daki alanlarla birebir aynı olsun (ilk açılışta kendiliğinden yazılır):
+
+1. `Kameraya Geç` — hücresel veriyi kapat, Wi-Fi'yi aç. Telefon kameranın ağına kendiliğinden bağlanır: kamerayı bir kez elle bağlayıp **Otomatik Bağlan**'ı açık bırakın (Kestirmeler belirli bir ağa bağlanma eylemi sunmaz).
+2. `Hücresele Geç` — Wi-Fi'yi kapat, hücresel veriyi aç.
+3. `Kamera Bağlantısını Onar` — Wi-Fi'yi kapat, 2 sn bekle, aç (telefon kameranın ağına yeniden bağlanır; kamera bağlanamayınca çalışır).
+
+Bu sürümde Wi-Fi artık internet onarımı için kullanılmaz (internet yalnız hücreseldir): internet kopunca sırayla hücresel ve sistem sıfırlama çalışır. Kestirmelerin Wi-Fi ve hücreseli sorunsuz (onay sormadan) değiştirip değiştirmediği ve kameranın ağına kendiliğinden bağlanıp bağlanmadığı cihazda denenmedi: Ayarlar'daki **Dene** düğmesiyle üçünü de sınayın.
+
 
 **Zamanlı başlatma:** Kestirmeler > Otomasyon > Günün Saati > sınav saati > eylem **URL'yi Aç**: `seslikontrol://basla` > **Hemen
 Çalıştır**. iOS uygulamanın kendi kendine uyanmasına izin vermez; bu yüzden otomasyon uygulamayı açıp başlatır. Telefon o saatte

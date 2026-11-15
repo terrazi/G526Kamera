@@ -34,7 +34,7 @@ Durum: ✅ önlem var ve testli · 🛠 bu incelemede bulundu ve düzeltildi · 
 
 | Ne olabilir | Önlem | Durum |
 |---|---|---|
-| İnternet koptu | Nabız (5 sn'de bir yoklama, 2 başarısız yoklama) yaklaşık 6–10 sn'de yakalar; Wi-Fi → Hücresel → Sistem Sıfırla; her adımdan sonra doğrulama; düzelince "hazır" | ✅ |
+| İnternet koptu | Nabız (5 sn'de bir yoklama, 2 başarısız yoklama) yaklaşık 6–10 sn'de yakalar; Hücresel → Sistem Sıfırla (Sürüm 4: Wi-Fi internet için kullanılmaz); her adımdan sonra doğrulama; düzelince "hazır" | ✅ |
 | Hızlı yoklama boşuna alarm verir | Önce tam sınama (internet + Gemini); sağlamsa hiçbir şey durmaz, anons yok, yarım soru silinmez; susturma yok, nabız daha uzun yoklamaya geçer | ✅ |
 | Soru giderken bağlantı düştü | Soru "gitmedi" işaretlenir, bağlantı onarılır, "Bağlantı yeniden onarıldı. Sorunuz yarım kaldıysa son soruyu tekrar okuyunuz" denir (akıllı devam kapalıysa eski cümle) | ✅ (otomatik yeniden gönderim bekliyor, bkz. §7) |
 | Kota / anahtar reddi / sunucu hatası / boş yanıt | 4 profil sırayla; arızalı profil dinlenir, cevap yedekten gelirse sebebi kırmızı kutuda | ✅ |
@@ -114,6 +114,20 @@ kalıcı sayı 300 + 500'dür.
 **Bulunan ve düzeltilen takılma:** kuyruğa alınmış ama başlamadan iptal edilen bir onarım görevi, çalışınca aşamayı "onarılıyor" yapıp iptal
 olduğunu görünce çıkıyor, oturum kalıcı olarak "onarılıyor"da kalıyordu (kulaklık ve mikrofon düzelse de dinlemeye dönülmezdi). Mikrofon donması,
 yol bildirimi ve onarım sınırı aynı anda üst üste gelince tetikleniyordu. Gerçek hayatta pencere dardır ama sonucu sessiz ve kalıcıdır.
+
+## 6b. Sürüm 4: kamera ile çekim
+
+| Ne olabilir | Önlem | Durum |
+|---|---|---|
+| Kullanıcı "hayır" der ya da cevap vermez | Hayır: V3 gibi sesle okuma; cevap gelmezse bir kez daha sorulur, yine gelmezse güvenli varsayılan (sesle okuma) | ✅ |
+| Kameraya bağlanılamaz / görüntü gelmez | `Kamera Bağlantısını Onar` ile en çok iki yeniden deneme; olmazsa nedeni söylenir ve sesle okumaya dönülür | ✅ |
+| Çekim sırasında görüntü kesilir | 8 sn görüntü gelmezse "Kamera görüntüsü kesildi" denir, onarım ve yeniden deneme | ✅ |
+| Soru 30 sn içinde konumlanmaz | Yine de çekilir (odak kipi: ortadaki soru hedeflenir); yardım eden için "Şimdi çek" düğmesi | ✅ |
+| Boş yer az | 1500 MB altı uyarı; 400 MB altı çekim yapılmaz, sesle okumaya dönülür | ✅ |
+| Çekimden sonra internet gelmez | V3 internet onarımı (hücresel, sıfırlama); çekim telefonda saklanır, gelince gönderilir | ✅ |
+| Gönderim ağ hatası verir | İnternet kestirmesi yeniden çalışır, bir kez daha denenir; olmazsa çekim telefonda bekler (en çok 3) | ✅ |
+| Kestirmeler Wi-Fi / hücreseli değiştirmez ya da onay sorar | Cihazda denenmedi: Ayarlar'da **Dene** ile sınanmalı | ⚠️ 📱 |
+| Komşu sorular kadrajda yarım görünür | Gemini'ye yok sayması söylenir; numara görüntüden okunur, okunamazsa sıra numarası | ✅ (cihazda denenmedi) |
 
 ## 7. Bekleyen kararlar ve öneriler
 

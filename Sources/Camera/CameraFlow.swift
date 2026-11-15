@@ -32,7 +32,7 @@ struct CapturedQuestion: Equatable {
 }
 
 /// Kamera çekimi neden olmadı
-enum CameraFailure: Equatable {
+enum CameraFailure: Error, Equatable {
     /// Kameraya bağlanılamadı (kamera kapalı, Wi-Fi'ye geçilemedi, parola yanlış…)
     case notConnected
     /// Bağlandı ama görüntü gelmedi / çözülemedi
