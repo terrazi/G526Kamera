@@ -35,6 +35,7 @@ final class CameraFlowTests: XCTestCase {
         let listening = await h.startListening()
         XCTAssertTrue(listening)
         XCTAssertEqual(h.speaker.spoken, [Say.readyCamera, Say.askCamera], "Önce hazırım, sonra kamera sorusu")
+        XCTAssertEqual(h.vm.checkup.first(where: { $0.id == "kamera" })?.ok, true)
         XCTAssertEqual(h.vm.listenMode, .cameraChoice)
         XCTAssertEqual(h.camera.captures, 0)
         XCTAssertTrue(h.shortcuts.runs.isEmpty, "Sorulmadan hiçbir bağlantı değişmez")
@@ -299,8 +300,9 @@ final class CameraFlowTests: XCTestCase {
         h.settings.internetShortcut = ""
         let listening = await h.startListening()
         XCTAssertTrue(listening)
-        XCTAssertEqual(h.speaker.spoken, [Say.ready], "Kestirmeler yazılmamışsa V3 gibi çalışır")
+        XCTAssertEqual(h.speaker.spoken, [Say.readyCameraMissing], "Kestirmeler yazılmamışsa V3 gibi çalışır, ama eksik olduğu söylenir")
         XCTAssertEqual(h.vm.listenMode, .question)
+        XCTAssertEqual(h.vm.checkup.first(where: { $0.id == "kamera" })?.ok, false)
     }
 
     func testTurningTheCameraQuestionOffGivesVersionThreeBehaviour() async {
@@ -309,6 +311,7 @@ final class CameraFlowTests: XCTestCase {
         _ = await h.startListening()
         XCTAssertEqual(h.speaker.spoken, [Say.ready])
         XCTAssertEqual(h.vm.listenMode, .question)
+        XCTAssertNil(h.vm.checkup.first(where: { $0.id == "kamera" }), "Soru kapalıysa kamera maddesi görünmez")
     }
 }
 

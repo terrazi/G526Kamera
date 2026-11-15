@@ -112,6 +112,12 @@ extension SessionViewModel {
             return
         }
 
+        // Kamera: soru açıksa ayarların tamam olduğu görünür (eksikse sorular sesle okunur ve bu başta söylenir)
+        if settings.askCamera {
+            setCheck("kamera", "Kamera ayarları", ok: cameraConfigured,
+                     detail: cameraConfigured ? "kamera adı ve kestirmeler yazılı" : "eksik; sorular sesle okunacak")
+        }
+
         // 5) Hepsi tamam: anons ve dinleme. Anons yarıda kesilirse (kulaklık koptu) açılış kontrolü yol dönünce baştan yapılır
         clearWarning("start")
         pendingStart = true
@@ -136,7 +142,7 @@ extension SessionViewModel {
             beginListening(mode: .startChoice)
             return
         }
-        guard await speakNotice(cameraOfferAvailable ? Say.readyCamera : Say.ready) else { return }
+        guard await speakNotice(cameraOfferAvailable ? Say.readyCamera : (settings.askCamera ? Say.readyCameraMissing : Say.ready)) else { return }
         pendingStart = false
         offerCamera = cameraOfferAvailable   // Sürüm 4: ilk soru için de kamera sorulur
         cameraOfferSuppressed = false

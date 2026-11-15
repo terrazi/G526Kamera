@@ -192,6 +192,8 @@ enum Say {
     static let askCamera = "Bu soruyu kamera ile çekip göndermek ister misiniz? Evet ya da hayır deyin."
     static let askCameraAgain = "Anlayamadım. Bu soruyu kamera ile çekip göndermek ister misiniz? Evet ya da hayır deyin."
     static let readyCamera = "Ben hazırım, sistem kontrol edildi ve problem yok."
+    /// Kamera sorusu açık ama kamera adı ya da kestirme adları yazılmamış: sessizce V3'e dönülmez, kullanıcıya söylenir
+    static let readyCameraMissing = "Ben hazırım, sistem kontrol edildi. Kamera ayarları eksik olduğu için sorular sesle okunacak."
     static let cameraDeclined = "Tamam. Soruyu okuyun, bitince Cevapla deyin."
     static let cameraDefaultVoice = "Cevap alamadım. Soruyu okuyarak devam ediyoruz. Soruyu okuyun, bitince Cevapla deyin."
     static let cameraConnecting = "Kameraya geçiliyor. Birkaç saniye bekleyin."

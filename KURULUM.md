@@ -182,7 +182,9 @@ döngüsüne girmemek için otomatik başlatma durur ve ekranda yazar. (5) Panon
 ## 6) Sınav günü
 
 1. Başlayınca uygulama donanımı denetler: izinler, çevrimdışı dikte, kulaklık, mikrofon, internet, Gemini. Sorun yoksa kulaklıktan
-   "Ben hazırım, sistem kontrol edildi ve problem yok, şimdi ilk soruyu okumanı bekliyorum." der.
+   "Ben hazırım, sistem kontrol edildi ve problem yok, şimdi ilk soruyu okumanı bekliyorum." der. (Sürüm 4'te kamera sorusu açıkken kamera adı ya da
+   kestirme adları eksikse "Kamera ayarları eksik olduğu için sorular sesle okunacak" der; kamerayı hiç kullanmayacaksanız Ayarlar'dan kamera
+   sorusunu kapatın.)
 2. Soruyu, şıklarıyla birlikte okuyun, sonunda **"Cevapla"** (ya da "Gönder") deyin. Her soru ayrı gönderilir; cevap
    "Soru 1, Denizli, Örgütsel Davranış" biçiminde kulaklıktan okunur (Adana=A, Bursa=B, Ceyhan=C, Denizli=D, Erzurum=E).
    Ana ekranda **Yüklenen sorular** tek listede görünür; her sorunun yanında bir işaret vardır: **saat** = okunuyor, "Cevapla"

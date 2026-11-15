@@ -7,6 +7,8 @@ Bu belge, programın sesle nasıl işlemesi gerektiğini adım adım yazar; her 
 
 1. **Açılış.** İzinler, çevrimdışı dikte, kulaklık + mikrofon, internet, Gemini denetlenir. Önceki klasörde cevap varsa: "Önceki kayıtta N cevap var,
    sıradaki soru M. Devam mı, yeni sınav mı?" (devam / yeni; cevapsızsa bir hatırlatma, sonra 12 saatten yeniyse devam). Sonra "Hazır".
+   Kamera sorusu açıksa kontrol listesine "Kamera ayarları" maddesi eklenir; kamera adı ya da kestirme adları eksikse "Hazırım" anonsu bunu söyler
+   ("Kamera ayarları eksik olduğu için sorular sesle okunacak") ve oturum V3 gibi çalışır.
 2. **Tek soru.** Soru numarasıyla okunur → "Cevapla" ya da "Gönder" → numara okunmadıysa "Lütfen okuduğunuz sorunun numarasını söyleyin" →
    "Soru gönderildi, cevap bekleniyor" → cevap kulaklıktan okunur ve `soru_N` + `cevaplar.txt` olarak kaydedilir → "Lütfen sonraki soruyu okuyun".
 2a. **Sürüm 4: kamera ile tek soru.** "Lütfen sonraki soruyu okuyun" yerine her soru sınırında: "Bu soruyu kamera ile çekip göndermek ister misiniz?"
