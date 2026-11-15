@@ -61,9 +61,12 @@ final class ScreenshotTests: XCTestCase {
 
     /// Görünümü ekran dışı bir pencerede kurar ve PNG olarak yazar (`height` uzun listeler için büyütülür).
     /// Üç yöntem sırayla denenir (ilk boş olmayan seçilir): pencerenin drawHierarchy'si, katmanın render'ı, ImageRenderer (iOS 16+).
-    private func render<V: View>(_ view: V, _ name: String, height: CGFloat = 812) async {
+    private func render<V: View>(_ view: V, _ name: String, height: CGFloat = 812, captureY: CGFloat = 0, captureHeight: CGFloat? = nil) async {
         let size = CGSize(width: 375, height: height)
         let bounds = CGRect(origin: .zero, size: size)
+        // Pencere uzun olabilir (tüm liste kurulsun); görüntü yalnız bu dilimi alır (çok uzun tek görüntü çizim sınırını aşar)
+        let shot = CGRect(x: 0, y: 0, width: 375, height: captureHeight ?? height)
+        let wholeWindow = captureY == 0 && captureHeight == nil
         let host = UIHostingController(rootView: view)
         let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
         let window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow(frame: bounds)
@@ -80,11 +83,14 @@ final class ScreenshotTests: XCTestCase {
             try? await Task.sleep(nanoseconds: 350_000_000)
         }
         let format = UIGraphicsImageRendererFormat()
-        format.scale = height > 1500 ? 2 : 3
+        format.scale = shot.height > 1500 ? 2 : 3
         format.opaque = true
         var ok: Bool?
-        let viaWindow = UIGraphicsImageRenderer(bounds: bounds, format: format).image { _ in
-            ok = window.drawHierarchy(in: bounds, afterScreenUpdates: true)
+        var viaWindow = UIImage()
+        if wholeWindow {
+            viaWindow = UIGraphicsImageRenderer(bounds: bounds, format: format).image { _ in
+                ok = window.drawHierarchy(in: bounds, afterScreenUpdates: true)
+            }
         }
         var chosen = viaWindow
         var method = "pencere"
@@ -92,15 +98,16 @@ final class ScreenshotTests: XCTestCase {
         var blankLayer: Bool?
         var blankKit: Bool?
         if blankWindow {
-            let viaLayer = UIGraphicsImageRenderer(bounds: bounds, format: format).image { ctx in
+            let viaLayer = UIGraphicsImageRenderer(bounds: shot, format: format).image { ctx in
                 UIColor.systemBackground.setFill()
-                ctx.fill(bounds)
+                ctx.fill(shot)
+                ctx.cgContext.translateBy(x: 0, y: -captureY)
                 host.view.layer.render(in: ctx.cgContext)
             }
             blankLayer = isBlank(viaLayer)
             if blankLayer == false { chosen = viaLayer; method = "katman"; blankWindow = false }
         }
-        if blankWindow, #available(iOS 16.0, *) {
+        if blankWindow, wholeWindow, #available(iOS 16.0, *) {
             let renderer = ImageRenderer(content: view.frame(width: size.width, height: size.height).background(Color(UIColor.systemBackground)))
             renderer.scale = format.scale
             if let image = renderer.uiImage {
@@ -184,11 +191,14 @@ final class ScreenshotTests: XCTestCase {
             .environmentObject(settingsRig.tester)
             .environmentObject(settingsRig.model)
         await render(settingsView, "06-ayarlar-ust", height: 812)
-        await render(settingsView, "07-ayarlar-tamami", height: 6000)
+        // Uzun liste: tek 15000 pt'lik pencere kurulur, 5000 pt'lik üç dilim olarak yazılır
+        await render(settingsView, "07a-ayarlar-bolum-1", height: 15000, captureY: 0, captureHeight: 5000)
+        await render(settingsView, "07b-ayarlar-bolum-2", height: 15000, captureY: 5000, captureHeight: 5000)
+        await render(settingsView, "07c-ayarlar-bolum-3", height: 15000, captureY: 10000, captureHeight: 5000)
 
         let written = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
         try? diagnostics.joined(separator: "\n").write(to: dir.appendingPathComponent("tani.txt"), atomically: true, encoding: .utf8)
         XCTAssertGreaterThanOrEqual(written.filter { $0.hasSuffix(".png") }.count, 6, "Ekran görüntüleri yazılmadı: \(written)")
-        XCTAssertGreaterThanOrEqual(nonBlank, 6, "Ekran görüntüleri boş çıktı: \(diagnostics)")
+        XCTAssertGreaterThanOrEqual(nonBlank, 7, "Ekran görüntüleri boş çıktı: \(diagnostics)")
     }
 }
