@@ -124,7 +124,7 @@ extension SessionViewModel {
         if let resumed = resume {
             // Beklenmedik kapanmadan sonra yeniden açıldık: ne olduğu söylenir, yarım kalan soru tamamlanır. Anons yarıda kesilirse
             // (kulaklık koptu) `resume` durur ve kontrol yol dönünce baştan yapılır.
-            var notice = Say.resumed(cause: resumed.cause, downSeconds: resumed.downSeconds, pending: resumed.pending)
+            var notice = Say.resumed(cause: resumed.cause, downSeconds: resumed.downSeconds, pending: resumed.pending, camera: cameraOfferAvailable)
             if let context = passage, !context.remaining.isEmpty { notice += " " + Say.resumedPassage(context.remaining) }
             guard await speakNotice(notice) else { return }
             pendingStart = false
@@ -132,6 +132,7 @@ extension SessionViewModel {
             if let pending = resumed.pending {
                 await resumePending(pending)
             } else {
+                armCameraOffer()   // Sürüm 4: yarım soru yoksa sıradaki soru için kamera sorulur
                 beginListening()
             }
             return
@@ -144,8 +145,7 @@ extension SessionViewModel {
         }
         guard await speakNotice(cameraOfferAvailable ? Say.readyCamera : (settings.askCamera ? Say.readyCameraMissing : Say.ready)) else { return }
         pendingStart = false
-        offerCamera = cameraOfferAvailable   // Sürüm 4: ilk soru için de kamera sorulur
-        cameraOfferSuppressed = false
+        armCameraOffer()   // Sürüm 4: ilk soru için de kamera sorulur
         beginListening()
     }
 

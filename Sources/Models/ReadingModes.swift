@@ -292,6 +292,12 @@ enum SpokenReply {
 
     static let yes: Set<String> = ["evet", "tamam", "bitir", "bitirin", "bitirelim", "onayliyorum", "onay", "olur", "aynen", "kesinlikle", "tabii", "tabi", "dogru"]
     static let no: Set<String> = ["hayir", "vazgec", "vazgectim", "vazgecelim", "devam", "iptal", "bitirme", "bitirmeyin", "olmaz", "istemiyorum", "yok", "dur", "degil"]
+    /// Kamera sorusu ("kamera ile çekip göndermek ister misiniz?"): "bitir" ve "devam" burada evet / hayır değildir; "testi bitir" bir
+    /// komuttur ve kamerayı başlatmamalı
+    static let cameraYes: Set<String> = ["evet", "tamam", "olur", "aynen", "kesinlikle", "tabii", "tabi", "dogru", "istiyorum", "isterim",
+                                         "cek", "cekelim", "cekin"]
+    static let cameraNo: Set<String> = ["hayir", "olmaz", "istemiyorum", "istemem", "yok", "degil", "vazgec", "vazgectim", "iptal", "sesle",
+                                        "sesli", "okurum"]
     static let continueWords: Set<String> = ["devam", "onceki", "eski", "kaldigi", "kaldigim", "kaldigimiz", "aynen", "surdur", "surdurelim", "surdurun"]
     static let newWords: Set<String> = ["yeni", "sifirdan", "bastan", "temiz"]
     static let reviewFinish: Set<String> = [
@@ -319,6 +325,16 @@ enum SpokenReply {
         // Onay sorusuna komutu yeniden söylemek ("testi bitir") de evet demektir
         if VoiceCommand.parse(text) == .endTest { return .yes }
         return nil
+    }
+
+    /// Kamera sorusuna cevap. Onay sorusundan ayrıdır: "testi bitir" evet sayılmaz (komuttur), çelişen söz nil verir.
+    static func cameraChoice(_ text: String) -> YesNo? {
+        let w = words(text, max: 8)
+        guard !w.isEmpty else { return nil }
+        let hasNo = w.contains(where: { SpokenWords.matches($0, cameraNo) })
+        let hasYes = w.contains(where: { SpokenWords.matches($0, cameraYes) })
+        if hasNo == hasYes { return nil }
+        return hasNo ? .no : .yes
     }
 
     static func start(_ text: String) -> Start? {

@@ -325,7 +325,8 @@ final class SessionViewModel: ObservableObject {
     /// Kamera akışı (kestirme + çekim + internete dönüş + gönderim) sürüyor
     var cameraBusy = false
     /// Çekilen bir soru (fotoğraf + video) Gemini'ye gönderiliyor: bekleme sınırı V3'ün sesli sorusundan daha geniştir (bkz. `Timing.cameraExtraWait`)
-    var sendingShot = false
+    var sendingShotID: UUID?
+    var sendingShot: Bool { return sendingShotID != nil }
     var cameraReminders = 0
     var cameraGuidanceSpeaking = false
     /// Kullanıcı "hayır" dedi ya da kamera akışı olmadı: bu soru sesle okunur, aynı soru için kamera yeniden sorulmaz
@@ -822,8 +823,17 @@ final class SessionViewModel: ObservableObject {
             guard interpret(SpokenReply.review) != nil else { scheduleChoiceUnclear(); return }
             delay = Timing.numberConfirm
         case .cameraChoice:
-            guard interpret(SpokenReply.yesNo) != nil else { scheduleChoiceUnclear(); return }
-            delay = Timing.numberConfirm
+            if interpret(SpokenReply.cameraChoice) != nil {
+                delay = Timing.numberConfirm
+            } else if spokenCommand() != nil {
+                // Her soruda kamera sorusu sorulduğu için V3'ün sesli komutları ("testi bitir", "cevapları tekrarla", "son cevabı tekrarla")
+                // burada da çalışır: yoksa program çoğu zaman komut alamaz
+                confirmTask = deps.scheduler.after(Timing.numberConfirm) { [weak self] in self?.fireVoiceCommand() }
+                return
+            } else {
+                scheduleChoiceUnclear()
+                return
+            }
         }
         confirmTask = deps.scheduler.after(delay) { [weak self] in self?.fireTrigger() }
     }
@@ -855,7 +865,7 @@ final class SessionViewModel: ObservableObject {
         confirmTask = nil
         guard phase == .listening, let command = spokenCommand() else { return }
         switch listenMode {
-        case .question:
+        case .question, .cameraChoice:
             break
         case .confirmEnd, .missingNumber, .passageTargets:
             guard command == .replayAnswers else { return }
@@ -866,7 +876,12 @@ final class SessionViewModel: ObservableObject {
     }
 
     private func run(_ command: VoiceCommand) {
-        let back = listenMode   // cevaplar okunduktan sonra "Devam" denirse buraya dönülür
+        var back = listenMode   // cevaplar okunduktan sonra "Devam" denirse buraya dönülür
+        if back == .cameraChoice {
+            // Komut kamera sorusu açıkken söylendi: iş bitince (cevap tekrarı, "Devam", vazgeçilen bitirme) bu soru için kamera yeniden sorulur
+            back = .question
+            armCameraOffer()
+        }
         closeListening()
         attemptFails = 0
         clearWarning("duyulan")
@@ -930,7 +945,7 @@ final class SessionViewModel: ObservableObject {
         case .no:
             tlog("[komut] testi bitirmekten vazgeçildi")
             work = Task { [weak self] in
-                guard let self = self, await self.speakNotice(Say.endCancelled) else { return }
+                guard let self = self, await self.speakNotice(self.cameraQuestionWillBeAsked ? Say.endCancelledCamera : Say.endCancelled) else { return }
                 self.beginListening(mode: .question)
             }
         }
@@ -949,7 +964,7 @@ final class SessionViewModel: ObservableObject {
         if listenMode == .confirmEnd, interpret(SpokenReply.yesNo) != nil { return }
         if listenMode == .startChoice, interpret(SpokenReply.start) != nil { return }
         if listenMode == .reviewMenu, interpret(SpokenReply.review) != nil { return }
-        if listenMode == .cameraChoice, interpret(SpokenReply.yesNo) != nil { return }
+        if listenMode == .cameraChoice, interpret(SpokenReply.cameraChoice) != nil || spokenCommand() != nil { return }
         tlog("[komut] cevap anlaşılamadı; duyulan: \"\(heard)\"")
         warn("duyulan", "Duyulan: “\(heard)”. Cevap anlaşılamadı.")
         work = Task { [weak self] in await self?.choiceSilence() }
@@ -969,7 +984,7 @@ final class SessionViewModel: ObservableObject {
             } else {
                 tlog("[komut] testi bitirme sorusu cevapsız kaldı; test devam ediyor")
                 clearWarning("duyulan")
-                guard await speakNotice(Say.endCancelled) else { return }
+                guard await speakNotice(cameraQuestionWillBeAsked ? Say.endCancelledCamera : Say.endCancelled) else { return }
                 beginListening(mode: .question)
             }
         case .startChoice:
@@ -1024,7 +1039,9 @@ final class SessionViewModel: ObservableObject {
             deps.journal.saveNextNumber(nextNumber)
             tlog("[açılış] önceki kayıttan devam: \(offer?.answers ?? answers.count) cevap, sıradaki soru \(nextNumber)")
         }
-        let text = goOn ? Say.continuingPrevious(next: nextNumber) : Say.startingNew
+        armCameraOffer()   // Sürüm 4: önceki kayıttan devam da olsa yeni sınav da olsa ilk soru için kamera sorulur
+        let camera = cameraQuestionWillBeAsked
+        let text = goOn ? Say.continuingPrevious(next: nextNumber, camera: camera) : (camera ? Say.startingNewCamera : Say.startingNew)
         guard await speakNotice(text) else { return }
         beginListening(mode: .question)
     }

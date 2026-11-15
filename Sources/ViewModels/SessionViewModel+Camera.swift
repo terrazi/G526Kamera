@@ -33,8 +33,19 @@ extension SessionViewModel {
         beginListening(mode: .cameraChoice)
     }
 
+    /// Yeni bir soru sınırı: kamera sorusu sorulacaksa bayrak kurulur (ilk soru, başlangıç seçimi, komuttan dönüş)
+    func armCameraOffer() {
+        offerCamera = cameraOfferAvailable
+        cameraOfferSuppressed = false
+    }
+
+    /// Bir sonraki `beginListening(mode: .question)` kamera sorusunu soracak mı: sorulacaksa cümleler "soruyu okuyun" demez
+    var cameraQuestionWillBeAsked: Bool {
+        return cameraOfferAvailable && !cameraOfferSuppressed && (offerCamera || resendablePending != nil)
+    }
+
     func fireCameraChoice() {
-        guard let reply = interpret(SpokenReply.yesNo) else { return }
+        guard let reply = interpret(SpokenReply.cameraChoice) else { return }
         clearWarning("duyulan")
         closeListening()
         listenMode = .question   // seçim yapıldı: bundan sonraki bir onarım "evet / hayır"ı yeniden sormaz, bekleyen çekimi gönderir
@@ -142,8 +153,8 @@ extension SessionViewModel {
 
     /// Çekim bitti, internet geldi: fotoğraf + video Gemini'ye gider, cevap V3'ün akışıyla okunur ve kaydedilir
     func sendShot(_ shot: CapturedQuestion) async {
-        sendingShot = true
-        defer { sendingShot = false }
+        sendingShotID = shot.id
+        defer { sendingShotID = nil }
         phase = .answering
         statusNote = ""
         let expected = nextNumber

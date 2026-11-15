@@ -127,6 +127,9 @@ yol bildirimi ve onarım sınırı aynı anda üst üste gelince tetikleniyordu.
 | Çekimden sonra internet gelmez | V3 internet onarımı (hücresel, sıfırlama); çekim telefonda saklanır, gelince gönderilir | ✅ |
 | Gönderim ağ hatası verir | İnternet kestirmesi yeniden çalışır, bir kez daha denenir; olmazsa çekim telefonda bekler (en çok 3). Bir sonraki soru sınırında bir kez daha gönderilir; yine olmazsa atılır, söylenir ve kamera sorusu yeniden sorulur. Arama / kulaklık kesintisi bu hakkı tüketmez | ✅ |
 | Kamera akışı sürerken test bitirilir | Kamera kapanır, `Hücresele Geç` kestirmesi çalışır (telefon kameranın Wi-Fi'sinde, hücresel kapalı kalmaz) | ✅ |
+| Kamera sorusu açıkken "Testi bitir" / "Tekrarla" denir | Komut çalışır: bitirme onayı istenir (kamera başlamaz), "hayır"da kamera sorusu yeniden gelir; "Tekrarla" son cevabı okur ve yeniden sorar. "bitir", "devam" evet sayılmaz | ✅ |
+| "Devam" / "Yeni sınav" seçildi ya da kesintiden dönüldü | İlk soru için kamera sorulur; "Soruyu okuyabilirsiniz" denmez (metinler kamera sorusuna göre değişir) | ✅ |
+| Çekilen soruya Gemini yanıt vermez | 3 dk sonra söylenir, çekim bir kez daha gönderilir; yine yanıt yoksa atılır ve kamera sorusu yeniden sorulur | ✅ |
 | Kestirmeler Wi-Fi / hücreseli değiştirmez ya da onay sorar | Cihazda denenmedi: Ayarlar > Kamera > **Kamerayı dene** ile sınanmalı | ⚠️ 📱 |
 | Komşu sorular kadrajda yarım görünür | Gemini'ye yok sayması söylenir; numara görüntüden okunur, okunamazsa sıra numarası | ✅ (cihazda denenmedi) |
 

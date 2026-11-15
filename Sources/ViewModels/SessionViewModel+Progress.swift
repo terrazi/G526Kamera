@@ -43,10 +43,24 @@ extension SessionViewModel {
         tlog("[soru] Gemini \(Int(Timing.answerCap)) sn içinde cevap vermedi; bekleme bırakılıyor")
         work?.cancel()
         finishEntry(.failed("Gemini cevap vermedi; soruyu yeniden okuyun."))
-        warn("cevap", Say.geminiSlow)
+        var notice = Say.geminiSlow
+        if let id = sendingShotID {
+            // Sürüm 4: çekilen soru. İlk kez zaman aşımına uğradıysa telefonda kalır ve bir kez yeniden gönderilir (beginListening yapar);
+            // bekleyen çekimin yeniden gönderimi de zaman aşımına uğradıysa atılır ve kamera yeniden sorulur
+            if retriedShots.contains(id), let shot = pendingShots.first(where: { $0.id == id }) {
+                dropPending(shot)
+                retriedShots.remove(id)
+                armCameraOffer()
+                notice = Say.cameraSlowGivenUp
+            } else {
+                notice = Say.geminiSlowCamera
+            }
+        }
+        let spokenNotice = notice   // Task kapanışı `var` yakalayamaz
+        warn("cevap", spokenNotice)
         phase = .speaking
         work = Task { [weak self] in
-            guard let self = self, await self.speakNotice(Say.geminiSlow) else { return }
+            guard let self = self, await self.speakNotice(spokenNotice) else { return }
             self.beginListening()
         }
     }

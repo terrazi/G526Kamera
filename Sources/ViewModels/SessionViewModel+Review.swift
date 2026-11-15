@@ -188,7 +188,7 @@ extension SessionViewModel {
         switch target {
         case .missingNumber: text = Say.reviewBackToNumber
         case .passageTargets: text = Say.reviewBackToTargets
-        default: text = Say.reviewBackToQuestion
+        default: text = cameraQuestionWillBeAsked ? Say.reviewBackToCamera : Say.reviewBackToQuestion
         }
         guard await speakNotice(prefix + text) else { return }
         beginListening(mode: target)

@@ -16,6 +16,9 @@ enum Say {
     /// Cevap uzun süre gelmezse arada
     static let stillWaiting = "Cevap bekleniyor."
     static let geminiSlow = "Gemini üç dakikada cevap vermedi. Soruyu tekrar okuyun."
+    /// Çekilen soru için: kamera sorusu ya da telefonda bekleyen çekimin yeniden gönderimi hemen ardından gelir
+    static let geminiSlowCamera = "Gemini üç dakikada cevap vermedi."
+    static let cameraSlowGivenUp = "Gemini çekilen soruya yine cevap vermedi; soru atıldı. Gerekirse yeniden çekin ya da okuyun."
     /// Soru Gemini'ye gittikten sonra kesinti olup düzelince (yarım kalmış olabilir)
     static let recoveredAfterSend = "Bağlantı yeniden onarıldı. Sorunuz yarım kaldıysa son soruyu tekrar okuyunuz."
 
@@ -25,15 +28,18 @@ enum Say {
     /// Sesli "testi bitir" komutu: önce onay istenir; "evet" denirse kısa bilgi verilir ve test biter
     static let confirmEnd = "Testi bitirmek istiyor musunuz? Bitirmek için evet, devam etmek için hayır deyin."
     static let endCancelled = "Tamam, test devam ediyor. Soruyu okuyabilirsiniz."
+    /// Kamera sorusu hemen ardından sorulacaksa "soruyu okuyabilirsiniz" denmez (çelişir)
+    static let endCancelledCamera = "Tamam, test devam ediyor."
     /// Program açılırken önceki kayıt bulundu: hazır anonsu ve soru bir arada
     static func readyAskContinue(answers: Int, next: Int) -> String {
         return "Ben hazırım, sistem kontrol edildi ve problem yok. Önceki kayıtta \(answers) cevap var, sıradaki soru \(next). Önceki kayıttan devam mı, yeni sınav mı? Devam ya da yeni deyin."
     }
     static let askChoiceAgain = "Önceki kayıttan devam mı, yeni sınav mı? Devam ya da yeni deyin."
-    static func continuingPrevious(next: Int) -> String {
-        return "Önceki kayıttan devam ediliyor. Sıradaki soru \(next). Soruyu okuyabilirsiniz."
+    static func continuingPrevious(next: Int, camera: Bool = false) -> String {
+        return "Önceki kayıttan devam ediliyor. Sıradaki soru \(next)." + (camera ? "" : " Soruyu okuyabilirsiniz.")
     }
     static let startingNew = "Yeni sınav başladı. İlk soruyu okuyabilirsiniz."
+    static let startingNewCamera = "Yeni sınav başladı."
     // MARK: Cevapları okuma ("cevapları tekrarla", "testi bitir" onayından sonra)
 
     /// Okuma başlarken: bitirme isteğiyle geldiyse test henüz bitmemiştir, cevaplar okununca ne yapılacağı sorulacaktır
@@ -55,6 +61,7 @@ enum Say {
     /// Okuma ya da menü sırasında kesinti oldu ve düzeldi
     static let reviewResume = "Kesinti bitti. Teste devam etmek için Devam, cevapları yeniden dinlemek için Tekrar, testi tamamlamak için Bitir deyin."
     static let reviewBackToQuestion = "Teste devam ediyoruz. Lütfen sonraki soruyu okuyun."
+    static let reviewBackToCamera = "Teste devam ediyoruz."
     static let reviewBackToNumber = "Teste devam ediyoruz. Lütfen okuduğunuz sorunun numarasını söyleyin."
     static let reviewBackToTargets = "Teste devam ediyoruz. Ortak paragraf hangi sorulara ait? Soru numaralarını söyleyip Tamam deyin."
     /// Test sesle tamamlandı
@@ -108,7 +115,7 @@ enum Say {
     // MARK: Beklenmedik kapanma, sistem sağlığı, takılma
 
     /// Program beklenmedik kapanıp yeniden açılınca (sesli): ne oldu, yarım iş ne olacak
-    static func resumed(cause: String, downSeconds: Int?, pending: PendingWork?) -> String {
+    static func resumed(cause: String, downSeconds: Int?, pending: PendingWork?, camera: Bool = false) -> String {
         var text = "Program beklenmedik biçimde kapanıp yeniden açıldı"
         if let seconds = downSeconds, seconds >= 3 { text += ", yaklaşık \(duration(seconds)) kapalı kaldı" }
         text += ". Olası neden: \(cause)."
@@ -117,7 +124,7 @@ enum Say {
                 ? " Son sorunun cevabını yeniden okuyorum."
                 : " Son sorunuz Gemini'ye gitmişti, cevabı yeniden alıyorum."
         } else {
-            text += " Sistem hazır. Soru yarım kaldıysa lütfen son soruyu baştan okuyun."
+            text += camera ? " Sistem hazır." : " Sistem hazır. Soru yarım kaldıysa lütfen son soruyu baştan okuyun."
         }
         return text
     }

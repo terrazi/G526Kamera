@@ -273,11 +273,13 @@ final class FakeAnswering: Answering {
     var results: [Result<GeminiReply, Error>] = []
     /// true iken cevap `release()` gelene kadar bekler (Gemini takıldı)
     var hold = false
-    private var gate: CheckedContinuation<Void, Never>?
+    /// Bekleme sınırı sınamasında iptal edilmiş eski istek ile yeniden gönderim aynı anda bekleyebilir: hepsi birlikte serbest kalır
+    private var gates: [CheckedContinuation<Void, Never>] = []
 
     func release() {
-        gate?.resume()
-        gate = nil
+        let waiting = gates
+        gates = []
+        for gate in waiting { gate.resume() }
     }
 
     static func reply(_ number: Int, option: String = "Denizli", text: String = "Örgütsel Davranış") -> GeminiReply {
@@ -291,14 +293,14 @@ final class FakeAnswering: Answering {
     func answer(capture: CapturedQuestion, expectedNumber: Int) async throws -> GeminiReply {
         captureCalls.append((capture, expectedNumber))
         onCall?("gönderim")
-        if hold { await withCheckedContinuation { gate = $0 } }
+        if hold { await withCheckedContinuation { gates.append($0) } }
         guard !results.isEmpty else { throw GeminiError("Cevap hazırlanmadı.", .error) }
         return try results.removeFirst().get()
     }
 
     func answer(question: String, english: String, expectedNumber: Int, audio: Data?) async throws -> GeminiReply {
         calls.append(Call(question: question, english: english, expectedNumber: expectedNumber, audio: audio))
-        if hold { await withCheckedContinuation { gate = $0 } }
+        if hold { await withCheckedContinuation { gates.append($0) } }
         guard !results.isEmpty else { throw GeminiError("Cevap hazırlanmadı.", .error) }
         return try results.removeFirst().get()
     }

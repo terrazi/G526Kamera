@@ -270,6 +270,135 @@ final class CameraFlowTests: XCTestCase {
         XCTAssertTrue(h.shortcuts.runs.isEmpty)
     }
 
+    // MARK: Sesli komutlar ve açılış (V3 düzenine uyum)
+
+    /// Kamera sorusunun sözlüğü: "testi bitir", "bitir", "devam" gibi komutlar evet / hayır sayılmaz (yoksa kamera yanlışlıkla başlardı)
+    func testCameraChoiceVocabularyDoesNotTreatCommandsAsYes() {
+        XCTAssertEqual(SpokenReply.cameraChoice("evet"), .yes)
+        XCTAssertEqual(SpokenReply.cameraChoice("Evet, kamera ile çekelim"), .yes)
+        XCTAssertEqual(SpokenReply.cameraChoice("tamam"), .yes)
+        XCTAssertEqual(SpokenReply.cameraChoice("hayır"), .no)
+        XCTAssertEqual(SpokenReply.cameraChoice("hayır sesle okurum"), .no)
+        XCTAssertEqual(SpokenReply.cameraChoice("kamera istemiyorum"), .no, "'kamera' sözü tek başına evet saymaz")
+        XCTAssertEqual(SpokenReply.cameraChoice("çek"), .yes)
+        XCTAssertNil(SpokenReply.cameraChoice("testi bitir"))
+        XCTAssertNil(SpokenReply.cameraChoice("bitir"))
+        XCTAssertNil(SpokenReply.cameraChoice("devam"))
+        XCTAssertNil(SpokenReply.cameraChoice("cevapları tekrarla"))
+        XCTAssertNil(SpokenReply.cameraChoice("evet hayır"), "Çelişen söz anlaşılmamış sayılır")
+        XCTAssertNil(SpokenReply.cameraChoice(""))
+    }
+
+    /// "Testi bitir" kamera sorusu açıkken söylenirse kamera başlamaz: bitirme onayı istenir; vazgeçilirse kamera yeniden sorulur
+    func testEndTestCommandAtTheCameraQuestionAsksToConfirmAndNeverStartsTheCamera() async {
+        let h = harness()
+        _ = await h.startListening()
+        reply(h, "testi bitir")
+        let asked = await waitUntil(45) { h.speaker.spoken.last == Say.confirmEnd && h.vm.listenMode == .confirmEnd && h.vm.phase == .listening }
+        XCTAssertTrue(asked, "Önce bitirme onayı istenir")
+        XCTAssertTrue(h.shortcuts.runs.isEmpty, "Kamera başlamaz: hiçbir bağlantı değişmez")
+        XCTAssertEqual(h.camera.captures, 0)
+        reply(h, "hayır")
+        let back = await waitUntil(45) { self.cameraQuestionOpen(h) && h.speaker.spoken.last == Say.askCamera }
+        XCTAssertTrue(back, "Bitirmekten vazgeçilince bu soru için kamera yeniden sorulur")
+        XCTAssertTrue(h.speaker.spoken.contains(Say.endCancelledCamera), "Kamera sorusu hemen geleceği için 'soruyu okuyabilirsiniz' denmez")
+        XCTAssertFalse(h.speaker.spoken.contains(Say.endCancelled))
+        XCTAssertEqual(h.camera.captures, 0)
+    }
+
+    func testConfirmingTheEndAtTheCameraQuestionFinishesTheTestWithoutTheCamera() async {
+        let h = harness()
+        _ = await h.startListening()
+        reply(h, "testi bitir")
+        let asked = await waitUntil(45) { h.speaker.spoken.last == Say.confirmEnd && h.vm.listenMode == .confirmEnd }
+        XCTAssertTrue(asked)
+        reply(h, "evet")
+        let done = await waitUntil(45) { h.vm.phase == .finished }
+        XCTAssertTrue(done)
+        XCTAssertTrue(h.shortcuts.runs.isEmpty)
+        XCTAssertEqual(h.camera.captures, 0)
+    }
+
+    /// "Tekrarla" kamera sorusu açıkken de çalışır: son cevap okunur, kamera yeniden sorulur, yeni çekim olmaz
+    func testRepeatLastAnswerCommandAtTheCameraQuestionReadsItAndAsksAgain() async {
+        let h = harness()
+        _ = await h.startListening()
+        reply(h, "evet")
+        let first = await waitUntil(45) { h.vm.answers.count == 1 && self.cameraQuestionOpen(h) }
+        XCTAssertTrue(first)
+        let spoken = h.vm.answers.last?.spoken ?? ""
+        XCTAssertFalse(spoken.isEmpty)
+        let before = h.speaker.spoken.filter { $0 == spoken }.count
+        reply(h, "Tekrarla")
+        let again = await waitUntil(45) {
+            h.speaker.spoken.filter { $0 == spoken }.count == before + 1 && self.cameraQuestionOpen(h) && h.speaker.spoken.last == Say.askCamera
+        }
+        XCTAssertTrue(again, "Cevap yeniden okunur, sonra kamera yeniden sorulur")
+        XCTAssertEqual(h.camera.captures, 1, "Yeni çekim olmaz")
+        XCTAssertEqual(h.answering.captureCalls.count, 1, "Gemini'ye yeniden gidilmez")
+    }
+
+    /// Önceki kayıttan devam edilince de (ve yeni sınavda da) ilk soru için kamera sorulur; "soruyu okuyabilirsiniz" denmez
+    func testContinuingAPreviousRecordAsksTheCameraQuestionForTheFirstQuestion() async {
+        let h = harness()
+        _ = await h.startListening()
+        reply(h, "evet")
+        let done = await waitUntil(45) { h.vm.answers.count == 1 && self.cameraQuestionOpen(h) }
+        XCTAssertTrue(done)
+        h.vm.endTest()
+        _ = await h.startListening()
+        XCTAssertEqual(h.vm.listenMode, .startChoice)
+        reply(h, "Devam")
+        let on = await waitUntil(45) { self.cameraQuestionOpen(h) && h.speaker.spoken.last == Say.askCamera }
+        XCTAssertTrue(on, "Önceki kayıttan devam edilince de ilk soru için kamera sorulur")
+        XCTAssertTrue(h.speaker.spoken.contains(Say.continuingPrevious(next: 2, camera: true)))
+        XCTAssertFalse(h.speaker.spoken.contains(Say.continuingPrevious(next: 2)), "'Soruyu okuyabilirsiniz' denmez")
+    }
+
+    func testChoosingANewExamAlsoAsksTheCameraQuestion() async {
+        let h = harness()
+        _ = await h.startListening()
+        reply(h, "evet")
+        let done = await waitUntil(45) { h.vm.answers.count == 1 && self.cameraQuestionOpen(h) }
+        XCTAssertTrue(done)
+        h.vm.endTest()
+        _ = await h.startListening()
+        reply(h, "Yeni sınav")
+        let on = await waitUntil(45) { self.cameraQuestionOpen(h) && h.speaker.spoken.last == Say.askCamera }
+        XCTAssertTrue(on)
+        XCTAssertTrue(h.speaker.spoken.contains(Say.startingNewCamera))
+        XCTAssertFalse(h.speaker.spoken.contains(Say.startingNew))
+    }
+
+    // MARK: Zaman aşımı
+
+    /// Çekilen soruya Gemini yanıt vermezse: çekim telefonda kalır ve bir kez yeniden gönderilir; yine yanıt yoksa atılır ve kamera yeniden sorulur
+    func testShotThatTimesOutTwiceIsDroppedAndTheCameraIsAskedAgain() async {
+        let shot = FakeCamera.shot()
+        let h = harness(shots: [.success(shot)])
+        h.settings.spokenProgress = true   // bekleme sınırı, cevap bekleme sayacına bağlıdır
+        h.answering.hold = true
+        _ = await h.startListening()
+        reply(h, "evet")
+        let sent = await waitUntil(45) { h.answering.captureCalls.count == 1 && h.vm.phase == .answering }
+        XCTAssertTrue(sent)
+        await settle()
+        h.scheduler.advance(by: T.answerCap + T.cameraExtraWait + 1)
+        let resent = await waitUntil(45) { h.speaker.spoken.contains(Say.geminiSlowCamera) && h.answering.captureCalls.count == 2 && h.vm.phase == .answering }
+        XCTAssertTrue(resent, "İlk zaman aşımında çekim atılmaz, bir kez yeniden gönderilir")
+        XCTAssertEqual(h.vm.pendingShots.count, 1)
+        await settle()
+        h.scheduler.advance(by: T.answerCap + T.cameraExtraWait + 1)
+        let dropped = await waitUntil(45) { h.speaker.spoken.contains(Say.cameraSlowGivenUp) && self.cameraQuestionOpen(h) }
+        XCTAssertTrue(dropped, "İkinci zaman aşımında çekim atılır, söylenir ve kamera yeniden sorulur")
+        XCTAssertTrue(h.vm.pendingShots.isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: shot.video!.path))
+        XCTAssertEqual(h.answering.captureCalls.count, 2, "Sonsuz yeniden gönderim yok")
+        h.answering.hold = false
+        h.answering.release()
+        await settle()
+    }
+
     func testEndingTheTestDropsUnsentShotsAndSaysSo() async {
         let shot = FakeCamera.shot()
         let h = harness()
