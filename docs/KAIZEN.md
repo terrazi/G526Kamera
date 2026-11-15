@@ -46,6 +46,14 @@ paragraf numarası çözümleme ve kesinti/kurtarma akışı (tur 1 ve 2 incelem
 | Kaos testleri tekrar isteğini hiç denemiyordu | `ChaosTests` (olay 42, 43) ve `CameraChaosTests` (olay 37, 38) havuza değiştirilerek eklendi (havuz boyutu ve eski tohumların sırası korunur): rastgele kesintiler, kamera ve Gemini gecikmeleri arasında "anlamadım" / "bir daha söyle" | Mevcut değişmezler (takılma, sızıntı, anons yağmuru) |
 | `KURULUM.md` hâlâ "Sürüm 3, kamera yok" diyordu; yeni komutlar eksikti | V4 girişi, `surum-4` dalı, iptal / N. cevap / "anlamadım" komutları ve evet-hayır güvenli kuralı yazıldı | — |
 
+## Tur 5: yeni bilgi ve düzeltme komutları, "yaptım / yapamadım" bildirimi (kullanıcı isteği)
+
+| İstek / bulgu | Düzeltme | Önlem |
+|---|---|---|
+| Düzeltme komutları yapılınca program kısaca yaptığını ya da yapamadığını söylemeli | Yeni komutlar: `help` (yardım), `whatHeard` (ne duydun), `deleteLast` (son cümleyi sil), `status` (durum), `missingAnswers` (cevapsız sorular). Her biri her kipte söylenebilir, metni/kipi bozmaz, yaptığını ya da yapamadığını söyler (`Say.helpCommands`, `nothingHeard`, `noQuestionText`, `nothingToDelete`, `lastSentenceDeleted`, `status`, `missingAnswers`) | `InfoCommandTests` (çözümleme ×50 söyleyiş, soru cümleleri komut değil, akış, "…Cevapla" ile birlikte, geri bildirim tablosu) + kaos testlerine olaylar |
+| "Soruyu iptal et" okunmuş soru yokken de "Okunan soru silindi" diyordu | Komuttan önce okunmuş soru metni (ya da numarası beklenen soru) yoksa "Silinecek soru yok" der | `testCancelQuestionSaysDeletedOnlyWhenSomethingWasRead`, `testEveryCommandSaysWhatItDidOrThatItCouldNot` |
+| Olumsuz biçimler ("yardım etme", "son cümleyi silme") komut olmamalı | `silme`, `silmeyin`, `unutma`, `temizleme`… olumsuz sözlüğe eklendi | `testQuestionTextAndNegatedOrVagueWordsAreNotInfoCommands` |
+
 ## Kurallar (bundan sonrası için)
 
 1. Evet/hayır sorularında "evet" bulanık eşleşmeyle kabul edilmez; yeni bir "evet" sözü eklenirse olumsuz ikizi de listeye yazılır (test yakalar).
@@ -54,3 +62,4 @@ paragraf numarası çözümleme ve kesinti/kurtarma akışı (tur 1 ve 2 incelem
 4. Olumsuz söz hiçbir seçeneği seçmez ve komut sayılmaz; yeni bir komut/seçenek sözü eklenirse olumsuz biçimi `choiceNegations`/`finishNegations`'a da yazılır.
 5. Programın söylediği her şey "bir daha söyle" ile tekrarlatılabilmeli; yeni bir anons türü eklenirse `speakNotice` kullanılır (otomatik hatırlanır). `speakNotice` kullanmayan okuma (örn. cevap) `rememberSpeech` çağırmalıdır.
 6. Cihazda doğrulanmamış hiçbir davranış "çalışıyor" diye yazılmaz (gerçek dikte çıktısı, kestirmelerin Wi-Fi/hücreseli gerçekten değiştirmesi).
+7. Her yeni komut yaptığını ya da yapamadığını kısaca söyler; geri bildirim tablosu testine (`testEveryCommandSaysWhatItDidOrThatItCouldNot`) eklenir.

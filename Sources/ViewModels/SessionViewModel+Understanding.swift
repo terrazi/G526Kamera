@@ -27,6 +27,7 @@ extension SessionViewModel {
     func noteUtterance() {
         if gapPassed {
             utteranceStart = settledCount
+            if utteranceStart > 0, !utteranceStarts.contains(utteranceStart) { utteranceStarts.append(utteranceStart) }
             gapPassed = false
         }
         gapTask?.cancel()
@@ -50,6 +51,7 @@ extension SessionViewModel {
         gapTask?.cancel()
         gapTask = nil
         utteranceStart = 0
+        utteranceStarts = []
         settledCount = 0
         gapPassed = false
     }
@@ -156,6 +158,99 @@ extension SessionViewModel {
             guard await self.speakNotice(text, remember: false) else { return }
             self.beginListening(mode: mode, keepPartial: keepPartial)
         }
+    }
+
+    // MARK: Bilgi ve düzeltme komutları
+
+    /// "Yardım", "ne duydun", "son cümleyi sil", "durum", "cevapsız soruları söyle" söylendi mi. Her kipte geçerlidir; paragraf okunurken yalnız
+    /// söz tek başına komutsa (paragraf metnine karışmasın)
+    func infoRequested() -> VoiceCommand? {
+        let command = listenMode == .passage ? interpret(VoiceCommand.parseLenient) : spokenCommand()
+        guard let found = command, found.isInfo else { return nil }
+        return found
+    }
+
+    /// Komut söylendi, kısa süre sabit kaldı: soru okunurken araya girildiyse yalnız komut sözü atılır, okunan soru metni korunur
+    func fireInfoCommand() {
+        confirmTask = nil
+        guard phase == .listening, let command = infoRequested() else { return }
+        var question = ""
+        if listenMode == .question {
+            let whole = interpret(VoiceCommand.parseLenient) == command
+            if !whole, utteranceStart > 0, utteranceStart < wordCount(accumulator.text) {
+                accumulator.dropWords(from: utteranceStart)
+                liveText = accumulator.text
+                question = accumulator.text
+            }
+        }
+        performInfo(command, question: question, keepText: !question.isEmpty)
+    }
+
+    /// Komutu uygular, yaptığını ya da yapamadığını söyler ve aynı kipte dinlemeye döner. `question`: komuttan önceki soru metni (yalnız soru
+    /// dinlenirken); `keepText`: bu metin korunarak dinlenir. Cevap sayılmaz, sayaçlar ve bekleyen işler (tutulan soru, paragraf taslağı) değişmez.
+    func performInfo(_ command: VoiceCommand, question: String, keepText: Bool) {
+        let mode = listenMode
+        closeListening()
+        attemptFails = 0
+        clearWarning("duyulan")
+        let reply = infoReply(command, mode: mode, question: question)
+        let keep = keepText && !accumulator.isEmpty
+        if !keep {
+            accumulator.clear()
+            englishAccumulator.clear()
+            liveText = ""
+            liveEnglish = ""
+            deps.recorder.reset()
+        }
+        phase = .speaking
+        tlog("[komut] sesli komut: \(command): \(reply)")
+        work = Task { [weak self] in
+            guard let self = self else { return }
+            guard await self.speakNotice(reply) else { return }
+            self.beginListening(mode: mode, keepPartial: keep)
+        }
+    }
+
+    /// Söylenecek cümle: komutun yapıldığı ya da yapılamadığı. "Son cümleyi sil" soru metnini de değiştirir.
+    private func infoReply(_ command: VoiceCommand, mode: ListenMode, question: String) -> String {
+        switch command {
+        case .help:
+            switch mode {
+            case .question, .passage:
+                return Say.helpCommands
+            case .cameraChoice, .passageCameraChoice:
+                return [Say.helpCommands, recentSpeech.last ?? ""].filter { !$0.isEmpty }.joined(separator: " ")   // kamera sorusu da yeniden sorulur
+            default:
+                return recentSpeech.last ?? Say.helpCommands   // evet/hayır, numara, menü: sorunun kendisi ne söylenmesi gerektiğini anlatır
+            }
+        case .whatHeard:
+            guard mode == .question else { return Say.noQuestionText }
+            return question.isEmpty ? Say.nothingHeard : Say.heard(question)
+        case .deleteLast:
+            return deleteLastSentence(mode: mode, question: question)
+        case .status:
+            return Say.status(answers: answers.count, next: nextNumber, headphones: routeVerdict?.headphonesOK, internet: netPulse,
+                              battery: deps.battery.percent, charging: deps.battery.charging)
+        case .missingAnswers:
+            let done = Set(answers.map { $0.number })
+            let highest = done.max() ?? 0
+            let missing: [Int] = highest == 0 ? [] : (1...highest).filter { !done.contains($0) }
+            return Say.missingAnswers(missing, highest: highest)
+        default:
+            return Say.nothingToRepeat
+        }
+    }
+
+    /// Soru metninin son sözü (son sessizlikten sonraki kısım) silinir. Silinecek bir şey yoksa bunu söyler.
+    private func deleteLastSentence(mode: ListenMode, question: String) -> String {
+        let tokens = question.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+        guard mode == .question, !tokens.isEmpty else { return Say.nothingToDelete }
+        let start = utteranceStarts.last(where: { $0 < tokens.count }) ?? 0
+        let removed = Array(tokens[start...])
+        accumulator.dropWords(from: start)
+        utteranceStarts.removeAll { $0 >= start }
+        liveText = accumulator.text
+        return Say.lastSentenceDeleted(removed, remaining: start > 0)
     }
 
     // MARK: Anlaşılmayan söz

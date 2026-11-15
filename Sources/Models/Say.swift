@@ -206,6 +206,47 @@ enum Say {
     }
     static let noHeadphonesForReplay = "Bluetooth kulaklık bağlı değil; tekrar için kulaklığı bağlayın."
 
+    // MARK: Bilgi ve düzeltme komutları ("yardım", "ne duydun", "son cümleyi sil", "durum", "cevapsız soruları söyle")
+    /// Her komut yaptığını ya da yapamadığını kısaca söyler
+    static let helpCommands = "Komutlar: Cevapla ya da Gönder, soruyu gönderir. Testi bitir. Cevapları tekrarla. Son cevabı tekrarla. Soruyu iptal et. Paragrafı iptal et. Ortak paragraf. Son cümleyi sil. Ne duydun. Durum. Cevapsız soruları söyle. Duyamadığınız her şeyi bir daha söyle diyerek tekrarlatabilirsiniz."
+    /// "Ne duydun": soru metni yoksa
+    static let nothingHeard = "Henüz bir şey duymadım."
+    /// "Ne duydun" soru dinlenmediği bir anda söylendi (evet/hayır, numara, menü…)
+    static let noQuestionText = "Şu anda dinlenen bir soru metni yok."
+    /// Duyulan metin: uzunsa yalnız son sözcükler okunur
+    static func heard(_ text: String, limit: Int = 30) -> String {
+        let words = text.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+        guard words.count > limit else { return "Duyduğum: " + words.joined(separator: " ") + "." }
+        return "Metin uzun. Duyduğum son \(limit) sözcük: " + words.suffix(limit).joined(separator: " ") + "."
+    }
+    /// "Son cümleyi sil": silinecek bir şey yok
+    static let nothingToDelete = "Silinecek cümle yok."
+    /// Silinen sözün başı okunur (ilk sekiz sözcük); soru metninden bir şey kaldıysa devam edilir, kalmadıysa baştan okunur
+    static func lastSentenceDeleted(_ removed: [String], remaining: Bool) -> String {
+        let shown = removed.prefix(8).joined(separator: " ") + (removed.count > 8 ? " ve devamı" : "")
+        return "Son cümle silindi: \(shown). " + (remaining ? "Soruyu okumaya devam edebilirsiniz." : "Soru metni boş kaldı, baştan okuyabilirsiniz.")
+    }
+    /// "Durum": yalnız bilinen bilgiler söylenir (kulaklık, internet, pil bilinmiyorsa atlanır)
+    static func status(answers: Int, next: Int, headphones: Bool?, internet: NetPulse, battery: Int?, charging: Bool) -> String {
+        var parts: [String] = [answers == 0 ? "Henüz cevaplanan soru yok." : "\(answers) soru cevaplandı.", "Sıradaki soru numarası \(next)."]
+        if let headphones = headphones { parts.append(headphones ? "Kulaklık bağlı." : "Kulaklıkta sorun var.") }
+        switch internet {
+        case .up: parts.append("İnternet var.")
+        case .down: parts.append("İnternet yok.")
+        case .suspect: parts.append("İnternet kararsız.")
+        case .unknown: break
+        }
+        if let battery = battery { parts.append("Pil yüzde \(battery)" + (charging ? ", şarjda." : ".")) }
+        return parts.joined(separator: " ")
+    }
+    /// "Cevapsız soruları söyle": 1'den en yüksek cevaplanan numaraya kadar cevabı olmayanlar
+    static func missingAnswers(_ numbers: [Int], highest: Int) -> String {
+        if highest == 0 { return "Henüz cevaplanan soru yok." }
+        guard !numbers.isEmpty else { return "Cevapsız soru yok. \(highest) numaraya kadar hepsi cevaplandı." }
+        let shown = Array(numbers.prefix(12))
+        return "Cevabı olmayan sorular: \(QuestionComposer.listText(shown))" + (numbers.count > shown.count ? " ve devamı." : ".")
+    }
+
     /// Gemini hata verince kulaklıktan söylenen kısa cümle
     static func geminiFailure(_ error: GeminiError) -> String {
         switch error.kind {

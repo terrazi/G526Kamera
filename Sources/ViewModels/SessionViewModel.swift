@@ -298,6 +298,8 @@ final class SessionViewModel: ObservableObject {
     var endReminders = 0
     /// Söz bölümleri: son sözün metindeki ilk sözcük sırası, son sessizlikte metinde kaç sözcük vardı, sessizlik geçti mi ve sessizlik zamanlayıcısı
     var utteranceStart = 0
+    /// Önceki sözlerin başlangıç sırası ("son cümleyi sil" son sözü bulur)
+    var utteranceStarts: [Int] = []
     var settledCount = 0
     var gapPassed = false
     var gapTask: ScheduledTask?
@@ -808,6 +810,11 @@ final class SessionViewModel: ObservableObject {
             confirmTask = deps.scheduler.after(Timing.numberConfirm) { [weak self] in self?.fireRepeatSpeech() }
             return
         }
+        // "Yardım", "ne duydun", "son cümleyi sil", "durum", "cevapsız soruları söyle": her kipte söylenebilir; program yaptığını ya da yapamadığını söyler
+        if infoRequested() != nil {
+            confirmTask = deps.scheduler.after(Timing.numberConfirm) { [weak self] in self?.fireInfoCommand() }
+            return
+        }
         // "Paragrafı iptal et": paragraf okunurken ve numaraları beklenirken söylenebilir (öteki komutlar paragraf metnine karışır)
         if listenMode == .passage || listenMode == .passageTargets, spokenCommand() == .cancelPassage {
             confirmTask = deps.scheduler.after(Timing.numberConfirm) { [weak self] in self?.fireVoiceCommand() }
@@ -918,6 +925,10 @@ final class SessionViewModel: ObservableObject {
     func fireVoiceCommand() {
         confirmTask = nil
         guard phase == .listening, let command = spokenCommand() else { return }
+        if command.isInfo {
+            fireInfoCommand()
+            return
+        }
         switch listenMode {
         case .question, .cameraChoice, .passageCameraChoice:
             break
@@ -940,8 +951,14 @@ final class SessionViewModel: ObservableObject {
             repeatSpeech(keepPartial: false)   // "Anlamadım, Cevapla" gibi: kipi bozmadan programın son sözü yeniden söylenir
             return
         }
+        if command.isInfo {
+            performInfo(command, question: "", keepText: false)   // bilgi komutları normalde fireInfoCommand / fireQuestion'da ele alınır
+            return
+        }
         var back = listenMode   // cevaplar okunduktan sonra "Devam" denirse buraya dönülür
         let from = listenMode
+        // "Soruyu iptal et": komuttan önce okunmuş soru metni var mıydı (komutun kendi sözcükleri sayılmaz); yoksa silinecek bir şey olmadığı söylenir
+        let hadQuestionText = from == .question && utteranceStart > 0 && utteranceStart < wordCount(accumulator.text)
         // "Ortak paragrafı iptal et" diye başlandıysa paragraf okunmaya hiç başlanmamıştır (komutun kendisi dışında ≤ 3 sözcük)
         let phraseOnly = from == .passage && PassageCommand.startsWith(accumulator.text)
             && PassageCommand.stripStart(accumulator.text).split(whereSeparator: { $0.isWhitespace }).count <= 3
@@ -993,12 +1010,13 @@ final class SessionViewModel: ObservableObject {
                 heldQuestion = nil   // numarası beklenen soru da bırakılır
                 numberReminders = 0
             }
-            let notice = choice ? Say.nothingToCancelQuestion : (cameraQuestionWillBeAsked ? Say.questionCancelledCamera : Say.questionCancelled)
+            let nothingToCancel = choice || !(from == .missingNumber || hadQuestionText)
+            let notice = nothingToCancel ? Say.nothingToCancelQuestion : (cameraQuestionWillBeAsked ? Say.questionCancelledCamera : Say.questionCancelled)
             work = Task { [weak self] in
                 guard let self = self, await self.speakNotice(notice) else { return }
                 self.beginListening(mode: .question)
             }
-        case .repeatSpeech:
+        case .repeatSpeech, .help, .whatHeard, .deleteLast, .status, .missingAnswers:
             break   // yukarıda ele alındı
         case .cancelPassage:
             let notice = cancelPassage(from: from, phraseOnly: phraseOnly)
@@ -1170,6 +1188,20 @@ final class SessionViewModel: ObservableObject {
         guard let match = TriggerDetector.match(in: accumulator.text) else { return }
         // "Testi bitir, Cevapla": komut kısmı soru gibi gönderilmez
         if let command = commandIn(match.question) {
+            if command.isInfo {
+                // "Durum, Cevapla" gibi: komut soru gibi gönderilmez; komuttan önceki soru metni korunur
+                let whole = VoiceCommand.parseLenient(match.question) == command
+                var question = ""
+                if whole {
+                    accumulator.clear()
+                } else {
+                    accumulator.dropWords(from: utteranceStart)
+                    question = accumulator.text
+                }
+                liveText = accumulator.text
+                performInfo(command, question: question, keepText: !question.isEmpty)
+                return
+            }
             run(command)
             return
         }

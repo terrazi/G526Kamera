@@ -194,6 +194,24 @@ enum VoiceCommand: Equatable {
     case repeatNumber(Int)
     /// "Anlamadım", "duyamadım", "bir daha söyle", "yeniden söyle", "tekrar söyle", "ne dedin": programın son sözü (soru, menü, cevap) yeniden söylenir
     case repeatSpeech
+    /// "Yardım", "komutlar neler": program kullanılabilecek komutları söyler
+    case help
+    /// "Ne duydun", "duyduğunu oku": o ana kadar anlaşılan soru metni okunur
+    case whatHeard
+    /// "Son cümleyi sil": soru metninin son sözü (sessizlikle ayrılan kısım) silinir; soru yeniden okunmaz
+    case deleteLast
+    /// "Durum", "kaç soru cevaplandı": cevap sayısı, sıradaki numara, kulaklık, internet ve pil
+    case status
+    /// "Cevapsız soruları söyle": cevabı olmayan (atlanan) soru numaraları
+    case missingAnswers
+
+    /// Bilgi ve düzeltme komutları: her kipte söylenebilir, soru metnini korur ve yaptığını ya da yapamadığını kısaca söyler
+    var isInfo: Bool {
+        switch self {
+        case .help, .whatHeard, .deleteLast, .status, .missingAnswers: return true
+        default: return false
+        }
+    }
 
     static let subjects: Set<String> = ["test", "testi", "testimi", "teste", "sinav", "sinavi", "sinavimi", "sinava", "denemeyi", "deneme"]
     static let endVerbs: Set<String> = [
@@ -342,6 +360,86 @@ enum VoiceCommand: Equatable {
         return againWithoutTekrar && read
     }
 
+    // MARK: Bilgi ve düzeltme komutları ("yardım", "ne duydun", "son cümleyi sil", "durum", "cevapsız soruları söyle")
+
+    /// Bu komutların hepsinde serbestçe geçebilen nezaket ve dolgu sözcükleri
+    static let infoPolite: Set<String> = [
+        "lutfen", "bana", "bir", "misin", "misiniz", "mi", "mu", "ya", "hadi", "simdi", "su", "bu", "et", "edin", "eder", "ver", "verin"
+    ]
+    static let helpWords: Set<String> = ["yardim", "yardima"]
+    static let commandNouns: Set<String> = ["komut", "komutlar", "komutlari", "komutlarin"]
+    static let infoAsk: Set<String> = ["ne", "neler", "nedir", "nelerdir", "hangi", "hangileri", "var"]
+    static let infoSay: Set<String> = [
+        "say", "sayin", "sayar", "sayabilir", "soyle", "soyler", "soyleyin", "soyleyebilir", "oku", "okur", "okuyun", "okuyabilir",
+        "anlat", "anlatir", "anlatin", "anlatabilir"
+    ]
+    static let canSayWords: Set<String> = ["diyebilirim", "soyleyebilirim", "diyebiliriz", "soyleyebiliriz"]
+    /// "Şu ana kadar", "şimdiye kadar"
+    static let sofarWords: Set<String> = ["ana", "kadar", "simdiye", "simdilik", "toplam"]
+    static let heardVerbs: Set<String> = ["duydun", "duydunuz", "anladin", "anladiniz"]
+    static let heardNouns: Set<String> = ["duydugunu", "duydugunuzu", "anladigini", "anladiginizi"]
+    static let lastPart: Set<String> = ["son", "sonuncu", "sonuncuyu"]
+    static let partNouns: Set<String> = [
+        "cumleyi", "cumle", "cumlemi", "sozu", "soz", "sozumu", "kismi", "kismini", "satiri", "soyledigimi", "soyledigim", "dedigimi"
+    ]
+    static let justNow: Set<String> = ["az", "once"]
+    static let statusWords: Set<String> = ["durum", "durumu", "neredeyiz", "neredeyim"]
+    static let statusExtras: Set<String> = [
+        "ne", "nedir", "nasil", "bilgi", "bilgisi", "rapor", "raporu", "raporunu", "genel", "sistem", "sistemin",
+        "soyle", "soyler", "soyleyin", "oku", "okur", "okuyun", "anlat", "anlatin", "bildir", "bildirin"
+    ]
+    static let countAsk: Set<String> = ["kac", "kacinci"]
+    static let countNouns: Set<String> = [
+        "soru", "sorusu", "cevap", "cevaplandi", "cevaplanan", "cevaplanmis", "kaydedildi", "kaydedilen", "cozuldu", "cozduk", "cozdum",
+        "gonderildi", "gonderdik", "yaptik", "yaptim", "var", "oldu"
+    ]
+    static let missingQualifiers: Set<String> = [
+        "cevapsiz", "eksik", "atlanan", "atladigim", "atladim", "atlanmis", "cevaplanmayan", "cevaplanmamis", "cevaplanmadi", "olmayan", "verilmeyen"
+    ]
+    static let missingNouns: Set<String> = [
+        "soru", "soruyu", "sorular", "sorulari", "cevap", "cevabi", "cevaplar", "cevaplari", "numara", "numaralar", "numaralari"
+    ]
+    static let missingExtras: Set<String> = [
+        "hangi", "hangileri", "hangisi", "var", "kac", "ne", "neler", "nelerdir", "nedir", "oldu",
+        "soyle", "soyler", "soyleyin", "oku", "okur", "okuyun", "say", "sayin", "anlat", "anlatin"
+    ]
+
+    private static func allKnown(_ words: [String], _ vocabularies: [Set<String>]) -> Bool {
+        return words.allSatisfy { word in vocabularies.contains { SpokenWords.matches(word, $0) } }
+    }
+
+    private static func has(_ words: [String], _ vocabulary: Set<String>) -> Bool {
+        return words.contains { SpokenWords.matches($0, vocabulary) }
+    }
+
+    /// "Yardım", "komutlar neler", "ne duydun", "duyduğunu oku", "son cümleyi sil", "durum", "kaç soru cevaplandı", "cevapsız soruları söyle".
+    /// Metnin TAMAMI bu sözcüklerden oluşmalıdır (soru metni komut sayılmaz). Olumsuz biçimler `parse` başında elenir.
+    static func parseInfo(_ all: [String]) -> VoiceCommand? {
+        guard !all.isEmpty, all.count <= 7 else { return nil }
+        let words = all.filter { !SpokenWords.matches($0, infoPolite) }
+        guard !words.isEmpty else { return nil }
+        let ne = words.contains("ne")
+        if allKnown(words, [helpWords, commandNouns, infoAsk, infoSay, canSayWords]) {
+            if has(words, helpWords) { return .help }
+            if has(words, commandNouns), has(words, infoAsk) || has(words, infoSay) { return .help }
+            if has(words, canSayWords), has(words, infoAsk) { return .help }
+        }
+        if allKnown(words, [heardVerbs, heardNouns, infoSay, sofarWords, ["ne"]]) {
+            if ne, has(words, heardVerbs) { return .whatHeard }
+            if has(words, heardNouns), has(words, infoSay) { return .whatHeard }
+        }
+        if allKnown(words, [lastPart, partNouns, justNow, cancelVerbs]) {
+            let recent = words.contains("az") && words.contains("once")
+            if has(words, cancelVerbs), has(words, partNouns), has(words, lastPart) || recent { return .deleteLast }
+        }
+        if allKnown(words, [statusWords, statusExtras]), has(words, statusWords) { return .status }
+        if allKnown(words, [countAsk, countNouns, sofarWords]), has(words, countAsk), has(words, countNouns) { return .status }
+        if allKnown(words, [missingQualifiers, missingNouns, missingExtras]), has(words, missingQualifiers), has(words, missingNouns) {
+            return .missingAnswers
+        }
+        return nil
+    }
+
     /// Komutu OLUMSUZLAYAN söz var mı ("testi bitirme", "cevapları tekrarlama", "sınavı bitirmem"): yakın sesli eşleşme ("bitirme" ≈ "bitirmek")
     /// bunları komut sayardı. Olumsuz söz komut değildir; metin olduğu gibi soru/paragraf metni olarak kalır.
     private static func isNegated(_ words: [String]) -> Bool {
@@ -354,6 +452,7 @@ enum VoiceCommand: Equatable {
         if let cancel = parseCancel(text) { return cancel }
         if let numbered = parseNumbered(text) { return numbered }
         if isRepeatSpeech(all) { return .repeatSpeech }
+        if let info = parseInfo(all) { return info }
         guard !all.isEmpty, all.count <= 7 else { return nil }
         let words = all.filter { !SpokenWords.matches($0, fillers) }
         guard !words.isEmpty else { return nil }
@@ -496,7 +595,8 @@ enum SpokenReply {
         "baslama", "baslamayalim", "baslamayin", "baslamam", "baslamiyorum", "baslamiyoruz", "baslamasin",
         "okuma", "okumayin", "okumayalim", "okumam", "okumuyorum", "dinleme", "dinlemeyelim", "dinlemeyin", "dinlemem", "dinlemiyorum",
         "tekrarlama", "tekrarlamayin", "tekrarlamayalim", "tekrarlamam", "tekrarlamiyorum",
-        "soyleme", "soylemeyin", "soylemeyelim", "soylemem", "soylemiyorum", "anlatma", "anlatmayin"
+        "soyleme", "soylemeyin", "soylemeyelim", "soylemem", "soylemiyorum", "anlatma", "anlatmayin",
+        "silme", "silmeyin", "silmeyelim", "silmem", "silmiyorum", "unutma", "temizleme"
     ]
     static let continueWords: Set<String> = ["devam", "onceki", "eski", "kaldigi", "kaldigim", "kaldigimiz", "aynen", "surdur", "surdurelim", "surdurun"]
     static let newWords: Set<String> = ["yeni", "sifirdan", "bastan", "temiz"]

@@ -106,7 +106,7 @@ enum ListenHints: Equatable {
         case .choice:
             return ["Evet", "Hayır", "Tamam", "Devam", "Devam et", "Tekrar", "Tekrar oku", "Bitir", "Testi bitir", "Vazgeç", "Yeni sınav",
                     "Önceki kayıt", "Önceki kayıttan devam", "Cevapları tekrarla", "Çek", "Çekelim", "Çekmek istiyorum", "Kamerayla", "Çekmiyorum", "Sesle okurum",
-                    "Tekrarla", "Son cevabı tekrarla", "Soruyu iptal et", "Paragrafı iptal et", "Anlamadım", "Duyamadım", "Bir daha söyle", "Yeniden söyle", "Tekrar söyle"]
+                    "Tekrarla", "Son cevabı tekrarla", "Soruyu iptal et", "Paragrafı iptal et", "Anlamadım", "Duyamadım", "Bir daha söyle", "Yeniden söyle", "Tekrar söyle", "Yardım"]
         case .number:
             return ["Soru", "Sıradaki", "Cevapları tekrarla", "Soruyu iptal et", "Anlamadım", "Bir daha söyle"] + ListenHints.numberWords + ListenHints.ordinals
         case .targets:
@@ -197,6 +197,8 @@ final class OnDeviceSpeechListener: SpeechListening {
         "Yeni sınav", "Önceki kayıt", "Sıradaki",
         // Programdan sözünü yeniden söylemesini isteme
         "Anlamadım", "Duyamadım", "Bir daha söyle", "Yeniden söyle", "Tekrar söyle",
+        // Bilgi ve düzeltme komutları
+        "Yardım", "Ne duydun", "Son cümleyi sil", "Durum", "Cevapsız soruları söyle",
         // Sayılar (iki sözcüklü sayılar bunlardan kurulur) ve sıra sayıları
         "bir", "iki", "üç", "dört", "beş", "altı", "yedi", "sekiz", "dokuz", "on", "yirmi", "otuz", "kırk", "elli", "altmış", "yetmiş",
         "seksen", "doksan", "yüz",

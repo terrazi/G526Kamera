@@ -42,7 +42,8 @@ Bu belge, programın sesle nasıl işlemesi gerektiğini adım adım yazar; her 
    beklenirken söylenebilir; test sürer, oturum kapanmaz).
    **"N. sorunun cevabını tekrarla"** (ör. "beşinci sorunun cevabını tekrarla", "soru 12 cevabı tekrar") → yalnız o sorunun cevabı okunur; kayıt yoksa
    "N numaralı soru için kayıtlı cevap yok" denir; ardından dinlemeye dönülür (soru dinlenirken ve kamera sorusu açıkken söylenebilir).
-   **"Soruyu iptal et"** → o ana kadar okunan soru metni ve ses kaydı silinir, "Okunan soru silindi" denir ve soru baştan okunur (kamera sorusu açıkken
+   **"Soruyu iptal et"** → o ana kadar okunan soru metni ve ses kaydı silinir, "Okunan soru silindi" denir ve soru baştan okunur (okunmuş soru yoksa
+   "Silinecek soru yok" denir; kamera sorusu açıkken
    silinecek soru olmadığı söylenir ve kamera sorusu yeniden sorulur).
    **"Paragrafı iptal et" / "Ortak paragrafı iptal et"** → okunmakta ya da numaraları beklenen paragraf (ve kamerayla çekilmişse görüntüleri) bırakılır;
    paragraf okunmaya hiç başlanmamışsa kayıtlı ortak paragraf silinir; ikisi de yoksa "Silinecek ortak paragraf yok" denir. Paragraf okunurken,
@@ -66,6 +67,24 @@ Bu belge, programın sesle nasıl işlemesi gerektiğini adım adım yazar; her 
    korunur. Paragraf okunurken yalnız söz tek başınaysa komut sayılır (paragraf metnine karışmaz). Tek başına "tekrarla" / "tekrar et": soru ve kamera
    sorusunda son cevabı okur (V3 gibi); onay, numara, paragraf numarası ve başlangıç sorusunda programın sözünü tekrarlar. Menüde "Tekrar" bir seçenektir
    (cevapları yeniden oynatır); menüde programın sözünü tekrarlatmak için "bir daha söyle" / "anlamadım" denir.
+   **Bilgi ve düzeltme komutları** (her kipte söylenebilir; soru metni ve kip bozulmaz, Gemini'ye gitmez, cevap sayılmaz). **Her biri yaptığını ya da
+   yapamadığını kısaca söyler:**
+
+   | Komut (örnek söyleyişler) | Yaptığında söyler | Yapamadığında söyler |
+   |---|---|---|
+   | **Yardım** ("yardım et", "komutlar neler", "hangi komutlar var", "ne diyebilirim") | Komutları sayar; kamera sorusundayken sonra soruyu yeniden sorar; evet/hayır, numara ve menü sorularında sorunun kendisini yeniden söyler | — |
+   | **Ne duydun** ("ne anladın", "duyduğunu oku", "şu ana kadar ne duydun") | "Duyduğum: …" (30 sözcükten uzunsa son 30 sözcük); okuma kaldığı yerden sürer | "Henüz bir şey duymadım." / soru dinlenmiyorsa "Şu anda dinlenen bir soru metni yok." |
+   | **Son cümleyi sil** ("son sözü sil", "az önce söylediğimi sil") | "Son cümle silindi: …" (silinenin ilk 8 sözcüğü) ve "Soruyu okumaya devam edebilirsiniz" (hiç metin kalmadıysa "baştan okuyabilirsiniz") | "Silinecek cümle yok." |
+   | **Durum** ("durum nedir", "neredeyiz", "kaç soru cevaplandı", "kaçıncı soru") | "N soru cevaplandı. Sıradaki soru numarası M." + yalnız bilinenler: kulaklık, internet, pil | — (bilinmeyen bilgi söylenmez) |
+   | **Cevapsız soruları söyle** ("eksik soruları söyle", "hangi soruları atladım", "cevabı olmayan sorular") | "Cevabı olmayan sorular: 2, 4 ve 5." (1'den en yüksek cevaplanan numaraya kadar; 12'den fazlaysa "ve devamı") | "Cevapsız soru yok…" / "Henüz cevaplanan soru yok." |
+
+   "Son cümle" = son sessizlikten (1 sn) sonra söylenen kısım; soru okunurken araya girilirse komuttan önceki metin korunur. Soru metninin ortasında tek
+   sözcüklük komut ("yardım", "durum") tanınmaz (soru metninin parçası olabilir): iki sözcüklü söyleyin ("yardım et", "durum nedir") ya da komutu tek
+   başına söyleyin. "Durum, Cevapla" gibi komut + Cevapla da çalışır. **Sınırlar:** "Son cümleyi sil" yalnız metni siler; ses kaydı ve yardımcı İngilizce
+   metin silinmez (ses kaydı Gemini'ye gidiyorsa silinen cümle kayıtta kalır). Olumsuz biçimler ("yardım etme", "son cümleyi silme") komut değildir.
+   Her komut tek başına: Tekrarla → son cevap ("Tekrarlanacak cevap yok."), "5. sorunun cevabını tekrarla" → o cevap ("5 numaralı soru için kayıtlı cevap
+   yok."), "Paragrafı iptal et" → "Ortak paragraf iptal edildi." / "Kayıtlı ortak paragraf silindi." / "Silinecek ortak paragraf yok.", anlaşılmayan komut →
+   "Komutu anlayamadım. Lütfen komutu bir kez daha söyleyin."
 5. **Cevapları okuma ve menü.** Cevaplar numara sırasıyla, aralarında Tekrar boşluğu (varsayılan 3 sn) okunur. Bitince: "N sorunun cevabı okundu. Ne yapmak
    istersiniz? Teste kaldığınız yerden devam etmek için **Devam**, cevapları yeniden dinlemek için **Tekrar**, testi tamamlamak için **Bitir** deyin."
    Devam → kalınan yere dönülür (soru / eksik numara / paragraf numaraları); Tekrar → yeniden okunur ve yine sorulur; Bitir → "Test tamamlandı. N cevap
@@ -115,6 +134,7 @@ bitişik "567" (üç haneli ve 150'nin üstündeyse tek tek rakam sayılır).
 
 - Paragraf okunurken yalnız "paragrafı iptal et" çalışır; diğer komutlar (testi bitir, cevapları tekrarla…) paragrafa karışır, çünkü paragraf serbest metindir.
 - "Soruyu iptal et" yalnız soru dinlenirken (okunan metni siler) anlamlıdır; kamerayla çekilmiş soru Gemini'ye gittikten sonra geri alınamaz.
+- Bilgi komutları paragraf okunurken yalnız söz tek başınaysa çalışır (paragraf serbest metindir). "Cevapsız sorular" numaraları 1'den sayar; sınav 1'den başlamıyorsa baştaki numaralar da eksik görünür.
 - Komut denemesi yalnız çok katı bir kuralla ("bütün sözcükler komut sözcüğü, en az biri fiil/işaret") algılanır; ondan uzak bir yanlış okuma (komutla ilgisiz sözcükler) hâlâ soru metni sayılır ve sessiz birikir.
 - "Testi Bitir" **düğmesi** cevapları kendiliğinden okutmaz; yalnız sesle bitirme okutur (düğme sonrası ana ekrandaki tekrar düğmesi kullanılır).
 - "Cevapları tekrarla" paragraf okunurken ve "Devam mı, yeni sınav mı?" sorusu beklenirken çalışmaz.

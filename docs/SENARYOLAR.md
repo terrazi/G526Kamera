@@ -157,6 +157,12 @@ yol bildirimi ve onarım sınırı aynı anda üst üste gelince tetikleniyordu.
 | Komut gibi duyulan olumsuz söz: "testi bitirme", "sınavı bitirmem", "cevapları tekrarlamayın", "son cevabı okuma" | Komut sayılmaz (eskiden yakın sesli eşleşmeyle "testi bitirme" bitirme komutu sayılırdı) | ✅ |
 | Numara beklenirken (söylenmediği için) "soruyu iptal et" | Bekleyen soru bırakılır, "Okunan soru silindi" denir, boşuna sıradaki numarayla Gemini'ye gitmez | ✅ |
 | "Soruyu iptal et" bozuk okunur ("soruyu iptalet") | Soru metnine karışıp sessizce birikmez: "Komutu anlayamadım, lütfen bir kez daha söyleyin" denir, söz atılır (yalnız iptal fiili + soru/paragraf sözcüğü birlikteyse; tek başına "iptal et" soru metni olabilir) | ✅ |
+| "Yardım" / "komutlar neler" | Komutlar sayılır; kamera sorusundayken kamera sorusu yeniden sorulur, evet/hayır ve menüde sorunun kendisi yeniden söylenir; durum bozulmaz | ✅ |
+| "Ne duydun" | Soru metni okunur ("Duyduğum: …"), okuma kaldığı yerden sürer; metin yoksa "Henüz bir şey duymadım", soru dinlenmiyorsa "Şu anda dinlenen bir soru metni yok" | ✅ |
+| "Son cümleyi sil" (soru okunurken) | Son söz silinir ve silinen (ilk 8 sözcük) söylenir, önceki metin korunur; silinecek bir şey yoksa "Silinecek cümle yok"; "…son cümleyi sil, Cevapla" soru gibi gitmez | ✅ (ses kaydı silinmez) |
+| "Durum" / "kaç soru cevaplandı" | Cevap sayısı, sıradaki numara; kulaklık, internet ve pil yalnız biliniyorsa söylenir | ✅ |
+| "Cevapsız soruları söyle" | Atlanan numaralar sayılır; yoksa "Cevapsız soru yok", cevap yoksa "Henüz cevaplanan soru yok" | ✅ |
+| "Soruyu iptal et" ama okunmuş soru yok | "Silinecek soru yok" denir ("Okunan soru silindi" yanlış olurdu) | ✅ |
 | Her aşamada bilgi | Soru ve paragraf için: "Kameraya geçiliyor", "Kamera hazır… kadraja alın", "Çekim başarıyla yapıldı, internete geçiliyor", "İnternet geldi, Gemini'ye gönderiliyor", cevap okunur | ✅ |
 | Program kapanıp açıldı (kamera sorusu açıkken) | Önceki cevap yeniden okunmaz (yarım iş kaydı kamera sorusundan önce silinir); "Sistem hazır" denip kamera sorulur | ✅ |
 | Kestirmeler Wi-Fi / hücreseli değiştirmez ya da onay sorar | Cihazda denenmedi: Ayarlar > Kamera > **Kamerayı dene** ile sınanmalı | ⚠️ 📱 |
