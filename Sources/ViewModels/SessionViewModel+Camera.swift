@@ -26,10 +26,16 @@ extension SessionViewModel {
 
     /// "Bu soruyu kamera ile çekip göndermek ister misiniz?"
     func askCameraChoice(again: Bool = false) async {
+        // Önceki kamera akışı yarıda kesildiyse telefon kameranın Wi-Fi'sinde kalmış olabilir: önce internet geri getirilir
+        await restoreInternetIfStrandedOnCamera()
+        // Kesinti (kulaklık, arama, onarım) soruyu söylerken ya da bekleyen çekimi gönderirken gelirse soru kaybolmaz: onarımdan sonra yeniden sorulur
+        guard !Task.isCancelled else { offerCamera = true; return }
         // Telefonda bekleyen çekim varsa önce o gönderilir; gönderim kendi akışıyla (cevap, sıradaki soru) devam eder, burada yeniden sorulmaz
         if !again, resendablePending != nil, await sendPendingShots() { return }
-        guard !Task.isCancelled else { return }
-        guard await speakNotice(again ? Say.askCameraAgain : Say.askCamera) else { return }
+        guard !Task.isCancelled, await speakNotice(again ? Say.askCameraAgain : Say.askCamera) else {
+            offerCamera = true
+            return
+        }
         beginListening(mode: .cameraChoice)
     }
 
@@ -103,6 +109,7 @@ extension SessionViewModel {
             return
         }
         phase = .answering
+        networkMayBeOnCamera = true   // kestirme çalışınca hücresel kapanır; internete dönüş doğrulanana kadar bayrak durur
         statusNote = "Kameraya geçiliyor (hücresel kesiliyor)"
         tlog("[kamera] hücresel kesilip kameranın Wi-Fi ağına geçiliyor: kestirme “\(cameraName)”")
         var result = await captureWithRepair(cameraName: cameraName)
@@ -126,6 +133,7 @@ extension SessionViewModel {
         // Kamera kapandı: Wi-Fi bırakılır, hücresel açılır
         statusNote = "İnternete geçiliyor (Wi-Fi bırakılıyor)"
         let online = await returnToInternet(shortcut: internetName)
+        if online { networkMayBeOnCamera = false }
         await waitForGuidanceSpeech()
         guard !Task.isCancelled, phase == .answering else {
             if pendingShots.isEmpty { offerCamera = true }   // çekim telefonda bekliyorsa önce o gönderilir (bkz. beginListening)
@@ -152,7 +160,11 @@ extension SessionViewModel {
     }
 
     /// Çekim bitti, internet geldi: fotoğraf + video Gemini'ye gider, cevap V3'ün akışıyla okunur ve kaydedilir
-    func sendShot(_ shot: CapturedQuestion) async {
+    func sendShot(_ original: CapturedQuestion) async {
+        // Sesle kaydedilmiş ortak paragraf varsa çekilen soruyla birlikte gider (numara görüntüden okunur; paragraf listedeki numaralar için geçerlidir)
+        var prepared = original
+        if let context = passage { prepared.passageNote = QuestionComposer.cameraNote(passage: context) }
+        let shot = prepared
         sendingShotID = shot.id
         defer { sendingShotID = nil }
         phase = .answering
@@ -331,8 +343,26 @@ extension SessionViewModel {
         return false
     }
 
+    /// Önceki kamera akışı yarıda kesildi (kulaklık, arama, onarım) ve internete dönüş doğrulanmadı: internet yoksa telefon kameranın Wi-Fi'sinde,
+    /// hücresel kapalı kalmıştır. "İnternete geç" kestirmesi çalışır (internet varsa hiçbir şey yapılmaz). Sonraki kamera sorusundan ve
+    /// bekleyen çekimin gönderiminden önce çağrılır; yoksa bağlantı 30 sn boşuna beklenir.
+    func restoreInternetIfStrandedOnCamera() async {
+        guard networkMayBeOnCamera, !Task.isCancelled else { return }
+        if await deps.health.internetReachable() {
+            networkMayBeOnCamera = false
+            return
+        }
+        let name = settings.internetShortcut.trimmed
+        guard !name.isEmpty else { return }
+        tlog("[kamera] önceki kamera akışı yarıda kaldı ve internet yok; “\(name)” kestirmesi çalıştırılıyor")
+        statusNote = "İnternete geçiliyor (Wi-Fi bırakılıyor)"
+        if await returnToInternet(shortcut: name) { networkMayBeOnCamera = false }
+        statusNote = ""
+    }
+
     /// Test kamera akışı sürerken bitti: telefonun interneti kestirmeyle geri getirilir (yoksa kameranın Wi-Fi'sinde, hücresel kapalı kalırdı)
     func restoreInternetAfterCamera() {
+        networkMayBeOnCamera = false
         let name = settings.internetShortcut.trimmed
         guard !name.isEmpty else { return }
         tlog("[kamera] test kamera akışı sürerken bitti; internet kestirmesi çalıştırılıyor: “\(name)”")

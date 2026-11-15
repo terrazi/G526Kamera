@@ -22,7 +22,9 @@ Bu belge, programın sesle nasıl işlemesi gerektiğini adım adım yazar; her 
    Kamera sorusu açıkken V3 komutları da çalışır ("Testi bitir" onay ister ve kamera başlamaz; vazgeçilirse soru yeniden sorulur; "Son cevabı tekrarla" okur
    ve yeniden sorar). Kamera sorusunda "bitir" ya da "devam" evet sayılmaz (yalnız evet / tamam / çek gibi sözler). "Devam" ya da "Yeni sınav" seçiminden
    ve kesinti sonrası sürdürmeden sonra da ilk soru için kamera sorulur. Çekilen soruya Gemini 3 dk yanıt vermezse çekim bir kez daha gönderilir; yine
-   yanıt yoksa atılır, söylenir ve kamera sorusu yeniden sorulur.
+   yanıt yoksa atılır, söylenir ve kamera sorusu yeniden sorulur. Kamera sorusunu beklemeden soru okunursa (9+ sözcük) sesle okuma seçilmiş sayılır.
+   Sesle kaydedilmiş ortak paragraf çekilen soruyla birlikte Gemini'ye gider. Kamera akışı kesilirse telefon kameranın Wi-Fi'sinde kalmış olabilir:
+   onarımdan sonra internet yoksa `Hücresele Geç` kestirmesi çalışır, sonra bekleyen çekim gönderilir ya da kamera sorulur.
 3. **Ortak paragraf.** "Ortak paragraf" (duraklayın) → "Lütfen ortak paragrafı okuyun, bitince Tamam deyin" → paragraf + "Tamam" → "Paragraf metnini
    aldım, hangi sorular için? Numaraları söyleyip Tamam deyin" → "5, 6, 7" → "Ortak paragraf 5, 6 ve 7 için kaydedildi. Şimdi soruları okuyabilirsiniz" →
    her soru (numarası listede ise) paragrafla birlikte gider; hepsi cevaplanınca paragraf bırakılır.

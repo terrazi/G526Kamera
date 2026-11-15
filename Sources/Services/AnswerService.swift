@@ -94,13 +94,15 @@ final class GeminiAnswerService: Answering {
     Cevap metnini şıktan kısaca yaz. Giriş, açıklama, markdown, tırnak ve ek cümle yazma. Emin değilsen en olası şıkkı yaz.
     """
 
-    static func captureText(expectedNumber: Int, hasVideo: Bool, extra: String) -> String {
+    static func captureText(expectedNumber: Int, hasVideo: Bool, extra: String, passage: String = "") -> String {
         var text = "İpucu: soru numarası görüntüden okunamazsa bu soruyu Soru \(expectedNumber) say. Numara okunuyorsa sıraya değil okunan numaraya uy."
         text += hasVideo
             ? "\n\nBu mesajda soru sayfasının fotoğrafı ve aynı sayfanın kısa videosu var. Görüntünün ortasındaki soruyu cevapla; kenarlardan yarım görünen diğer soruları dikkate alma."
             : "\n\nBu mesajda soru sayfasının fotoğrafı var. Görüntünün ortasındaki soruyu cevapla; kenarlardan yarım görünen diğer soruları dikkate alma."
         let note = extra.trimmed
         if !note.isEmpty { text += "\n\nKullanıcının ek talimatı: \(note)" }
+        let shared = passage.trimmed
+        if !shared.isEmpty { text += "\n\n" + shared }
         return text
     }
 
@@ -108,7 +110,7 @@ final class GeminiAnswerService: Answering {
     static func captureBody(_ shot: CapturedQuestion, expectedNumber: Int, fps: Double? = VideoRecorder.fps) throws -> Data {
         var video: Data?
         if shot.canSendVideo, let url = shot.video { video = try? Data(contentsOf: url) }
-        var parts: [[String: Any]] = [["text": captureText(expectedNumber: expectedNumber, hasVideo: video != nil, extra: shot.extraInstruction)]]
+        var parts: [[String: Any]] = [["text": captureText(expectedNumber: expectedNumber, hasVideo: video != nil, extra: shot.extraInstruction, passage: shot.passageNote)]]
         parts.append(["inlineData": ["mimeType": "image/jpeg", "data": shot.photo.base64EncodedString()]])
         if let video = video {
             var part: [String: Any] = ["inlineData": ["mimeType": "video/mp4", "data": video.base64EncodedString()]]

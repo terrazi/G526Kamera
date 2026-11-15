@@ -130,6 +130,11 @@ yol bildirimi ve onarım sınırı aynı anda üst üste gelince tetikleniyordu.
 | Kamera sorusu açıkken "Testi bitir" / "Tekrarla" denir | Komut çalışır: bitirme onayı istenir (kamera başlamaz), "hayır"da kamera sorusu yeniden gelir; "Tekrarla" son cevabı okur ve yeniden sorar. "bitir", "devam" evet sayılmaz | ✅ |
 | "Devam" / "Yeni sınav" seçildi ya da kesintiden dönüldü | İlk soru için kamera sorulur; "Soruyu okuyabilirsiniz" denmez (metinler kamera sorusuna göre değişir) | ✅ |
 | Çekilen soruya Gemini yanıt vermez | 3 dk sonra söylenir, çekim bir kez daha gönderilir; yine yanıt yoksa atılır ve kamera sorusu yeniden sorulur | ✅ |
+| Kamera sorusu söylenirken ya da açıkken kulaklık kopar / arama gelir | Soru kaybolmaz: onarımdan sonra "Bağlantı yeniden onarıldı" denip kamera yeniden sorulur (düz sesle okumaya düşülmez) | ✅ |
+| Çekimden sonra internete dönüş sırasında kesinti oldu (telefon kameranın Wi-Fi'sinde kaldı) | Onarımdan sonra, internet yoksa `Hücresele Geç` kestirmesi çalışır; ancak sonra bekleyen çekim gönderilir ya da kamera sorulur. İnternet varsa hiçbir kestirme çalışmaz. Test bu durumda bitirilirse de kestirme çalışır | ✅ |
+| Kamera sorusunu beklemeden soru okunup "Cevapla" denir (V3 alışkanlığı) | 9+ sözcük soru okuma sayılır: sesle okuma seçilmiş olur, metin kaybolmaz, Gemini'ye gider; kamera aynı soru için yeniden sorulmaz | ✅ |
+| Ortak paragraf sesle kaydedilmişti, sonraki soru kamerayla çekildi | Paragraf (ve hangi numaralara ait olduğu) çekimle birlikte Gemini'ye gider; cevaplanan soru listeden düşer | ✅ |
+| Program kapanıp açıldı (kamera sorusu açıkken) | Önceki cevap yeniden okunmaz (yarım iş kaydı kamera sorusundan önce silinir); "Sistem hazır" denip kamera sorulur | ✅ |
 | Kestirmeler Wi-Fi / hücreseli değiştirmez ya da onay sorar | Cihazda denenmedi: Ayarlar > Kamera > **Kamerayı dene** ile sınanmalı | ⚠️ 📱 |
 | Komşu sorular kadrajda yarım görünür | Gemini'ye yok sayması söylenir; numara görüntüden okunur, okunamazsa sıra numarası | ✅ (cihazda denenmedi) |
 

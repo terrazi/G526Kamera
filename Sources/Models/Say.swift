@@ -197,6 +197,7 @@ enum Say {
 
     // MARK: Sürüm 4: kamera
     static let askCamera = "Bu soruyu kamera ile çekip göndermek ister misiniz? Evet ya da hayır deyin."
+    static let askCameraAfterRecovery = "Bağlantı yeniden onarıldı. Bu soruyu kamera ile çekip göndermek ister misiniz? Evet ya da hayır deyin."
     static let askCameraAgain = "Anlayamadım. Bu soruyu kamera ile çekip göndermek ister misiniz? Evet ya da hayır deyin."
     static let readyCamera = "Ben hazırım, sistem kontrol edildi ve problem yok."
     /// Kamera sorusu açık ama kamera adı ya da kestirme adları yazılmamış: sessizce V3'e dönülmez, kullanıcıya söylenir

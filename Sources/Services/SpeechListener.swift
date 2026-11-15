@@ -105,7 +105,7 @@ enum ListenHints: Equatable {
             return OnDeviceSpeechListener.contextualStrings
         case .choice:
             return ["Evet", "Hayır", "Tamam", "Devam", "Devam et", "Tekrar", "Tekrar oku", "Bitir", "Testi bitir", "Vazgeç", "Yeni sınav",
-                    "Önceki kayıt", "Önceki kayıttan devam", "Cevapları tekrarla"]
+                    "Önceki kayıt", "Önceki kayıttan devam", "Cevapları tekrarla", "Çek", "Çekelim", "Sesle okurum", "Tekrarla", "Son cevabı tekrarla"]
         case .number:
             return ["Soru", "Sıradaki", "Cevapları tekrarla"] + ListenHints.numberWords + ListenHints.ordinals
         case .targets:

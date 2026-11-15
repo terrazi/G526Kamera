@@ -163,6 +163,8 @@ final class FakeSpeaker: AnswerSpeaking {
     var writeFiles = true
     /// true iken konuşma `release()` ya da `stop()` gelene kadar sürer
     var hold = false
+    /// Yalnız bu koşulu sağlayan cümlede bekler (kesintinin tam o cümle söylenirken gelmesini sınamak için)
+    var holdWhen: ((String) -> Bool)?
     private var continuation: CheckedContinuation<Void, Never>?
 
     var spoken: [String] { return calls.map { $0.text } }
@@ -171,7 +173,7 @@ final class FakeSpeaker: AnswerSpeaking {
     func speak(_ text: String, saveAs fileBase: URL?) async throws -> URL? {
         allCalls.append(Call(text: text, saveAs: fileBase))
         if isAnnouncement(text) { return nil }   // uyarı anonsu: bekletme ve hata senaryosu yalnız cevap/anons akışı içindir
-        if hold { await withCheckedContinuation { continuation = $0 } }
+        if hold || (holdWhen?(text) ?? false) { await withCheckedContinuation { continuation = $0 } }
         if !script.isEmpty, let error = script.removeFirst() { throw error }
         guard let base = fileBase else { return nil }
         let url = base.appendingPathExtension("m4a")

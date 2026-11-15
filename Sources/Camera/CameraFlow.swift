@@ -16,6 +16,9 @@ struct CapturedQuestion: Equatable {
     var extraInstruction: String = ""
     /// Videoyu yüksek çözünürlükle oku (küçük yazı)
     var highResolution = true
+    /// Sesle kaydedilmiş ortak paragraf varsa gönderim sırasında eklenen not (çekim telefonda beklerken paragraf değişebilir, o yüzden
+    /// çekimle birlikte saklanmaz; her gönderimde yeniden yazılır)
+    var passageNote = ""
 
     /// Gemini'ye satır içi gönderilebilen fotoğraf + video toplamı (bayt). İstek sınırı 20 MB'tır ve veri base64 ile üçte bir şişer
     /// (14 MB → ~18,7 MB); metin ve talimat payı için de yer kalır. Video sığmazsa yalnız fotoğraf gider.

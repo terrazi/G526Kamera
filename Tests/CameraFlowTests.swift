@@ -399,6 +399,285 @@ final class CameraFlowTests: XCTestCase {
         await settle()
     }
 
+    // MARK: Derin denetim: kesinti, ağ, soruyu okuyarak cevap verme, ortak paragraf, üretim ayarları
+
+    /// Üretimde açık olan V3 ayarları (testlerin geri kalanı sadeleştirmek için kapatır)
+    private func productionHarness(shots: [Result<CapturedQuestion, CameraFailure>]? = nil,
+                                   replies: [Result<GeminiReply, Error>]? = nil) -> SessionHarness {
+        let h = harness(shots: shots, replies: replies)
+        h.settings.spokenProgress = true
+        h.settings.askMissingNumber = true
+        h.settings.askNextQuestion = true
+        h.settings.smartResume = true
+        h.settings.instantDetection = true
+        h.settings.readAnswersAtEnd = true
+        return h
+    }
+
+    /// Kamera sorusu söylenirken kulaklık kopar ya da arama gelir: soru kaybolmaz, onarımdan sonra yeniden sorulur (düz sesle okumaya düşülmez)
+    func testInterruptionWhileTheCameraQuestionIsBeingSpokenStillAsksItAfterwards() async {
+        let h = harness()
+        _ = await h.startListening()
+        h.speaker.holdWhen = { $0 == Say.askCamera }
+        reply(h, "evet")
+        let held = await waitUntil(45) { h.vm.answers.count == 1 && h.speaker.allCalls.last?.text == Say.askCamera && h.vm.phase == .speaking }
+        XCTAssertTrue(held, "Sıradaki soru için kamera sorusu söylenirken bekletilir")
+        h.route.interrupt(began: true)
+        h.speaker.holdWhen = nil
+        await settle()
+        XCTAssertTrue(h.isHardwarePause)
+        h.route.interrupt(began: false)
+        h.scheduler.advance(by: T.routeStable + 0.1)
+        let asked = await waitUntil(45) { self.cameraQuestionOpen(h) && h.speaker.spoken.last == Say.askCamera }
+        XCTAssertTrue(asked, "Kesintiden sonra kamera sorusu yeniden sorulur")
+        XCTAssertEqual(h.vm.listenMode, .cameraChoice)
+        XCTAssertEqual(h.camera.captures, 1, "Kendiliğinden yeni çekim olmaz")
+    }
+
+    /// Kamera sorusu açıkken (dinlerken) kesinti olursa "Anlayamadım" denmez; bağlantının onarıldığı söylenip soru yeniden sorulur
+    func testInterruptionWhileListeningAtTheCameraQuestionAsksItAgainWithoutSayingNotUnderstood() async {
+        let h = harness()
+        _ = await h.startListening()
+        h.route.interrupt(began: true)
+        await settle()
+        XCTAssertTrue(h.isHardwarePause)
+        h.route.interrupt(began: false)
+        h.scheduler.advance(by: T.routeStable + 0.1)
+        let asked = await waitUntil(45) { self.cameraQuestionOpen(h) && h.speaker.spoken.last == Say.askCameraAfterRecovery }
+        XCTAssertTrue(asked)
+        XCTAssertFalse(h.speaker.spoken.contains(Say.askCameraAgain), "Kullanıcı yanlış anlaşılmadı: 'Anlayamadım' denmez")
+    }
+
+    /// Çekimden sonra internete dönülürken kesinti olursa telefon kameranın Wi-Fi'sinde kalır: onarımdan sonra bekleyen çekim gönderilmeden önce
+    /// "internete geç" kestirmesi çalışır (30 sn boşuna beklenmez, kamera sorusu internetsiz sorulmaz)
+    func testAnInterruptedReturnToTheInternetIsFinishedBeforeTheShotIsSent() async {
+        let shot = FakeCamera.shot()
+        let h = harness(shots: [.success(shot)])
+        var returns = 0
+        h.shortcuts.onRun = { [unowned h] name in
+            if name == "Kameraya_Gec" { h.health.internet = false }
+            if name == "Hücresele_Gec" {
+                returns += 1
+                if returns == 1 { h.route.interrupt(began: true) } else { h.health.internet = true }
+            }
+        }
+        _ = await h.startListening()
+        reply(h, "evet")
+        let paused = await waitUntil(45) { h.isHardwarePause && !h.vm.cameraBusy }
+        XCTAssertTrue(paused, "İnternete dönüş kestirmesi çalışırken arama geldi")
+        XCTAssertEqual(h.vm.pendingShots.count, 1, "Çekilen soru telefonda kalır")
+        XCTAssertFalse(h.health.internet, "Telefon hâlâ kameranın Wi-Fi'sinde")
+        h.route.interrupt(began: false)
+        h.scheduler.advance(by: T.routeStable + 0.1)
+        let sent = await waitUntil(45) { h.vm.answers.count == 1 }
+        XCTAssertTrue(sent, "Önce internete geçilir, sonra çekim gönderilir")
+        XCTAssertEqual(h.shortcuts.runs.filter { $0 == "Hücresele_Gec" }.count, 2, "İnternet kestirmesi bir kez daha çalıştı")
+        XCTAssertEqual(h.answering.captureCalls.count, 1)
+        XCTAssertTrue(h.vm.pendingShots.isEmpty)
+        XCTAssertTrue(h.health.internet)
+    }
+
+    /// İnternet zaten varsa (kesinti kamera akışının dışında oldu) hiçbir kestirme çalışmaz
+    func testNoShortcutRunsAfterAnInterruptionWhenTheInternetIsFine() async {
+        let h = harness()
+        _ = await h.startListening()
+        h.route.interrupt(began: true)
+        await settle()
+        h.route.interrupt(began: false)
+        h.scheduler.advance(by: T.routeStable + 0.1)
+        let asked = await waitUntil(45) { self.cameraQuestionOpen(h) }
+        XCTAssertTrue(asked)
+        XCTAssertTrue(h.shortcuts.runs.isEmpty)
+    }
+
+    /// V3 alışkanlığı: kullanıcı kamera sorusunu beklemeden soruyu okuyup "Cevapla" der. Soru sesle okunmuş sayılır ve metin kaybolmaz
+    func testReadingTheQuestionAtTheCameraQuestionIsTakenAsAVoiceQuestion() async {
+        let h = harness()
+        _ = await h.startListening()
+        h.ask("Soru 1. Aşağıdakilerden hangisi Türkiye'nin başkentidir A seçeneği Adana B seçeneği Bursa")
+        let done = await waitUntil(45) { h.vm.answers.count == 1 && self.cameraQuestionOpen(h) }
+        XCTAssertTrue(done, "Soru sesle gitti, cevap okundu, sıradaki soru için kamera sorulur")
+        XCTAssertEqual(h.answering.calls.count, 1)
+        XCTAssertTrue(h.answering.calls.first?.question.contains("başkentidir") ?? false, "Okunan metin Gemini'ye gider")
+        XCTAssertTrue(h.answering.captureCalls.isEmpty)
+        XCTAssertEqual(h.camera.captures, 0)
+        XCTAssertTrue(h.shortcuts.runs.isEmpty)
+        XCTAssertEqual(h.speaker.spoken.filter { $0 == Say.askCamera }.count, 2, "Aynı soru için yeniden sorulmaz")
+    }
+
+    /// Kısa, anlaşılmayan söz soru okuma sayılmaz: kamera sorusu yeniden sorulur
+    func testAShortUnclearReplyIsNotTakenForAQuestion() async {
+        let h = harness()
+        _ = await h.startListening()
+        h.listener.say("şey acaba nasıl")
+        h.scheduler.advance(by: T.numberUnclear + 0.1)
+        let again = await waitUntil(45) { h.speaker.spoken.last == Say.askCameraAgain && self.cameraQuestionOpen(h) }
+        XCTAssertTrue(again)
+        XCTAssertTrue(h.answering.calls.isEmpty)
+    }
+
+    /// Sesle okunmuş ortak paragraf, sonraki sorular kamerayla çekilince de Gemini'ye gider; cevaplanan soru paragrafın listesinden düşer
+    func testAPassageReadAloudEarlierGoesWithTheNextCameraShot() async {
+        let h = harness()
+        _ = await h.startListening()
+        h.vm.passage = PassageContext(text: "Ankara Türkiye'nin başkentidir.", english: "", audio: nil, all: [1, 2], remaining: [1, 2])
+        reply(h, "evet")
+        let done = await waitUntil(45) { h.vm.answers.count == 1 && self.cameraQuestionOpen(h) }
+        XCTAssertTrue(done)
+        let note = h.answering.captureCalls.first?.shot.passageNote ?? ""
+        XCTAssertTrue(note.contains("Ankara Türkiye'nin başkentidir."), "Paragraf istekte: \(note)")
+        XCTAssertTrue(note.contains("1 ve 2"), "Hangi sorulara ait olduğu da yazılır")
+        XCTAssertEqual(h.vm.passage?.remaining, [2])
+    }
+
+    func testNoPassageNoteWithoutAPassage() async {
+        let h = harness()
+        _ = await h.startListening()
+        reply(h, "evet")
+        let done = await waitUntil(45) { h.vm.answers.count == 1 }
+        XCTAssertTrue(done)
+        XCTAssertEqual(h.answering.captureCalls.first?.shot.passageNote, "")
+    }
+
+    func testCapturePromptCarriesThePassageOnlyWhenThereIsOne() {
+        let context = PassageContext(text: "Metin burada.", english: "", audio: nil, all: [5, 6, 7], remaining: [5, 6, 7])
+        let note = QuestionComposer.cameraNote(passage: context)
+        let with = GeminiAnswerService.captureText(expectedNumber: 5, hasVideo: true, extra: "", passage: note)
+        XCTAssertTrue(with.contains("5, 6 ve 7"))
+        XCTAssertTrue(with.contains("Metin burada."))
+        XCTAssertEqual(GeminiAnswerService.captureText(expectedNumber: 5, hasVideo: true, extra: "", passage: ""),
+                       GeminiAnswerService.captureText(expectedNumber: 5, hasVideo: true, extra: ""), "Paragraf yoksa istek değişmez")
+        let done = PassageContext(text: "Metin", english: "", audio: nil, all: [5], remaining: [])
+        XCTAssertEqual(QuestionComposer.cameraNote(passage: done), "", "Tüm sorular cevaplandıysa paragraf eklenmez")
+    }
+
+    /// Cevap duyulduktan sonra kamera sorusu açıkken kapanma olursa önceki cevap yeniden okunmaz: yarım iş kaydı silinmiştir
+    func testThePreviousAnswerIsNotKeptAsUnfinishedWorkWhileTheCameraQuestionIsOpen() async {
+        let h = harness()
+        _ = await h.startListening()
+        reply(h, "evet")
+        let done = await waitUntil(45) { h.vm.answers.count == 1 && self.cameraQuestionOpen(h) }
+        XCTAssertTrue(done)
+        XCTAssertNil(h.journal.pending)
+    }
+
+    /// Kamera ve sesle okunan sorular karışık gidebilir: her cevap kendi numarasıyla kaydedilir, her soru için kamera sorulur
+    func testCameraAndVoiceQuestionsCanBeMixedAndEachAnswerKeepsItsNumber() async {
+        let h = harness(shots: [.success(FakeCamera.shot()), .success(FakeCamera.shot())],
+                        replies: [.success(FakeAnswering.reply(1)), .success(FakeAnswering.reply(2)), .success(FakeAnswering.reply(3))])
+        _ = await h.startListening()
+        reply(h, "evet")
+        let first = await waitUntil(45) { h.vm.answers.count == 1 && self.cameraQuestionOpen(h) }
+        XCTAssertTrue(first)
+        reply(h, "hayır")
+        let voice = await waitUntil(45) { h.vm.listenMode == .question && h.vm.phase == .listening }
+        XCTAssertTrue(voice)
+        h.ask("Soru 2. bir soru metni")
+        let second = await waitUntil(45) { h.vm.answers.count == 2 && self.cameraQuestionOpen(h) }
+        XCTAssertTrue(second)
+        reply(h, "evet")
+        let third = await waitUntil(45) { h.vm.answers.count == 3 && self.cameraQuestionOpen(h) }
+        XCTAssertTrue(third)
+        XCTAssertEqual(h.vm.answers.map { $0.number }, [1, 2, 3])
+        XCTAssertEqual(h.answering.captureCalls.map { $0.expectedNumber }, [1, 3])
+        XCTAssertEqual(h.answering.calls.map { $0.expectedNumber }, [2])
+        XCTAssertEqual(h.camera.captures, 2)
+        XCTAssertEqual(h.speaker.spoken.filter { $0 == Say.askCamera }.count, 4, "Her soru sınırında bir kez sorulur")
+    }
+
+    /// Cevaplar okunduktan sonra "Devam" denince bu soru için kamera yeniden sorulur
+    func testEndRequestReviewThenContinueAsksTheCameraQuestionAgain() async {
+        let h = harness()
+        _ = await h.startListening()
+        reply(h, "evet")
+        let first = await waitUntil(45) { h.vm.answers.count == 1 && self.cameraQuestionOpen(h) }
+        XCTAssertTrue(first)
+        reply(h, "testi bitir")
+        let confirm = await waitUntil(45) { h.vm.listenMode == .confirmEnd && h.vm.phase == .listening }
+        XCTAssertTrue(confirm)
+        reply(h, "evet")
+        let reading = await waitUntil(45) { h.vm.reviewing }
+        XCTAssertTrue(reading)
+        let playing = await waitUntil(45) { !h.player.played.isEmpty }
+        XCTAssertTrue(playing)
+        h.player.finish()
+        let menu = await waitUntil(45) { h.vm.listenMode == .reviewMenu && h.vm.phase == .listening }
+        XCTAssertTrue(menu)
+        reply(h, "devam")
+        let back = await waitUntil(45) { self.cameraQuestionOpen(h) && h.speaker.spoken.last == Say.askCamera }
+        XCTAssertTrue(back, "Teste devam edilince kamera sorusu yeniden gelir")
+        XCTAssertTrue(h.speaker.spoken.contains { $0.contains(Say.reviewBackToCamera) })
+        XCTAssertFalse(h.speaker.spoken.contains { $0.contains(Say.reviewBackToQuestion) })
+        XCTAssertEqual(h.camera.captures, 1)
+    }
+
+    // MARK: Üretim ayarlarıyla (ilerleme anonsu, numara sorma, akıllı devam, anında tespit açık)
+
+    func testWithTheProductionDefaultsTheCameraFlowRunsInOrderAndNeverSaysTheVersionThreePrompt() async {
+        let h = productionHarness()
+        _ = await h.startListening()
+        reply(h, "evet")
+        let again = await waitUntil(45) { h.vm.answers.count == 1 && self.cameraQuestionOpen(h) }
+        XCTAssertTrue(again)
+        XCTAssertEqual(h.events, ["kestirme:Kameraya_Gec", "çekim", "kestirme:Hücresele_Gec", "gönderim"])
+        XCTAssertFalse(h.speaker.spoken.contains(Say.nextQuestion), "Kamera açıkken 'Lütfen sonraki soruyu okuyun' denmez")
+        XCTAssertEqual(h.speaker.spoken.last, Say.askCamera)
+        XCTAssertTrue(h.vm.announced.contains(Say.cameraSending), "Gönderim anonsu (ilerleme) söylenir")
+        XCTAssertFalse(h.speaker.spoken.contains(Say.cameraSending), "…ama cevap akışına karışmaz")
+    }
+
+    func testWithTheProductionDefaultsAMissingNumberIsStillAskedAfterReadingByVoice() async {
+        let h = productionHarness(replies: [.success(FakeAnswering.reply(7))])
+        _ = await h.startListening()
+        reply(h, "hayır")
+        let voice = await waitUntil(45) { h.vm.listenMode == .question && h.vm.phase == .listening }
+        XCTAssertTrue(voice)
+        h.ask("Aşağıdakilerden hangisi doğrudur A seçeneği Adana B seçeneği Bursa")
+        let asked = await waitUntil(45) { h.vm.listenMode == .missingNumber && h.vm.phase == .listening }
+        XCTAssertTrue(asked, "Numara okunmadıysa V3 gibi sorulur")
+        XCTAssertEqual(h.speaker.spoken.last, Say.askNumber)
+        reply(h, "yedi")
+        let done = await waitUntil(45) { h.vm.answers.count == 1 && self.cameraQuestionOpen(h) }
+        XCTAssertTrue(done)
+        XCTAssertEqual(h.vm.answers.first?.number, 7)
+    }
+
+    /// Kamera cevabında numara görüntüden okunur: numara sorulmaz (kullanıcı kamera akışında hiçbir şey söylemez)
+    func testWithTheProductionDefaultsACameraAnswerNeverAsksForANumber() async {
+        let h = productionHarness(replies: [.success(GeminiReply(number: nil, option: "Denizli", text: "Örgütsel Davranış", spoken: "Denizli, Örgütsel Davranış", model: "fake"))])
+        _ = await h.startListening()
+        reply(h, "evet")
+        let done = await waitUntil(45) { h.vm.answers.count == 1 && self.cameraQuestionOpen(h) }
+        XCTAssertTrue(done)
+        XCTAssertFalse(h.speaker.spoken.contains(Say.askNumber))
+        XCTAssertEqual(h.vm.answers.first?.number, 1, "Görüntüden okunamayan numara sıradaki numara olur")
+    }
+
+    // MARK: Yeniden açılış
+
+    func testRelaunchWithoutAPendingQuestionAsksTheCameraQuestionAndDoesNotAskToReadTheQuestion() async {
+        let h = harness()
+        h.journal.start = RunStart(exit: .unexpected(cause: "deneme"), pending: nil, nextNumber: 4, folder: nil, downSeconds: 10, loop: false)
+        h.vm.launched()
+        let asked = await waitUntil(45) { self.cameraQuestionOpen(h) && h.speaker.spoken.last == Say.askCamera }
+        XCTAssertTrue(asked, "Kullanıcı telefona dokunamaz: kamera sorusu kendiliğinden sorulur")
+        XCTAssertTrue(h.speaker.spoken.contains { $0.contains("beklenmedik biçimde kapanıp") })
+        XCTAssertFalse(h.speaker.spoken.contains { $0.contains("baştan okuyun") }, "Kamera sorusu geleceği için 'soruyu baştan okuyun' denmez")
+        XCTAssertEqual(h.vm.nextNumber, 4)
+    }
+
+    func testRelaunchAfterAnAnswerWasReceivedReadsItAgainThenAsksTheCameraQuestion() async {
+        let h = harness()
+        let pending = PendingWork(question: Say.cameraEntryText, english: "", spokenNumber: nil, number: 2, spoken: "Soru 2, Bursa, Yönetim")
+        h.journal.start = RunStart(exit: .unexpected(cause: "deneme"), pending: pending, nextNumber: 3, folder: nil, downSeconds: 10, loop: false)
+        h.vm.launched()
+        let asked = await waitUntil(45) { self.cameraQuestionOpen(h) && h.speaker.spoken.last == Say.askCamera }
+        XCTAssertTrue(asked)
+        XCTAssertTrue(h.speaker.spoken.contains("Soru 2, Bursa, Yönetim"))
+        XCTAssertTrue(h.answering.captureCalls.isEmpty, "Cevap zaten alınmıştı: çekim yeniden gönderilmez")
+        XCTAssertTrue(h.answering.calls.isEmpty)
+    }
+
     func testEndingTheTestDropsUnsentShotsAndSaysSo() async {
         let shot = FakeCamera.shot()
         let h = harness()

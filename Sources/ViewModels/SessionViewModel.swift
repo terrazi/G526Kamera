@@ -324,6 +324,8 @@ final class SessionViewModel: ObservableObject {
     var offerCamera = false
     /// Kamera akışı (kestirme + çekim + internete dönüş + gönderim) sürüyor
     var cameraBusy = false
+    /// Kamera akışı başladı ama internete dönüş doğrulanmadı: telefon kameranın Wi-Fi'sinde, hücresel kapalı kalmış olabilir
+    var networkMayBeOnCamera = false
     /// Çekilen bir soru (fotoğraf + video) Gemini'ye gönderiliyor: bekleme sınırı V3'ün sesli sorusundan daha geniştir (bkz. `Timing.cameraExtraWait`)
     var sendingShotID: UUID?
     var sendingShot: Bool { return sendingShotID != nil }
@@ -411,7 +413,7 @@ final class SessionViewModel: ObservableObject {
     /// "Testi bitir": her şeyi durdurur; cevaplar klasörde kalır, "Cevapları Tekrarla" açılır
     func endTest() {
         guard phase.isRunning else { return }
-        let onCameraNetwork = cameraBusy   // kamera akışı sürerken bitirilirse telefon kameranın Wi-Fi'sinde, hücresel kapalı kalmış olabilir
+        let onCameraNetwork = cameraBusy || networkMayBeOnCamera   // kamera akışı sürerken (ya da yarıda kalıp doğrulanmadan) bitirilirse telefon kameranın Wi-Fi'sinde kalmış olabilir
         cancelWork()
         replay.stop()
         deps.speaker.stop()
@@ -653,6 +655,7 @@ final class SessionViewModel: ObservableObject {
         if mode == .question, !keepPartial, !cameraOfferSuppressed, offerCamera || resendablePending != nil {
             offerCamera = false
             if cameraOfferAvailable {
+                deps.journal.savePending(nil)   // önceki cevap duyuldu ve dinlemeye dönülüyor: kapanma olursa o cevap yeniden okunmaz
                 work = Task { [weak self] in await self?.askCameraChoice() }
                 return
             }
@@ -711,6 +714,15 @@ final class SessionViewModel: ObservableObject {
             liveText = accumulator.text
             noteUtterance()
             watchdog.kick()
+            if listenMode == .cameraChoice, wordCount(accumulator.text) > 8 {
+                // Kullanıcı kamera sorusunu beklemeden soruyu okumaya başladı (V3 alışkanlığı): sesle okumayı seçmiş sayılır, okunan metin korunur
+                // ve "Cevapla" ile Gemini'ye gider; bu soru için kamera yeniden sorulmaz
+                tlog("[kamera] kamera sorusuna soru metniyle cevap verildi; bu soru sesle okunuyor")
+                cameraOfferSuppressed = true
+                cameraReminders = 0
+                listenMode = .question
+                deps.listener.hints = ListenHints.hints(for: .question)
+            }
             if listenMode == .question, PassageCommand.startsWith(accumulator.text) {
                 listenMode = .passage   // "ortak paragraf": paragraf okunuyor, "Tamam" ile biter
                 tlog("[paragraf] ortak paragraf kipi açıldı")

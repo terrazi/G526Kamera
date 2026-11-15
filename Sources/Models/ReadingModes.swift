@@ -439,6 +439,14 @@ enum QuestionComposer {
         return text + "\n\nŞimdi sorulan soru:\n\(question)"
     }
 
+    /// Kamera ile çekilen soru için: numara görüntüden okunacağından paragraf, hangi numaralara ait olduğuyla birlikte eklenir
+    static func cameraNote(passage: PassageContext) -> String {
+        let text = passage.text.trimmed
+        guard !text.isEmpty, !passage.remaining.isEmpty else { return "" }
+        return "Kullanıcı bu paragrafı sesle okuttu; \(listText(passage.all)) numaralı sorular için ortaktır. Çekilen soru bu numaralardan biriyse "
+            + "paragrafa göre çöz, değilse paragrafı yok say.\nOrtak paragraf (dikte metni, hatalı olabilir; fotoğraftaki yazı varsa onu esas al):\n\(text)"
+    }
+
     static func english(passage: PassageContext, question: String) -> String {
         let p = passage.english.trimmed
         let q = question.trimmed
