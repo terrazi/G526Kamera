@@ -146,6 +146,11 @@ yol bildirimi ve onarım sınırı aynı anda üst üste gelince tetikleniyordu.
 | Eski bir cevap yeniden dinlenmek istendi: "N. sorunun cevabını tekrarla" | Yalnız o cevap okunur; kayıt yoksa "N numaralı soru için kayıtlı cevap yok" der. Soru dinlenirken ve kamera sorusu açıkken çalışır, ardından kamera sorusu yeniden gelir | ✅ |
 | Kamera sorusuna doğal söyleyişle yanıt ("çekelim", "olur", "sesle okuyayım", "istemiyorum") | Evet/hayır olarak anlaşılır; "soruyu iptal et" gibi komutlar yanıt sayılmaz (komut çalışır) | ✅ |
 | Kameralı akışta rastgele kesintiler (kulaklık, arama, internet, kestirme, Gemini, okuma, kamera takılması, elle duraklatma…) | `CameraChaosTests`: 150 gerçek zamanlı + 250 hamle tohum; değişmezler: dinleyici açık, kamera meşgul kalmaz, sahipsiz paragraf/numara beklemesi yok, test bitince çekilmiş hiçbir video dosyası kalmaz, anons/kestirme sayısı sınırlı | ✅ |
+| Kamera sorusuna olumsuz söz: "çekmiyorum", "çekmem", "kamerayı kullanmayalım", "kamera olmasın", "gerekmez" | HAYIR sayılır, kamera açılmaz, hücresel kesilmez. (Eskiden bulanık eşleşme yüzünden "çekmiyorum" EVET sayılıyordu.) Evet yalnız tam eşleşmeyle; bulanık eşleşme yalnız hayır yönünde | ✅ |
+| Kamera sorusuna "çekmek istiyorum", "çekmeyi isterim", "kamerayı kullan" | EVET sayılır (eskiden "çekmek" hayır sözüne benzediği için anlaşılmıyordu) | ✅ |
+| Testi bitirme onayına "bitirmek istiyorum" / "sonlandırmak istiyorum" | EVET (eskiden "bitirme"ye benzediği için HAYIR sayılıyordu); "bitirmiyorum", "bitirmeyelim", "bitirmek istemiyorum" hayır | ✅ |
+| Menüde "bitirme, devam edelim" | Devam sayılır (olumsuz "bitirme" bitirme isteği değildir) | ✅ |
+| Numara beklenirken (söylenmediği için) "soruyu iptal et" | Bekleyen soru bırakılır, "Okunan soru silindi" denir, boşuna sıradaki numarayla Gemini'ye gitmez | ✅ |
 | Her aşamada bilgi | Soru ve paragraf için: "Kameraya geçiliyor", "Kamera hazır… kadraja alın", "Çekim başarıyla yapıldı, internete geçiliyor", "İnternet geldi, Gemini'ye gönderiliyor", cevap okunur | ✅ |
 | Program kapanıp açıldı (kamera sorusu açıkken) | Önceki cevap yeniden okunmaz (yarım iş kaydı kamera sorusundan önce silinir); "Sistem hazır" denip kamera sorulur | ✅ |
 | Kestirmeler Wi-Fi / hücreseli değiştirmez ya da onay sorar | Cihazda denenmedi: Ayarlar > Kamera > **Kamerayı dene** ile sınanmalı | ⚠️ 📱 |

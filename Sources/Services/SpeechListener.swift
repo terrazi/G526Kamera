@@ -105,11 +105,12 @@ enum ListenHints: Equatable {
             return OnDeviceSpeechListener.contextualStrings
         case .choice:
             return ["Evet", "Hayır", "Tamam", "Devam", "Devam et", "Tekrar", "Tekrar oku", "Bitir", "Testi bitir", "Vazgeç", "Yeni sınav",
-                    "Önceki kayıt", "Önceki kayıttan devam", "Cevapları tekrarla", "Çek", "Çekelim", "Sesle okurum", "Tekrarla", "Son cevabı tekrarla"]
+                    "Önceki kayıt", "Önceki kayıttan devam", "Cevapları tekrarla", "Çek", "Çekelim", "Çekmek istiyorum", "Kamerayla", "Çekmiyorum", "Sesle okurum",
+                    "Tekrarla", "Son cevabı tekrarla", "Soruyu iptal et", "Paragrafı iptal et"]
         case .number:
-            return ["Soru", "Sıradaki", "Cevapları tekrarla"] + ListenHints.numberWords + ListenHints.ordinals
+            return ["Soru", "Sıradaki", "Cevapları tekrarla", "Soruyu iptal et"] + ListenHints.numberWords + ListenHints.ordinals
         case .targets:
-            return ["Tamam", "Cevapla", "Gönder", "ve", "Cevapları tekrarla"] + ListenHints.numberWords
+            return ["Tamam", "Cevapla", "Gönder", "ve", "Cevapları tekrarla", "Paragrafı iptal et"] + ListenHints.numberWords
         }
     }
 }
@@ -191,7 +192,8 @@ final class OnDeviceSpeechListener: SpeechListening {
         // Gönderme ve paragraf
         "Cevapla", "Gönder", "Tamam", "Tamamlandı", "Ortak paragraf", "Soru",
         // Sesli komutlar ve sorular
-        "Testi bitir", "Sınavı bitir", "Cevapları tekrarla", "Son cevabı tekrarla", "Evet", "Hayır", "Devam", "Tekrar", "Bitir",
+        "Testi bitir", "Sınavı bitir", "Cevapları tekrarla", "Son cevabı tekrarla", "Soruyu iptal et", "Paragrafı iptal et", "Sorunun cevabını tekrarla",
+        "Evet", "Hayır", "Devam", "Tekrar", "Bitir",
         "Yeni sınav", "Önceki kayıt", "Sıradaki",
         // Sayılar (iki sözcüklü sayılar bunlardan kurulur) ve sıra sayıları
         "bir", "iki", "üç", "dört", "beş", "altı", "yedi", "sekiz", "dokuz", "on", "yirmi", "otuz", "kırk", "elli", "altmış", "yetmiş",

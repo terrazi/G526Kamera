@@ -274,6 +274,53 @@ final class VoiceCancelTests: XCTestCase {
     }
 }
 
+extension VoiceCancelTests {
+    /// Numarası okunmadığı için numara beklenen soru "soruyu iptal et" ile bırakılır: boşuna sıradaki numarayla Gemini'ye gitmez
+    func testCancelQuestionWhileTheNumberIsAskedDropsTheHeldQuestion() async {
+        let h = SessionHarness()
+        h.settings.askMissingNumber = true
+        _ = await h.startListening()
+        h.ask("Ali eve gitti ve okula yürüdü")
+        let asked = await waitUntil(45) { h.vm.listenMode == .missingNumber && h.vm.phase == .listening }
+        XCTAssertTrue(asked, "\(h.speaker.spoken)")
+        XCTAssertNotNil(h.vm.heldQuestion)
+        h.listener.say("soruyu iptal et")
+        h.scheduler.advance(by: T.numberConfirm + 0.1)
+        let done = await waitUntil(45) { h.speaker.spoken.last == Say.questionCancelled && h.vm.listenMode == .question && h.vm.phase == .listening }
+        XCTAssertTrue(done, "\(h.speaker.spoken)")
+        XCTAssertNil(h.vm.heldQuestion, "Bekleyen soru bırakıldı")
+        XCTAssertTrue(h.answering.calls.isEmpty, "Silinen soru Gemini'ye gitmez")
+        // Sonraki soru normal gider
+        h.answering.results = [.success(FakeAnswering.reply(4))]
+        h.ask("Soru 4 Yeni soru")
+        let sent = await waitUntil(45) { h.answering.calls.count == 1 }
+        XCTAssertTrue(sent)
+        XCTAssertFalse(h.answering.calls[0].question.contains("Ali eve gitti"), h.answering.calls[0].question)
+    }
+
+    /// Kamera sorusu açıkken "N. sorunun cevabını tekrarla": yalnız o cevap okunur, ardından kamera sorusu yeniden gelir
+    func testRepeatNumberAtTheCameraQuestionReadsOnlyThatAnswerAndAsksAgain() async {
+        let h = SessionHarness(cameraFlow: true)
+        h.trackEvents { name in
+            if name == "Kameraya_Gec" { h.health.internet = false }
+            if name == "Hücresele_Gec" || name == "Hücresel_Ac" { h.health.internet = true }
+        }
+        h.camera.results = [.success(FakeCamera.shot())]
+        h.answering.results = [.success(FakeAnswering.reply(5))]
+        _ = await h.startListening()
+        h.listener.say("evet")
+        h.scheduler.advance(by: T.numberConfirm + 0.1)
+        _ = await waitUntil(45) { h.vm.answers.count == 1 && h.vm.listenMode == .cameraChoice && h.vm.phase == .listening }
+        let five = h.vm.answers.first(where: { $0.number == 5 })?.spoken ?? "?"
+        h.listener.say("beşinci sorunun cevabını tekrarla")
+        h.scheduler.advance(by: T.numberConfirm + 0.1)
+        let back = await waitUntil(45) { h.speaker.suffixIs([five, Say.askCamera]) && h.vm.listenMode == .cameraChoice && h.vm.phase == .listening }
+        XCTAssertTrue(back, "\(h.speaker.spoken)")
+        XCTAssertEqual(h.camera.captures, 1, "Komut yeni çekim başlatmaz")
+        XCTAssertEqual(h.answering.captureCalls.count + h.answering.calls.count, 1, "Komut Gemini'ye gitmez")
+    }
+}
+
 private extension FakeSpeaker {
     /// Söylenenlerin son parçaları verilen sırayla mı
     func suffixIs(_ tail: [String]) -> Bool {

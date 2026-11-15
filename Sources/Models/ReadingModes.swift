@@ -153,6 +153,14 @@ enum SpokenWords {
         return false
     }
 
+    /// Sözcük sözlükte AYNEN (ya da aynı sesle: "peş" = "beş") var mı; tek harf farkı sayılmaz. Olumsuz ekler yüzünden ("çekiyorum" / "çekmiyorum")
+    /// tek harf farkı anlamı tersine çevirebildiği için, kritik "evet" sorularında yalnız bu sınama kullanılır.
+    static func exactly(_ word: String, _ vocabulary: Set<String>) -> Bool {
+        if vocabulary.contains(word) { return true }
+        let k = key(word)
+        return vocabulary.contains { key($0) == k }
+    }
+
     /// Sözcük `stem` ile mi başlıyor (ek alabilir: "paragrafı"); yakın sesler ve tek harf farkı hoşgörülür
     static func startsLike(_ word: String, _ stem: String) -> Bool {
         let ks = key(stem)
@@ -372,18 +380,29 @@ enum SpokenReply {
     /// Cevaplar okunduktan sonra: teste devam, cevapları yeniden oku, testi tamamla
     enum Review: Equatable { case continueTest, repeatAnswers, finishTest }
 
-    static let yes: Set<String> = ["evet", "tamam", "bitir", "bitirin", "bitirelim", "onayliyorum", "onay", "olur", "aynen", "kesinlikle", "tabii", "tabi", "dogru"]
-    static let no: Set<String> = ["hayir", "vazgec", "vazgectim", "vazgecelim", "devam", "iptal", "bitirme", "bitirmeyin", "olmaz", "istemiyorum", "yok", "dur", "degil"]
+    static let yes: Set<String> = ["evet", "tamam", "bitir", "bitirin", "bitirelim", "onayliyorum", "onay", "olur", "aynen", "kesinlikle", "tabii", "tabi", "tabiki", "dogru"]
+    static let no: Set<String> = ["hayir", "vazgec", "vazgectim", "vazgecelim", "devam", "iptal", "bitirme", "bitirmeyin", "olmaz", "istemiyorum", "yok", "dur", "degil",
+                                  "bitirmem", "bitirmiyorum", "bitirmiyoruz", "bitirmeyelim", "bitirmesek", "bitirmeyiz", "bitmesin",
+                                  "sonlandirma", "sonlandirmayin", "sonlandirmiyorum"]
+    /// Bitirme sorusunda ("Testi bitirmek istiyor musunuz?") tek başına evet sayılan mastar biçimleri: "bitirmek istiyorum"
+    static let confirmWeakYes: Set<String> = ["bitirmek", "bitirmeyi", "sonlandirmak", "sonlandirmayi", "tamamlamak", "tamamlamayi"]
+    /// "Bitir" sözcüğünün olumsuz biçimleri: menüde ve onayda bitirme isteği değil, vazgeçmektir ("bitirme, devam")
+    static let finishNegations: Set<String> = ["bitirme", "bitirmeyin", "bitirmeyelim", "bitirmem", "bitirmiyorum", "bitirmiyoruz", "bitirmesek", "bitirmeyiz",
+                                              "bitmesin", "sonlandirma", "sonlandirmayin", "sonlandirmiyorum", "tamamlama", "tamamlamayin", "kapatma", "kapatmayin"]
     /// Kamera sorusu ("kamera ile çekip göndermek ister misiniz?"): "bitir" ve "devam" burada evet / hayır değildir; "testi bitir" bir
     /// komuttur ve kamerayı başlatmamalı
-    static let cameraYes: Set<String> = ["evet", "tamam", "olur", "aynen", "kesinlikle", "tabii", "tabi", "dogru", "istiyorum", "isterim",
-                                         "cek", "cekelim", "cekin", "cekeyim", "cekecegim", "cekiyorum"]
+    static let cameraYes: Set<String> = ["evet", "tamam", "olur", "aynen", "kesinlikle", "tabii", "tabi", "tabiki", "dogru", "istiyorum", "isterim", "istiyoruz", "isteriz",
+                                         "cek", "cekelim", "cekin", "cekeyim", "cekecegim", "cekiyorum", "cekerim", "cekeriz", "cekiyoruz"]
     /// Zayıf evet: "kamerayla", "fotoğraf" (soruyu yineleyen kısa cevap). Tek başına evet sayılır; herhangi bir hayır sözüyle birlikte
-    /// ("kamera istemiyorum", "kamera değil sesle") hayırdır.
-    static let cameraWeakYes: Set<String> = ["kamera", "kamerayla", "kameradan", "kameraya", "fotograf", "fotografla", "foto"]
-    static let cameraNo: Set<String> = ["hayir", "olmaz", "istemiyorum", "istemem", "yok", "degil", "vazgec", "vazgectim", "iptal", "sesle",
-                                        "sesli", "okurum", "ses", "okuyayim", "okuyorum", "okuyacagim", "okuyalim", "cekme", "cekmeyin",
-                                        "cekmeyelim", "kamerasiz"]
+    /// ("kamera istemiyorum", "kamera değil sesle", "kamera olmasın") hayırdır.
+    static let cameraWeakYes: Set<String> = ["kamera", "kamerayla", "kameradan", "kameraya", "kamerayi", "kamerada", "fotograf", "fotografla", "fotografi", "foto",
+                                             "kullan", "kullanalim", "kullanin", "kullanayim", "kullaniyorum"]
+    static let cameraNo: Set<String> = ["hayir", "olmaz", "olmasin", "istemiyorum", "istemiyoruz", "istemem", "istemeyiz", "yok", "degil", "vazgec", "vazgectim",
+                                        "iptal", "sesle", "sesli", "okurum", "ses", "okuyayim", "okuyorum", "okuyacagim", "okuyalim", "gerekmez", "gerekmiyor",
+                                        "cekme", "cekmem", "cekmeyin", "cekmeyelim", "cekmeyeyim", "cekmiyorum", "cekmiyoruz", "cekmeyecegim", "cekmesin", "cekmesek",
+                                        "cekmeyiz", "kullanma", "kullanmayin", "kullanmayalim", "kullanmam", "kullanmiyorum", "kamerasiz"]
+    /// "Çekmek", "çekmeyi" gibi mastar biçimleri hayır sözü ("çekme") gibi duyulabilir ama anlamı belirsizdir ("çekmek istiyorum" evettir): bulanık eşleşmeden çıkarılır
+    static let cameraNeutral: Set<String> = ["cekmek", "cekmeyi", "cekmeye", "cekmesi", "cekip", "gondermek", "gondermeyi", "gonderip", "gonderelim"]
     static let continueWords: Set<String> = ["devam", "onceki", "eski", "kaldigi", "kaldigim", "kaldigimiz", "aynen", "surdur", "surdurelim", "surdurun"]
     static let newWords: Set<String> = ["yeni", "sifirdan", "bastan", "temiz"]
     static let reviewFinish: Set<String> = [
@@ -400,11 +419,24 @@ enum SpokenReply {
         return all.count <= max ? all : []
     }
 
+    /// Evet/hayır sorularında bir sözcüğün anlamı. Önce AYNEN eşleşme aranır; bulanık (tek harf farklı) eşleşme yalnız HAYIR yönünde sayılır:
+    /// yanlış hayır zararsızdır (soru yeniden sorulur ya da sesle okuma sürer), yanlış evet ise işi başlatır (kamerayı açar, testi bitirir).
+    private enum Word { case yes, weakYes, no, none }
+
+    private static func classify(_ word: String, yes: Set<String>, weakYes: Set<String>, no: Set<String>, neutral: Set<String> = []) -> Word {
+        if SpokenWords.exactly(word, no) { return .no }
+        if SpokenWords.exactly(word, yes) { return .yes }
+        if SpokenWords.exactly(word, weakYes) { return .weakYes }
+        if SpokenWords.exactly(word, neutral) { return .none }
+        return SpokenWords.matches(word, no) ? .no : .none
+    }
+
     static func yesNo(_ text: String) -> YesNo? {
         let w = words(text, max: 8)
         guard !w.isEmpty else { return nil }
-        let hasNo = w.contains(where: { SpokenWords.matches($0, no) })
-        let hasYes = w.contains(where: { SpokenWords.matches($0, yes) })
+        let kinds = w.map { classify($0, yes: yes, weakYes: confirmWeakYes, no: no) }
+        let hasNo = kinds.contains(.no)
+        let hasYes = kinds.contains(.yes) || kinds.contains(.weakYes)
         if hasNo && hasYes { return nil }   // çelişen söz ("evet hayır"): anlaşılmamış sayılır, yeniden sorulur
         if hasNo { return .no }
         if hasYes { return .yes }
@@ -419,9 +451,10 @@ enum SpokenReply {
         guard !w.isEmpty else { return nil }
         // "Soruyu iptal et" / "paragrafı sil" bir komuttur; içindeki "iptal" kamera sorusuna hayır demek sayılmaz
         if VoiceCommand.parseCancel(text) != nil { return nil }
-        let hasNo = w.contains(where: { SpokenWords.matches($0, cameraNo) })
-        let hasYes = w.contains(where: { SpokenWords.matches($0, cameraYes) })
-        let hasWeakYes = w.contains(where: { SpokenWords.matches($0, cameraWeakYes) })
+        let kinds = w.map { classify($0, yes: cameraYes, weakYes: cameraWeakYes, no: cameraNo, neutral: cameraNeutral) }
+        let hasNo = kinds.contains(.no)
+        let hasYes = kinds.contains(.yes)
+        let hasWeakYes = kinds.contains(.weakYes)
         if hasNo { return hasYes ? nil : .no }   // "evet hayır": çelişki; "kamera istemiyorum": hayır
         if hasYes || hasWeakYes { return .yes }
         return nil
@@ -442,7 +475,7 @@ enum SpokenReply {
     static func review(_ text: String) -> Review? {
         let w = words(text, max: 8)
         guard !w.isEmpty else { return nil }
-        let finish = w.contains(where: { SpokenWords.matches($0, reviewFinish) })
+        let finish = w.contains(where: { !SpokenWords.exactly($0, finishNegations) && SpokenWords.matches($0, reviewFinish) })
         let again = w.contains(where: { SpokenWords.matches($0, VoiceCommand.repeatVerbs) || SpokenWords.startsLike($0, "tekrar") })
         let proceed = w.contains(where: { SpokenWords.matches($0, reviewContinue) })
         guard [finish, again, proceed].filter({ $0 }).count == 1 else { return nil }

@@ -803,6 +803,11 @@ final class SessionViewModel: ObservableObject {
             confirmTask = deps.scheduler.after(Timing.numberConfirm) { [weak self] in self?.fireVoiceCommand() }
             return
         }
+        // "Soruyu iptal et": numarası söylenmediği için numara beklenen soru da vazgeçilebilir (yanlış okunan soru boşuna Gemini'ye gitmesin)
+        if listenMode == .missingNumber, spokenCommand() == .cancelQuestion {
+            confirmTask = deps.scheduler.after(Timing.numberConfirm) { [weak self] in self?.fireVoiceCommand() }
+            return
+        }
         switch listenMode {
         case .question:
             // Tek başına söylenen komut ("testi bitir"): kısa süre sabit kalırsa çalışır, "Cevapla" demek gerekmez
@@ -910,7 +915,9 @@ final class SessionViewModel: ObservableObject {
             guard command == .cancelPassage else { return }
         case .passageTargets:
             guard command == .replayAnswers || command == .cancelPassage else { return }
-        case .confirmEnd, .missingNumber:
+        case .missingNumber:
+            guard command == .replayAnswers || command == .cancelQuestion else { return }
+        case .confirmEnd:
             guard command == .replayAnswers else { return }
         default:
             return
@@ -968,6 +975,10 @@ final class SessionViewModel: ObservableObject {
             // Okunan soru (metin ve ses kaydı yukarıda temizlendi) vazgeçilir; kamera sorusundayken silinecek bir şey yoktur
             tlog("[komut] sesli komut: soruyu iptal et")
             let choice = from == .cameraChoice || from == .passageCameraChoice
+            if from == .missingNumber {
+                heldQuestion = nil   // numarası beklenen soru da bırakılır
+                numberReminders = 0
+            }
             let notice = choice ? Say.nothingToCancelQuestion : (cameraQuestionWillBeAsked ? Say.questionCancelledCamera : Say.questionCancelled)
             work = Task { [weak self] in
                 guard let self = self, await self.speakNotice(notice) else { return }

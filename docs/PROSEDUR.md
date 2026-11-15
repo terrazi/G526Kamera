@@ -47,8 +47,13 @@ Bu belge, programın sesle nasıl işlemesi gerektiğini adım adım yazar; her 
    **"Paragrafı iptal et" / "Ortak paragrafı iptal et"** → okunmakta ya da numaraları beklenen paragraf (ve kamerayla çekilmişse görüntüleri) bırakılır;
    paragraf okunmaya hiç başlanmamışsa kayıtlı ortak paragraf silinir; ikisi de yoksa "Silinecek ortak paragraf yok" denir. Paragraf okunurken,
    numaraları beklenirken ve "Paragrafı kamera ile çekmek ister misiniz?" sorusu açıkken söylenebilir. Sonra bu soru için kamera yeniden sorulur.
-   Kamera sorusuna ("Bu soruyu kamera ile çekmek ister misiniz?") verilen yanıtlar geniş tutuldu: evet / olur / tabii / çekelim / kamerayla,
-   hayır / istemiyorum / sesle / okuyayım gibi.
+   Numarası söylenmediği için numara beklenen soru da "soruyu iptal et" ile bırakılır (boşuna sıradaki numarayla Gemini'ye gitmez).
+   Kamera sorusuna ("Bu soruyu kamera ile çekmek ister misiniz?") verilen yanıtlar geniş tutuldu: evet / olur / tabii / çekelim / çekmek istiyorum /
+   kamerayla / kamerayı kullan, hayır / istemiyorum / çekmiyorum / çekme / sesle / okuyayım / kamera olmasın / gerekmez gibi.
+   **Güvenli evet kuralı:** evet/hayır sorularında "evet" yalnız TAM eşleşmeyle (ya da aynı sesle: p/b, t/d, k/g, s/z) anlaşılır; tek harf farklı
+   bulanık eşleşme yalnız HAYIR yönünde sayılır. Çünkü Türkçede olumsuzluk eki tek harf farkıdır ("çekiyorum" / "çekmiyorum", "bitirme" / "bitirmek") ve
+   yanlış evet kamerayı açar (hücreseli keser) ya da testi bitirir; yanlış hayır zararsızdır. Olumsuz biçimler listede açıkça yazılıdır ve testle
+   denetlenir (her olumlu/olumsuz ikiz için). "Bitirmek istiyorum" onay sorusunda evet, menüde "bitirme, devam" devam sayılır.
 5. **Cevapları okuma ve menü.** Cevaplar numara sırasıyla, aralarında Tekrar boşluğu (varsayılan 3 sn) okunur. Bitince: "N sorunun cevabı okundu. Ne yapmak
    istersiniz? Teste kaldığınız yerden devam etmek için **Devam**, cevapları yeniden dinlemek için **Tekrar**, testi tamamlamak için **Bitir** deyin."
    Devam → kalınan yere dönülür (soru / eksik numara / paragraf numaraları); Tekrar → yeniden okunur ve yine sorulur; Bitir → "Test tamamlandı. N cevap
@@ -64,7 +69,7 @@ Bu belge, programın sesle nasıl işlemesi gerektiğini adım adım yazar; her 
 | ortak paragraf | "Lütfen ortak paragrafı okuyun, bitince Tamam deyin" | paragraf + Tamam / Tamamlandı; "paragrafı iptal et" (son sözde) | — ("tamam" cümle içinde geçerse 1,5 sn sabit kalmadan bitmez) | yok |
 | ortak paragraf: kamera mı, ses mi (yalnız kamera açıkken) | "Ortak paragraf. Paragrafı kamera ile çekmek ister misiniz?" | evet / hayır; "paragrafı iptal et", "soruyu iptal et", "N. sorunun cevabını tekrarla", "cevapları tekrarla" | anlaşılmazsa ya da sessizlikte bir kez daha sorulur; olmazsa sesle okuma | 1 hatırlatma |
 | paragraf numaraları | "Paragraf metnini aldım, hangi sorular için?" | numaralar + Tamam / Cevapla / Gönder; "cevapları tekrarla"; "paragrafı iptal et" | kısa yeniden sorma; ekranda ne duyulduğu yazar | 2 yeniden, sonra paragraf sıradaki soruya bağlanır ve söylenir |
-| eksik soru numarası | "Lütfen okuduğunuz sorunun numarasını söyleyin" | numara, "sıradaki" | numara olmayan kısa söz 4 sn sonra, sessizlik 30 sn sonra yeniden sorulur; ekranda ne duyulduğu yazar | 2 hatırlatma, sonra sıradaki numara |
+| eksik soru numarası | "Lütfen okuduğunuz sorunun numarasını söyleyin" | numara, "sıradaki"; "cevapları tekrarla"; "soruyu iptal et" | numara olmayan kısa söz 4 sn sonra, sessizlik 30 sn sonra yeniden sorulur; ekranda ne duyulduğu yazar | 2 hatırlatma, sonra sıradaki numara |
 | testi bitirme onayı | "Testi bitirmek istiyor musunuz?" | evet / hayır (komutu yeniden söylemek de evet); "cevapları tekrarla" | anlaşılmazsa bir kez daha sorulur; cevapsızlıkta test sürer | 1 hatırlatma |
 | cevap okuma sonrası menü | "N sorunun cevabı okundu… Devam, Tekrar ya da Bitir deyin" | devam / tekrar / bitir ve doğal söyleyişler ("teste devam edelim", "cevapları yeniden oku", "testi tamamla") | anlaşılmazsa 4 sn sonra, sessizlikte 30 sn sonra bir kez hatırlatılır; sonra varsayılan (bitirme isteğiyse tamamla, değilse devam) | 1 hatırlatma |
 | devam mı, yeni mi | "Önceki kayıtta N cevap var… Devam mı, yeni sınav mı?" | devam / yeni | 1 hatırlatma, sonra 12 saat kuralı | 1 |

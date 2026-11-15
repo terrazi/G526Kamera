@@ -29,7 +29,7 @@ final class ChaosTests: XCTestCase {
                                       17, 17, 17, 17, 18, 19, 20, 21, 22, 22, 23, 24, 25, 26, 26, 27, 28, 29, 30, 31, 32, 33]
 
     /// Okuma komutları açıkken eklenen olaylar: numara söyleme, ortak paragraf, paragrafın soru numaraları, yarım okuma
-    private static let modeEvents: [Int] = [34, 34, 35, 35, 36, 36, 37, 38, 38, 38]
+    private static let modeEvents: [Int] = [34, 34, 35, 35, 36, 36, 37, 38, 38, 38, 39, 39, 40, 40, 41]
 
     /// Zamanı ilerletir. `burst`: süre tek hamlede geçer (tüm nöbetçi vuruşları görevlere nefes aldırmadan art arda çalışır; uç durum);
     /// aksi hâlde yarım saniyelik adımlarla geçer ve her adımda görevlerin ilerlemesine izin verilir (gerçek zamana yakın).
@@ -118,6 +118,18 @@ final class ChaosTests: XCTestCase {
         case 38:
             h.listener.say("Soru 3 Ali eve gitti. Sonra okula yürüdü ve arkadaşlarıyla buluştu")
             return "yarım okuma"
+        case 39:
+            h.listener.say("soruyu iptal et")
+            h.scheduler.advance(by: SessionViewModel.Timing.numberConfirm + 0.1)
+            return "soruyu iptal et"
+        case 40:
+            h.listener.say("paragrafı iptal et")
+            h.scheduler.advance(by: SessionViewModel.Timing.numberConfirm + 0.1)
+            return "paragrafı iptal et"
+        case 41:
+            h.listener.say("beşinci sorunun cevabını tekrarla")
+            h.scheduler.advance(by: SessionViewModel.Timing.numberConfirm + 0.1)
+            return "5. sorunun cevabını tekrarla"
         default: h.speaker.hold = false; h.speaker.release(); return "okuma devam etti"
         }
     }

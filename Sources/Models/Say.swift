@@ -70,7 +70,7 @@ enum Say {
     }
     /// Duyulan söz komuta benziyor ama anlaşılamadı: program anladığını sanıp susmaz, açıkça söyler ve tekrar ister
     static let commandNotUnderstood = "Komutu anlayamadım. Lütfen komutu bir kez daha söyleyin."
-    static let commandHelp = "Yine anlayamadım. Cevapları tekrarla, son cevabı tekrarla ya da testi bitir diyebilirsiniz."
+    static let commandHelp = "Yine anlayamadım. Cevapları tekrarla, son cevabı tekrarla, soruyu iptal et ya da testi bitir diyebilirsiniz."
     /// Soru metni geldi, uzun süre konuşulmadı ve "Cevapla" duyulmadı: kullanıcı söylediyse tanıyıcı kaçırmıştır
     static let noTriggerHeard = "Cevapla komutunu duyamadım. Soru bittiyse lütfen Cevapla deyin."
     /// Paragraf numaraları söylendi ama "Tamam" duyulmadı
