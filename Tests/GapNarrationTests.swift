@@ -154,6 +154,6 @@ final class GapNarrationTests: XCTestCase {
         h.scheduler.advance(by: 600)
         await settle()
         XCTAssertEqual(count(h, Say.listeningNow), 0)
-        XCTAssertNil(h.vm.gapTask, "oturum bitince zamanlayıcı kendini yeniden kurmaz")
+        XCTAssertNil(h.vm.narrationTask, "oturum bitince zamanlayıcı kendini yeniden kurmaz")
     }
 }

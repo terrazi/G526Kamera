@@ -18,8 +18,8 @@ extension SessionViewModel {
 
     /// Oturum başlarken kurulur; `resetSession` iptal eder, oturum bitince kendiliğinden durur
     func startGapNarration() {
-        gapTask?.cancel()
-        gapTask = nil
+        narrationTask?.cancel()
+        narrationTask = nil
         idleCuesInRow = 0
         quietTicks = 0
         guard settings.gapNarration else { return }
@@ -27,7 +27,7 @@ extension SessionViewModel {
     }
 
     private func scheduleGapTick() {
-        gapTask = deps.scheduler.after(gapStep) { [weak self] in self?.gapTick() }
+        narrationTask = deps.scheduler.after(gapStep) { [weak self] in self?.gapTick() }
     }
 
     /// Meşgul durumun kısa tarifi; meşgul değilse nil. Yalnız bilinen sessiz işler söylenir (kamera yönlendirmesi ve cevap bekleme kendi
@@ -48,7 +48,7 @@ extension SessionViewModel {
     }
 
     private func gapTick() {
-        gapTask = nil
+        narrationTask = nil
         guard phase.isRunning, settings.gapNarration else { return }   // oturum bitti ya da ayar kapandı: durur
         defer { scheduleGapTick() }
         // Sessiz adım sayısı: program konuşunca (anons, cevap, yönlendirme, bilgi cümlesi) sıfırlanır. Böylece bilgi cümlesi en erken

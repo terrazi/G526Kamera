@@ -378,7 +378,7 @@ final class SessionViewModel: ObservableObject {
     var answerWait: ScheduledTask?
     /// Boşluk bilgisi zamanlayıcısı, programın son konuşmasından beri geçen sessiz adım sayısı ve dinlerken art arda söylenen "Dinliyorum" sayısı
     /// (bkz. `SessionViewModel+Narration`)
-    var gapTask: ScheduledTask?
+    var narrationTask: ScheduledTask?
     var quietTicks = 0
     var idleCuesInRow = 0
 
@@ -592,8 +592,8 @@ final class SessionViewModel: ObservableObject {
         numberEdit = nil
         cameraProbeTask?.cancel()
         cameraProbeTask = nil
-        gapTask?.cancel()
-        gapTask = nil
+        narrationTask?.cancel()
+        narrationTask = nil
         idleCuesInRow = 0
         cameraDownSince = nil
         questions = []
