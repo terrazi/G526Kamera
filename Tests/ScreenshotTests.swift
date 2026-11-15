@@ -159,6 +159,19 @@ final class ScreenshotTests: XCTestCase {
         _ = await camera.h.startListening()
         await render(withEnvironment(ContentView(), camera), "03-ana-ekran-kamera-sorusu")
 
+        // 3b) Kamera çekimi sürerken: canlı görüntü kartı (simülatörde kamera yoktur; görüntü kutusu siyah kalır)
+        let shooting = rig(cameraFlow: true)
+        _ = await shooting.h.startListening()
+        shooting.controller.showForScreenshots(state: .streaming, status: "Sayfa konumlandırılıyor", battery: .level(3))
+        await render(withEnvironment(ContentView(), shooting), "03b-ana-ekran-kamera-onizleme")
+
+        // 3c) Aynı ekran, "Canlı önizlemeyi kapat" açıkken
+        let previewOff = rig(cameraFlow: true)
+        _ = await previewOff.h.startListening()
+        previewOff.h.cameraSettings.previewOff = true
+        previewOff.controller.showForScreenshots(state: .streaming, status: "Sayfa konumlandırılıyor", battery: .level(3))
+        await render(withEnvironment(ContentView(), previewOff), "03c-ana-ekran-onizleme-kapali")
+
         // 4) Bir soru sorulmuş ve cevaplanmış
         let asked = rig()
         asked.h.answering.results = [.success(FakeAnswering.reply(1))]
@@ -199,6 +212,6 @@ final class ScreenshotTests: XCTestCase {
         let written = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
         try? diagnostics.joined(separator: "\n").write(to: dir.appendingPathComponent("tani.txt"), atomically: true, encoding: .utf8)
         XCTAssertGreaterThanOrEqual(written.filter { $0.hasSuffix(".png") }.count, 6, "Ekran görüntüleri yazılmadı: \(written)")
-        XCTAssertGreaterThanOrEqual(nonBlank, 7, "Ekran görüntüleri boş çıktı: \(diagnostics)")
+        XCTAssertGreaterThanOrEqual(nonBlank, 9, "Ekran görüntüleri boş çıktı: \(diagnostics)")
     }
 }

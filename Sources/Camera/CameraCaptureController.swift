@@ -447,3 +447,15 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         shooting = false
     }
 }
+
+#if DEBUG
+extension CameraCaptureController {
+    /// Yalnız ekran görüntüsü testi için: kamera çekimi sürüyormuş gibi ana ekrandaki kamera kartını gösterir (gerçek bağlantı kurulmaz)
+    func showForScreenshots(state: CameraState, status: String, battery: CameraBatteryLevel?) {
+        active = true
+        cameraState = state
+        statusText = status
+        cameraBattery = battery
+    }
+}
+#endif
