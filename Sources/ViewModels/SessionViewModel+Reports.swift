@@ -147,7 +147,7 @@ extension SessionViewModel {
         case .askQuestion(let on):
             if settings.askCamera == on { return LiveReply(text: Say.cameraAskAlready(on)) }
             settings.askCamera = on
-            let choice = !on && (mode == .cameraChoice || mode == .passageCameraChoice)
+            let choice = !on && (mode == .cameraChoice || mode == .passageCameraChoice || mode == .captureKindChoice)
             if !on { offerCamera = false }
             tlog("[ayar] her soruda kamera sorusu: \(on ? "açık" : "kapalı")")
             return LiveReply(text: Say.cameraAskChanged(on: on, configured: cameraConfigured, leavingChoice: choice), leaveCameraChoice: choice)

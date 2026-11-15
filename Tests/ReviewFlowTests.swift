@@ -339,4 +339,44 @@ final class ReviewFlowTests: XCTestCase {
         guard sent else { return }
         XCTAssertEqual(h.answering.calls[0].expectedNumber, 5)
     }
+
+    // MARK: Makul olmayan numara ("beş" → "570")
+
+    private func holdAQuestion(_ h: SessionHarness) async {
+        h.ask("Ali eve gitti ve okula yürüdü")
+        let asking = await waitUntil(45) { h.vm.listenMode == .missingNumber && h.vm.phase == .listening }
+        XCTAssertTrue(asking, "Numara sorulmadı: \(h.speaker.spoken)")
+    }
+
+    /// Cihaz günlüğü (22:09): "beş" denince tanıyıcı önce "500 Euro", sonra "570" yazdı; program 570'i kaydetti. Soru sayısının çok üstündeki
+    /// sayı numara sayılmaz; tanıyıcının alternatif okuması ("beş") varsa o kullanılır.
+    func testAnImplausibleBestReadingFallsBackToTheAlternativeReading() async {
+        let h = harness(missingNumber: true)
+        h.answering.results = [.success(FakeAnswering.reply(5))]
+        _ = await h.startListening()
+        await holdAQuestion(h)
+        h.listener.onEvent?(.alternatives([["570", "beş"]]))
+        say(h, "570")
+        let sent = await waitUntil(45) { h.answering.calls.count == 1 }
+        XCTAssertTrue(sent, "\(h.speaker.spoken)")
+        guard sent else { return }
+        XCTAssertEqual(h.answering.calls[0].expectedNumber, 5, "570 değil, alternatif okumadaki 5 kaydedilir")
+    }
+
+    /// Alternatif de yoksa yanlış numara kaydedilmez: numara yeniden sorulur, soru bekler
+    func testAnImplausibleNumberWithoutAnAlternativeIsAskedAgainInsteadOfBeingSaved() async {
+        let h = harness(missingNumber: true)
+        _ = await h.startListening()
+        await holdAQuestion(h)
+        say(h, "570", confirm: T.numberUnclear)
+        let again = await waitUntil(45) { h.speaker.spoken.last == Say.askNumberAgain && h.vm.listenMode == .missingNumber && h.vm.phase == .listening }
+        XCTAssertTrue(again, "\(h.speaker.spoken)")
+        XCTAssertTrue(h.answering.calls.isEmpty, "570 numarasıyla gönderilmez")
+        XCTAssertNotNil(h.vm.heldQuestion, "Soru numarası söylenene kadar bekler")
+        say(h, "beş")
+        let sent = await waitUntil(45) { h.answering.calls.count == 1 }
+        XCTAssertTrue(sent)
+        guard sent else { return }
+        XCTAssertEqual(h.answering.calls[0].expectedNumber, 5)
+    }
 }

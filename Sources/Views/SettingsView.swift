@@ -15,6 +15,7 @@ struct SettingsView: View {
                 geminiProfilesSection
                 CameraSettingsSections()
                 folderSection
+                sectionsSection
                 voiceScreenSection
                 readingSection
                 shortcutsSection
@@ -176,6 +177,41 @@ struct SettingsView: View {
         }
     }
 
+    // MARK: Sınav bölümleri
+
+    private func sectionOn(_ index: Int) -> Binding<Bool> {
+        return Binding(get: { settings.sectionsOn.indices.contains(index) ? settings.sectionsOn[index] : false },
+                       set: { settings.setSection(index, on: $0) })
+    }
+
+    /// Soru sayısı yazılırken boş bırakılabilsin diye metin olarak bağlanır (0: girilmemiş)
+    private func sectionQuestions(_ index: Int) -> Binding<String> {
+        return Binding(get: {
+            let value = settings.sectionQuestions.indices.contains(index) ? settings.sectionQuestions[index] : 0
+            return value == 0 ? "" : String(value)
+        }, set: { text in
+            settings.setSectionQuestions(index, Int(text.filter { $0.isNumber }.prefix(3)) ?? 0)
+        })
+    }
+
+    private var sectionsSection: some View {
+        Section(header: Text("Sınav bölümleri")) {
+            ForEach(0..<AppSettings.sectionSlots, id: \.self) { index in
+                HStack {
+                    Toggle("\(index + 1). bölüm", isOn: sectionOn(index))
+                    if settings.sectionsOn.indices.contains(index), settings.sectionsOn[index] {
+                        TextField("Soru sayısı", text: sectionQuestions(index))
+                            .keyboardType(.numberPad)
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: 110)
+                            .accessibilityLabel("\(index + 1). bölümün soru sayısı")
+                    }
+                }
+            }
+            HelpRow("Sınavda sayısal, sözel gibi ayrı bölümler varsa burada açın ve her birinin soru sayısını yazın (en çok 100). Etkin bölümler sırayla çalışır: sınav başlarken program “1. bölüme başlıyorum” der. Her bölümün cevapları ayrı klasöre (bolum_1, bolum_2…) kaydedilir; böylece iki bölümün 5. sorusu birbirini ezmez. Bölümü bitirince “Bölümü tamamla” deyin: program o bölümün cevaplarını okur, cevapsız soruları söyler ve “Yeni bir bölüm ile devam etmek ister misiniz, yoksa testi tamamlayalım mı?” diye sorar. “Evet” derseniz “2. bölüme başlıyorum” der ve numara 1'den başlar. Soru sayısı, cevapsız soruların tam listelenmesi için kullanılır (ör. 40 soruluk bölümde 31'den sonrası hiç okunmadıysa onlar da cevapsız sayılır) ve numara doğruluğunu korur: bölümün soru sayısından büyük numara kabul edilmez, program numarayı yeniden sorar. Sayıyı boş bırakırsanız sınır 100'dür; hiçbir sınavda 100'ün üstünde numara kabul edilmez. Hiçbir bölüm açık değilse sınav tek parçadır. Bölüm ayarı yeni başlayan sınava uygulanır; sürmekte olan sınav değişmez.")
+        }
+    }
+
     // MARK: Kayıt klasörü
 
     private var folderSection: some View {
@@ -193,7 +229,7 @@ struct SettingsView: View {
             if !model.folderMessage.isEmpty {
                 Text(model.folderMessage).font(.footnote)
             }
-            HelpRow("Dosyalar uygulamasında “Bu iPhone” altında “\(FolderStore.suggestedName)” adlı yeni bir klasör açıp seçin. Cevap sesleri (soru_1, soru_2…) ve cevaplar.txt, gün klasörleri içinde buraya kaydedilir; uygulama silinse de kalır. Klasör seçmezseniz cevaplar uygulamanın kendi klasörüne gider ve uygulama silinirse onlar da gider; bu durumda ana ekranda kırmızı uyarı çıkar. Test sürerken klasör değiştirilemez.")
+            HelpRow("Dosyalar uygulamasında “Bu iPhone” altında “\(FolderStore.suggestedName)” adlı yeni bir klasör açıp seçin. Her sınav oturumu kendi klasörünü alır; adı o anın yıl, ay, gün, saat, dakika ve saniyesidir (ör. 20261115223912). Cevap sesleri (soru_1, soru_2…) ve cevaplar.txt bu klasöre, bölümlü sınavda bölüm klasörlerine (bolum_1, bolum_2…) kaydedilir; uygulama silinse de kalır. Klasör seçmezseniz cevaplar uygulamanın kendi klasörüne gider ve uygulama silinirse onlar da gider; bu durumda ana ekranda kırmızı uyarı çıkar. Test sürerken klasör değiştirilemez.")
         }
         .onAppear { model.refreshFolderStatus() }
     }
@@ -203,6 +239,7 @@ struct SettingsView: View {
     private var shortcutsSection: some View {
         Section(header: Text("Kestirmeler (kendi kendini onarma)")) {
             Toggle("Her soruda kamera ile çekmeyi sor", isOn: $settings.askCamera)
+            Toggle("Kamera açılırken soru mu paragraf mı diye sor", isOn: $settings.askCaptureKind)
             namedShortcutRow("Hücresele geç", placeholder: "Hücresel Veri", id: "internet", text: $settings.internetShortcut)
             namedShortcutRow("Kameraya geç", placeholder: "Kameraya Geç", id: "camera", text: $camera.cameraShortcutName)
             shortcutRow("Kamera bağlantısını onar", placeholder: "Kamera Bağlantısını Onar", step: .wifi, text: $settings.wifiShortcut)

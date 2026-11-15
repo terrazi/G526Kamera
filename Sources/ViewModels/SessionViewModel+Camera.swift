@@ -77,7 +77,7 @@ extension SessionViewModel {
         work = Task { [weak self] in
             guard let self = self else { return }
             if reply == .yes {
-                await self.runCameraCapture()
+                await self.askCaptureKind()
             } else {
                 await self.declineCamera()
             }
@@ -109,6 +109,57 @@ extension SessionViewModel {
             clearWarning("duyulan")
             listenMode = .question   // seçim yapıldı: bundan sonraki bir onarım "evet / hayır"ı yeniden sormaz, kesilen çekim yeniden denenir
             guard await speakNotice(Say.cameraAutoStart) else {
+                offerCamera = true
+                return
+            }
+            await askCaptureKind()
+        }
+    }
+
+    // MARK: Soru mu, paragraf mı
+
+    /// Kamera "evet" denince: çekilecek şeyin soru mu ortak paragraf mı olduğu sorulur; çekim ve gönderim buna göre yürür
+    /// (paragraf soru gibi gönderilmez: hangi sorulara ait olduğu sorulur, görüntüler o sorularla gider)
+    func askCaptureKind() async {
+        cameraReminders = 0
+        // Ayarlardan kapatılmışsa her çekim soru sayılır (V4'ün ilk davranışı)
+        guard settings.askCaptureKind else {
+            await runCameraCapture()
+            return
+        }
+        guard await speakNotice(Say.askCaptureKind) else {
+            offerCamera = true   // kesildi: onarımdan sonra kamera sorusu yeniden sorulur
+            return
+        }
+        beginListening(mode: .captureKindChoice)
+    }
+
+    func fireCaptureKind() {
+        guard let kind = interpret(SpokenReply.captureKind) else { return }
+        clearWarning("duyulan")
+        closeListening()
+        listenMode = .question   // seçim yapıldı: çekim sürerken kip önemsizdir; bundan sonraki bir onarım soruyu yeniden sormaz
+        phase = .speaking
+        cameraReminders = 0
+        tlog("[kamera] çekilecek şey: \(kind == .passage ? "ortak paragraf" : "soru")")
+        work = Task { [weak self] in
+            await self?.runCameraCapture(subject: kind == .passage ? .passage : .question)
+        }
+    }
+
+    /// Cevap gelmedi ya da anlaşılmadı: toplam `Timing.cameraAsks` kez sorulur; üçüncüde de cevap gelmezse soru olarak çekilir
+    func captureKindSilence(unclear: Bool = false) async {
+        cameraReminders += 1
+        if cameraReminders < Timing.cameraAsks {
+            let text = unclear ? Say.askCaptureKindAgain : Say.askCaptureKindRepeat(cameraReminders + 1)
+            guard await speakNotice(text) else { return }
+            beginListening(mode: .captureKindChoice)
+        } else {
+            cameraReminders = 0
+            tlog("[kamera] soru mu paragraf mı cevabı \(Timing.cameraAsks) kez gelmedi; soru olarak çekiliyor")
+            clearWarning("duyulan")
+            listenMode = .question
+            guard await speakNotice(Say.captureKindDefault) else {
                 offerCamera = true
                 return
             }
@@ -382,11 +433,12 @@ extension SessionViewModel {
     /// onarımı" (Ayarlar'daki Wi-Fi adımı) çalışır ve çekim yeniden denenir; `Timing.cameraRepairs` onarımdan sonra vazgeçilir.
     func captureWithRepair(cameraName: String) async -> Result<CapturedQuestion, CameraFailure> {
         var result: Result<CapturedQuestion, CameraFailure> = .failure(.notConnected)
+        var repairMissing = false   // onarım kestirmesi telefonda yok ("kestirmesi bulunamadı"): aynı yok kestirme bir daha denenmez
         for attempt in 0...Timing.cameraRepairs {
             var name = cameraName
             if attempt > 0 {
                 let repair = settings.shortcutName(for: .wifi)
-                name = repair.isEmpty ? cameraName : repair   // onarım kestirmesi yazılmamışsa kameraya geçiş kestirmesi yeniden çalışır
+                name = repair.isEmpty || repairMissing ? cameraName : repair   // onarım kestirmesi yazılmamışsa ya da telefonda yoksa kameraya geçiş kestirmesi yeniden çalışır
                 statusNote = "Kamera bağlantısı onarılıyor (\(attempt). deneme)"
                 tlog("[kamera] bağlantı onarımı \(attempt). deneme: kestirme “\(name)”")
                 sayGuidance(Say.cameraRepairing)
@@ -394,6 +446,10 @@ extension SessionViewModel {
             tlog("[kamera] kestirme çalıştırılıyor: “\(name)”")
             let outcome = await runShortcutRetryingTransient(name: name)
             tlog("[kamera] kestirme sonucu: \(outcome)")
+            if case .failed(let message) = outcome, SessionViewModel.isMissingShortcutError(message), attempt > 0, name != cameraName {
+                repairMissing = true
+                tlog("[kamera] “\(name)” kestirmesi bu telefonda yok: Kestirmeler'de bu adla kestirme oluşturulmalı (KURULUM.md); sonraki denemede kameraya geçiş kestirmesi çalışır")
+            }
             guard !Task.isCancelled, phase == .answering else {
                 tlog("[kamera] kestirmeden dönüşte iş iptal edilmiş ya da durum değişmiş (\(phase)); çekim yapılmadı")
                 return .failure(.cancelled)
@@ -442,6 +498,12 @@ extension SessionViewModel {
             outcome = await deps.shortcuts.run(name: name)
         }
         return outcome
+    }
+
+    /// Kestirmeler "böyle bir kestirme yok" mu diyor ("“Kamera Bağlantısını Onar” kestirmesi bulunamadı."): yeniden denemek işe yaramaz
+    static func isMissingShortcutError(_ message: String) -> Bool {
+        let text = message.lowercased()
+        return text.contains("kestirmesi bulunamad") || text.contains("could not be found") || text.contains("couldn’t be found")
     }
 
     /// Kestirmeler'in ses yolu değişirken verdiği geçici ret mesajı mı ("Çalma Hedefi aygıt bulunamadığı için iş ayarlanamadı")

@@ -210,6 +210,8 @@ struct ContentView: View {
         case .confirmEnd: return "Testi bitirmek için “evet”, devam etmek için “hayır” deyin"
         case .cameraChoice: return "Kamera ile çekmek için “evet”, sesle okumak için “hayır” deyin (ortak paragraf için “ortak paragraf” deyin)"
         case .passageCameraChoice: return "Ortak paragrafı kamera ile çekmek için “evet”, sesle okumak için “hayır” deyin"
+        case .captureKindChoice: return "Soru çekmek için “bir” ya da “soru”, ortak paragraf için “iki” ya da “paragraf” deyin"
+        case .nextSectionChoice: return "Yeni bölüm için “evet”, testi tamamlamak için “hayır” deyin"
         case .startChoice: return "Önceki kayıttan devam için “devam”, yeni sınav için “yeni” deyin"
         case .reviewMenu: return "Cevaplar okundu: teste “Devam”, yeniden dinlemek için “Tekrar”, testi tamamlamak için “Bitir” deyin"
         }

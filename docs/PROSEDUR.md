@@ -13,6 +13,9 @@ Bu belge, programın sesle nasıl işlemesi gerektiğini adım adım yazar; her 
    "Soru gönderildi, cevap bekleniyor" → cevap kulaklıktan okunur ve `soru_N` + `cevaplar.txt` olarak kaydedilir → "Lütfen sonraki soruyu okuyun".
 2a. **Sürüm 4: kamera ile tek soru.** "Lütfen sonraki soruyu okuyun" yerine her soru sınırında: "Bu soruyu kamera ile çekip göndermek ister misiniz?"
    (evet / hayır; cevap gelmezse "Cevap vermediniz, ikinci defa soruyorum", sonra "üçüncü defa"; üçüncüde de gelmezse kameraya kendiliğinden geçilir; anlaşılmazsa "Anlayamadım…"). **Hayır** → 2. adımdaki gibi sesle. **Evet** →
+   "Soru mu, ortak paragraf mı çekeceksiniz? Birinci seçenek soru, ikinci seçenek paragraf." (bir / birinci / 1 / soru → soru; iki / ikinci / 2 / paragraf → ortak paragraf;
+   cevap gelmezse "ikinci", "üçüncü defa soruyorum", üçüncüde de gelmezse soru olarak çekilir; Ayarlar'dan kapatılabilir). Ortak paragraf seçilirse çekim aynı
+   bağlantı düzeniyle yapılır, ardından "hangi sorular için?" sorulur (3. maddedeki ortak paragraf akışı) ve görüntüler Gemini'ye soru gibi gitmez. Soru seçilirse →
    "Kameraya geçiliyor" → `Kameraya Geç` kestirmesi (hücresel kapanır, kameranın Wi-Fi'si) → kameraya bağlanma (olmazsa `Kamera Bağlantısını Onar`,
    en çok 2 kez) → sesle konumlandırma (ortadaki soru; 30 sn'de yine de çeker) → fotoğraf + kısa video → kamera kapanır → `Hücresele Geç` kestirmesi
    (Wi-Fi kapanır) → internet gelince fotoğraf + video Gemini'ye gider → cevap 2. adımdaki gibi okunur ve kaydedilir → sıradaki soru için yine sorulur.
@@ -93,11 +96,19 @@ Bu belge, programın sesle nasıl işlemesi gerektiğini adım adım yazar; her 
    **Numara beklerken cevap tekrarı:** "N. sorunun cevabını tekrarla" eksik numara ya da paragraf numaraları beklenirken de çalışır; cevap okunur, sonra aynı soru yeniden sorulur, tutulan soru ve paragraf taslağı bozulmaz.
    **Aynı numaralı cevap:** bir numara yeniden cevaplanırsa eski cevabın yenisiyle değiştirildiği söylenir. **Test sonu:** "Test tamamlandı. N cevap kaydedildi." cümlesi cevabı olmayan numaraları da sayar.
    **Ses seviyesi uyarısı:** açılışta ve dakikada bir çıkış sesi yüzde 10'un altındaysa söylenir (oturum engellenmez); yükselince uyarı kalkar.
-5. **Cevapları okuma ve menü.** Cevaplar numara sırasıyla, aralarında Tekrar boşluğu (varsayılan 3 sn) okunur. Bitince: "N sorunun cevabı okundu. Ne yapmak
+5. **Cevapları okuma ve menü.** Cevaplar numara sırasıyla, aralarında Tekrar boşluğu (varsayılan 3 sn) okunur. Bitince: "N sorunun cevabı okundu. Başka cevap yok. Ne yapmak
    istersiniz? Teste kaldığınız yerden devam etmek için **Devam**, cevapları yeniden dinlemek için **Tekrar**, testi tamamlamak için **Bitir** deyin."
    Devam → kalınan yere dönülür (soru / eksik numara / paragraf numaraları); Tekrar → yeniden okunur ve yine sorulur; Bitir → "Test tamamlandı. N cevap
    kaydedildi." ve test biter. Anlaşılmazsa ya da sessizlikte bir kez hatırlatılır; yine olmazsa varsayılan: bitirme isteğiyle gelindiyse test tamamlanır,
    yalnız tekrar istendiyse teste devam edilir. (Ayar: "Testi bitirince cevapları oku", açık; kapalıysa onaydan sonra test doğrudan tamamlanır.)
+5a. **Sınav bölümleri (Ayarlar > Sınav bölümleri).** En çok 4 bölüm açılır, her birinin soru sayısı (en çok 100) yazılır; böylece program sınavdan önce her bölümün kaç soru olduğunu bilir.
+   Sınav başlarken "1. bölüme başlıyorum. Bu bölümde N soru var." denir. Her sınav oturumu üst klasörünü yıl-ay-gün-saat-dakika-saniye adıyla alır (ör. `20261115223912`);
+   bölümlü sınavda cevaplar bu klasörün içindeki `bolum_1`, `bolum_2`… klasörlerine yazılır (her bölümde numara 1'den başlar, bölümler birbirini ezmez). **"Bölümü tamamla"**
+   (ya da "bölümü bitir") denince onay istenir; evet → o bölümün cevapları okunur, menüde **Bitir** denince "N cevap, cevapsız: …" söylenir ve
+   "Yeni bir bölüm ile devam etmek ister misiniz, yoksa testi tamamlayalım mı?" diye sorulur. **Evet** → "2. bölüme başlıyorum" (numara 1'den), **hayır / testi tamamla** → test biter.
+   Yanıt gelmezse bir kez hatırlatılır, sonra yeni bölüme geçilir (test kendiliğinden bitirilmez). Son bölüm tamamlanınca soru sorulmaz, test tamamlanır. Bölümün soru sayısından büyük
+   numara kabul edilmez (numara yeniden sorulur); hiçbir sınavda 100'ün üstünde numara yoktur. Bölüm açık değilse sınav tek parçadır ve eskisi gibi çalışır; "bölümü tamamla" denirse
+   "Bölüm ayarlı değil" denir. Kapanıp açılınca kalınan bölümden devam edilir.
 6. **Kendini onarma.** Kulaklık/mikrofon/internet kopunca susulur, onarılır, söylenir, kaldığı yerden devam edilir (ayrıntı: SURUM3.md, SENARYOLAR.md).
 
 ## Bekleme durumları (her biri: sesli istem, kabul edilen sözler, anlaşılmazsa ne olur, sınır)
@@ -111,6 +122,7 @@ Bu belge, programın sesle nasıl işlemesi gerektiğini adım adım yazar; her 
 | eksik soru numarası | "Lütfen okuduğunuz sorunun numarasını söyleyin" | numara, "sıradaki"; "cevapları tekrarla"; "soruyu iptal et" | numara olmayan kısa söz 4 sn sonra, sessizlik 30 sn sonra yeniden sorulur; ekranda ne duyulduğu yazar | 2 hatırlatma, sonra sıradaki numara |
 | testi bitirme onayı | "Testi bitirmek istiyor musunuz?" | evet / hayır (komutu yeniden söylemek de evet); "cevapları tekrarla" | anlaşılmazsa bir kez daha sorulur; cevapsızlıkta test sürer | 1 hatırlatma |
 | cevap okuma sonrası menü | "N sorunun cevabı okundu… Devam, Tekrar ya da Bitir deyin" | devam / tekrar / bitir ve doğal söyleyişler ("teste devam edelim", "cevapları yeniden oku", "testi tamamla") | anlaşılmazsa 4 sn sonra, sessizlikte 30 sn sonra bir kez hatırlatılır; sonra varsayılan (bitirme isteğiyse tamamla, değilse devam) | 1 hatırlatma |
+| yeni bölüm mü, test bitti mi (yalnız bölümlü sınavda) | "Yeni bir bölüm ile devam etmek ister misiniz, yoksa testi tamamlayalım mı?" | evet / yeni bölüm / devam; hayır / testi tamamla / bitir | anlaşılmazsa ya da sessizlikte bir kez hatırlatılır; yine olmazsa yeni bölüme geçilir | 1 hatırlatma |
 | devam mı, yeni mi | "Önceki kayıtta N cevap var… Devam mı, yeni sınav mı?" | devam / yeni | 1 hatırlatma, sonra 12 saat kuralı | 1 |
 
 **Tek seferde anlama.** Söz önce tanıyıcının en iyi okumasıyla çözülür; çözülemezse tanıyıcının son sözcükler için verdiği alternatif okumalar denenir

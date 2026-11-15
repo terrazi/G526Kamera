@@ -5,7 +5,7 @@ extension ListenHints {
     static func hints(for mode: ListenMode) -> ListenHints {
         switch mode {
         case .question, .passage: return .dictation
-        case .confirmEnd, .startChoice, .reviewMenu, .cameraChoice, .passageCameraChoice: return .choice
+        case .confirmEnd, .startChoice, .reviewMenu, .cameraChoice, .passageCameraChoice, .captureKindChoice, .nextSectionChoice: return .choice
         case .missingNumber: return .number
         case .passageTargets: return .targets
         }
@@ -245,20 +245,23 @@ extension SessionViewModel {
         case .deleteLast:
             return deleteLastSentence(mode: mode, question: question)
         case .status:
-            return Say.status(answers: answers.count, next: nextNumber, headphones: routeVerdict?.headphonesOK, internet: netPulse,
-                              battery: deps.battery.percent, charging: deps.battery.charging)
+            let status = Say.status(answers: answers.count, next: nextNumber, headphones: routeVerdict?.headphonesOK, internet: netPulse,
+                                    battery: deps.battery.percent, charging: deps.battery.charging)
+            return sectionIndex > 0 ? Say.sectionHere(sectionIndex, questions: sectionQuestionCount) + " " + status : status
         case .missingAnswers:
             let found = unansweredNumbers()
+            if sectionQuestionCount > 0 { return Say.sectionMissing(found.missing, questions: sectionQuestionCount) }
             return Say.missingAnswers(found.missing, highest: found.highest)
         default:
             return Say.nothingToRepeat
         }
     }
 
-    /// 1'den en yüksek cevaplanan numaraya kadar cevabı olmayan sorular ("cevapsız soruları söyle" ve test kapanışı)
+    /// 1'den en yüksek cevaplanan numaraya kadar cevabı olmayan sorular ("cevapsız soruları söyle" ve test kapanışı). Bölümün soru sayısı
+    /// ayarlarda girilmişse sınır o sayıdır: hiç okunmayan son sorular da cevapsız sayılır.
     func unansweredNumbers() -> (missing: [Int], highest: Int) {
         let done = Set(answers.map { $0.number })
-        let highest = done.max() ?? 0
+        let highest = max(done.max() ?? 0, sectionQuestionCount)
         let missing: [Int] = highest == 0 ? [] : (1...highest).filter { !done.contains($0) }
         return (missing, highest)
     }
@@ -335,7 +338,7 @@ extension SessionViewModel {
         confirmTask = nil
         guard phase == .listening, listenMode == .passageTargets, passageDraft != nil else { return }
         let heard = accumulator.text
-        let numbers = bestNumbers(primary: SpokenNumber.list(from: heard))
+        let numbers = bestNumbers(primary: SpokenNumber.list(from: heard, limit: numberLimit))
         guard !numbers.isEmpty else {
             finishTargets(numbers: [], heard: heard)
             return

@@ -53,7 +53,8 @@ extension SessionViewModel {
     /// Numara beklenirken söylenen kısa cevap ("yedi", "soru yedi", "sıradaki")
     func numberReply() -> NumberReply? {
         return interpret { text -> NumberReply? in
-            if let heard = SpokenNumber.standalone(from: text) { return .number(heard) }
+            // Makul olmayan numara ("570") reddedilir: en iyi okuma buysa interpret alternatif okumalara bakar, yoksa numara yeniden sorulur
+            if let heard = SpokenNumber.questionNumber(from: text, limit: numberLimit) { return .number(heard) }
             return SpokenNumber.wantsSequence(text) ? .sequence : nil
         }
     }
@@ -64,7 +65,7 @@ extension SessionViewModel {
         var best = primary
         for variant in alternativeTexts() {
             guard let match = TriggerDetector.match(in: variant, words: PassageCommand.targetWords) else { continue }
-            let candidate = SpokenNumber.list(from: match.question)
+            let candidate = SpokenNumber.list(from: match.question, limit: numberLimit)
             if candidate.count > best.count, Set(best).isSubset(of: Set(candidate)) {
                 tlog("[duyulan] numara listesi alternatif okumayla tamamlandı: \(best) → \(candidate)")
                 best = candidate
@@ -85,14 +86,15 @@ extension SessionViewModel {
         guard !files.isEmpty else {
             tlog("[tekrar] okunacak cevap dosyası yok")
             if origin == .endRequest {
-                await completeTestByVoice()
+                await finishEnding()
             } else {
                 await resumeAfterReview(prefix: Say.nothingToReplay + " ")
             }
             return
         }
         reviewCount = files.count
-        guard await speakNotice(Say.reviewStart(files.count, ending: origin == .endRequest)) else { return }
+        let sectionEnding = origin == .endRequest && endScope == .section
+        guard await speakNotice(sectionEnding ? Say.reviewStartSection(files.count) : Say.reviewStart(files.count, ending: origin == .endRequest)) else { return }
         guard phase == .speaking, !Task.isCancelled else { return }
         clearWarning("tekrar")
         reviewing = true
@@ -131,7 +133,8 @@ extension SessionViewModel {
         reviewReminders = 0
         listenMode = .reviewMenu
         speechSealed = true   // okuma bitti: "Cevaplar okunuyor" anonsu değil, yalnız bu menü "bir daha söyle" ile tekrarlanır
-        guard await speakNotice(report + " " + Say.reviewMenu) else { return }
+        let sectionEnding = reviewOrigin == .endRequest && endScope == .section
+        guard await speakNotice(report + " " + (sectionEnding ? Say.reviewMenuSection : Say.reviewMenu)) else { return }
         beginListening(mode: .reviewMenu)
     }
 
@@ -157,8 +160,13 @@ extension SessionViewModel {
             tlog("[komut] teste devam")
             work = Task { [weak self] in await self?.resumeAfterReview(prefix: "") }
         case .finishTest:
-            tlog("[komut] test tamamlanıyor")
-            work = Task { [weak self] in await self?.completeTestByVoice() }
+            // "Bölümü tamamla" ile gelindiyse yalnız bölüm biter; cevapları tekrarla menüsünden gelindiyse "Bitir" testi tamamlar
+            let sectionEnding = reviewOrigin == .endRequest && endScope == .section
+            tlog(sectionEnding ? "[komut] bölüm tamamlanıyor" : "[komut] test tamamlanıyor")
+            work = Task { [weak self] in
+                guard let self = self else { return }
+                if sectionEnding { await self.finishEnding() } else { await self.completeTestByVoice() }
+            }
         }
     }
 
@@ -173,8 +181,8 @@ extension SessionViewModel {
         }
         clearWarning("duyulan")
         if reviewOrigin == .endRequest {
-            tlog("[komut] okuma sonrası seçenek söylenmedi; test tamamlanıyor")
-            await completeTestByVoice(prefix: Say.reviewNoAnswer + " ")
+            tlog(endScope == .section ? "[komut] okuma sonrası seçenek söylenmedi; bölüm tamamlanıyor" : "[komut] okuma sonrası seçenek söylenmedi; test tamamlanıyor")
+            await finishEnding(prefix: Say.reviewNoAnswer + " ")
         } else {
             tlog("[komut] okuma sonrası seçenek söylenmedi; test devam ediyor")
             await resumeAfterReview(prefix: Say.reviewNoAnswer + " ")
@@ -201,7 +209,10 @@ extension SessionViewModel {
         let missing = unansweredNumbers().missing
         let missingNote = missing.isEmpty ? "" : "; cevapsız: " + QuestionComposer.listText(missing)
         tlog("[komut] test tamamlandı (\(count) cevap\(missingNote))")
-        await speakNotice(prefix + Say.testCompleted(count, missing: missing))
+        // Bölümlü sınavda her bölümün cevap sayısı söylenir; bölümsüzde eski cümle
+        let report = sectionIndex > 0 ? Say.testCompletedSections(sectionAnswerCounts(), current: sectionIndex, missing: missing)
+                                      : Say.testCompleted(count, missing: missing)
+        await speakNotice(prefix + report)
         guard !Task.isCancelled else { return }
         endTest()
     }

@@ -12,7 +12,7 @@ final class SpokenNumberTests: XCTestCase {
             ("Evet soru 9", 9),
             ("SORU ON", 10),
             ("Soru yirmi beş", 25),
-            ("Soru yüz yirmi üç", 123),
+            ("Soru yüz", 100),
             ("Soru bir. A seçeneği Adana", 1),
             ("Soru dokuz", 9),
             ("soru altmış iki hangisi", 62)
@@ -47,7 +47,7 @@ final class SpokenNumberTests: XCTestCase {
     func testTextWithoutANumberGivesNil() {
         let texts = [
             "", "soru", "Bir soru", "Hangisi doğrudur", "Bu soru duraklatılmışken okundu", "Soru yok",
-            "Aşağıdakilerden 3 tanesi soru değildir", "soru 0", "soru 1234", "Gitmeyecek soru",
+            "Aşağıdakilerden 3 tanesi soru değildir", "soru 0", "soru 1234", "Soru yüz yirmi üç", "soru 101", "soru 570", "Gitmeyecek soru",
             "Aşağıdakilerden hangisi bir kuruluşun amacı değildir soru"
         ]
         for text in texts {
@@ -147,5 +147,22 @@ final class SpokenNumberSessionTests: XCTestCase {
         let text = GeminiAnswerService.userText(question: "x", expectedNumber: 7)
         XCTAssertTrue(text.contains("Soru 7"))
         XCTAssertTrue(text.contains("okunan numaraya uy"))
+    }
+
+    /// Hiçbir sınavda 100'den fazla soru yoktur; tanıyıcı "beş"i "570" yazabilir: 100'ün üstü soru numarası sayılmaz
+    func testNumbersAboveOneHundredAreNeverQuestionNumbers() {
+        XCTAssertEqual(SpokenNumber.maxQuestionNumber, 100)
+        XCTAssertEqual(SpokenNumber.questionNumber(from: "beş"), 5)
+        XCTAssertEqual(SpokenNumber.questionNumber(from: "soru yüz"), 100)
+        XCTAssertEqual(SpokenNumber.questionNumber(from: "100"), 100)
+        XCTAssertNil(SpokenNumber.questionNumber(from: "101"))
+        XCTAssertNil(SpokenNumber.questionNumber(from: "soru yüz yirmi"))
+        XCTAssertNil(SpokenNumber.questionNumber(from: "570"))
+        XCTAssertNil(SpokenNumber.questionNumber(from: "beş yüz yetmiş"))
+        XCTAssertEqual(SpokenNumber.standalone(from: "570"), 570, "Başka işler (ayar sayıları) etkilenmez")
+        XCTAssertNil(SpokenNumber.extract(from: "Soru 570. Aşağıdakilerden hangisi doğrudur"))
+        XCTAssertNil(SpokenNumber.extract(from: "Soru 101. Aşağıdakilerden hangisi doğrudur"))
+        XCTAssertEqual(SpokenNumber.extract(from: "Soru 99. Aşağıdakilerden hangisi doğrudur"), 99)
+        XCTAssertEqual(SpokenNumber.list(from: "5 6 101"), [5, 6], "Paragraf numaralarında da 100'ün üstü alınmaz")
     }
 }

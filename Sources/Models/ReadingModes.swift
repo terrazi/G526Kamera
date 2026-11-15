@@ -20,6 +20,12 @@ enum ListenMode: Equatable {
     case cameraChoice
     /// Sürüm 4: "Ortak paragraf" denmiş; "Ortak paragrafı kamera ile çekmek ister misiniz?" sorusuna "evet" (kamera) / "hayır" (sesle okuma) bekleniyor
     case passageCameraChoice
+    /// Sürüm 4: kamera "evet" denmiş; "Soru mu, ortak paragraf mı çekeceksiniz? Birinci seçenek soru, ikinci seçenek paragraf" sorusuna
+    /// "bir / soru" ya da "iki / paragraf" bekleniyor
+    case captureKindChoice
+    /// Sürüm 4: bölüm tamamlandı ve cevaplar teyit edildi; "Yeni bir bölüm ile devam etmek ister misiniz, yoksa testi tamamlayalım mı?" sorusuna
+    /// "evet" (yeni bölüm) ya da "hayır" / "testi tamamla" bekleniyor
+    case nextSectionChoice
 }
 
 /// Kayıtlı ortak paragraf: ait olduğu sorulardan biri her sorulduğunda Gemini'ye soruyla birlikte gider
@@ -184,6 +190,8 @@ enum SpokenWords {
 /// - `replayAnswers`: "cevapları tekrarla", "tüm cevapları oku", "hepsini baştan dinleyelim" (çoğul: bütün cevaplar)
 enum VoiceCommand: Equatable {
     case endTest
+    /// "Bölümü tamamla", "bölümü bitir": sınavın şu anki bölümü biter (cevaplar okunur); test sürer, yeni bölüm sorulur
+    case endSection
     case repeatLast
     case replayAnswers
     /// "Soruyu iptal et": okunmakta olan soru (dikte metni ve ses kaydı) silinir, kullanıcı baştan okur
@@ -211,6 +219,9 @@ enum VoiceCommand: Equatable {
     /// "Görüntü kalitesini yüksek yap", "kamera sorusunu kapat", "kadrajı dikey yap": kamera ayarı değişir
     case camera(CameraAction)
 
+    /// Testi ya da bölümü bitirme isteği (ikisi de önce onay ister)
+    var isEnding: Bool { return self == .endTest || self == .endSection }
+
     /// Bilgi ve düzeltme komutları: her kipte söylenebilir, soru metnini korur ve yaptığını ya da yapamadığını kısaca söyler
     var isInfo: Bool {
         switch self {
@@ -220,6 +231,8 @@ enum VoiceCommand: Equatable {
     }
 
     static let subjects: Set<String> = ["test", "testi", "testimi", "teste", "sinav", "sinavi", "sinavimi", "sinava", "denemeyi", "deneme"]
+    /// "Bölümü tamamla": bölüm konu sözcükleri (tamamen aynı yazılışlar; bulanık eşleşme "bölge" gibi sözcükleri komut yapmasın)
+    static let sectionSubjects: Set<String> = ["bolum", "bolumu", "bolumum", "bolumun", "bolumumu", "bolume"]
     static let endVerbs: Set<String> = [
         "bitir", "bitirin", "bitirelim", "bitirsek", "bitirmek", "bitirir", "bitirsene", "bitti", "bitsin", "bitmistir",
         "sonlandir", "sonlandirin", "sonlandiralim", "sonlandirmak", "sonlandirsak",
@@ -465,8 +478,11 @@ enum VoiceCommand: Equatable {
         let words = all.filter { !SpokenWords.matches($0, fillers) }
         guard !words.isEmpty else { return nil }
         var hasSubject = false, hasEnd = false, hasBareEnd = false, hasRepeat = false, hasTekrar = false, hasAll = false, hasLast = false
+        var hasSection = false
         for word in words {
-            if SpokenWords.matches(word, subjects) {
+            if SpokenWords.exactly(word, sectionSubjects) {
+                hasSection = true
+            } else if SpokenWords.matches(word, subjects) {
                 hasSubject = true
             } else if SpokenWords.matches(word, endVerbs) {
                 hasEnd = true
@@ -481,6 +497,11 @@ enum VoiceCommand: Equatable {
             } else {
                 return nil   // tanınmayan sözcük: komut değil, soru metni olabilir
             }
+        }
+        if hasSection {
+            // "Bölümü tamamla": konu yalnız bölüm olmalı ("testi bölümü bitir" ya da tekrar fiili içeren söz komut değildir)
+            guard hasEnd, !hasSubject, !hasRepeat, !hasAll, !hasLast else { return nil }
+            return .endSection
         }
         if hasRepeat || hasAll || hasLast {
             if hasEnd || hasSubject || (hasAll && hasLast) { return nil }
@@ -530,7 +551,8 @@ enum CommandAttempt {
     }
 
     static func isCommandish(_ word: String) -> Bool {
-        return isCore(word) || SpokenWords.matches(word, VoiceCommand.subjects) || SpokenWords.matches(word, VoiceCommand.fillers)
+        return isCore(word) || SpokenWords.matches(word, VoiceCommand.subjects) || SpokenWords.exactly(word, VoiceCommand.sectionSubjects)
+            || SpokenWords.matches(word, VoiceCommand.fillers)
             || SpokenWords.matches(word, VoiceCommand.repeatVerbs) || SpokenWords.startsLike(word, "tekrar")
             || SpokenWords.startsLike(word, "test") || SpokenWords.startsLike(word, "sinav")
     }
@@ -569,6 +591,10 @@ enum SpokenReply {
     enum Start: Equatable { case continuePrevious, startNew }
     /// Cevaplar okunduktan sonra: teste devam, cevapları yeniden oku, testi tamamla
     enum Review: Equatable { case continueTest, repeatAnswers, finishTest }
+    /// Kamerayla çekilecek şey: tek bir soru mu, birkaç soruya ortak paragraf mı
+    enum CaptureKind: Equatable { case question, passage }
+    /// Bölüm bitince: yeni bölümle devam, ya da testi tamamla
+    enum NextSection: Equatable { case newSection, finishTest }
 
     static let yes: Set<String> = ["evet", "tamam", "bitir", "bitirin", "bitirelim", "onayliyorum", "onay", "olur", "aynen", "kesinlikle", "tabii", "tabi", "tabiki", "dogru"]
     static let no: Set<String> = ["hayir", "vazgec", "vazgectim", "vazgecelim", "devam", "iptal", "bitirme", "bitirmeyin", "olmaz", "istemiyorum", "yok", "dur", "degil",
@@ -644,7 +670,7 @@ enum SpokenReply {
         if hasNo { return hasYes ? nil : .no }   // çelişen söz ("evet hayır"): anlaşılmamış sayılır; "bitirmek istemiyorum": hayır
         if hasYes || hasWeakYes { return .yes }
         // Onay sorusuna komutu yeniden söylemek ("testi bitir") de evet demektir
-        if VoiceCommand.parse(text) == .endTest { return .yes }
+        if let command = VoiceCommand.parse(text), command.isEnding { return .yes }
         return nil
     }
 
@@ -661,6 +687,67 @@ enum SpokenReply {
         if hasNo { return hasYes ? nil : .no }   // "evet hayır": çelişki; "kamera istemiyorum": hayır
         if hasYes || hasWeakYes { return .yes }
         return nil
+    }
+
+    /// Birinci / ikinci seçenek sözleri ("bir", "birinci", "1" soru; "iki", "ikinci", "2" paragraf). Sayılar için yalnız AYNEN eşleşme kullanılır.
+    static let kindFirst: Set<String> = ["bir", "1", "birinci", "birincisi", "birincisini", "ilk", "ilki", "ilkini"]
+    static let kindSecond: Set<String> = ["iki", "2", "ikinci", "ikincisi", "ikincisini", "ikisi"]
+    /// "Soru mu paragraf mı" diye soruyu yineleyen söz: seçim değildir
+    static let kindEchoes: Set<String> = ["mu", "mi", "yoksa"]
+
+    /// "Soru mu, ortak paragraf mı çekeceksiniz?" sorusuna cevap. "paragraf" (ya da "soru paragrafı", "ortak paragraf") ve "iki / ikinci / 2" paragraf;
+    /// "soru" ve "bir / birinci / 1" soru. Çelişen ya da seçimi yineleyen söz ("soru mu paragraf mı", "bir iki") nil verir: yeniden sorulur.
+    static func captureKind(_ text: String) -> CaptureKind? {
+        let w = words(text, max: 8)
+        guard !w.isEmpty else { return nil }
+        // "Soruyu iptal et" / "paragrafı sil" bir komuttur; seçim değildir
+        if VoiceCommand.parseCancel(text) != nil { return nil }
+        let passageWord = w.contains { SpokenWords.startsLike($0, "paragraf") }
+        let questionWord = w.contains { SpokenWords.startsLike($0, "soru") }
+        let echo = w.contains { SpokenWords.exactly($0, kindEchoes) }
+        if passageWord && questionWord { return echo ? nil : .passage }   // "soru paragrafı" = paragraf; "soru mu paragraf mı" = seçim değil
+        if passageWord { return .passage }
+        if questionWord { return .question }
+        let first = w.contains { SpokenWords.exactly($0, kindFirst) }
+        let second = w.contains { SpokenWords.exactly($0, kindSecond) }
+        if first && second { return nil }
+        if first { return .question }
+        if second { return .passage }
+        return nil
+    }
+
+    /// "Yeni bölüm" seçeneği: evet, yeni, devam, sonraki, geçelim, başlayalım… ("evet" tek başına yeter)
+    static let sectionProceed: Set<String> = [
+        "evet", "tamam", "olur", "tabii", "tabi", "tabiki", "aynen", "yeni", "devam", "sonraki", "siradaki", "gec", "gecelim", "basla", "baslayalim", "baslat"
+    ]
+    /// "Testi tamamla" seçeneği: hayır, tamamla, bitir… Yalnız AYNEN eşleşme sayılır: yanlış anlaşılan "testi tamamla" sınavı bitirirdi
+    static let sectionFinish: Set<String> = [
+        "hayir", "bitir", "bitirin", "bitirelim", "bitirsek", "bitirmek", "sonlandir", "sonlandirin", "sonlandiralim", "sonlandirmak",
+        "tamamla", "tamamlayin", "tamamlayalim", "tamamlamak", "yeter", "kapat", "kapatalim"
+    ]
+
+    /// "Yeni bir bölüm ile devam etmek ister misiniz, yoksa testi tamamlayalım mı?" sorusuna cevap. "Evet" / "yeni bölüm" / "devam": yeni bölüm;
+    /// "hayır" / "testi tamamla" / "bitir": test biter. İki seçenek de duyulursa ya da hiçbiri duyulmazsa nil (yeniden sorulur). Testi bitiren
+    /// yönün yanlış anlaşılması sınavı erken kapatacağı için bulanık eşleşme kullanılmaz; "bitirme", "yeni bölüm istemiyorum" gibi olumsuz sözler ters çevirir.
+    static func nextSection(_ text: String) -> NextSection? {
+        let w = words(text, max: 8)
+        guard !w.isEmpty else { return nil }
+        // "Testi bitir" komutunu söylemek de testi tamamlamaktır
+        let command = VoiceCommand.parse(text)
+        if command == .endTest { return .finishTest }
+        if command == .endSection { return nil }   // bölüm zaten tamamlandı: "bölümü tamamla" testi bitirmek sayılmaz, yeniden sorulur
+        if w.contains(where: { SpokenWords.exactly($0, finishNegations) }) { return .newSection }   // "bitirme", "tamamlama": test bitmesin
+        let finish = w.contains { SpokenWords.exactly($0, sectionFinish) }
+        let proceed = w.contains { SpokenWords.exactly($0, sectionProceed) }
+        let negated = w.contains { SpokenWords.exactly($0, choiceNegations) }
+        if negated {
+            // "yeni bölüm istemiyorum" → test biter; "testi tamamlamak istemiyorum" → yeni bölüm; ikisi birden → anlaşılmadı
+            if proceed && !finish { return .finishTest }
+            if finish && !proceed { return .newSection }
+            return nil
+        }
+        guard finish != proceed else { return nil }
+        return finish ? .finishTest : .newSection
     }
 
     /// Söz, seçeneklerden birini olumsuzluyor mu ("devam etmeyelim")

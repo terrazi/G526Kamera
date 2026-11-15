@@ -29,6 +29,9 @@ final class AppSettings: ObservableObject {
         static let smartResume = "v3.smartResume"
         static let shortcutInternet = "v3.shortcut.internet"
         static let askCamera = "v3.askCamera"
+        static let askCaptureKind = "v4.askCaptureKind"
+        static let sectionsOn = "v4.sectionsOn"
+        static let sectionQuestions = "v4.sectionQuestions"
     }
 
     /// Kullanıcının verdiği kestirme adları. Uygulama ilk açıldığında (bir kez) ilgili alanlara yazılır; sonra Ayarlar'dan silinip
@@ -124,6 +127,20 @@ final class AppSettings: ObservableObject {
     /// Sürüm 4: her soru için "kamera ile çekip göndermek ister misiniz?" diye sorulsun (kapalıyken yalnız sesle okunan soru)
     @Published var askCamera: Bool {
         didSet { defaults.set(askCamera, forKey: Key.askCamera) }
+    }
+
+    /// Sürüm 4: kamera "evet" denince "soru mu, ortak paragraf mı çekeceksiniz?" diye sorulsun (kapalıyken her çekim soru sayılır)
+    @Published var askCaptureKind: Bool {
+        didSet { defaults.set(askCaptureKind, forKey: Key.askCaptureKind) }
+    }
+
+    /// Sürüm 4: sınavın bölümleri. En çok `sectionSlots` bölüm; her biri etkin olabilir ve soru sayısı girilir (0: sayı girilmemiş). Etkin bölümler
+    /// sırayla çalışır ("1. bölüme başlıyorum"); hiçbiri etkin değilse sınav tek parçadır (eski davranış).
+    @Published var sectionsOn: [Bool] {
+        didSet { defaults.set(sectionsOn, forKey: Key.sectionsOn) }
+    }
+    @Published var sectionQuestions: [Int] {
+        didSet { defaults.set(sectionQuestions, forKey: Key.sectionQuestions) }
     }
 
     /// İsteğe bağlı: "Oynatma Hedefini Ayarla → Bluetooth kulaklık" kestirmesi. Ses iPhone'a düşünce çıkışı kulaklığa alır (Bluetooth'u kapatıp açmaz)
@@ -225,6 +242,9 @@ final class AppSettings: ObservableObject {
         resetShortcut = defaults.string(forKey: Key.shortcutReset) ?? ""
         internetShortcut = defaults.string(forKey: Key.shortcutInternet) ?? ""
         askCamera = defaults.object(forKey: Key.askCamera) as? Bool ?? true
+        askCaptureKind = defaults.object(forKey: Key.askCaptureKind) as? Bool ?? true
+        sectionsOn = AppSettings.fitted(defaults.array(forKey: Key.sectionsOn) as? [Bool] ?? [], fill: false)
+        sectionQuestions = AppSettings.fitted((defaults.array(forKey: Key.sectionQuestions) as? [Int] ?? []).map(AppSettings.clampQuestions), fill: 0)
         outputShortcut = defaults.string(forKey: Key.shortcutOutput) ?? ""
         replayGap = AppSettings.clampGap(defaults.object(forKey: Key.replayGap) as? Double ?? AppSettings.defaultReplayGap)
         sendAudio = defaults.object(forKey: Key.sendAudio) as? Bool ?? true
@@ -248,6 +268,39 @@ final class AppSettings: ObservableObject {
 
     static func clampMinutes(_ minutes: Int) -> Int {
         return min(max(minutes, 0), 24 * 60 - 1)
+    }
+
+    // MARK: Bölümler
+
+    static let sectionSlots = 4
+    /// Hiçbir sınavda 100'den fazla soru yoktur
+    static let sectionQuestionRange = 0...100
+
+    static func clampQuestions(_ count: Int) -> Int {
+        return min(max(count, sectionQuestionRange.lowerBound), sectionQuestionRange.upperBound)
+    }
+
+    /// Dizi tam `sectionSlots` uzunlukta olsun (eksik kalanlar `fill` ile tamamlanır, fazlalar atılır)
+    static func fitted<T>(_ values: [T], fill: T) -> [T] {
+        return (0..<sectionSlots).map { $0 < values.count ? values[$0] : fill }
+    }
+
+    /// Etkin bölümler, sırayla, soru sayılarıyla (0: sayı girilmemiş). Boşsa sınav bölümsüzdür.
+    var sectionPlan: [Int] {
+        return (0..<AppSettings.sectionSlots).compactMap { index -> Int? in
+            guard index < sectionsOn.count, sectionsOn[index] else { return nil }
+            return index < sectionQuestions.count ? AppSettings.clampQuestions(sectionQuestions[index]) : 0
+        }
+    }
+
+    func setSection(_ index: Int, on: Bool) {
+        guard sectionsOn.indices.contains(index) else { return }
+        sectionsOn[index] = on
+    }
+
+    func setSectionQuestions(_ index: Int, _ count: Int) {
+        guard sectionQuestions.indices.contains(index) else { return }
+        sectionQuestions[index] = AppSettings.clampQuestions(count)
     }
 
     static func clampGap(_ seconds: Double) -> Double {

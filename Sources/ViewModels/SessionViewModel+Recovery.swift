@@ -232,7 +232,7 @@ extension SessionViewModel {
             work = Task { [weak self] in await self?.numberSilence() }   // numara söylenmedi: hatırlatılır, olmazsa sıradaki numara verilir
             return
         }
-        if [ListenMode.confirmEnd, .startChoice, .reviewMenu, .cameraChoice, .passageCameraChoice].contains(listenMode) {
+        if [ListenMode.confirmEnd, .startChoice, .reviewMenu, .cameraChoice, .passageCameraChoice, .captureKindChoice, .nextSectionChoice].contains(listenMode) {
             work = Task { [weak self] in await self?.choiceSilence() }
             return
         }

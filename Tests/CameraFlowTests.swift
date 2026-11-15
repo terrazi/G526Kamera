@@ -234,6 +234,27 @@ final class CameraFlowTests: XCTestCase {
         XCTAssertEqual(Array(h.shortcuts.runs.prefix(3)), ["Kameraya_Gec", "Kamera_Onar", "Kamera_Onar"])
     }
 
+    /// Cihaz günlüğü (22:10): telefonda "Kamera Bağlantısını Onar" kestirmesi yoktu; aynı yok kestirme iki kez denendi ve kamera hiç yeniden denenmedi.
+    /// Yok olan onarım kestirmesi bir daha çalıştırılmaz; ikinci denemede kameraya geçiş kestirmesi çalışır ve çekim yeniden denenir.
+    func testMissingRepairShortcutIsNotRunTwiceAndTheCameraShortcutIsUsedInstead() async {
+        let h = harness(shots: [.failure(.notConnected), .success(FakeCamera.shot())])
+        h.shortcuts.script = [.success, .failed("“Kamera_Onar” kestirmesi bulunamadı.")]
+        _ = await h.startListening()
+        reply(h, "evet")
+        let done = await waitUntil(45) { h.vm.answers.count == 1 }
+        XCTAssertTrue(done)
+        XCTAssertEqual(Array(h.shortcuts.runs.prefix(3)), ["Kameraya_Gec", "Kamera_Onar", "Kameraya_Gec"],
+                       "Yok olan onarım kestirmesi ikinci kez denenmez")
+        XCTAssertEqual(h.camera.captures, 2, "İkinci denemede kamera yeniden açılır")
+    }
+
+    func testMissingShortcutMessageIsRecognised() {
+        XCTAssertTrue(SessionViewModel.isMissingShortcutError("“Kamera Bağlantısını Onar” kestirmesi bulunamadı."))
+        XCTAssertTrue(SessionViewModel.isMissingShortcutError("The shortcut couldn’t be found"))
+        XCTAssertFalse(SessionViewModel.isMissingShortcutError("Çalma Hedefi aygıt bulunamadığı için iş ayarlanamadı."), "Bu geçici ret, yok kestirme değildir")
+        XCTAssertFalse(SessionViewModel.isMissingShortcutError("yok"))
+    }
+
     /// Cihaz günlüğü (21:12): sınavda "Kameraya Geç" Kestirmeler tarafından "Çalma Hedefi aygıt bulunamadı" diye geri çevrildi
     func testTransientShortcutRefusalIsRetriedAndThenTheCameraOpens() async {
         let h = harness(shots: [.success(FakeCamera.shot())])
@@ -835,7 +856,8 @@ final class CameraFlowTests: XCTestCase {
         for round in 1...2 {
             h.listener.say("bilmem ki")
             h.scheduler.advance(by: T.numberUnclear + 0.1)
-            let again = await waitUntil(45) { h.speaker.spoken.last == Say.askCameraAgain && self.cameraQuestionOpen(h) }
+            // Önceki turun "Anlayamadım"ı da son söz olduğundan yalnız sonuncuya bakmak yetmez: bu turun anonsu sayılır
+            let again = await waitUntil(45) { h.speaker.spoken.filter { $0 == Say.askCameraAgain }.count == round && self.cameraQuestionOpen(h) }
             XCTAssertTrue(again, "\(round). anlaşılmayan söz: \(h.speaker.spoken)")
         }
         h.listener.say("bilmem ki")

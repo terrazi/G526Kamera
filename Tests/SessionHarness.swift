@@ -55,6 +55,8 @@ final class SessionHarness {
         settings.smartResume = false
         // Sürüm 4: her soruda "kamera ile çekmek ister misiniz?" varsayılan olarak açıktır; V3 testlerinin akışı bozulmasın diye burada kapalı
         settings.askCamera = cameraFlow
+        // "Soru mu, paragraf mı?" sorusu varsayılan olarak açıktır; kamera akışı testlerinin "evet"i doğrudan çekime gitsin diye burada kapalı, ona ait testler açar
+        settings.askCaptureKind = false
         cameraSettings = CameraSettings(defaults: defaults)
         if shortcutNames {
             settings.wifiShortcut = "WiFi_Ac"

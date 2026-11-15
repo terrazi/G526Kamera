@@ -5,21 +5,24 @@ extension SessionViewModel {
     func runStartup() async {
         deps.library.prepare()
         checkSystemAtStart()
+        sectionPlan = settings.sectionPlan   // sınav boyunca bu oturumun başındaki ayar geçerlidir
         do {
             // Beklenmedik kapanmadan sonra aynı klasöre ve numaraya devam edilir (cevaplar ikiye bölünmesin, soru_N ezilmesin)
             choiceOffer = nil
-            if let name = resume?.folder, let existing = deps.library.existingSessionFolder(named: name) {
-                sessionFolder = existing
+            if let name = resume?.folder, let existing = deps.library.existingLocation(named: name) {
+                try place(exam: existing.exam, section: existing.section)
             } else if resume == nil, let remembered = rememberedSession() {
                 // Önceki kayıt var (içinde cevap olan klasör): klasör ve numara geçici olarak onunki sayılır, kontrol bitince sesli sorulur:
                 // "önceki kayıttan devam mı, yeni sınav mı?". Seçilene kadar klasöre hiçbir şey yazılmaz.
-                sessionFolder = remembered.folder
+                try place(exam: remembered.exam, section: remembered.section)
                 nextNumber = remembered.next
                 choiceOffer = ChoiceOffer(answers: remembered.count, next: remembered.next, recent: remembered.recent)
             } else {
-                sessionFolder = try deps.library.newSessionFolder(for: deps.now())
+                // Her sınav oturumu kendi klasörünü alır (adı o anın tarihi ve saati); bölüm ayarlıysa 1. bölümle başlanır
+                let exam = try deps.library.newSessionFolder(for: deps.now())
+                try place(exam: exam, section: sectionPlan.isEmpty ? 0 : 1)
             }
-            if let folder = sessionFolder { deps.journal.saveFolder(folder.lastPathComponent) }
+            saveLocation()
             if let resume = resume {
                 var onDisk = 0
                 if let folder = sessionFolder {
@@ -126,6 +129,7 @@ extension SessionViewModel {
             // Beklenmedik kapanmadan sonra yeniden açıldık: ne olduğu söylenir, yarım kalan soru tamamlanır. Anons yarıda kesilirse
             // (kulaklık koptu) `resume` durur ve kontrol yol dönünce baştan yapılır.
             var notice = Say.resumed(cause: resumed.cause, downSeconds: resumed.downSeconds, pending: resumed.pending, camera: cameraOfferAvailable)
+            if sectionIndex > 0 { notice += " " + Say.sectionHere(sectionIndex, questions: sectionQuestionCount) }
             if let context = passage, !context.remaining.isEmpty { notice += " " + Say.resumedPassage(context.remaining, photo: context.viaCamera) }
             guard await speakNotice(notice) else { return }
             pendingStart = false
@@ -139,30 +143,37 @@ extension SessionViewModel {
             return
         }
         if let offer = choiceOffer {
-            guard await speakNotice(Say.readyAskContinue(answers: offer.answers, next: offer.next)) else { return }
+            let askContinue = sectionIndex > 0 ? Say.readyAskContinueSection(section: sectionIndex, answers: offer.answers, next: offer.next)
+                                                : Say.readyAskContinue(answers: offer.answers, next: offer.next)
+            guard await speakNotice(askContinue) else { return }
             pendingStart = false
             beginListening(mode: .startChoice)
             return
         }
-        guard await speakNotice(cameraOfferAvailable ? Say.readyCamera : (settings.askCamera ? Say.readyCameraMissing : Say.ready)) else { return }
+        let ready = cameraOfferAvailable ? Say.readyCamera : (settings.askCamera ? Say.readyCameraMissing : Say.ready)
+        // Bölümlü sınavda başlarken hangi bölümde olunduğu söylenir ("Birinci bölüme başlıyorum. Bu bölümde 40 soru var.")
+        guard await speakNotice(sectionIndex > 0 ? ready + " " + Say.sectionStart(sectionIndex, questions: sectionQuestionCount) : ready) else { return }
         pendingStart = false
         armCameraOffer()   // Sürüm 4: ilk soru için de kamera sorulur
         beginListening()
     }
 
-    /// Hatırlanan önceki oturum: klasör hâlâ varsa ve içinde cevap dosyası varsa (klasör, sıradaki numara, cevap sayısı, yeni mi);
-    /// aksi hâlde nil. Numara, defterdeki ile klasördeki en büyük soru numarasının bir fazlasından büyük olanıdır.
-    func rememberedSession() -> (folder: URL, next: Int, count: Int, recent: Bool)? {
-        guard let carry = carry, let url = deps.library.existingSessionFolder(named: carry.folder) else { return nil }
+    /// Hatırlanan önceki oturum: sınav klasörü hâlâ varsa ve içinde cevap varsa (sınav klasörü, bölüm sırası (0: bölümsüz), cevapların yazıldığı
+    /// klasör, o klasörün sıradaki numarası, o klasördeki cevap sayısı, yeni mi); aksi hâlde nil. Numara, defterdeki ile klasördeki en büyük
+    /// soru numarasının bir fazlasından büyük olanıdır. Bölümlü sınavda sayı ve numara şu anki bölümündür.
+    func rememberedSession() -> (exam: URL, section: Int, folder: URL, next: Int, count: Int, recent: Bool)? {
+        guard let carry = carry, let location = deps.library.existingLocation(named: carry.folder) else { return nil }
+        let url = location.section > 0 ? deps.library.existingSectionFolder(in: location.exam, section: location.section) ?? location.exam : location.exam
         // Hem ses dosyalarına (soru_N) hem düz yazıdaki (cevaplar.txt) satırlara bakılır: biri eksik olsa da kayıt hatırlanır
         var numbers = Set<Int>()
         for file in deps.library.answerFiles(in: url) {
             if let number = AnswerLibrary.questionNumber(fromFileName: file.lastPathComponent) { numbers.insert(number) }
         }
         for record in deps.library.transcriptRecords(in: url) { numbers.insert(record.number) }
-        guard !numbers.isEmpty else { return nil }
+        // Yeni açılmış (henüz cevapsız) bölümde de önceki bölümlerin cevapları sınavı hatırlanır kılar
+        guard !numbers.isEmpty || deps.library.examAnswerCount(exam: location.exam) > 0 else { return nil }
         let recent = deps.now().timeIntervalSince(carry.at) <= Timing.rememberWindow
-        return (url, max(carry.nextNumber, (numbers.max() ?? 0) + 1), numbers.count, recent)
+        return (location.exam, location.section, url, max(carry.nextNumber, (numbers.max() ?? 0) + 1), numbers.count, recent)
     }
 
     /// Açılış kontrolü başarısız: sebep kırmızı kutuya yazılır, kulaklık varsa söylenir, oturum başlamaz

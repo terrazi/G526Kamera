@@ -52,8 +52,8 @@ enum Say {
     }
     /// Okuma bitince: ne kadarının okunduğu
     static func reviewReport(count: Int, failed: Int) -> String {
-        guard failed > 0 else { return "\(count) sorunun cevabı okundu." }
-        return "\(count) cevaptan \(max(count - failed, 0)) tanesi okundu, \(failed) cevap dosyası çalınamadı."
+        guard failed > 0 else { return "\(count) sorunun cevabı okundu. Başka cevap yok." }
+        return "\(count) cevaptan \(max(count - failed, 0)) tanesi okundu, \(failed) cevap dosyası çalınamadı. Başka cevap yok."
     }
     static let reviewStopped = "Cevaplar okunamadı."
     /// Rapordan hemen sonra: üç seçenek, birbirine benzemeyen üç sözcükle
@@ -91,6 +91,10 @@ enum Say {
     /// Cevap duyulduktan sonra, dinlemeye geçmeden: program sıradaki soruyu kendisi ister
     static let nextQuestion = "Lütfen sonraki soruyu okuyun."
     static let askNumber = "Lütfen okuduğunuz sorunun numarasını söyleyin."
+    /// Bölümün soru sayısı biliniyorken numara anlaşılamadı: aralık söylenir (yanlış girilmiş soru sayısı da buradan fark edilir)
+    static func askNumberAgainInSection(_ questions: Int) -> String {
+        return "Soru numarasını anlayamadım. Bu bölümde 1'den \(questions)'e kadar soru var. Lütfen sorunun numarasını söyleyin. Numarayı bilmiyorsanız sıradaki deyin, sıradaki numara verilir."
+    }
     static let askNumberAgain = "Soru numarasını duyamadım. Lütfen sorunun numarasını söyleyin. Numarayı bilmiyorsanız sıradaki deyin, sıradaki numara verilir."
     static let recoveredAskNumber = "Bağlantı yeniden onarıldı. Lütfen okuduğunuz sorunun numarasını söyleyin."
 
@@ -289,6 +293,15 @@ enum Say {
         let ordinal = attempt >= 3 ? "üçüncü" : "ikinci"
         return "Cevap vermediniz, \(ordinal) defa soruyorum. Bu soruyu kamera ile çekip göndermek ister misiniz? Evet ya da hayır deyin."
     }
+    /// "Evet" denince (ya da üçüncü soruşta cevap gelmeyince): çekilecek şeyin soru mu paragraf mı olduğu sorulur
+    static let askCaptureKind = "Soru mu, ortak paragraf mı çekeceksiniz? Birinci seçenek soru, ikinci seçenek paragraf."
+    static let askCaptureKindAfterRecovery = "Bağlantı yeniden onarıldı. " + askCaptureKind
+    static let askCaptureKindAgain = "Anlayamadım. " + askCaptureKind
+    static func askCaptureKindRepeat(_ attempt: Int) -> String {
+        let ordinal = attempt >= 3 ? "üçüncü" : "ikinci"
+        return "Cevap vermediniz, \(ordinal) defa soruyorum. " + askCaptureKind
+    }
+    static let captureKindDefault = "Cevap vermediniz. Soru olarak çekiyorum."
     static let cameraAutoStart = "Cevap vermediniz. Üç defa sordum, kamera ile devam ediyorum."
     static let cameraConnecting = "Kameraya geçiliyor. Birkaç saniye bekleyin."
     static let cameraShortcutsMissing = "Kamera için kestirme adları yazılmamış. Ayarlardan yazın. Şimdilik soruyu okuyun, bitince Cevapla deyin."
@@ -333,6 +346,120 @@ enum Say {
     /// Kamera çekimi olmadı ve internet de gelmedi: neden; bağlantı onarılır
     static func cameraFailedOffline(_ failure: CameraFailure) -> String {
         return "\(failure.message) İnternet de gelmedi, bağlantı onarılıyor."
+    }
+
+
+    // MARK: Sınav bölümleri
+
+    /// "birinci", "ikinci"… (rakam okunuşuna bırakılmaz); sözcüğü olmayan sıralar için "7."
+    static func ordinal(_ n: Int) -> String {
+        return TurkishOrdinal.word(n) ?? "\(n)."
+    }
+
+    /// "Birinci" (cümle başı)
+    static func ordinalCapital(_ n: Int) -> String {
+        let word = ordinal(n)
+        return word.prefix(1).uppercased(with: Locale(identifier: "tr_TR")) + word.dropFirst()
+    }
+
+    /// Cevapsız numaralar kısa söylenir: ardışık dört ya da daha fazlası aralık olur ("5, 12 ve 31 ile 40 arası")
+    static func compactList(_ numbers: [Int], limit: Int = 10) -> String {
+        let sorted = Array(Set(numbers)).sorted()
+        var parts: [String] = []
+        var index = 0
+        while index < sorted.count {
+            var end = index
+            while end + 1 < sorted.count, sorted[end + 1] == sorted[end] + 1 { end += 1 }
+            if end - index >= 3 {
+                parts.append("\(sorted[index]) ile \(sorted[end]) arası")
+            } else {
+                parts.append(contentsOf: sorted[index...end].map { String($0) })
+            }
+            index = end + 1
+        }
+        let shown = Array(parts.prefix(limit))
+        var text: String
+        if shown.count <= 1 {
+            text = shown.first ?? ""
+        } else {
+            text = shown.dropLast().joined(separator: ", ") + " ve " + (shown.last ?? "")
+        }
+        if parts.count > shown.count { text += " ve devamı" }
+        return text
+    }
+
+    /// Sınav başlarken / yeni bölüme geçilirken
+    static func sectionStart(_ section: Int, questions: Int) -> String {
+        return "\(ordinalCapital(section)) bölüme başlıyorum." + (questions > 0 ? " Bu bölümde \(questions) soru var." : "")
+    }
+
+    /// Önceki kayıttan devam edilirken ve "durum" denince: hangi bölümde olunduğu
+    static func sectionHere(_ section: Int, questions: Int) -> String {
+        return "Şu an \(ordinal(section)) bölümdesiniz." + (questions > 0 ? " Bu bölümde \(questions) soru var." : "")
+    }
+
+    static func readyAskContinueSection(section: Int, answers: Int, next: Int) -> String {
+        return "Ben hazırım, sistem kontrol edildi ve problem yok. Önceki kayıtta \(ordinal(section)) bölümde \(answers) cevap var, sıradaki soru \(next). Önceki kayıttan devam mı, yeni sınav mı? Devam ya da yeni deyin."
+    }
+
+    /// "Bölümü tamamla" ama sınavda bölüm yok
+    static let noSections = "Bu sınavda bölüm tanımlı değil. Bölümleri Ayarlar ekranından açabilirsiniz."
+
+    // "Bölümü tamamla" onayı (testi bitirme onayının bölüm biçimi)
+    static let confirmSectionEnd = "Bölümü tamamlamak istiyor musunuz? Tamamlamak için evet, devam etmek için hayır deyin."
+    static let confirmSectionEndAgain = "Anlayamadım. Bölümü tamamlamak için evet, devam etmek için hayır deyin."
+    static let confirmSectionHeldQuestion = "Okuduğunuz soru henüz gönderilmedi; tamamlarsanız gönderilmeyecek. Bölümü tamamlamak istiyor musunuz? Tamamlamak için evet, devam etmek için hayır deyin."
+    static let confirmSectionHeldPassage = "Ortak paragraf henüz kaydedilmedi; tamamlarsanız kaydedilmeyecek. Bölümü tamamlamak istiyor musunuz? Tamamlamak için evet, devam etmek için hayır deyin."
+    static let sectionEndCancelled = "Tamam, bölüm devam ediyor. Soruyu okuyabilirsiniz."
+    static let sectionEndCancelledCamera = "Tamam, bölüm devam ediyor."
+
+    /// Bölüm tamamlanırken cevapların okunması ve menü (Devam / Tekrar / Bitir)
+    static func reviewStartSection(_ count: Int) -> String {
+        return "\(count) cevap kaydedildi. Bölümü tamamlamadan önce cevaplar sırayla okunuyor."
+    }
+    static let reviewMenuSection = "Ne yapmak istersiniz? Bölümde kaldığınız yerden devam etmek için Devam, cevapları yeniden dinlemek için Tekrar, bölümü tamamlamak için Bitir deyin."
+
+    /// Bölüm tamamlandı: kaç cevap kaydedildi ve (soru sayısı biliniyorsa) hangi sorular cevapsız
+    static func sectionCompleted(_ section: Int, answers: Int, missing: [Int]) -> String {
+        var text = "\(ordinalCapital(section)) bölüm tamamlandı."
+        if answers > 0 { text += " \(answers) cevap kaydedildi." }
+        if !missing.isEmpty { text += " Cevabı olmayan sorular: \(compactList(missing))." }
+        return text
+    }
+
+    /// "Yeni bir bölüm ile devam etmek ister misiniz, yoksa testi tamamlayalım mı?"
+    static func askNextSection(_ next: Int) -> String {
+        return "Yeni bir bölüm ile devam etmek ister misiniz, yoksa testi tamamlayalım mı? \(ordinalCapital(next)) bölüme geçmek için evet, testi tamamlamak için hayır deyin."
+    }
+    static func askNextSectionAgain(_ next: Int) -> String {
+        return "Anlayamadım. \(ordinalCapital(next)) bölüme geçmek için evet, testi tamamlamak için hayır deyin."
+    }
+    static let nextSectionDefault = "Cevap alamadım. Yeni bölüme geçiyorum."
+    static let allSectionsDone = "Bütün bölümler tamamlandı."
+
+    /// Test bölümlü sınavda tamamlandı: bölüm başına cevap sayıları; bitirilen bölümde cevapsız soru varsa onlar
+    static func testCompletedSections(_ counts: [Int], current: Int, missing: [Int]) -> String {
+        let total = counts.reduce(0, +)
+        guard total > 0 else { return "Test tamamlandı." }
+        var parts: [String] = []
+        for (index, count) in counts.enumerated() where count > 0 {
+            parts.append("\(ordinal(index + 1)) bölümde \(count)")
+        }
+        var text = "Test tamamlandı. " + parts.joined(separator: ", ") + " cevap kaydedildi."
+        if !missing.isEmpty { text += " \(ordinalCapital(current)) bölümde cevabı olmayan sorular: \(compactList(missing))." }
+        return text
+    }
+
+
+    static func askNextSectionAfterRecovery(_ next: Int) -> String {
+        return "Kesinti bitti. \(ordinalCapital(next)) bölüme geçmek için evet, testi tamamlamak için hayır deyin."
+    }
+    static let sectionFolderFailed = "Yeni bölümün klasörü açılamadı. Test tamamlanıyor."
+
+    /// "Cevapsız soruları söyle" (bölümün soru sayısı biliniyorken)
+    static func sectionMissing(_ numbers: [Int], questions: Int) -> String {
+        guard !numbers.isEmpty else { return "Cevapsız soru yok. \(questions) sorunun hepsi cevaplandı." }
+        return "Cevabı olmayan sorular: \(compactList(numbers))."
     }
 
 }

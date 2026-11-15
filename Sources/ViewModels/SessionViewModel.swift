@@ -223,6 +223,16 @@ final class SessionViewModel: ObservableObject {
     /// Yardımcı İngilizce tanıyıcının metni (tetikleyici aramasında kullanılmaz; Gemini'ye ikinci metin olarak gider)
     var englishAccumulator = TranscriptAccumulator()
     var sessionFolder: URL?
+    /// Sınavın üst klasörü (adı: tarih ve saat). Bölümlü sınavda cevaplar bunun içindeki bölüm klasörüne (`sessionFolder`) yazılır; bölümsüzde ikisi aynıdır.
+    var examFolder: URL?
+    /// Oturum başında ayarlardan alınan etkin bölümlerin soru sayıları (0: girilmemiş); boşsa sınav bölümsüzdür
+    var sectionPlan: [Int] = []
+    /// Sınavın şu anki bölümü (1...); 0: bölümsüz sınav
+    var sectionIndex = 0
+    /// "Testi bitir" mi, "bölümü tamamla" mı denmiş: onay, cevapları okuma ve menü ikisinde de aynı yürür; bitişte hangisinin yapılacağını bu belirler
+    var endScope: EndScope = .test
+    /// "Yeni bölüm mü, testi tamamlama mı?" sorusunun hatırlatma sayısı
+    var sectionReminders = 0
     var nextNumber = 1
     /// Önceki oturumdan hatırlanan klasör ve sıradaki numara: uygulama açılırken defterden, "Testi bitir"de bellekten. Yeni başlatmada
     /// içinde cevap varsa "önceki kayıttan devam mı, yeni sınav mı?" diye sorulur.
@@ -457,8 +467,8 @@ final class SessionViewModel: ObservableObject {
         deps.network.stop()
         deps.screen.keepAwake(false)
         phase = .finished
-        if let folder = sessionFolder {
-            carry = Carry(folder: folder.lastPathComponent, nextNumber: nextNumber, at: deps.now())
+        if let name = locationName {
+            carry = Carry(folder: name, nextNumber: nextNumber, at: deps.now())
         }
         choiceOffer = nil
         passage = nil
@@ -563,6 +573,11 @@ final class SessionViewModel: ObservableObject {
         hardwareRecoveries = 0
         interruptionActive = false
         sessionFolder = nil
+        examFolder = nil
+        sectionPlan = []
+        sectionIndex = 0
+        endScope = .test
+        sectionReminders = 0
         voiceQueue = []
         lastVoiced = [:]
         outputTries = 0
@@ -674,7 +689,8 @@ final class SessionViewModel: ObservableObject {
 
     /// Tekrarlanacak klasör: bu oturumun cevapları varsa o, yoksa (yeni oturum açılıp boş kaldıysa) cevap içeren en yeni gün klasörü
     func replayFolder() -> URL? {
-        if let folder = sessionFolder, !deps.library.answerFiles(in: folder).isEmpty { return folder }
+        // Bölümlü sınavda sınav klasörü verilir: tekrar bütün bölümleri sırayla okur
+        if let folder = examFolder ?? sessionFolder, !deps.library.answerFiles(in: folder).isEmpty { return folder }
         return deps.library.latestFolder()
     }
 
@@ -836,7 +852,7 @@ final class SessionViewModel: ObservableObject {
         }
         // "Beşinci sorunun cevabını tekrarla": soru numarası ya da paragraf numaraları beklenirken de söylenebilir (kısa numara cevabı sanılmasın);
         // cevap okunur ve aynı soru yeniden sorulur
-        if [ListenMode.missingNumber, .passageTargets].contains(listenMode), let waiting = spokenCommand(), waiting.isRepeatNumber || waiting == .endTest {
+        if [ListenMode.missingNumber, .passageTargets].contains(listenMode), let waiting = spokenCommand(), waiting.isRepeatNumber || waiting.isEnding {
             confirmTask = deps.scheduler.after(Timing.numberConfirm) { [weak self] in self?.fireVoiceCommand() }
             return
         }
@@ -929,6 +945,20 @@ final class SessionViewModel: ObservableObject {
                 scheduleChoiceUnclear()
                 return
             }
+        case .captureKindChoice:
+            if interpret(SpokenReply.captureKind) != nil {
+                delay = Timing.numberConfirm
+            } else if spokenCommand() != nil {
+                // Kamera sorusundaki gibi: V3'ün sesli komutları ("testi bitir", "cevapları tekrarla"…) burada da çalışır
+                confirmTask = deps.scheduler.after(Timing.numberConfirm) { [weak self] in self?.fireVoiceCommand() }
+                return
+            } else {
+                scheduleChoiceUnclear()
+                return
+            }
+        case .nextSectionChoice:
+            guard interpret(SpokenReply.nextSection) != nil else { scheduleChoiceUnclear(); return }
+            delay = Timing.numberConfirm
         }
         confirmTask = deps.scheduler.after(delay) { [weak self] in self?.fireTrigger() }
     }
@@ -946,6 +976,8 @@ final class SessionViewModel: ObservableObject {
         case .reviewMenu: fireReview()
         case .cameraChoice: fireCameraChoice()
         case .passageCameraChoice: firePassageCameraChoice()
+        case .captureKindChoice: fireCaptureKind()
+        case .nextSectionChoice: fireNextSection()
         }
     }
 
@@ -965,14 +997,14 @@ final class SessionViewModel: ObservableObject {
             return
         }
         switch listenMode {
-        case .question, .cameraChoice, .passageCameraChoice:
+        case .question, .cameraChoice, .passageCameraChoice, .captureKindChoice:
             break
         case .passage:
             guard command == .cancelPassage else { return }
         case .passageTargets:
-            guard command == .replayAnswers || command == .cancelPassage || command.isRepeatNumber || command == .endTest else { return }
+            guard command == .replayAnswers || command == .cancelPassage || command.isRepeatNumber || command.isEnding else { return }
         case .missingNumber:
-            guard command == .replayAnswers || command == .cancelQuestion || command.isRepeatNumber || command == .endTest else { return }
+            guard command == .replayAnswers || command == .cancelQuestion || command.isRepeatNumber || command.isEnding else { return }
         case .confirmEnd:
             guard command == .replayAnswers else { return }
         default:
@@ -997,7 +1029,7 @@ final class SessionViewModel: ObservableObject {
         // "Ortak paragrafı iptal et" diye başlandıysa paragraf okunmaya hiç başlanmamıştır (komutun kendisi dışında ≤ 3 sözcük)
         let phraseOnly = from == .passage && PassageCommand.startsWith(accumulator.text)
             && PassageCommand.stripStart(accumulator.text).split(whereSeparator: { $0.isWhitespace }).count <= 3
-        if back == .cameraChoice || back == .passageCameraChoice {
+        if back == .cameraChoice || back == .passageCameraChoice || back == .captureKindChoice {
             // Komut kamera sorusu açıkken söylendi: iş bitince (cevap tekrarı, "Devam", vazgeçilen bitirme) bu soru için kamera yeniden sorulur
             back = .question
             armCameraOffer()
@@ -1012,9 +1044,31 @@ final class SessionViewModel: ObservableObject {
         deps.recorder.reset()
         phase = .speaking
         switch command {
+        case .endSection:
+            guard sectionIndex > 0 else {
+                // Bölümsüz sınavda "bölümü tamamla": ne olduğu söylenir, aynı kipte dinlemeye dönülür
+                tlog("[komut] sesli komut: bölümü tamamla; bu sınavda bölüm yok")
+                let target = back
+                work = Task { [weak self] in
+                    guard let self = self, await self.speakNotice(Say.noSections) else { return }
+                    self.beginListening(mode: target)
+                }
+                return
+            }
+            // Testi bitirmeyle aynı yol: önce onay, sonra bölümün cevapları okunur, sonra yeni bölüm sorulur
+            tlog("[komut] sesli komut: bölümü tamamla; onay isteniyor")
+            endReminders = 0
+            endScope = .section
+            endReturn = (from == .missingNumber || from == .passageTargets) ? from : .question
+            let ask = from == .missingNumber ? Say.confirmSectionHeldQuestion : (from == .passageTargets ? Say.confirmSectionHeldPassage : Say.confirmSectionEnd)
+            work = Task { [weak self] in
+                guard let self = self, await self.speakNotice(ask) else { return }
+                self.beginListening(mode: .confirmEnd)
+            }
         case .endTest:
             // Yanlış tanımaya karşı önce onay istenir: "evet" bitirir, "hayır" (ya da cevapsızlık) devam ettirir
             tlog("[komut] sesli komut: testi bitir; onay isteniyor")
+            endScope = .test
             endReminders = 0
             // Numara ya da paragraf numarası beklenirken söylendiyse bekleyen iş (tutulan soru / paragraf taslağı) korunur; vazgeçilirse oraya dönülür
             endReturn = (from == .missingNumber || from == .passageTargets) ? from : .question
@@ -1050,7 +1104,7 @@ final class SessionViewModel: ObservableObject {
         case .cancelQuestion:
             // Okunan soru (metin ve ses kaydı yukarıda temizlendi) vazgeçilir; kamera sorusundayken silinecek bir şey yoktur
             tlog("[komut] sesli komut: soruyu iptal et")
-            let choice = from == .cameraChoice || from == .passageCameraChoice
+            let choice = from == .cameraChoice || from == .passageCameraChoice || from == .captureKindChoice
             if from == .missingNumber {
                 heldQuestion = nil   // numarası beklenen soru da bırakılır
                 numberReminders = 0
@@ -1112,18 +1166,19 @@ final class SessionViewModel: ObservableObject {
         case .yes:
             let count = answers.count
             let reading = settings.readAnswersAtEnd && count > 0
-            tlog("[komut] testi bitirme onaylandı (\(count) cevap\(reading ? ", cevaplar okunacak" : ""))")
+            let what = endScope == .section ? "bölümü tamamlama" : "testi bitirme"
+            tlog("[komut] \(what) onaylandı (\(count) cevap\(reading ? ", cevaplar okunacak" : ""))")
             // Prosedür: bitirmeden önce kaydedilen cevaplar sırayla okunur, ardından "Devam, Tekrar ya da Bitir" sorulur (Modül 6)
             work = Task { [weak self] in
                 guard let self = self else { return }
                 if reading {
                     await self.beginReview(origin: .endRequest, returnTo: self.endReturn)
                 } else {
-                    await self.completeTestByVoice()
+                    await self.finishEnding()
                 }
             }
         case .no:
-            tlog("[komut] testi bitirmekten vazgeçildi")
+            tlog(endScope == .section ? "[komut] bölümü tamamlamaktan vazgeçildi" : "[komut] testi bitirmekten vazgeçildi")
             work = Task { [weak self] in
                 guard let self = self, await self.speakNotice(self.endCancelledNotice) else { return }
                 self.beginListening(mode: self.endReturn)
@@ -1136,7 +1191,9 @@ final class SessionViewModel: ObservableObject {
         switch endReturn {
         case .missingNumber: return Say.reviewBackToNumber
         case .passageTargets: return Say.reviewBackToTargets
-        default: return cameraQuestionWillBeAsked ? Say.endCancelledCamera : Say.endCancelled
+        default:
+            if endScope == .section { return cameraQuestionWillBeAsked ? Say.sectionEndCancelledCamera : Say.sectionEndCancelled }
+            return cameraQuestionWillBeAsked ? Say.endCancelledCamera : Say.endCancelled
         }
     }
 
@@ -1148,13 +1205,15 @@ final class SessionViewModel: ObservableObject {
 
     func choiceUnclear() {
         confirmTask = nil
-        guard phase == .listening, [ListenMode.confirmEnd, .startChoice, .reviewMenu, .cameraChoice, .passageCameraChoice].contains(listenMode) else { return }
+        guard phase == .listening, [ListenMode.confirmEnd, .startChoice, .reviewMenu, .cameraChoice, .passageCameraChoice, .captureKindChoice, .nextSectionChoice].contains(listenMode) else { return }
         let heard = accumulator.text
         if listenMode == .confirmEnd, interpret(SpokenReply.yesNo) != nil { return }
         if listenMode == .startChoice, interpret(SpokenReply.start) != nil { return }
         if listenMode == .reviewMenu, interpret(SpokenReply.review) != nil { return }
         if listenMode == .cameraChoice, interpret(SpokenReply.cameraChoice) != nil || spokenCommand() != nil { return }
         if listenMode == .passageCameraChoice, interpret(SpokenReply.cameraChoice) != nil || spokenCommand() != nil { return }
+        if listenMode == .captureKindChoice, interpret(SpokenReply.captureKind) != nil || spokenCommand() != nil { return }
+        if listenMode == .nextSectionChoice, interpret(SpokenReply.nextSection) != nil { return }
         tlog("[komut] cevap anlaşılamadı; duyulan: \"\(heard)\"")
         warn("duyulan", "Duyulan: “\(heard)”. Cevap anlaşılamadı.")
         work = Task { [weak self] in await self?.choiceSilence(unclear: true) }
@@ -1170,10 +1229,10 @@ final class SessionViewModel: ObservableObject {
         case .confirmEnd:
             endReminders += 1
             if endReminders <= 1 {
-                guard await speakNotice(Say.confirmEndAgain) else { return }
+                guard await speakNotice(endScope == .section ? Say.confirmSectionEndAgain : Say.confirmEndAgain) else { return }
                 beginListening(mode: .confirmEnd)
             } else {
-                tlog("[komut] testi bitirme sorusu cevapsız kaldı; test devam ediyor")
+                tlog(endScope == .section ? "[komut] bölümü tamamlama sorusu cevapsız kaldı; bölüm devam ediyor" : "[komut] testi bitirme sorusu cevapsız kaldı; test devam ediyor")
                 clearWarning("duyulan")
                 guard await speakNotice(endCancelledNotice) else { return }
                 beginListening(mode: endReturn)
@@ -1192,6 +1251,10 @@ final class SessionViewModel: ObservableObject {
             await cameraChoiceSilence(unclear: unclear)
         case .passageCameraChoice:
             await passageCameraChoiceSilence()
+        case .captureKindChoice:
+            await captureKindSilence(unclear: unclear)
+        case .nextSectionChoice:
+            await nextSectionSilence()
         default:
             beginListening(mode: .question)
         }
@@ -1215,11 +1278,13 @@ final class SessionViewModel: ObservableObject {
         var goOn = continuePrevious
         if !goOn {
             do {
-                sessionFolder = try deps.library.newSessionFolder(for: deps.now())
+                // Yeni sınav kendi klasörünü alır (adı o anın tarihi ve saati); bölüm ayarlıysa 1. bölümle başlanır
+                let exam = try deps.library.newSessionFolder(for: deps.now())
+                try place(exam: exam, section: sectionPlan.isEmpty ? 0 : 1)
                 nextNumber = 1
                 answers = []
                 deps.journal.saveNextNumber(1)
-                if let folder = sessionFolder { deps.journal.saveFolder(folder.lastPathComponent) }
+                saveLocation()
                 carry = nil
                 tlog("[açılış] yeni sınav seçildi: yeni klasör, numara 1")
             } catch {
@@ -1234,7 +1299,11 @@ final class SessionViewModel: ObservableObject {
         }
         armCameraOffer()   // Sürüm 4: önceki kayıttan devam da olsa yeni sınav da olsa ilk soru için kamera sorulur
         let camera = cameraQuestionWillBeAsked
-        let text = goOn ? Say.continuingPrevious(next: nextNumber, camera: camera) : (camera ? Say.startingNewCamera : Say.startingNew)
+        var text = goOn ? Say.continuingPrevious(next: nextNumber, camera: camera) : (camera ? Say.startingNewCamera : Say.startingNew)
+        if sectionIndex > 0 {
+            // Bölümlü sınav: yeni sınavda ilk bölüme başlandığı, önceki kayıttan devamda hangi bölümde olunduğu söylenir
+            text += " " + (goOn ? Say.sectionHere(sectionIndex, questions: sectionQuestionCount) : Say.sectionStart(sectionIndex, questions: sectionQuestionCount))
+        }
         guard await speakNotice(text) else { return }
         beginListening(mode: .question)
     }
@@ -1286,7 +1355,7 @@ final class SessionViewModel: ObservableObject {
         clearWarning("duyulan")
         liveText = question
         // Kayıt, okunan numarayla yapılır: kullanıcı soruları sırayla okumak zorunda değildir
-        let spoken = SpokenNumber.extract(from: question)
+        let spoken = SpokenNumber.extract(from: question, limit: numberLimit)
         if spoken == nil, settings.askMissingNumber {
             heldQuestion = HeldQuestion(text: question, english: english, audio: audio)
             numberReminders = 0
@@ -1303,7 +1372,8 @@ final class SessionViewModel: ObservableObject {
     /// "Lütfen okuduğunuz sorunun numarasını söyleyin" der ve numarayı dinler
     func askForNumber(again: Bool) async {
         guard heldQuestion != nil else { return }
-        guard await speakNotice(again ? Say.askNumberAgain : Say.askNumber) else { return }
+        let ask = again ? (sectionQuestionCount > 0 ? Say.askNumberAgainInSection(sectionQuestionCount) : Say.askNumberAgain) : Say.askNumber
+        guard await speakNotice(ask) else { return }
         beginListening(mode: .missingNumber)
     }
 
@@ -1423,7 +1493,7 @@ final class SessionViewModel: ObservableObject {
     /// Paragrafın ait olduğu soru numaraları ("beş altı yedi, Cevapla") alınır; paragraf o sorularla birlikte gider
     private func fireTargets() {
         guard let match = interpret({ TriggerDetector.match(in: $0, words: PassageCommand.targetWords) }) else { return }
-        finishTargets(numbers: bestNumbers(primary: SpokenNumber.list(from: match.question)), heard: match.question)
+        finishTargets(numbers: bestNumbers(primary: SpokenNumber.list(from: match.question, limit: numberLimit)), heard: match.question)
     }
 
     /// Paragraf numaraları belli oldu (ya da anlaşılamadı): kaydedilir; anlaşılamadıysa sınırlı sayıda yeniden sorulur, sonra sıradaki soruya bağlanır

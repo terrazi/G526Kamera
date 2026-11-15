@@ -128,7 +128,8 @@ final class ReadingModesTests: XCTestCase {
             ("12. soru, 13. soru", [12, 13]),
             ("567", [5, 6, 7]),
             ("5 6 7 sorular", [5, 6, 7]),
-            ("105 106", [105, 106])
+            ("105 106", []),
+            ("99 100 101", [99, 100])
         ]
         for (text, expected) in cases {
             XCTAssertEqual(SpokenNumber.list(from: text), expected, text)

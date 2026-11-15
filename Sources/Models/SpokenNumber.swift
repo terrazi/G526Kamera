@@ -24,8 +24,18 @@ enum SpokenNumber {
     /// "5'inci soru" → "5", "inci"
     private static let digitSuffixes: Set<String> = ["inci", "nci", "uncu", "ncu"]
 
-    /// Metinde okunan soru numarası; yoksa ya da anlaşılamadıysa nil (1...999)
-    static func extract(from text: String) -> Int? {
+    /// Hiçbir sınavda 100'den fazla soru yoktur: tanıyıcı "beş"i "570" gibi yazabilir; bunun üstündeki sayı soru numarası sayılmaz
+    /// (numara sorulur ya da alternatif okuma denenir) ve kayıtlara yanlış numarayla yazılmaz
+    static let maxQuestionNumber = 100
+
+    /// Metinde okunan soru numarası; yoksa, anlaşılamadıysa ya da `maxQuestionNumber`dan büyükse nil
+    /// `limit`: bölümün soru sayısı biliniyorsa o (bölümde olmayan bir numara söylenmiş sayılmaz); en çok `maxQuestionNumber`
+    static func extract(from text: String, limit: Int = maxQuestionNumber) -> Int? {
+        guard let value = extractRaw(from: text), value >= 1, value <= min(limit, maxQuestionNumber) else { return nil }
+        return value
+    }
+
+    private static func extractRaw(from text: String) -> Int? {
         // Baştaki sözcüklerde yakın sesli yazımlar düzeltilir ("peşinci soru", "soru yeti"); numara hep okumanın başında söylenir
         let words = tokens(text).enumerated().map { $0.offset < headWords + 4 ? numberWord($0.element) : $0.element }
         let limit = min(words.count, headWords)
@@ -194,6 +204,12 @@ extension SpokenNumber {
         return parsed.value
     }
 
+    /// "Numarayı söyleyin" yanıtı: `standalone` ile aynı, ama soru numarası için makul olmayan (`maxQuestionNumber` üstü) sayı nil verir
+    static func questionNumber(from text: String, limit: Int = maxQuestionNumber) -> Int? {
+        guard let value = standalone(from: text), value >= 1, value <= min(limit, maxQuestionNumber) else { return nil }
+        return value
+    }
+
     /// Yanıt "sıradaki numarayı ver" mi ("sıradaki", "geç", "atla")
     static func wantsSequence(_ text: String) -> Bool {
         let words = tokens(text)
@@ -203,7 +219,7 @@ extension SpokenNumber {
     fileprivate static let caseSuffixes = ["ten", "tan", "den", "dan", "ye", "ya", "e", "a"]
 
     /// Paragrafın hangi sorulara ait olduğu: "5 6 7", "beş, altı ve yedi", "5 ile 7 arası", "beşten yediye kadar", "5-7" → [5, 6, 7]
-    static func list(from text: String) -> [Int] {
+    static func list(from text: String, limit: Int = maxQuestionNumber) -> [Int] {
         let normalized = text.replacingOccurrences(of: "(\\d+)\\s*[-–—]\\s*(\\d+)", with: "$1 ile $2 arasi", options: .regularExpression)
         // "567" gibi bitişik yazılmış rakamlar ("beş altı yedi" → "567"): üç haneli ve soru sayısının çok üstündeyse tek tek rakamlara ayrılır
         let words = tokens(normalized).flatMap { token -> [String] in
@@ -242,6 +258,7 @@ extension SpokenNumber {
             result.append(a.value)
             k += 1
         }
-        return Array(Set(result)).sorted().prefix(maxListed).map { $0 }
+        let top = min(limit, maxQuestionNumber)
+        return Array(Set(result.filter { $0 >= 1 && $0 <= top })).sorted().prefix(maxListed).map { $0 }
     }
 }

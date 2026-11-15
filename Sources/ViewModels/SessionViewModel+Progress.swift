@@ -113,6 +113,8 @@ extension SessionViewModel {
         if resendablePending != nil || offerCamera { return Continuation(text: Say.recoveredPendingShot, mode: .question, keep: false) }
         if listenMode == .cameraChoice { return Continuation(text: Say.askCameraAfterRecovery, mode: .cameraChoice, keep: false) }
         if listenMode == .passageCameraChoice { return Continuation(text: Say.askPassageCameraAfterRecovery, mode: .passageCameraChoice, keep: false) }
+        if listenMode == .captureKindChoice { return Continuation(text: Say.askCaptureKindAfterRecovery, mode: .captureKindChoice, keep: false) }
+        if listenMode == .nextSectionChoice { return Continuation(text: Say.askNextSectionAfterRecovery(sectionIndex + 1), mode: .nextSectionChoice, keep: false) }
         if heldQuestion != nil { return Continuation(text: Say.recoveredAskNumber, mode: .missingNumber, keep: false) }
         if let draft = passageDraft { return Continuation(text: draft.shot == nil ? Say.recoveredAskTargets : Say.recoveredAskTargetsCamera, mode: .passageTargets, keep: false) }
         if settings.smartResume {
@@ -134,14 +136,14 @@ extension SessionViewModel {
             return Continuation(text: Say.continuePartial(passage: true, number: nil, sentence: sentence), mode: .passage, keep: !body.isEmpty)
         case .passageTargets:
             return Continuation(text: passageDraft?.shot == nil ? Say.recoveredAskTargets : Say.recoveredAskTargetsCamera, mode: .passageTargets, keep: false)
-        case .missingNumber, .confirmEnd, .startChoice, .reviewMenu, .cameraChoice, .passageCameraChoice:
+        case .missingNumber, .confirmEnd, .startChoice, .reviewMenu, .cameraChoice, .passageCameraChoice, .captureKindChoice, .nextSectionChoice:
             return nil
         case .question:
             let words = text.split(whereSeparator: { $0.isWhitespace })
             guard words.count >= Timing.partialMinWords else { return nil }
             let sentence = LastSentence.of(text)
             guard !sentence.isEmpty else { return nil }
-            return Continuation(text: Say.continuePartial(passage: false, number: SpokenNumber.extract(from: text), sentence: sentence), mode: .question, keep: true)
+            return Continuation(text: Say.continuePartial(passage: false, number: SpokenNumber.extract(from: text, limit: numberLimit), sentence: sentence), mode: .question, keep: true)
         }
     }
 

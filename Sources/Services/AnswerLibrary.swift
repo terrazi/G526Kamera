@@ -40,22 +40,104 @@ struct AnswerLibrary {
 
     // MARK: Klasör adları
 
-    /// "2026-11-13"
+    /// Her sınav oturumunun kendi üst klasörünün adı: yerel saatle yıl, ay, gün, saat, dakika, saniye ("20261115223912")
     static func folderName(for date: Date, calendar: Calendar = .current) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.calendar = Calendar(identifier: .gregorian)
         formatter.timeZone = calendar.timeZone
-        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.dateFormat = "yyyyMMddHHmmss"
         return formatter.string(from: date)
     }
 
-    /// "2026-11-13" → (gün, 1); "2026-11-13_2" → (gün, 2); başka ad nil
+    /// "20261115223912" → (ad, 1); aynı saniyede ikinci açılış "20261115223912_2" → (ad, 2). Eski sürümlerin gün adları ("2026-11-13",
+    /// "2026-11-13_2") de tanınır (önceki kayıtlar kaybolmasın); başka ad nil
     static func parseFolderName(_ name: String) -> (day: String, part: Int)? {
-        guard name.range(of: "^\\d{4}-\\d{2}-\\d{2}(_\\d+)?$", options: .regularExpression) != nil else { return nil }
+        guard name.range(of: "^(\\d{14}|\\d{4}-\\d{2}-\\d{2})(_\\d+)?$", options: .regularExpression) != nil else { return nil }
         let pieces = name.split(separator: "_", maxSplits: 1).map(String.init)
         let part = pieces.count > 1 ? (Int(pieces[1]) ?? 1) : 1
         return (pieces[0], part)
+    }
+
+    /// Klasörleri zamana göre sıralamak için anahtar: eski gün adı o günün gece yarısı sayılır ("2026-11-13" → "20261113000000")
+    static func sortKey(_ day: String) -> String {
+        let digits = day.filter { $0.isNumber }
+        return digits.count == 8 ? digits + "000000" : digits
+    }
+
+    // MARK: Bölümler
+
+    /// Bölümlü sınavda her bölümün cevapları sınav klasörünün içinde ayrı bir klasöre gider ("bolum_2"): iki bölümün 5. sorusu birbirini ezmez
+    static let sectionPrefix = "bolum_"
+
+    static func sectionFolderName(_ section: Int) -> String {
+        return "\(sectionPrefix)\(section)"
+    }
+
+    /// "bolum_2" → 2
+    static func sectionNumber(fromFolderName name: String) -> Int? {
+        guard name.hasPrefix(sectionPrefix) else { return nil }
+        guard let number = Int(name.dropFirst(sectionPrefix.count)), number > 0 else { return nil }
+        return number
+    }
+
+    /// Günlükte ve "önceki kayıt" bilgisinde saklanan kayıt yeri adı: bölümsüz sınavda yalnız klasör adı ("2026-11-15"), bölümlüde klasör adı
+    /// ve bölüm sırası ("2026-11-15@2")
+    static func locationName(exam: String, section: Int) -> String {
+        return section > 0 ? "\(exam)@\(section)" : exam
+    }
+
+    static func splitLocation(_ name: String) -> (exam: String, section: Int) {
+        let pieces = name.split(separator: "@", maxSplits: 1).map(String.init)
+        guard pieces.count == 2, let section = Int(pieces[1]), section > 0 else { return (pieces.first ?? name, 0) }
+        return (pieces[0], section)
+    }
+
+    /// Kayıt yeri adından sınav klasörü (varsa) ve bölüm sırası; klasör yoksa nil
+    func existingLocation(named name: String) -> (exam: URL, section: Int)? {
+        let parts = AnswerLibrary.splitLocation(name)
+        guard let exam = existingSessionFolder(named: parts.exam) else { return nil }
+        return (exam, parts.section)
+    }
+
+    /// Bölümün cevap klasörü (yoksa açılır)
+    func sectionFolder(in exam: URL, section: Int) throws -> URL {
+        let url = exam.appendingPathComponent(AnswerLibrary.sectionFolderName(section), isDirectory: true)
+        try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    /// Bölümün cevap klasörü varsa adresi (açmaz); yoksa nil
+    func existingSectionFolder(in exam: URL, section: Int) -> URL? {
+        let url = exam.appendingPathComponent(AnswerLibrary.sectionFolderName(section), isDirectory: true)
+        var isDirectory: ObjCBool = false
+        return fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue ? url : nil
+    }
+
+    /// Sınavın bütün bölümlerindeki (ve bölümsüz kısmındaki) toplam cevap sayısı
+    func examAnswerCount(exam: URL) -> Int {
+        return sectionFolders(in: exam).reduce(answerCount(in: exam)) { $0 + answerCount(in: $1) }
+    }
+
+    /// Sınav klasöründeki bölüm klasörleri, bölüm sırasına göre
+    func sectionFolders(in exam: URL) -> [URL] {
+        let names = (try? fileManager.contentsOfDirectory(atPath: exam.path)) ?? []
+        return names.compactMap { name -> (Int, URL)? in
+            guard let number = AnswerLibrary.sectionNumber(fromFolderName: name) else { return nil }
+            return (number, exam.appendingPathComponent(name, isDirectory: true))
+        }
+        .sorted { $0.0 < $1.0 }
+        .map { $0.1 }
+    }
+
+    /// Klasörde kayıtlı farklı soru numaralarının sayısı (hem ses dosyalarına hem cevaplar.txt satırlarına bakılır)
+    func answerCount(in folder: URL) -> Int {
+        var numbers = Set<Int>()
+        for file in directAnswerFiles(in: folder) {
+            if let number = AnswerLibrary.questionNumber(fromFileName: file.lastPathComponent) { numbers.insert(number) }
+        }
+        for record in transcriptRecords(in: folder) { numbers.insert(record.number) }
+        return numbers.count
     }
 
     /// "soru_12.m4a" → 12
@@ -69,8 +151,10 @@ struct AnswerLibrary {
 
     // MARK: Klasör işlemleri
 
-    /// Yeni oturum için günün klasörünü açar. O gün içinde cevap dosyası olan bir klasör varsa ezilmesin diye "_2", "_3" … açılır.
+    /// Yeni sınav oturumu için kendi üst klasörünü açar (adı o anın tarihi ve saati: "20261115223912"). Hiç dosya içermeyen önceki boş oturum
+    /// klasörleri (açılıp cevap alınmadan kapananlar) silinir; aynı saniyede açılmış, içinde cevap olan bir klasör varsa ezilmesin diye "_2", "_3" … açılır.
     func newSessionFolder(for date: Date, calendar: Calendar = .current) throws -> URL {
+        removeEmptySessionFolders()
         let base = AnswerLibrary.folderName(for: date, calendar: calendar)
         var part = 1
         while true {
@@ -82,6 +166,28 @@ struct AnswerLibrary {
             }
             part += 1
         }
+    }
+
+    /// İçinde hiçbir şey olmayan oturum klasörlerini siler (yalnız zaman damgalı adlılar; cevap ya da başka dosya içeren hiçbir klasöre dokunulmaz)
+    func removeEmptySessionFolders() {
+        let names = (try? fileManager.contentsOfDirectory(atPath: root.path)) ?? []
+        for name in names {
+            guard name.range(of: "^\\d{14}(_\\d+)?$", options: .regularExpression) != nil else { continue }
+            let url = root.appendingPathComponent(name, isDirectory: true)
+            if holdsNoFiles(url) { try? fileManager.removeItem(at: url) }
+        }
+    }
+
+    /// Klasörde (alt klasörler dahil) hiç dosya yok mu; okunamayan klasör "var" sayılır (silinmez)
+    private func holdsNoFiles(_ url: URL) -> Bool {
+        guard let names = try? fileManager.contentsOfDirectory(atPath: url.path) else { return false }
+        for name in names {
+            let child = url.appendingPathComponent(name)
+            var isDirectory: ObjCBool = false
+            guard fileManager.fileExists(atPath: child.path, isDirectory: &isDirectory), isDirectory.boolValue else { return false }
+            if !holdsNoFiles(child) { return false }
+        }
+        return true
     }
 
     /// Adı verilen oturum klasörü varsa (beklenmedik kapanmadan sonra aynı klasöre devam etmek için) adresi; yoksa nil
@@ -97,7 +203,7 @@ struct AnswerLibrary {
         let names = (try? fileManager.contentsOfDirectory(atPath: root.path)) ?? []
         let candidates = names.compactMap { name -> (name: String, key: (String, Int))? in
             guard let parsed = AnswerLibrary.parseFolderName(name) else { return nil }
-            return (name, (parsed.day, parsed.part))
+            return (name, (AnswerLibrary.sortKey(parsed.day), parsed.part))
         }
         let sorted = candidates.sorted { a, b in
             a.key.0 != b.key.0 ? a.key.0 < b.key.0 : a.key.1 < b.key.1
@@ -123,8 +229,16 @@ struct AnswerLibrary {
         }
     }
 
-    /// Klasördeki cevap sesleri, soru numarasına göre sıralı (soru_2, soru_10'dan önce gelir)
+    /// Klasördeki cevap sesleri, soru numarasına göre sıralı (soru_2, soru_10'dan önce gelir). Bölümlü bir sınav klasörüyse önce kendi
+    /// dosyaları, sonra bölüm klasörlerindekiler bölüm sırasıyla gelir (tekrar modu bütün bölümleri okur); bölüm klasörünün içinde yalnız o bölümünkiler.
     func answerFiles(in folder: URL) -> [URL] {
+        var files = directAnswerFiles(in: folder)
+        for section in sectionFolders(in: folder) { files += directAnswerFiles(in: section) }
+        return files
+    }
+
+    /// Yalnız bu klasörün kendi cevap sesleri (alt klasörlere bakılmaz)
+    func directAnswerFiles(in folder: URL) -> [URL] {
         let names = (try? fileManager.contentsOfDirectory(atPath: folder.path)) ?? []
         let numbered = names.compactMap { name -> (Int, String)? in
             guard let number = AnswerLibrary.questionNumber(fromFileName: name) else { return nil }

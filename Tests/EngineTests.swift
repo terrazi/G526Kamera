@@ -311,13 +311,20 @@ final class AnswerLibraryTests: XCTestCase {
         try? Data([1]).write(to: url)
     }
 
-    func testFolderNameIsTheDay() {
-        let date = utc.date(from: DateComponents(year: 2026, month: 11, day: 3, hour: 9))!
-        XCTAssertEqual(AnswerLibrary.folderName(for: date, calendar: utc), "2026-11-03")
+    func testFolderNameIsTheDateAndTimeDownToTheSecond() {
+        let date = utc.date(from: DateComponents(year: 2026, month: 11, day: 15, hour: 22, minute: 39, second: 12))!
+        XCTAssertEqual(AnswerLibrary.folderName(for: date, calendar: utc), "20261115223912")
+        let early = utc.date(from: DateComponents(year: 2026, month: 1, day: 3, hour: 4, minute: 5, second: 6))!
+        XCTAssertEqual(AnswerLibrary.folderName(for: early, calendar: utc), "20260103040506", "Tek haneliler sıfırla doldurulur")
     }
 
     func testParseFolderName() {
-        XCTAssertEqual(AnswerLibrary.parseFolderName("2026-11-13")?.day, "2026-11-13")
+        XCTAssertEqual(AnswerLibrary.parseFolderName("20261115223912")?.day, "20261115223912")
+        XCTAssertEqual(AnswerLibrary.parseFolderName("20261115223912")?.part, 1)
+        XCTAssertEqual(AnswerLibrary.parseFolderName("20261115223912_2")?.part, 2)
+        XCTAssertNil(AnswerLibrary.parseFolderName("202611152239"), "Saniyesiz ad bu biçim değildir")
+        XCTAssertNil(AnswerLibrary.parseFolderName("20261115223912@2"), "Bölüm eki klasör adı değildir")
+        XCTAssertEqual(AnswerLibrary.parseFolderName("2026-11-13")?.day, "2026-11-13", "Eski gün adları tanınır")
         XCTAssertEqual(AnswerLibrary.parseFolderName("2026-11-13")?.part, 1)
         XCTAssertEqual(AnswerLibrary.parseFolderName("2026-11-13_3")?.part, 3)
         XCTAssertNil(AnswerLibrary.parseFolderName("notlar"))
@@ -342,36 +349,100 @@ final class AnswerLibraryTests: XCTestCase {
         XCTAssertEqual(library.answerFiles(in: folder).map { $0.lastPathComponent }, ["soru_1.wav", "soru_2.m4a", "soru_10.m4a"])
     }
 
-    func testNewSessionFolderDoesNotOverwriteAnEarlierSessionOfTheSameDay() throws {
+    func testEachSessionGetsItsOwnFolderNamedByTheMoment() throws {
         let root = makeTempFolder()
         let library = AnswerLibrary(root: root)
-        let date = utc.date(from: DateComponents(year: 2026, month: 11, day: 13, hour: 9))!
+        let first = utc.date(from: DateComponents(year: 2026, month: 11, day: 15, hour: 22, minute: 39, second: 12))!
+        let later = utc.date(from: DateComponents(year: 2026, month: 11, day: 15, hour: 23, minute: 5, second: 40))!
+
+        let a = try library.newSessionFolder(for: first, calendar: utc)
+        XCTAssertEqual(a.lastPathComponent, "20261115223912")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: a.path))
+        touch(a.appendingPathComponent("soru_1.m4a"))
+
+        let b = try library.newSessionFolder(for: later, calendar: utc)
+        XCTAssertEqual(b.lastPathComponent, "20261115230540", "Aynı günün ikinci sınavı kendi klasörünü alır")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: a.appendingPathComponent("soru_1.m4a").path), "Önceki sınavın cevapları yerinde")
+    }
+
+    func testNewSessionFolderDoesNotOverwriteAnEarlierSessionOfTheSameSecond() throws {
+        let root = makeTempFolder()
+        let library = AnswerLibrary(root: root)
+        let date = utc.date(from: DateComponents(year: 2026, month: 11, day: 13, hour: 9, minute: 0, second: 0))!
 
         let first = try library.newSessionFolder(for: date, calendar: utc)
-        XCTAssertEqual(first.lastPathComponent, "2026-11-13")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: first.path))
+        XCTAssertEqual(first.lastPathComponent, "20261113090000")
 
         let reused = try library.newSessionFolder(for: date, calendar: utc)
-        XCTAssertEqual(reused.lastPathComponent, "2026-11-13", "İçi boş klasör yeniden kullanılır")
+        XCTAssertEqual(reused.lastPathComponent, "20261113090000", "İçi boş klasör yeniden kullanılır")
 
         touch(first.appendingPathComponent("soru_1.m4a"))
         let second = try library.newSessionFolder(for: date, calendar: utc)
-        XCTAssertEqual(second.lastPathComponent, "2026-11-13_2")
+        XCTAssertEqual(second.lastPathComponent, "20261113090000_2")
         touch(second.appendingPathComponent("soru_1.m4a"))
-        XCTAssertEqual(try library.newSessionFolder(for: date, calendar: utc).lastPathComponent, "2026-11-13_3")
+        XCTAssertEqual(try library.newSessionFolder(for: date, calendar: utc).lastPathComponent, "20261113090000_3")
+    }
+
+    func testEmptyLeftoverSessionFoldersAreRemovedButAnswersAreNeverTouched() throws {
+        let root = makeTempFolder()
+        let library = AnswerLibrary(root: root)
+        let fm = FileManager.default
+        try fm.createDirectory(at: root.appendingPathComponent("20261101100000"), withIntermediateDirectories: true)
+        try fm.createDirectory(at: root.appendingPathComponent("20261102100000/bolum_1"), withIntermediateDirectories: true)   // yalnız boş bölüm klasörü
+        touch(root.appendingPathComponent("20261103100000/soru_1.m4a"))
+        touch(root.appendingPathComponent("20261104100000/bolum_2/soru_5.m4a"))
+        touch(root.appendingPathComponent("20261105100000/not.txt"))   // cevap olmasa da başka dosya içeren klasör korunur
+        try fm.createDirectory(at: root.appendingPathComponent("kendi-klasorum"), withIntermediateDirectories: true)   // oturum klasörü olmayan ada dokunulmaz
+        let date = utc.date(from: DateComponents(year: 2026, month: 11, day: 15, hour: 8, minute: 0, second: 0))!
+        _ = try library.newSessionFolder(for: date, calendar: utc)
+        XCTAssertFalse(fm.fileExists(atPath: root.appendingPathComponent("20261101100000").path))
+        XCTAssertFalse(fm.fileExists(atPath: root.appendingPathComponent("20261102100000").path))
+        XCTAssertTrue(fm.fileExists(atPath: root.appendingPathComponent("20261103100000/soru_1.m4a").path))
+        XCTAssertTrue(fm.fileExists(atPath: root.appendingPathComponent("20261104100000/bolum_2/soru_5.m4a").path))
+        XCTAssertTrue(fm.fileExists(atPath: root.appendingPathComponent("20261105100000/not.txt").path))
+        XCTAssertTrue(fm.fileExists(atPath: root.appendingPathComponent("kendi-klasorum").path))
     }
 
     func testLatestFolderIsTheNewestOneWithAnswers() {
         let root = makeTempFolder()
         let library = AnswerLibrary(root: root)
         XCTAssertNil(library.latestFolder())
-        touch(root.appendingPathComponent("2026-11-12/soru_1.m4a"))
-        try? FileManager.default.createDirectory(at: root.appendingPathComponent("2026-11-13"), withIntermediateDirectories: true)
-        XCTAssertEqual(library.latestFolder()?.lastPathComponent, "2026-11-12", "Cevapsız yeni klasör atlanır")
-        touch(root.appendingPathComponent("2026-11-12_2/soru_1.m4a"))
-        XCTAssertEqual(library.latestFolder()?.lastPathComponent, "2026-11-12_2")
+        touch(root.appendingPathComponent("20261112090000/soru_1.m4a"))
+        try? FileManager.default.createDirectory(at: root.appendingPathComponent("20261113090000"), withIntermediateDirectories: true)
+        XCTAssertEqual(library.latestFolder()?.lastPathComponent, "20261112090000", "Cevapsız yeni klasör atlanır")
+        touch(root.appendingPathComponent("20261112090000_2/soru_1.m4a"))
+        XCTAssertEqual(library.latestFolder()?.lastPathComponent, "20261112090000_2")
         touch(root.appendingPathComponent("notlar/soru_1.m4a"))
-        XCTAssertEqual(library.latestFolder()?.lastPathComponent, "2026-11-12_2", "Gün klasörü olmayanlar yok sayılır")
+        XCTAssertEqual(library.latestFolder()?.lastPathComponent, "20261112090000_2", "Oturum klasörü olmayanlar yok sayılır")
+        touch(root.appendingPathComponent("2026-11-14/soru_1.m4a"))
+        XCTAssertEqual(library.latestFolder()?.lastPathComponent, "2026-11-14", "Eski gün klasörü de zamanına göre sıralanır (14 Kasım gece yarısı > 12 Kasım)")
+        touch(root.appendingPathComponent("20261114000001/soru_1.m4a"))
+        XCTAssertEqual(library.latestFolder()?.lastPathComponent, "20261114000001")
+    }
+
+    func testAnswerFilesOfASectionedExamAreListedSectionBySection() {
+        let root = makeTempFolder()
+        let library = AnswerLibrary(root: root)
+        let exam = root.appendingPathComponent("20261115223912", isDirectory: true)
+        touch(exam.appendingPathComponent("bolum_2/soru_1.m4a"))
+        touch(exam.appendingPathComponent("bolum_1/soru_10.m4a"))
+        touch(exam.appendingPathComponent("bolum_1/soru_2.m4a"))
+        let names = library.answerFiles(in: exam).map { "\($0.deletingLastPathComponent().lastPathComponent)/\($0.lastPathComponent)" }
+        XCTAssertEqual(names, ["bolum_1/soru_2.m4a", "bolum_1/soru_10.m4a", "bolum_2/soru_1.m4a"])
+        XCTAssertEqual(library.answerFiles(in: exam.appendingPathComponent("bolum_1")).count, 2, "Bölüm klasörü yalnız kendi cevaplarını verir")
+        XCTAssertEqual(library.latestFolder()?.lastPathComponent, "20261115223912", "Bölümlü sınav da son kayıt sayılır")
+    }
+
+    func testLocationNamesCarryTheSection() {
+        XCTAssertEqual(AnswerLibrary.locationName(exam: "20261115223912", section: 0), "20261115223912")
+        XCTAssertEqual(AnswerLibrary.locationName(exam: "20261115223912", section: 3), "20261115223912@3")
+        XCTAssertEqual(AnswerLibrary.splitLocation("20261115223912@3").exam, "20261115223912")
+        XCTAssertEqual(AnswerLibrary.splitLocation("20261115223912@3").section, 3)
+        XCTAssertEqual(AnswerLibrary.splitLocation("20261115223912").section, 0)
+        XCTAssertEqual(AnswerLibrary.splitLocation("2026-11-14").exam, "2026-11-14", "Eski gün adı bozulmaz")
+        XCTAssertEqual(AnswerLibrary.sectionNumber(fromFolderName: "bolum_4"), 4)
+        XCTAssertNil(AnswerLibrary.sectionNumber(fromFolderName: "bolum_x"))
+        XCTAssertNil(AnswerLibrary.sectionNumber(fromFolderName: "soru_4"))
     }
 
     func testRemoveExistingOnlyTouchesThatQuestion() {
