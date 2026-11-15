@@ -94,32 +94,15 @@ struct ContentView: View {
                 cameraStateLine
                 Text("Önizleme kapalı (pil tasarrufu)").font(.caption).foregroundColor(.secondary)
             } else {
-                ZStack(alignment: .topLeading) {
-                    VideoLayerView(renderer: cameraController.renderer, orientation: camera.imageOrientation)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(Color.black)
-                        .cornerRadius(12)
-                    cameraStateLine
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(.ultraThinMaterial)
-                        .cornerRadius(10)
-                        .padding(8)
-                }
-                .aspectRatio(ratio, contentMode: .fit)
-                .frame(maxWidth: maxWidth, alignment: .leading)
-                .overlay(alignment: .bottom) {
-                    if cameraController.active, !cameraController.statusText.isEmpty {
-                        Text(cameraController.statusText)
-                            .font(.subheadline.weight(.semibold))
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 8)
-                            .background(Color.black.opacity(0.75))
-                            .foregroundColor(.white)
-                            .cornerRadius(10)
-                            .padding(10)
-                    }
-                }
+                // Yazılar görüntünün ÜSTÜNE değil, üstüne ve altına konur: kamera önizlemesi hiçbir yerinden kapanmasın
+                cameraStateLine
+                VideoLayerView(renderer: cameraController.renderer, orientation: camera.imageOrientation)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color.black)
+                    .cornerRadius(12)
+                    .aspectRatio(ratio, contentMode: .fit)
+                    .frame(maxWidth: maxWidth, alignment: .leading)
+                cameraStatusLine
             }
             Toggle("Canlı önizleme", isOn: previewOn).font(.subheadline)
             Toggle("Test sürerken ekranı kıs", isOn: $settings.dimScreen).font(.subheadline)
@@ -131,6 +114,20 @@ struct ContentView: View {
         .padding()
         .background(Color(.secondarySystemBackground))
         .cornerRadius(12)
+    }
+
+    /// Çekim sürerken kameranın söylediği/yazdığı kısa durum ("Soruyu kadraja alın"…): görüntünün altında durur. Yazı çıkıp kaybolurken
+    /// kart oynamasın diye yeri hep ayrılıdır.
+    private var cameraStatusLine: some View {
+        let text = cameraController.active ? cameraController.statusText : ""
+        return Text(text.isEmpty ? " " : text)
+            .font(.subheadline.weight(.semibold))
+            .multilineTextAlignment(.center)
+            .foregroundColor(text.isEmpty ? .clear : .white)
+            .frame(maxWidth: .infinity, minHeight: 36)
+            .padding(.horizontal, 10)
+            .background(text.isEmpty ? Color.clear : Color.black.opacity(0.75))
+            .cornerRadius(10)
     }
 
     /// Kamera durum noktası (canlıysa yeşil) ve yazısı; kamera pili okunduysa yanında

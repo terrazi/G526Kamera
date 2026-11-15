@@ -70,7 +70,7 @@ paragraf numarası çözümleme ve kesinti/kurtarma akışı (tur 1 ve 2 incelem
 
 | Ekran / öğe | Bulgu |
 |---|---|
-| Ana ekran (başlat/bitir, durum, tekrar düğmesi) | V3 gibi. Kullanıcı isteğiyle V1'deki gibi kamera kutusu hep görünür (görüntü yokken siyah; durum noktası, bildirim bandı, kamera pili), "Canlı önizleme" ve "Test sürerken ekranı kıs" anahtarları ve "Şimdi çek" (yalnız çekim sürerken) ana ekranda; çekimden sonra "Son fotoğraf" küçük resmi. Ayarlar > Kamera > Pil ve ısınma: "Canlı önizlemeyi kapat" ve "Son fotoğrafı ana ekranda gösterme" (`CameraSettings.lastShotOff`) |
+| Ana ekran (başlat/bitir, durum, tekrar düğmesi) | V3 gibi. Kullanıcı isteğiyle V1'deki gibi kamera kutusu hep görünür (görüntü yokken siyah; durum noktası ve kamera pili görüntünün ÜSTÜNDE, bildirim bandı ALTINDA ayrı satırlarda durur: yazılar önizlemeyi hiçbir yerinden kapatmaz), "Canlı önizleme" ve "Test sürerken ekranı kıs" anahtarları ve "Şimdi çek" (yalnız çekim sürerken) ana ekranda; çekimden sonra "Son fotoğraf" küçük resmi. Ayarlar > Kamera > Pil ve ısınma: "Canlı önizlemeyi kapat" ve "Son fotoğrafı ana ekranda gösterme" (`CameraSettings.lastShotOff`) |
 | Ayarlar: anahtar, profiller, kestirmeler, süreler, yardım | V3 ile aynı; yardım metni yeni rapor ve ayar komutlarıyla genişletildi |
 | Ayarlar > Kamera (UID, kestirme adı, kalite, video, süre, kadraj, yön, iyileştirme, önizleme, konumlandırma sesi) | V1'den taşındı ve oturum ayarlarına bağlandı; sesle de değiştirilebilir |
 | "Kamerayı dene" | V4'e özgü; küçük resim ve (görüntü karesinden okunduysa) kamera pili satırı var |

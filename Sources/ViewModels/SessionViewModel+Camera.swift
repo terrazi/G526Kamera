@@ -173,12 +173,16 @@ extension SessionViewModel {
     /// Kamera çekimi. `subject == .passage`: çekilen ortak paragraftır; soru gibi Gemini'ye gönderilmez, "hangi sorulara ait" sorulana kadar
     /// taslak olarak tutulur. Her adımda kullanıcıya kısa bilgi verilir (kameraya geçiliyor, çekim başarılı, internet geldi…).
     func runCameraCapture(subject: CaptureSubject = .question) async {
-        guard !cameraBusy else { return }
+        guard !cameraBusy else {
+            tlog("[kamera] önceki çekim sürüyor; yeni çekim başlatılmadı")
+            return
+        }
         cameraBusy = true
         defer { cameraBusy = false }
         let isPassage = subject == .passage
         let cameraName = cameraSettings.cameraShortcutName.trimmed
         let internetName = settings.internetShortcut.trimmed
+        tlog("[kamera] evet denildi\(isPassage ? " (ortak paragraf)" : ""): kestirme “\(cameraName)”, internet kestirmesi “\(internetName)”, kamera adı \(CameraUID(cameraSettings.uid) == nil ? "geçersiz" : "geçerli")")
         guard cameraConfigured else {
             if isPassage {
                 await fallBackToVoicePassage(Say.passageShortcutsMissing)
@@ -188,6 +192,7 @@ extension SessionViewModel {
             return
         }
         guard await speakNotice(isPassage ? Say.passageCameraConnecting : Say.cameraConnecting) else {
+            tlog("[kamera] “Kameraya geçiliyor” anonsu kesildi (kulaklık, arama ya da onarım); kestirme çalıştırılmadı, onarımdan sonra yeniden sorulacak")
             offerCamera = true   // kesildi (kulaklık, arama, onarım): onarımdan sonra kamera sorusu yeniden sorulur
             return
         }
@@ -378,8 +383,13 @@ extension SessionViewModel {
                 tlog("[kamera] bağlantı onarımı \(attempt). deneme: kestirme “\(name)”")
                 sayGuidance(Say.cameraRepairing)
             }
+            tlog("[kamera] kestirme çalıştırılıyor: “\(name)”")
             let outcome = await deps.shortcuts.run(name: name)
-            guard !Task.isCancelled, phase == .answering else { return .failure(.cancelled) }
+            tlog("[kamera] kestirme sonucu: \(outcome)")
+            guard !Task.isCancelled, phase == .answering else {
+                tlog("[kamera] kestirmeden dönüşte iş iptal edilmiş ya da durum değişmiş (\(phase)); çekim yapılmadı")
+                return .failure(.cancelled)
+            }
             let camera = deps.camera
             // Zaman aşımında kestirme çalışmış ama dönüş haberi gelmemiş olabilir: kameranın kendisi karar verir
             if outcome == .success || outcome == .timedOut {
