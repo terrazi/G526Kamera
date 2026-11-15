@@ -102,7 +102,7 @@ enum PortManifest {
         PortEntry(v1: "Enhancer.swift", status: .copied, note: "", types: [TimestampMode.self, EnhanceOptions.self, Enhancer.self]),
         PortEntry(v1: "FrameAnalysis.swift", status: .copied, note: "", types: [StoredFrame.self, FrameAnalysis.self, FrameStore.self]),
         PortEntry(v1: "FramePipeline.swift", status: .copied, note: "", types: [FramePipeline.self]),
-        PortEntry(v1: "Guidance.swift", status: .copied, note: "", types: [ColumnBox.self, PageMetrics.self, GuidanceAnalyzer.self, ColumnChoice.self, GuidanceVocabulary.self, GuidanceAdvice.self, GuidanceTrend.self, GuidanceTrendTracker.self, GuidanceScene.self, GuidanceConfig.self, GuidanceDecision.self, GuidanceAdvisor.self, GuidanceEngine.self]),
+        PortEntry(v1: "Guidance.swift", status: .adapted, note: "V1 ile aynı; yalnız Sürüm 4 \"odak\" kipi eklendi (focusQuestion: kadrajın ortasındaki soru hedeflenir, bölüm sorulmaz, yan sütunlar ve alt/üst taşma sorun sayılmaz). Bayrak kapalıyken V1 davranışı birebir korunur", types: [ColumnBox.self, PageMetrics.self, GuidanceAnalyzer.self, ColumnChoice.self, GuidanceVocabulary.self, GuidanceAdvice.self, GuidanceTrend.self, GuidanceTrendTracker.self, GuidanceScene.self, GuidanceConfig.self, GuidanceDecision.self, GuidanceAdvisor.self, GuidanceEngine.self]),
         PortEntry(v1: "H264Decoder.swift", status: .copied, note: "", types: [H264Decoder.self]),
         PortEntry(v1: "ImageOrientation.swift", status: .copied, note: "", types: [ImageOrientation.self]),
         PortEntry(v1: "PageEdges.swift", status: .copied, note: "", types: [PageEdges.self, PageEdgeDetector.self, PageEdgeTracker.self]),

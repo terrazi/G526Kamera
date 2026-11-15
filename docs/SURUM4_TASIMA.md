@@ -17,7 +17,7 @@ V1 (`pdf-toplu-gonderim` dalı) kamera uygulamasından V4'e (`surum-4`) neyin, n
 | `Enhancer.swift` | Aynen alındı | Sources/Camera/Enhancer.swift (V1 ile satır satır aynı); türler: TimestampMode, EnhanceOptions, Enhancer |
 | `FrameAnalysis.swift` | Aynen alındı | Sources/Camera/FrameAnalysis.swift (V1 ile satır satır aynı); türler: StoredFrame, FrameAnalysis, FrameStore |
 | `FramePipeline.swift` | Aynen alındı | Sources/Camera/FramePipeline.swift (V1 ile satır satır aynı); türler: FramePipeline |
-| `Guidance.swift` | Aynen alındı | Sources/Camera/Guidance.swift (V1 ile satır satır aynı); türler: ColumnBox, PageMetrics, GuidanceAnalyzer, ColumnChoice, GuidanceVocabulary, GuidanceAdvice, GuidanceTrend, GuidanceTrendTracker, GuidanceScene, GuidanceConfig, GuidanceDecision, GuidanceAdvisor, GuidanceEngine |
+| `Guidance.swift` | Uyarlandı | Sources/Camera/Guidance.swift: V1 ile aynı; yalnız Sürüm 4 "odak" kipi eklendi (focusQuestion: kadrajın ortasındaki soru hedeflenir, bölüm sorulmaz, yan sütunlar ve alt/üst taşma sorun sayılmaz). Bayrak kapalıyken V1 davranışı birebir korunur; türler: ColumnBox, PageMetrics, GuidanceAnalyzer, ColumnChoice, GuidanceVocabulary, GuidanceAdvice, GuidanceTrend, GuidanceTrendTracker, GuidanceScene, GuidanceConfig, GuidanceDecision, GuidanceAdvisor, GuidanceEngine |
 | `H264Decoder.swift` | Aynen alındı | Sources/Camera/H264Decoder.swift (V1 ile satır satır aynı); türler: H264Decoder |
 | `ImageOrientation.swift` | Aynen alındı | Sources/Camera/ImageOrientation.swift (V1 ile satır satır aynı); türler: ImageOrientation |
 | `PageEdges.swift` | Aynen alındı | Sources/Camera/PageEdges.swift (V1 ile satır satır aynı); türler: PageEdges, PageEdgeDetector, PageEdgeTracker |
