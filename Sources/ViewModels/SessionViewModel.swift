@@ -798,6 +798,11 @@ final class SessionViewModel: ObservableObject {
             confirmTask = deps.scheduler.after(Timing.numberConfirm) { [weak self] in self?.fireVoiceCommand() }
             return
         }
+        // "Paragrafı iptal et": paragraf okunurken ve numaraları beklenirken söylenebilir (öteki komutlar paragraf metnine karışır)
+        if listenMode == .passage || listenMode == .passageTargets, spokenCommand() == .cancelPassage {
+            confirmTask = deps.scheduler.after(Timing.numberConfirm) { [weak self] in self?.fireVoiceCommand() }
+            return
+        }
         switch listenMode {
         case .question:
             // Tek başına söylenen komut ("testi bitir"): kısa süre sabit kalırsa çalışır, "Cevapla" demek gerekmez
@@ -845,8 +850,16 @@ final class SessionViewModel: ObservableObject {
             guard interpret(SpokenReply.review) != nil else { scheduleChoiceUnclear(); return }
             delay = Timing.numberConfirm
         case .passageCameraChoice:
-            guard interpret(SpokenReply.cameraChoice) != nil else { scheduleChoiceUnclear(); return }
-            delay = Timing.numberConfirm
+            if interpret(SpokenReply.cameraChoice) != nil {
+                delay = Timing.numberConfirm
+            } else if spokenCommand() != nil {
+                // Kamera sorusundaki gibi: V3'ün sesli komutları ("testi bitir", "cevapları tekrarla", "paragrafı iptal et"…) burada da çalışır
+                confirmTask = deps.scheduler.after(Timing.numberConfirm) { [weak self] in self?.fireVoiceCommand() }
+                return
+            } else {
+                scheduleChoiceUnclear()
+                return
+            }
         case .cameraChoice:
             if interpret(SpokenReply.cameraChoice) != nil {
                 delay = Timing.numberConfirm
@@ -891,9 +904,13 @@ final class SessionViewModel: ObservableObject {
         confirmTask = nil
         guard phase == .listening, let command = spokenCommand() else { return }
         switch listenMode {
-        case .question, .cameraChoice:
+        case .question, .cameraChoice, .passageCameraChoice:
             break
-        case .confirmEnd, .missingNumber, .passageTargets:
+        case .passage:
+            guard command == .cancelPassage else { return }
+        case .passageTargets:
+            guard command == .replayAnswers || command == .cancelPassage else { return }
+        case .confirmEnd, .missingNumber:
             guard command == .replayAnswers else { return }
         default:
             return
@@ -903,7 +920,11 @@ final class SessionViewModel: ObservableObject {
 
     private func run(_ command: VoiceCommand) {
         var back = listenMode   // cevaplar okunduktan sonra "Devam" denirse buraya dönülür
-        if back == .cameraChoice {
+        let from = listenMode
+        // "Ortak paragrafı iptal et" diye başlandıysa paragraf okunmaya hiç başlanmamıştır (komutun kendisi dışında ≤ 3 sözcük)
+        let phraseOnly = from == .passage && PassageCommand.startsWith(accumulator.text)
+            && PassageCommand.stripStart(accumulator.text).split(whereSeparator: { $0.isWhitespace }).count <= 3
+        if back == .cameraChoice || back == .passageCameraChoice {
             // Komut kamera sorusu açıkken söylendi: iş bitince (cevap tekrarı, "Devam", vazgeçilen bitirme) bu soru için kamera yeniden sorulur
             back = .question
             armCameraOffer()
@@ -936,7 +957,50 @@ final class SessionViewModel: ObservableObject {
         case .replayAnswers:
             tlog("[komut] sesli komut: cevapları tekrarla")
             work = Task { [weak self] in await self?.beginReview(origin: .repeatRequest, returnTo: back) }
+        case .repeatNumber(let number):
+            tlog("[komut] sesli komut: \(number). sorunun cevabını tekrarla")
+            let text = answers.first(where: { $0.number == number })?.spoken ?? Say.noAnswerFor(number)
+            work = Task { [weak self] in
+                guard let self = self, await self.speakNotice(text) else { return }
+                self.beginListening()
+            }
+        case .cancelQuestion:
+            // Okunan soru (metin ve ses kaydı yukarıda temizlendi) vazgeçilir; kamera sorusundayken silinecek bir şey yoktur
+            tlog("[komut] sesli komut: soruyu iptal et")
+            let choice = from == .cameraChoice || from == .passageCameraChoice
+            let notice = choice ? Say.nothingToCancelQuestion : (cameraQuestionWillBeAsked ? Say.questionCancelledCamera : Say.questionCancelled)
+            work = Task { [weak self] in
+                guard let self = self, await self.speakNotice(notice) else { return }
+                self.beginListening(mode: .question)
+            }
+        case .cancelPassage:
+            let notice = cancelPassage(from: from, phraseOnly: phraseOnly)
+            work = Task { [weak self] in
+                guard let self = self, await self.speakNotice(notice) else { return }
+                self.beginListening(mode: .question)
+            }
         }
+    }
+
+    /// "Paragrafı iptal et": okunmakta ya da numaraları beklenen paragraf (taslak) vazgeçilir, taslağın video dosyası silinir; taslak yoksa
+    /// kayıtlı ortak paragraf silinir. `phraseOnly`: "ortak paragrafı iptal et" diye başlandı (paragraf okunmaya hiç başlanmadı): kayıtlı
+    /// paragrafı siler. Bu soru için kamera yeniden sorulur. Söylenecek cümle döner.
+    private func cancelPassage(from mode: ListenMode, phraseOnly: Bool) -> String {
+        armCameraOffer()
+        let next = cameraQuestionWillBeAsked
+        if mode == .passageTargets || mode == .passageCameraChoice || (mode == .passage && !phraseOnly) {
+            tlog("[komut] sesli komut: paragrafı iptal et (okunan paragraf bırakıldı)")
+            passageDraft = nil
+            targetReminders = 0
+            targetDoneReminders = 0
+            return Say.passageCancelled(cameraNext: next)
+        }
+        if passage != nil {
+            tlog("[komut] sesli komut: paragrafı iptal et (kayıtlı ortak paragraf silindi)")
+            passage = nil
+            return Say.storedPassageCancelled(cameraNext: next)
+        }
+        return Say.noPassageToCancel(cameraNext: next)
     }
 
     /// "Testi bitirmek istiyor musunuz?" sorusuna cevap: evet bitirir (önce cevaplar okunur), hayır devam ettirir
@@ -991,7 +1055,7 @@ final class SessionViewModel: ObservableObject {
         if listenMode == .startChoice, interpret(SpokenReply.start) != nil { return }
         if listenMode == .reviewMenu, interpret(SpokenReply.review) != nil { return }
         if listenMode == .cameraChoice, interpret(SpokenReply.cameraChoice) != nil || spokenCommand() != nil { return }
-        if listenMode == .passageCameraChoice, interpret(SpokenReply.cameraChoice) != nil { return }
+        if listenMode == .passageCameraChoice, interpret(SpokenReply.cameraChoice) != nil || spokenCommand() != nil { return }
         tlog("[komut] cevap anlaşılamadı; duyulan: \"\(heard)\"")
         warn("duyulan", "Duyulan: “\(heard)”. Cevap anlaşılamadı.")
         work = Task { [weak self] in await self?.choiceSilence() }

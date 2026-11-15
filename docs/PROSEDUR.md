@@ -40,6 +40,15 @@ Bu belge, programın sesle nasıl işlemesi gerektiğini adım adım yazar; her 
 4. **Komutlar** (tek başına): "Testi bitir / Sınavı bitir / Bitir" → onay sorulur; "Son cevabı tekrarla" → son cevap yeniden okunur;
    **"Cevapları tekrarla"** → bütün cevaplar baştan okunur (soru dinlenirken, bitirme onayı beklenirken, eksik numara beklenirken ve paragraf numaraları
    beklenirken söylenebilir; test sürer, oturum kapanmaz).
+   **"N. sorunun cevabını tekrarla"** (ör. "beşinci sorunun cevabını tekrarla", "soru 12 cevabı tekrar") → yalnız o sorunun cevabı okunur; kayıt yoksa
+   "N numaralı soru için kayıtlı cevap yok" denir; ardından dinlemeye dönülür (soru dinlenirken ve kamera sorusu açıkken söylenebilir).
+   **"Soruyu iptal et"** → o ana kadar okunan soru metni ve ses kaydı silinir, "Okunan soru silindi" denir ve soru baştan okunur (kamera sorusu açıkken
+   silinecek soru olmadığı söylenir ve kamera sorusu yeniden sorulur).
+   **"Paragrafı iptal et" / "Ortak paragrafı iptal et"** → okunmakta ya da numaraları beklenen paragraf (ve kamerayla çekilmişse görüntüleri) bırakılır;
+   paragraf okunmaya hiç başlanmamışsa kayıtlı ortak paragraf silinir; ikisi de yoksa "Silinecek ortak paragraf yok" denir. Paragraf okunurken,
+   numaraları beklenirken ve "Paragrafı kamera ile çekmek ister misiniz?" sorusu açıkken söylenebilir. Sonra bu soru için kamera yeniden sorulur.
+   Kamera sorusuna ("Bu soruyu kamera ile çekmek ister misiniz?") verilen yanıtlar geniş tutuldu: evet / olur / tabii / çekelim / kamerayla,
+   hayır / istemiyorum / sesle / okuyayım gibi.
 5. **Cevapları okuma ve menü.** Cevaplar numara sırasıyla, aralarında Tekrar boşluğu (varsayılan 3 sn) okunur. Bitince: "N sorunun cevabı okundu. Ne yapmak
    istersiniz? Teste kaldığınız yerden devam etmek için **Devam**, cevapları yeniden dinlemek için **Tekrar**, testi tamamlamak için **Bitir** deyin."
    Devam → kalınan yere dönülür (soru / eksik numara / paragraf numaraları); Tekrar → yeniden okunur ve yine sorulur; Bitir → "Test tamamlandı. N cevap
@@ -52,9 +61,9 @@ Bu belge, programın sesle nasıl işlemesi gerektiğini adım adım yazar; her 
 | Durum | Sesli istem | Kabul edilen | Anlaşılmazsa / sessizlikte | Sınır |
 |---|---|---|---|---|
 | soru | "Hazır" / "Lütfen sonraki soruyu okuyun" | soru + Cevapla/Gönder; komutlar | 30 sn sessizlikte dinleme sessizce yenilenir | yok |
-| ortak paragraf | "Lütfen ortak paragrafı okuyun, bitince Tamam deyin" | paragraf + Tamam / Tamamlandı | — ("tamam" cümle içinde geçerse 1,5 sn sabit kalmadan bitmez) | yok |
-| ortak paragraf: kamera mı, ses mi (yalnız kamera açıkken) | "Ortak paragraf. Paragrafı kamera ile çekmek ister misiniz?" | evet / hayır | anlaşılmazsa ya da sessizlikte bir kez daha sorulur; olmazsa sesle okuma | 1 hatırlatma |
-| paragraf numaraları | "Paragraf metnini aldım, hangi sorular için?" | numaralar + Tamam / Cevapla / Gönder | kısa yeniden sorma; ekranda ne duyulduğu yazar | 2 yeniden, sonra paragraf sıradaki soruya bağlanır ve söylenir |
+| ortak paragraf | "Lütfen ortak paragrafı okuyun, bitince Tamam deyin" | paragraf + Tamam / Tamamlandı; "paragrafı iptal et" (son sözde) | — ("tamam" cümle içinde geçerse 1,5 sn sabit kalmadan bitmez) | yok |
+| ortak paragraf: kamera mı, ses mi (yalnız kamera açıkken) | "Ortak paragraf. Paragrafı kamera ile çekmek ister misiniz?" | evet / hayır; "paragrafı iptal et", "soruyu iptal et", "N. sorunun cevabını tekrarla", "cevapları tekrarla" | anlaşılmazsa ya da sessizlikte bir kez daha sorulur; olmazsa sesle okuma | 1 hatırlatma |
+| paragraf numaraları | "Paragraf metnini aldım, hangi sorular için?" | numaralar + Tamam / Cevapla / Gönder; "cevapları tekrarla"; "paragrafı iptal et" | kısa yeniden sorma; ekranda ne duyulduğu yazar | 2 yeniden, sonra paragraf sıradaki soruya bağlanır ve söylenir |
 | eksik soru numarası | "Lütfen okuduğunuz sorunun numarasını söyleyin" | numara, "sıradaki" | numara olmayan kısa söz 4 sn sonra, sessizlik 30 sn sonra yeniden sorulur; ekranda ne duyulduğu yazar | 2 hatırlatma, sonra sıradaki numara |
 | testi bitirme onayı | "Testi bitirmek istiyor musunuz?" | evet / hayır (komutu yeniden söylemek de evet); "cevapları tekrarla" | anlaşılmazsa bir kez daha sorulur; cevapsızlıkta test sürer | 1 hatırlatma |
 | cevap okuma sonrası menü | "N sorunun cevabı okundu… Devam, Tekrar ya da Bitir deyin" | devam / tekrar / bitir ve doğal söyleyişler ("teste devam edelim", "cevapları yeniden oku", "testi tamamla") | anlaşılmazsa 4 sn sonra, sessizlikte 30 sn sonra bir kez hatırlatılır; sonra varsayılan (bitirme isteğiyse tamamla, değilse devam) | 1 hatırlatma |
@@ -87,7 +96,8 @@ bitişik "567" (üç haneli ve 150'nin üstündeyse tek tek rakam sayılır).
 
 ## Bilinen eksikler
 
-- Komutlar paragraf okurken çalışmaz (paragrafa karışır).
+- Paragraf okunurken yalnız "paragrafı iptal et" çalışır; diğer komutlar (testi bitir, cevapları tekrarla…) paragrafa karışır, çünkü paragraf serbest metindir.
+- "Soruyu iptal et" yalnız soru dinlenirken (okunan metni siler) anlamlıdır; kamerayla çekilmiş soru Gemini'ye gittikten sonra geri alınamaz.
 - Komut denemesi yalnız çok katı bir kuralla ("bütün sözcükler komut sözcüğü, en az biri fiil/işaret") algılanır; ondan uzak bir yanlış okuma (komutla ilgisiz sözcükler) hâlâ soru metni sayılır ve sessiz birikir.
 - "Testi Bitir" **düğmesi** cevapları kendiliğinden okutmaz; yalnız sesle bitirme okutur (düğme sonrası ana ekrandaki tekrar düğmesi kullanılır).
 - "Cevapları tekrarla" paragraf okunurken ve "Devam mı, yeni sınav mı?" sorusu beklenirken çalışmaz.

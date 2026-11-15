@@ -178,6 +178,12 @@ enum VoiceCommand: Equatable {
     case endTest
     case repeatLast
     case replayAnswers
+    /// "Soruyu iptal et": okunmakta olan soru (dikte metni ve ses kaydı) silinir, kullanıcı baştan okur
+    case cancelQuestion
+    /// "Paragrafı iptal et": okunmakta ya da numaraları beklenen paragraf vazgeçilir; yoksa kayıtlı ortak paragraf silinir
+    case cancelPassage
+    /// "5. sorunun cevabını tekrarla": yalnız o sorunun cevabı yeniden okunur
+    case repeatNumber(Int)
 
     static let subjects: Set<String> = ["test", "testi", "testimi", "teste", "sinav", "sinavi", "sinavimi", "sinava", "denemeyi", "deneme"]
     static let endVerbs: Set<String> = [
@@ -206,7 +212,75 @@ enum VoiceCommand: Equatable {
     /// Tekil: son cevap
     static let lastMarkers: Set<String> = ["cevabi", "cevap", "cevabini", "cevabim", "son", "sonuncu", "sonuncuyu"]
 
+    /// İptal fiilleri. "baştan" / "yeniden" tek başına iptal değildir: bir konu sözcüğü ve okuma fiiliyle ("soruyu baştan okuyacağım") sayılır
+    static let cancelVerbs: Set<String> = [
+        "iptal", "sil", "silin", "silelim", "silsene", "temizle", "temizleyin", "temizleyelim", "unut", "unutun",
+        "vazgec", "vazgectim", "vazgecelim"
+    ]
+    static let restartWords: Set<String> = ["bastan", "yeniden"]
+    static let restartVerbs: Set<String> = [
+        "oku", "okuyacagim", "okuyayim", "okuyorum", "okuyalim", "basla", "baslayacagim", "baslayayim", "baslayalim", "alalim"
+    ]
+    static let questionSubjects: Set<String> = ["soru", "soruyu", "sorumu", "sorusunu"]
+    static let passageSubjects: Set<String> = ["paragraf", "paragrafi", "paragrafimi", "paragrafin"]
+    /// "Ortak paragrafı iptal et" gibi söyleyişlerdeki dolgu
+    static let cancelFillers: Set<String> = ["ortak"]
+    /// "5. sorunun cevabı" söyleyişindeki konu sözcükleri (numara dışında kalan sözcükler)
+    static let numberedStops: Set<String> = ["soru", "sorunun", "sorusunun", "sorudaki", "numarali", "numarasi", "numara", "nolu", "no", "olan", "ait", "ki"]
+    static let notNumbered: Set<String> = ["son", "sonuncu", "sonuncuyu"]
+
+    /// "soruyu iptal et", "paragrafı sil", "ortak paragrafı iptal et", "soruyu baştan okuyacağım". Metin TAMAMEN komut olmalı ve tam olarak bir konu
+    /// sözcüğü (soru ya da paragraf) içermeli: soru metnindeki "iptal et" gibi sözler komut sayılmaz.
+    static func parseCancel(_ text: String) -> VoiceCommand? {
+        let all = SpokenWords.of(text)
+        guard all.count >= 2, all.count <= 6 else { return nil }
+        var strong = false, restart = false, restartVerb = false, question = false, passage = false
+        for word in all {
+            if SpokenWords.matches(word, fillers) || SpokenWords.matches(word, cancelFillers) { continue }
+            if SpokenWords.matches(word, cancelVerbs) {
+                strong = true
+            } else if SpokenWords.matches(word, restartWords) {
+                restart = true
+            } else if SpokenWords.matches(word, restartVerbs) {
+                restartVerb = true
+            } else if SpokenWords.matches(word, passageSubjects) || SpokenWords.startsLike(word, "paragraf") {
+                passage = true
+            } else if SpokenWords.matches(word, questionSubjects) {
+                question = true
+            } else {
+                return nil   // tanınmayan sözcük: komut değil, soru ya da paragraf metni olabilir
+            }
+        }
+        guard passage != question, strong || (restart && restartVerb) else { return nil }
+        return passage ? .cancelPassage : .cancelQuestion
+    }
+
+    /// "5. sorunun cevabını tekrarla", "beşinci sorunun cevabını oku", "soru yedinin cevabını söyle": tek bir sorunun cevabı. Numara bulunamazsa nil
+    /// ("son cevabı tekrarla" ve "cevapları tekrarla" bu komut değildir).
+    static func parseNumbered(_ text: String) -> VoiceCommand? {
+        let originals = text.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+        guard originals.count >= 2, originals.count <= 8 else { return nil }
+        var rest: [String] = []
+        var hasAnswer = false, hasRepeat = false, sawBir = false
+        for original in originals {
+            let word = SpokenWords.fold(original)
+            if word.isEmpty || word == "lutfen" { continue }
+            if word == "bir" { sawBir = true; continue }
+            if SpokenWords.matches(word, fillers) { continue }
+            if SpokenWords.matches(word, allMarkers) || SpokenWords.matches(word, notNumbered) { return nil }
+            if SpokenWords.matches(word, lastMarkers) { hasAnswer = true; continue }
+            if SpokenWords.matches(word, repeatVerbs) || SpokenWords.startsLike(word, "tekrar") { hasRepeat = true; continue }
+            if SpokenWords.matches(word, numberedStops) { continue }
+            rest.append(original)
+        }
+        if rest.isEmpty && sawBir { rest = ["bir"] }   // "bir numaralı sorunun cevabını oku": "bir" burada sayıdır
+        guard hasAnswer, hasRepeat, !rest.isEmpty, let number = SpokenNumber.standalone(from: rest.joined(separator: " ")) else { return nil }
+        return .repeatNumber(number)
+    }
+
     static func parse(_ text: String) -> VoiceCommand? {
+        if let cancel = parseCancel(text) { return cancel }
+        if let numbered = parseNumbered(text) { return numbered }
         let all = SpokenWords.of(text)
         guard !all.isEmpty, all.count <= 7 else { return nil }
         let words = all.filter { !SpokenWords.matches($0, fillers) }
@@ -303,9 +377,13 @@ enum SpokenReply {
     /// Kamera sorusu ("kamera ile çekip göndermek ister misiniz?"): "bitir" ve "devam" burada evet / hayır değildir; "testi bitir" bir
     /// komuttur ve kamerayı başlatmamalı
     static let cameraYes: Set<String> = ["evet", "tamam", "olur", "aynen", "kesinlikle", "tabii", "tabi", "dogru", "istiyorum", "isterim",
-                                         "cek", "cekelim", "cekin"]
+                                         "cek", "cekelim", "cekin", "cekeyim", "cekecegim", "cekiyorum"]
+    /// Zayıf evet: "kamerayla", "fotoğraf" (soruyu yineleyen kısa cevap). Tek başına evet sayılır; herhangi bir hayır sözüyle birlikte
+    /// ("kamera istemiyorum", "kamera değil sesle") hayırdır.
+    static let cameraWeakYes: Set<String> = ["kamera", "kamerayla", "kameradan", "kameraya", "fotograf", "fotografla", "foto"]
     static let cameraNo: Set<String> = ["hayir", "olmaz", "istemiyorum", "istemem", "yok", "degil", "vazgec", "vazgectim", "iptal", "sesle",
-                                        "sesli", "okurum"]
+                                        "sesli", "okurum", "ses", "okuyayim", "okuyorum", "okuyacagim", "okuyalim", "cekme", "cekmeyin",
+                                        "cekmeyelim", "kamerasiz"]
     static let continueWords: Set<String> = ["devam", "onceki", "eski", "kaldigi", "kaldigim", "kaldigimiz", "aynen", "surdur", "surdurelim", "surdurun"]
     static let newWords: Set<String> = ["yeni", "sifirdan", "bastan", "temiz"]
     static let reviewFinish: Set<String> = [
@@ -339,10 +417,14 @@ enum SpokenReply {
     static func cameraChoice(_ text: String) -> YesNo? {
         let w = words(text, max: 8)
         guard !w.isEmpty else { return nil }
+        // "Soruyu iptal et" / "paragrafı sil" bir komuttur; içindeki "iptal" kamera sorusuna hayır demek sayılmaz
+        if VoiceCommand.parseCancel(text) != nil { return nil }
         let hasNo = w.contains(where: { SpokenWords.matches($0, cameraNo) })
         let hasYes = w.contains(where: { SpokenWords.matches($0, cameraYes) })
-        if hasNo == hasYes { return nil }
-        return hasNo ? .no : .yes
+        let hasWeakYes = w.contains(where: { SpokenWords.matches($0, cameraWeakYes) })
+        if hasNo { return hasYes ? nil : .no }   // "evet hayır": çelişki; "kamera istemiyorum": hayır
+        if hasYes || hasWeakYes { return .yes }
+        return nil
     }
 
     static func start(_ text: String) -> Start? {

@@ -183,6 +183,25 @@ enum Say {
     static let permissionDenied = "Mikrofon ve konuşma tanıma izni gerekli. Ayarlar, Sesli Kontrol bölümünden izin verin."
     static let notConfigured = "Kestirme adları boş; kendi kendini onarma kapalı. Ayarlardan kestirmelerin adını yazın."
     static let nothingToReplay = "Tekrarlanacak cevap yok."
+    /// Belirli bir sorunun cevabı istendi ("5. sorunun cevabını tekrarla") ama o numara için kayıt yok
+    static func noAnswerFor(_ number: Int) -> String { return "\(number) numaralı soru için kayıtlı cevap yok." }
+
+    // MARK: Sesli iptal komutları
+    /// "Soruyu iptal et": okunan soru silindi; ardından kamera sorusu geliyorsa "baştan okuyun" denmez
+    static let questionCancelled = "Okunan soru silindi. Lütfen soruyu baştan okuyun."
+    static let questionCancelledCamera = "Okunan soru silindi."
+    static let nothingToCancelQuestion = "Silinecek soru yok."
+    /// "Paragrafı iptal et": okunan ya da numaraları beklenen paragraf vazgeçildi / kayıtlı ortak paragraf silindi / silinecek paragraf yok.
+    /// `cameraNext`: bu soru için kamera yeniden sorulacak ("soruyu okuyun" denmez)
+    static func passageCancelled(cameraNext: Bool) -> String {
+        return "Ortak paragraf iptal edildi." + (cameraNext ? "" : " Lütfen sonraki soruyu okuyun.")
+    }
+    static func storedPassageCancelled(cameraNext: Bool) -> String {
+        return "Kayıtlı ortak paragraf silindi." + (cameraNext ? "" : " Lütfen sonraki soruyu okuyun.")
+    }
+    static func noPassageToCancel(cameraNext: Bool) -> String {
+        return "Silinecek ortak paragraf yok." + (cameraNext ? "" : " Lütfen sonraki soruyu okuyun.")
+    }
     static let noHeadphonesForReplay = "Bluetooth kulaklık bağlı değil; tekrar için kulaklığı bağlayın."
 
     /// Gemini hata verince kulaklıktan söylenen kısa cümle
