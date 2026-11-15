@@ -192,14 +192,20 @@ extension SessionViewModel {
     /// internet yoksa ya da konuşma kesildiyse false.
     func sendPendingShots() async -> Bool {
         guard let first = resendablePending else { return false }
-        retriedShots.insert(first.id)
-        guard await speakNotice(Say.cameraPendingSending) else { return true }
+        guard await speakNotice(Say.cameraPendingSending) else { return true }   // konuşma kesildi: onarım sonrası yeniden denenir
         guard await waitForInternet(seconds: Timing.cameraInternetWait) else {
             warn("kamera", "Bekleyen çekilen soru gönderilemedi: internet yok.")
             return false
         }
         clearWarning("kamera")
+        retriedShots.insert(first.id)
         await sendShot(first)
+        if pendingShots.contains(first) {
+            // Bekleyen çekimin tek yeniden gönderimi de başarısız oldu: sınav akışı her soruda yeniden denemekle yavaşlamasın, atılır ve söylenir
+            dropPending(first)
+            retriedShots.remove(first.id)
+            warn("kamera", Say.cameraPendingGivenUp)
+        }
         return true
     }
 
