@@ -88,6 +88,8 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
     static let positionSeconds: TimeInterval = 30
     /// Kameraya bağlanıp görüntü gelmesi için en çok beklenecek süre (sn)
     static let connectSeconds: TimeInterval = 40
+    /// Süre dolarken kameraya el sıkışılmış ama görüntü henüz gelmemişse tanınan ek süre (kamera bazen sınırın hemen sonunda bağlanır)
+    static let connectGraceSeconds: TimeInterval = 15
     /// Konumlandırma sürerken görüntü bu kadar saniye kesilirse beklenmeden vazgeçilir
     static let lostSeconds = 8
 
@@ -215,7 +217,11 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
                                                   tzHours: TimeZone.current.secondsFromGMT() / 3600,
                                                   probe: false))
         cameraState = .connecting("Kameraya bağlanılıyor…")
-        let live = await waitUntil(seconds: CameraCaptureController.connectSeconds) { self.isLive }
+        var live = await waitUntil(seconds: CameraCaptureController.connectSeconds) { self.isLive }
+        if !live, !cancelled, case .connected = cameraState {
+            tlog("[kamera] el sıkışıldı, görüntü bekleniyor: \(Int(CameraCaptureController.connectGraceSeconds)) sn ek süre")
+            live = await waitUntil(seconds: CameraCaptureController.connectGraceSeconds) { self.isLive }
+        }
         if cancelled { return .failure(.cancelled) }
         guard live else {
             switch cameraState {

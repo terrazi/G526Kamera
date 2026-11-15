@@ -164,18 +164,8 @@ final class CameraSession {
     private func connect(timeout: TimeInterval) -> Bool {
         guard let sock = socket else { return false }
 
-        let wifi = LocalNetwork.wifi()
-        var targets: [String] = []
-        let manual = config.manualIP.trimmingCharacters(in: .whitespaces)
-        if !manual.isEmpty, LocalNetwork.parse(manual) != nil { targets.append(manual) }
-        if let w = wifi {
-            let net = w.ip & w.mask
-            targets.append(LocalNetwork.string(net + 1))
-        }
-        targets.append("192.168.100.1")
-        var unique: [String] = []
-        for t in targets where !unique.contains(t) { unique.append(t) }
-        targets = unique
+        var wifi = LocalNetwork.wifi()
+        var targets = targetList(wifi: wifi)
 
         log("Telefon Wi-Fi: \(wifi.map { LocalNetwork.string($0.ip) } ?? "bulunamadı"), denenecek: \(targets.joined(separator: ", "))")
         if wifi == nil {
@@ -184,13 +174,30 @@ final class CameraSession {
 
         let punch = PPPP.packet(PPPP.punch, did)
         let lan = PPPP.packet(PPPP.lanSearch)
-        let request = PPPP.packet(PPPP.p2pReq,
-                                  config.uid.p2pRequestPayload(localPort: sock.localPort,
-                                                               localIPv4: wifi.map { LocalNetwork.bytes($0.ip) }))
+        func requestPacket() -> [UInt8] {
+            return PPPP.packet(PPPP.p2pReq,
+                               config.uid.p2pRequestPayload(localPort: sock.localPort,
+                                                            localIPv4: wifi.map { LocalNetwork.bytes($0.ip) }))
+        }
+        var request = requestPacket()
 
         let started = Date()
+        var lastWifiCheck = started
         var scans = 0
         while !connected && !shouldStop && Date().timeIntervalSince(started) < timeout {
+            // Kestirme döndüğünde telefon henüz kameranın ağına girmemiş olabilir (birkaç saniyeden yarım dakikaya kadar sürebilir):
+            // Wi-Fi adresi değişince hedefler yenilenir ve günlüğe yazılır; böylece telefon hangi ağda, günlükten okunur.
+            if Date().timeIntervalSince(lastWifiCheck) >= 2 {
+                lastWifiCheck = Date()
+                let now = LocalNetwork.wifi()
+                if now?.ip != wifi?.ip {
+                    wifi = now
+                    targets = targetList(wifi: now)
+                    request = requestPacket()
+                    log("Telefon Wi-Fi şimdi: \(now.map { LocalNetwork.string($0.ip) } ?? "yok"), denenecek: \(targets.joined(separator: ", "))")
+                    if now != nil { scanSubnet(wifi: now, punch: punch) }
+                }
+            }
             for t in targets {
                 sock.send(punch, to: UDPAddress(ip: t, port: PPPP.devPort))
                 sock.send(request, to: UDPAddress(ip: t, port: PPPP.devPort))
@@ -209,7 +216,25 @@ final class CameraSession {
             }
             pump(for: 0.4) { self.connected }
         }
+        if !connected && !shouldStop {
+            log("Kamera bulunamadı; telefonun Wi-Fi adresi: \(wifi.map { LocalNetwork.string($0.ip) } ?? "yok")")
+        }
         return connected
+    }
+
+    /// Denenecek adresler: elle yazılan IP, telefonun Wi-Fi alt ağındaki ilk adres ve kameranın bilinen adresi
+    private func targetList(wifi: (ip: UInt32, mask: UInt32)?) -> [String] {
+        var targets: [String] = []
+        let manual = config.manualIP.trimmingCharacters(in: .whitespaces)
+        if !manual.isEmpty, LocalNetwork.parse(manual) != nil { targets.append(manual) }
+        if let w = wifi {
+            let net = w.ip & w.mask
+            targets.append(LocalNetwork.string(net + 1))
+        }
+        targets.append("192.168.100.1")
+        var unique: [String] = []
+        for t in targets where !unique.contains(t) { unique.append(t) }
+        return unique
     }
 
     private func scanSubnet(wifi: (ip: UInt32, mask: UInt32)?, punch: [UInt8]) {

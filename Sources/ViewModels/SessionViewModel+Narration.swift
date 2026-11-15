@@ -41,6 +41,9 @@ extension SessionViewModel {
             if note.contains("Kameraya geçiliyor") || note.contains("Kamera kontrol ediliyor") { return Say.gapCameraSwitch }
             if note.contains("İnternete geçiliyor") { return Say.gapInternetSwitch }
             if note.contains("Kamera bağlantısı onarılıyor") { return Say.gapCameraRepair }
+            // Kameraya geçildi, telefon kameranın ağına girip görüntü gelene kadar (yarım dakikayı bulabilir)
+            if note.contains("bağlanılıyor") || note.contains("Giriş yapılıyor") || note.contains("Görüntü isteniyor")
+                || note.contains("sorgulanıyor") { return Say.gapCameraConnect }
             return nil
         default:
             return nil

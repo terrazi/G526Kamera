@@ -57,6 +57,10 @@ final class GapNarrationTests: XCTestCase {
         XCTAssertEqual(h.vm.busyPhrase, Say.gapInternetSwitch)
         h.vm.statusNote = "Kamera bağlantısı onarılıyor (2. deneme)"
         XCTAssertEqual(h.vm.busyPhrase, Say.gapCameraRepair)
+        for note in ["Kameraya bağlanılıyor", "Kameraya bağlanılıyor…", "Giriş yapılıyor…", "Görüntü isteniyor…", "Kamera sorgulanıyor…"] {
+            h.vm.statusNote = note
+            XCTAssertEqual(h.vm.busyPhrase, Say.gapCameraConnect, "kameraya bağlanırken sessiz kalınmaz: \(note)")
+        }
         h.vm.statusNote = "Konum uygun — sabit tutun"
         XCTAssertNil(h.vm.busyPhrase, "kamera yönlendirmesi kendi cümlesini söyler")
         h.vm.statusNote = ""
