@@ -69,12 +69,12 @@ final class ProcedureGapTests: XCTestCase {
         let h = SessionHarness()
         _ = await h.startListening()
         await answer(h, number: 3)
-        XCTAssertFalse(h.speaker.spoken.contains(Say.answerReplaced(3)), "İlk cevapta uyarı yoktur")
+        XCTAssertFalse(h.speaker.announcements.contains(Say.answerReplaced(3)), "İlk cevapta uyarı yoktur")
         await answer(h, number: 3)
-        let told = await waitUntil(45) { h.speaker.spoken.contains(Say.answerReplaced(3)) }
-        XCTAssertTrue(told, "Aynı numara yeniden cevaplanınca eski cevabın ezildiği söylenir: \(h.speaker.spoken)")
+        let told = await waitUntil(45) { h.speaker.announcements.contains(Say.answerReplaced(3)) }
+        XCTAssertTrue(told, "Aynı numara yeniden cevaplanınca eski cevabın ezildiği söylenir: \(h.speaker.allCalls.map { $0.text })")
         XCTAssertEqual(h.vm.answers.count, 1, "Numara başına tek cevap")
-        XCTAssertEqual(h.speaker.spoken.filter { $0 == Say.answerReplaced(3) }.count, 1, "Bir kez söylenir")
+        XCTAssertEqual(h.speaker.announcements.filter { $0 == Say.answerReplaced(3) }.count, 1, "Bir kez söylenir")
     }
 
     func testDifferentNumbersNeverSayReplaced() async {
@@ -83,7 +83,7 @@ final class ProcedureGapTests: XCTestCase {
         await answer(h, number: 1)
         await answer(h, number: 2)
         await answer(h, number: 4)
-        XCTAssertFalse(h.speaker.spoken.contains { $0.contains("önceki cevabı") }, "\(h.speaker.spoken)")
+        XCTAssertFalse(h.speaker.allCalls.contains { $0.text.contains("önceki cevabı") }, "\(h.speaker.allCalls.map { $0.text })")
         XCTAssertEqual(h.vm.answers.map { $0.number }.sorted(), [1, 2, 4])
     }
 

@@ -75,7 +75,7 @@ extension VoiceCommand {
         "ac", "acin", "acik", "acilsin", "etkinlestir", "etkinlestirin", "gonder", "gonderin", "gonderilsin", "kullan", "kullanin", "baslat"
     ]
     static let offWords: Set<String> = [
-        "kapat", "kapatin", "kapali", "kapansin", "devre", "disi", "birak", "birakin", "olmasin", "gonderme", "gondermeyin", "kullanma", "kullanmayin", "iptal"
+        "kapat", "kapatin", "kapali", "kapansin", "devre", "disi", "birak", "birakin", "gonderme", "gondermeyin", "kullanma", "kullanmayin", "iptal"
     ]
 
     // MARK: Raporlar
@@ -115,7 +115,9 @@ extension VoiceCommand {
     static let hearWords: Set<String> = ["beni", "duyuyor", "duyabiliyor", "duyuyorsun", "duyuyorsunuz", "duyabiliyorsun"]
 
     /// Rapor, ses seviyesi ve kamera ayarı komutları (sırası önemli değildir: üç söz dağarcığı birbirinden ayrıdır)
-    static func parseSetting(_ all: [String]) -> VoiceCommand? {
+    static func parseSetting(_ raw: [String]) -> VoiceCommand? {
+        // Tanıyıcı "RAM'i", "Wi-Fi", "interneti" gibi sözcüklerde kesme işareti ya da tire yazabilir: sözcük içindeki işaretler atılır ("ram'i" → "rami")
+        let all = raw.map { $0.filter { $0 != "'" && $0 != "’" && $0 != "-" } }.filter { !$0.isEmpty }
         return parseReport(all) ?? parseVolume(all) ?? parseCameraSetting(all)
     }
 

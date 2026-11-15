@@ -165,7 +165,8 @@ extension Say {
     }
     static func cameraEnhancement(_ level: Int, already: Bool) -> String {
         let name = enhancementName(level)
-        return already ? "Fotoğraf iyileştirme zaten \(name)." : "Fotoğraf iyileştirme \(name) yapıldı."
+        if already { return "Fotoğraf iyileştirme zaten \(name)." }
+        return level == 0 ? "Fotoğraf iyileştirme kapatıldı." : "Fotoğraf iyileştirme \(name) yapıldı."
     }
     static func cameraPreview(on: Bool, already: Bool) -> String {
         if already { return "Canlı önizleme zaten \(on ? "açık" : "kapalı")." }
