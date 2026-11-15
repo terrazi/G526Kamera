@@ -146,6 +146,8 @@ bitişik "567" (üç haneli ve 150'nin üstündeyse tek tek rakam sayılır).
 - Ses seviyesini sesle değiştirme iOS'un izin vermediği bir işlemi gizli ses çubuğuyla dener; **cihazda doğrulanmadı**. Değişmezse program bunu söyler.
 - Kamera pili yalnız kamera açıkken, görüntü karesinden okunur; "kamera raporu" ve "Kamerayı dene" son okunan pili söyler (hiç okunmadıysa söylemez). "Şarj durumu" telefonun pilidir. "Genel rapor" kamera ayarlarını saymaz ("kamera raporu" ayrı).
 - Kamera sorusu kapatılırken bekleyen bir çekim varsa o çekim yine gönderilir.
+- Çekimler telefondaki kalıcı klasörde saklanır (`Documents/Cekimler`: Bekleyen, Gonderilen, Gonderilemeyen, Paragraf) ve KENDİLİĞİNDEN SİLİNMEZ: ne gönderilince, ne ikinci başarısızlıkta, ne test bitince, ne sayı yüzünden. Yalnız kullanıcı Ayarlar > Çekim klasörü'ndeki onaylı "Gönderilenleri sil" / "Tümünü sil" düğmeleriyle siler (test sürerken silinemez).
+- Bekleyen çekimler her yeni soru sınırında, en eskisinden başlayarak sırayla gönderilir; internet yoksa oturum takılmaz. Uygulama kapanıp açılsa da klasörden geri yüklenir.
 
 - Paragraf okunurken yalnız "paragrafı iptal et" çalışır; diğer komutlar (testi bitir, cevapları tekrarla…) paragrafa karışır, çünkü paragraf serbest metindir.
 - "Soruyu iptal et" yalnız soru dinlenirken (okunan metni siler) anlamlıdır; kamerayla çekilmiş soru Gemini'ye gittikten sonra geri alınamaz.

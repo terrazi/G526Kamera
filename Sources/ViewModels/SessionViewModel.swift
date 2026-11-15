@@ -120,9 +120,8 @@ final class SessionViewModel: ObservableObject {
         static let cameraSendTries = 2
         /// Kameraya bağlanılamazsa kamera bağlantısı onarımının (Wi-Fi adımı) en çok kaç kez çalışıp çekimin yeniden deneneceği
         static let cameraRepairs = 2
-        /// Kamera çekimi gönderilirken cevap beklemeye eklenen süre (sn) ve telefonda bekletilecek en çok çekim
+        /// Kamera çekimi gönderilirken cevap beklemeye eklenen süre (sn). Telefonda bekleyen çekim sayısına SINIR YOK: çekimler silinmez.
         static let cameraExtraWait: TimeInterval = 180
-        static let pendingShotLimit = 3
         /// "Programı kapat" düğmesi: basılı tutma süresi (sn) ve günlüğün/panonun yazılması için kapanıştan önceki kısa bekleme
         static let closeHold: TimeInterval = 3
         static let closeDelay: TimeInterval = 0.4
@@ -355,8 +354,11 @@ final class SessionViewModel: ObservableObject {
     var cameraGuidanceSpeaking = false
     /// Kullanıcı "hayır" dedi ya da kamera akışı olmadı: bu soru sesle okunur, aynı soru için kamera yeniden sorulmaz
     var cameraOfferSuppressed = false
-    /// Çekilmiş ama internet olmadığı için gönderilememiş sorular (sırayla gönderilir)
+    /// Çekilmiş ama internet olmadığı için gönderilememiş sorular (en eskisi önce, sırayla gönderilir). Dosyaları telefondaki kalıcı
+    /// klasörde durur (`CaptureStoring`); uygulama kapansa da bir sonraki başlatmada klasörden geri yüklenir.
     var pendingShots: [CapturedQuestion] = []
+    /// Kamera sorusu kapalıyken bekleyen çekimler gönderilemedi: sıradaki dinleme bekleyenleri yeniden denemeden soruyu bekler (döngü olmasın)
+    var pendingDrainSkipped = false
     /// Kendiliğinden yeniden gönderilmesi denenmiş bekleyen çekimler (bkz. `resendablePending`)
     var retriedShots = Set<UUID>()
     var answerWaitElapsed: TimeInterval = 0
@@ -420,6 +422,7 @@ final class SessionViewModel: ObservableObject {
     func start() {
         guard phase.isAtRest else { return }
         resetSession()
+        restorePendingShots()   // önceki çalışmadan telefonda kalan çekimler (gönderilmemişler) sırayla gönderilmek üzere geri yüklenir
         // Beklenmedik kapanmadan sonra ortak paragraf yazı olarak (kamerayla çekildiyse fotoğraf olarak) geri gelir: ses kaydı ve video bellekteydi, kayboldu
         if let saved = resume?.passage, !saved.remaining.isEmpty {
             let photoShot = saved.photo.map { CapturedQuestion(photo: $0) }
@@ -453,7 +456,7 @@ final class SessionViewModel: ObservableObject {
         passageDraft = nil
         listenMode = .question
         statusNote = "Test bitti. \(answers.count) cevap kaydedildi."
-        dropUnsentShots()
+        noteUnsentShots()
         refreshReplayAvailability()
         if onCameraNetwork { restoreInternetAfterCamera() }
     }
@@ -675,9 +678,12 @@ final class SessionViewModel: ObservableObject {
     /// paragraf yarıda kalmışsa) korunur ve devam edilen okuma ona eklenir. `mode`: mikrofonun ne için açıldığı.
     func beginListening(mode: ListenMode = .question, keepPartial: Bool = false) {
         // Sürüm 4: yeni bir soru sınırında önce "kamera ile çekmek ister misiniz?" sorulur (evet / hayır dinlemesi buradan açılır)
-        if mode == .question, !keepPartial, !cameraOfferSuppressed, offerCamera || resendablePending != nil {
+        // Telefonda bekleyen çekim, kamera sorusu kapalı olsa da yeni bir soru sınırında önce gönderilir (askCameraChoice yönlendirir)
+        let drainPending = resendablePending != nil && !pendingDrainSkipped
+        pendingDrainSkipped = false
+        if mode == .question, !keepPartial, !cameraOfferSuppressed, offerCamera || drainPending {
             offerCamera = false
-            if cameraOfferAvailable {
+            if cameraOfferAvailable || drainPending {
                 deps.journal.savePending(nil)   // önceki cevap duyuldu ve dinlemeye dönülüyor: kapanma olursa o cevap yeniden okunmaz
                 work = Task { [weak self] in await self?.askCameraChoice() }
                 return

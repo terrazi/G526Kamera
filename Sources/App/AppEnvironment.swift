@@ -42,6 +42,8 @@ final class AppEnvironment: ObservableObject {
         let shortcuts = ShortcutRunner()
         let health = NetworkHealth()
         let journal = RunJournal()
+        let captureStore = FileCaptureStore(root: FileCaptureStore.documentsRoot())
+        captureStore.prepare()
         shortcuts.onLeaving = { journal.setAway(true) }
         shortcuts.onReturned = { journal.setAway(false) }
         let deps = SessionDependencies(route: route,
@@ -58,6 +60,7 @@ final class AppEnvironment: ObservableObject {
                                        scheduler: DispatchScheduler(),
                                        library: AnswerLibrary(resolver: { folderStore.resolution() }, refresh: { folderStore.refresh() }),
                                        camera: cameraController,
+                                       captureStore: captureStore,
                                        battery: SystemBattery(),
                                        system: SystemHealthMonitor(),
                                        volume: SystemVolumeControl(),

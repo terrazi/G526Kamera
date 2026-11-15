@@ -51,6 +51,7 @@ struct ContentView: View {
             }
             .sheet(isPresented: $showSettings) {
                 SettingsView()
+                    .environmentObject(session)
                     .environmentObject(settings)
                     .environmentObject(camera)
                     .environmentObject(settingsModel)

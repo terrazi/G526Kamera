@@ -17,6 +17,7 @@ struct CameraSettingsSections: View {
             powerSection
             shortcutSection
             testSection
+            CaptureFolderSection()
         }
     }
 

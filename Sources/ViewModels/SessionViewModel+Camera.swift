@@ -36,6 +36,13 @@ extension SessionViewModel {
         guard !Task.isCancelled else { offerCamera = true; return }
         // Telefonda bekleyen çekim varsa önce o gönderilir; gönderim kendi akışıyla (cevap, sıradaki soru) devam eder, burada yeniden sorulmaz
         if !again, resendablePending != nil, await sendPendingShots() { return }
+        guard cameraOfferAvailable else {
+            // Kamera sorusu kapatılmış ya da yapılandırılmamış (yalnız bekleyen çekim vardı): soru V3 gibi sesle okunur
+            guard !Task.isCancelled else { offerCamera = true; return }   // kesildi: onarımdan sonra bekleyen çekim yeniden denenir
+            pendingDrainSkipped = true
+            beginListening(mode: .question)
+            return
+        }
         guard !Task.isCancelled, await speakNotice(again ? Say.askCameraAgain : Say.askCamera) else {
             offerCamera = true
             return
@@ -199,6 +206,9 @@ extension SessionViewModel {
                 shot.video = nil
                 shot.videoBytes = 0
             }
+            // Çekim telefondaki kalıcı klasöre yazılır (video da oraya taşınır): internet gelene kadar, uygulama kapansa da kaybolmaz ve
+            // gönderildikten sonra da kullanıcı silene kadar orada durur
+            shot = deps.captureStore.keep(shot, kind: isPassage ? .passage : .question)
             result = .success(shot)
             if isPassage {
                 // Paragraf bir soru değildir: tek başına gönderilmez; hangi sorulara ait olduğu söylenene kadar taslak olarak tutulur
@@ -295,7 +305,7 @@ extension SessionViewModel {
                     // Cevap tam kesinti anında geldi: `answer` onu okumadan atar. Çekim telefonda kalır, onarımdan sonra yeniden gönderilir
                     retriedShots.remove(shot.id)
                 } else {
-                    dropPending(shot)
+                    completePending(shot, answer: reply.spoken)
                 }
                 return reply
             } catch let error as GeminiError {
@@ -314,15 +324,14 @@ extension SessionViewModel {
         }
         switch failure.kind {
         case .blocked, .tooBig:
-            dropPending(shot)   // aynı çekim yeniden denense de aynı sonucu verir: telefonda tutulmaz
+            shelvePending(shot, reason: failure.message)   // aynı çekim yeniden denense de aynı sonucu verir: gönderilmez, ama silinmez ("Gönderilemeyen" klasörü)
             offerCamera = cameraOfferAvailable   // hata söylendikten sonra bu soru için kamera yeniden sorulur
         default:
             if retriedShots.contains(shot.id) {
-                // Bekleyen çekimin tek yeniden gönderimi de başarısız oldu: sınav akışı her soruda yeniden denemekle yavaşlamasın, atılır ve söylenir
-                dropPending(shot)
-                retriedShots.remove(shot.id)
+                // Bekleyen çekimin tek yeniden gönderimi de başarısız oldu: sınav akışı her soruda yeniden denemekle yavaşlamasın diye bir sonraki
+                // başarılı cevaba kadar beklenir. Çekim ATILMAZ: telefondaki klasörde durur ve internet / Gemini düzelince sırayla gönderilir.
                 offerCamera = cameraOfferAvailable   // sınav akışı sesle okumaya kaymaz: söylendikten sonra kamera yeniden sorulur
-                warn("kamera", Say.cameraPendingGivenUp)
+                warn("kamera", Say.cameraPendingKept)
             } else {
                 warn("kamera", "Çekilen soru telefonda bekliyor (\(failure.kind == .network ? "Gemini'ye ulaşılamadı" : "gönderilemedi")).")
             }
@@ -403,30 +412,52 @@ extension SessionViewModel {
 
     // MARK: Bekleyen çekimler
 
-    /// Çekim gönderilene kadar telefonda tutulur. En çok `Timing.pendingShotLimit`: fazlası en eskisinden silinir (disk dolmasın)
+    /// Çekim gönderilene kadar bekleyenler listesinde tutulur (dosyaları kalıcı klasörde durur). Sayı sınırı YOK: hiçbir çekim, yenisi için
+    /// yer açılsın diye silinmez.
     func keepPending(_ shot: CapturedQuestion) {
         if !pendingShots.contains(shot) { pendingShots.append(shot) }
-        while pendingShots.count > Timing.pendingShotLimit {
-            let old = pendingShots.removeFirst()
-            old.discard()
-            tlog("[kamera] bekleyen çekim sayısı sınırı aşıldı; en eskisi silindi")
+    }
+
+    /// Önceki çalışmalardan kalan, gönderilmemiş çekimler telefondaki klasörden geri yüklenir (en eskisi önce). Disk gerçektir: klasörden
+    /// silinmiş çekim listeden de düşer; kalıcı klasöre yazılamamış (geçici) çekimler kullanılmaz.
+    func restorePendingShots() {
+        let stored = deps.captureStore.restorePending()
+        for shot in pendingShots where !stored.contains(shot) { shot.discard() }
+        pendingShots = stored
+        retriedShots.removeAll()
+        if !stored.isEmpty { tlog("[kamera] telefondaki klasörden \(stored.count) bekleyen çekim geri yüklendi; sırayla gönderilecek") }
+    }
+
+    /// Test bitti: gönderilemeyen çekimler SİLİNMEZ. Telefondaki klasörde durur ve bir sonraki testte (internet varsa) sırayla gönderilir;
+    /// ekranda kaç sorunun cevapsız kaldığı yazılır. Yalnız kalıcı klasöre yazılamamış (geçici) çekimler kaybolur: geçici video dosyaları
+    /// bir sonraki açılışta silinir ve çekim yeniden yüklenemez; bu da söylenir.
+    func noteUnsentShots() {
+        retriedShots.removeAll()
+        let unsaved = pendingShots.filter { !$0.archived }
+        for shot in unsaved { shot.discard() }
+        pendingShots.removeAll { !$0.archived }
+        if !pendingShots.isEmpty {
+            statusNote += " Uyarı: çekilen \(pendingShots.count) soru Gemini'ye gönderilemedi, cevabı yok. Telefonda Cekimler klasöründe duruyor, silinmez; sonraki testte sırayla gönderilir."
+            tlog("[kamera] test bitti; gönderilemeyen \(pendingShots.count) çekilmiş soru telefondaki klasörde kaldı")
+        }
+        if !unsaved.isEmpty {
+            statusNote += " Uyarı: \(unsaved.count) çekilmiş soru telefona kaydedilemediği için gönderilemedi ve kayboldu."
+            tlog("[kamera] test bitti; klasöre yazılamayan \(unsaved.count) çekim gönderilemedi")
         }
     }
 
-    /// Test bitti: gönderilemeyen çekimler artık gönderilmez (sonraki bir oturumda eski testin sorusu yeniden gönderilmesin); video dosyaları
-    /// silinir ve ekranda kaç sorunun cevapsız kaldığı yazılır
-    func dropUnsentShots() {
-        guard !pendingShots.isEmpty else { return }
-        let count = pendingShots.count
-        pendingShots.forEach { $0.discard() }
-        pendingShots.removeAll()
-        retriedShots.removeAll()
-        statusNote += " Uyarı: çekilen \(count) soru Gemini'ye gönderilemedi, cevabı yok."
-        tlog("[kamera] test bitti; gönderilemeyen \(count) çekilmiş soru atıldı")
+    /// Çekim Gemini'ye gitti ve cevap geldi: bekleyenlerden çıkar, klasörde "Gönderilen"e taşınır (silinmez; cevap yanına yazılır)
+    func completePending(_ shot: CapturedQuestion, answer: String) {
+        pendingShots.removeAll { $0 == shot }
+        deps.captureStore.markSent(shot, answer: answer)
+        shot.discard()   // yalnız kalıcı klasöre yazılamamış (geçici) çekimin videosunu siler
     }
 
-    func dropPending(_ shot: CapturedQuestion) {
+    /// Çekim gönderilemez (Gemini reddetti, fazla büyük): bekleyenlerden çıkar, klasörde "Gönderilemeyen"e taşınır. Silinmez.
+    func shelvePending(_ shot: CapturedQuestion, reason: String) {
         pendingShots.removeAll { $0 == shot }
+        retriedShots.remove(shot.id)
+        deps.captureStore.markUnsendable(shot, reason: reason)
         shot.discard()
     }
 

@@ -21,6 +21,8 @@ struct CapturedQuestion: Equatable {
     var passageNote = ""
     /// Kamerayla çekilmiş ortak paragraf varsa gönderim sırasında eklenen görüntüleri (aynı gerekçeyle çekimle birlikte saklanmaz)
     var passageMedia: PassageMedia?
+    /// Çekim telefondaki kalıcı klasöre yazıldı (`CaptureStoring`): video dosyası orada durur ve kullanıcı silene kadar SİLİNMEZ
+    var archived = false
 
     /// Gemini'ye satır içi gönderilebilen fotoğraf + video toplamı (bayt). İstek sınırı 20 MB'tır ve veri base64 ile üçte bir şişer
     /// (14 MB → ~18,7 MB); metin ve talimat payı için de yer kalır. Video sığmazsa yalnız fotoğraf gider.
@@ -42,9 +44,11 @@ struct CapturedQuestion: Equatable {
     /// Aynı çekim mi (fotoğraf baytlarını karşılaştırmak yerine kimlik)
     static func == (a: CapturedQuestion, b: CapturedQuestion) -> Bool { return a.id == b.id }
 
-    /// Gönderim bitti ya da vazgeçildi: telefonda tutulan video dosyası silinir
+    /// Gönderim bitti ya da vazgeçildi: telefonda tutulan GEÇİCİ video dosyası silinir. Kalıcı klasöre yazılmış çekime dokunulmaz
+    /// (kullanıcı silene kadar durur).
     func discard() {
-        if let url = video { try? FileManager.default.removeItem(at: url) }
+        guard !archived, let url = video else { return }
+        try? FileManager.default.removeItem(at: url)
     }
 }
 

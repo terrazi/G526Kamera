@@ -28,9 +28,21 @@ final class SessionHarness {
     let root: URL
     let settings: AppSettings
     let vm: SessionViewModel
+    /// Çekimlerin kalıcı klasörü: yalnız `archive: true` ise vardır (varsayılan: çekimler saklanmaz, eski davranış)
+    let fileStore: FileCaptureStore?
 
-    init(shortcutNames: Bool = true, library: AnswerLibrary? = nil, cameraFlow: Bool = false) {
+    init(shortcutNames: Bool = true, library: AnswerLibrary? = nil, cameraFlow: Bool = false, archive: Bool = false) {
         root = makeTempFolder("g526-oturum")
+        let captureBox: CaptureStoring
+        if archive {
+            let store = FileCaptureStore(root: root.appendingPathComponent("Cekimler", isDirectory: true))
+            store.prepare()
+            fileStore = store
+            captureBox = store
+        } else {
+            fileStore = nil
+            captureBox = NoCaptureStore()
+        }
         let defaults = UserDefaults(suiteName: "g526.testler.\(UUID().uuidString)")!
         settings = AppSettings(defaults: defaults)
         // Anında tespit (nabız) varsayılan olarak açıktır; eski testlerin zamanlaması bozulmasın diye burada kapalı, ona ait testler açar
@@ -74,6 +86,7 @@ final class SessionHarness {
                                        recoveryConfig: RecoveryCoordinator.Config(settle: 0, verifyWindow: 0, verifyInterval: 1,
                                                                                   cycleGap: 0, maxCycles: 1),
                                        camera: camera,
+                                       captureStore: captureBox,
                                        battery: battery,
                                        system: system,
                                        volume: volume,

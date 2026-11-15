@@ -18,7 +18,7 @@ enum Say {
     static let geminiSlow = "Gemini üç dakikada cevap vermedi. Soruyu tekrar okuyun."
     /// Çekilen soru için: kamera sorusu ya da telefonda bekleyen çekimin yeniden gönderimi hemen ardından gelir
     static let geminiSlowCamera = "Gemini üç dakikada cevap vermedi."
-    static let cameraSlowGivenUp = "Gemini çekilen soruya yine cevap vermedi; soru atıldı. Gerekirse yeniden çekin ya da okuyun."
+    static let cameraSlowKept = "Gemini çekilen soruya yine cevap vermedi. Soru telefonda duruyor; internet düzelince sırayla gönderilecek."
     /// Soru Gemini'ye gittikten sonra kesinti olup düzelince (yarım kalmış olabilir)
     static let recoveredAfterSend = "Bağlantı yeniden onarıldı. Sorunuz yarım kaldıysa son soruyu tekrar okuyunuz."
 
@@ -296,7 +296,7 @@ enum Say {
     static let cameraEntryText = "Kamera ile çekilen soru"
     static let cameraSavedOffline = "Soru çekildi ama internet gelmedi. Telefonda saklandı; bağlantı onarılıyor, düzelince gönderilecek."
     static let recoveredPendingShot = "Bağlantı yeniden onarıldı."
-    static let cameraPendingGivenUp = "Önceki çekilen soru yine gönderilemedi ve atıldı; cevabı yok. Gerekirse o soruyu yeniden çekin ya da okuyun."
+    static let cameraPendingKept = "Önceki çekilen soru yine gönderilemedi. Telefonda duruyor; internet düzelince sırayla gönderilecek."
     static let cameraPendingSending = "Önceki çekilen soru telefonda bekliyordu, şimdi gönderiyorum."
 
     // MARK: Sürüm 4: kamerayla ortak paragraf

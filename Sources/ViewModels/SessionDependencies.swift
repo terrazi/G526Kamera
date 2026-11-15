@@ -23,6 +23,8 @@ struct SessionDependencies {
     var recoveryConfig = RecoveryCoordinator.Config()
     /// Sürüm 4: soruyu kamera ile çeken bileşen (yapılandırılmamışsa kamera yok)
     var camera: CameraCapturing = NoCamera()
+    /// Çekimlerin telefondaki kalıcı klasörü (gönderilene kadar ve sonra da kullanıcı silene kadar saklanır)
+    var captureStore: CaptureStoring = NoCaptureStore()
     var battery: BatteryProviding = NoBattery()
     /// Telefonun kaynak durumu (bellek, ısı, güç modu, boş yer) ve sistemin uyarıları
     var system: SystemHealthProviding = NoSystemHealth()

@@ -10,8 +10,9 @@ final class CameraFlowTests: XCTestCase {
     /// Kameraya geçince internet gider, "Hücresele Geç" kestirmesi interneti getirir
     private func harness(shots: [Result<CapturedQuestion, CameraFailure>]? = nil,
                          replies: [Result<GeminiReply, Error>]? = nil,
-                         internetBack: Bool = true) -> SessionHarness {
-        let h = SessionHarness(cameraFlow: true)
+                         internetBack: Bool = true,
+                         archive: Bool = false) -> SessionHarness {
+        let h = SessionHarness(cameraFlow: true, archive: archive)
         h.camera.results = shots ?? [.success(FakeCamera.shot())]
         h.answering.results = replies ?? [.success(FakeAnswering.reply(1))]
         h.trackEvents { name in
@@ -261,11 +262,12 @@ final class CameraFlowTests: XCTestCase {
         XCTAssertTrue(h.vm.pendingShots.isEmpty)
     }
 
-    /// Gönderilemeyen çekim her onarımdan sonra sonsuza dek yeniden denenmez: bir kez yeniden denenir, yine olmazsa atılır ve söylenir
-    func testAShotThatKeepsFailingIsRetriedOnceThenDroppedAndSaidSo() async {
+    /// Gönderilemeyen çekim her onarımdan sonra sonsuza dek yeniden denenmez: bir kez yeniden denenir, yine olmazsa bir sonraki başarılı cevaba
+    /// kadar beklenir ve söylenir. Çekim ATILMAZ: telefondaki klasörde (Bekleyen) durur.
+    func testAShotThatKeepsFailingIsRetriedOnceThenStaysOnThePhoneAndIsSaidSo() async {
         let shot = FakeCamera.shot()
         let errors: [Result<GeminiReply, Error>] = (0..<4).map { _ in .failure(GeminiError("koptu", .network)) }
-        let h = harness(shots: [.success(shot)], replies: errors)
+        let h = harness(shots: [.success(shot)], replies: errors, archive: true)
         _ = await h.startListening()
         reply(h, "evet")
         let settled = await waitUntil(45) { h.answering.captureCalls.count == 4 && self.cameraQuestionOpen(h) }
@@ -274,9 +276,11 @@ final class CameraFlowTests: XCTestCase {
         h.scheduler.advance(by: 30)
         await settle()
         XCTAssertEqual(h.answering.captureCalls.count, 4, "Yeniden deneme döngüye girmez")
-        XCTAssertTrue(h.vm.pendingShots.isEmpty, "İki gönderimden sonra çekim atılır")
-        XCTAssertFalse(FileManager.default.fileExists(atPath: shot.video!.path))
-        XCTAssertTrue(h.vm.warnings.contains { $0.id == "kamera" && $0.text == Say.cameraPendingGivenUp }, "Kullanıcıya söylenir (ekranda ve kulaklıkta)")
+        XCTAssertEqual(h.vm.pendingShots.count, 1, "İki gönderimden sonra da çekim atılmaz")
+        XCTAssertEqual(h.fileStore?.summary().pending, 1, "Çekim telefondaki klasörde (Bekleyen) durur")
+        XCTAssertEqual(h.fileStore?.summary().total, 1)
+        if let kept = h.vm.pendingShots.first?.video { XCTAssertTrue(FileManager.default.fileExists(atPath: kept.path), "Video dosyası silinmez") }
+        XCTAssertTrue(h.vm.warnings.contains { $0.id == "kamera" && $0.text == Say.cameraPendingKept }, "Kullanıcıya söylenir (ekranda ve kulaklıkta)")
     }
 
     /// Test bitince gönderilemeyen çekim bir sonraki oturuma sızmaz; kaç sorunun cevapsız kaldığı yazılır
@@ -435,10 +439,11 @@ final class CameraFlowTests: XCTestCase {
 
     // MARK: Zaman aşımı
 
-    /// Çekilen soruya Gemini yanıt vermezse: çekim telefonda kalır ve bir kez yeniden gönderilir; yine yanıt yoksa atılır ve kamera yeniden sorulur
-    func testShotThatTimesOutTwiceIsDroppedAndTheCameraIsAskedAgain() async {
+    /// Çekilen soruya Gemini yanıt vermezse: çekim telefonda kalır ve bir kez yeniden gönderilir; yine yanıt yoksa ATILMAZ (klasörde durur),
+    /// söylenir ve kamera yeniden sorulur
+    func testShotThatTimesOutTwiceStaysOnThePhoneAndTheCameraIsAskedAgain() async {
         let shot = FakeCamera.shot()
-        let h = harness(shots: [.success(shot)])
+        let h = harness(shots: [.success(shot)], archive: true)
         h.settings.spokenProgress = true   // bekleme sınırı, cevap bekleme sayacına bağlıdır
         h.answering.hold = true
         _ = await h.startListening()
@@ -452,10 +457,11 @@ final class CameraFlowTests: XCTestCase {
         XCTAssertEqual(h.vm.pendingShots.count, 1)
         await settle()
         h.scheduler.advance(by: T.answerCap + T.cameraExtraWait + 1)
-        let dropped = await waitUntil(45) { h.speaker.spoken.contains(Say.cameraSlowGivenUp) && self.cameraQuestionOpen(h) }
-        XCTAssertTrue(dropped, "İkinci zaman aşımında çekim atılır, söylenir ve kamera yeniden sorulur")
-        XCTAssertTrue(h.vm.pendingShots.isEmpty)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: shot.video!.path))
+        let kept = await waitUntil(45) { h.speaker.spoken.contains(Say.cameraSlowKept) && self.cameraQuestionOpen(h) }
+        XCTAssertTrue(kept, "İkinci zaman aşımında çekim atılmaz; söylenir ve kamera yeniden sorulur")
+        XCTAssertEqual(h.vm.pendingShots.count, 1, "Çekim bekleyenlerde durur")
+        XCTAssertEqual(h.fileStore?.summary().pending, 1, "Çekim telefondaki klasörde (Bekleyen) durur")
+        if let video = h.vm.pendingShots.first?.video { XCTAssertTrue(FileManager.default.fileExists(atPath: video.path), "Video dosyası silinmez") }
         XCTAssertEqual(h.answering.captureCalls.count, 2, "Sonsuz yeniden gönderim yok")
         h.answering.hold = false
         h.answering.release()
@@ -741,16 +747,31 @@ final class CameraFlowTests: XCTestCase {
         XCTAssertTrue(h.answering.calls.isEmpty)
     }
 
-    func testEndingTheTestDropsUnsentShotsAndSaysSo() async {
+    /// Test bitince gönderilemeyen çekim SİLİNMEZ: telefondaki klasörde durur; ekranda kaç sorunun cevapsız kaldığı ve nerede durduğu yazılır
+    func testEndingTheTestKeepsUnsentShotsOnThePhoneAndSaysSo() async {
+        let h = harness(archive: true)
+        let stored = h.fileStore!.keep(FakeCamera.shot(), kind: .question)
+        _ = await h.startListening()
+        h.vm.keepPending(stored)
+        XCTAssertEqual(h.vm.pendingShots.count, 1)
+        h.vm.endTest()
+        XCTAssertEqual(h.vm.pendingShots.count, 1, "Test bitince çekim atılmaz")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: stored.video!.path), "Video dosyası telefonda durur")
+        XCTAssertEqual(h.fileStore?.summary().pending, 1)
+        XCTAssertTrue(h.vm.statusNote.contains("1 soru Gemini'ye gönderilemedi"))
+        XCTAssertTrue(h.vm.statusNote.contains("Cekimler klasöründe duruyor, silinmez"))
+    }
+
+    /// Klasöre yazılamayan (geçici) çekim bir sonraki açılışta yeniden yüklenemez: video dosyası bırakılmaz ve bu söylenir
+    func testEndingTheTestSaysSoAboutShotsThatCouldNotBeSavedToTheFolder() async {
         let shot = FakeCamera.shot()
         let h = harness()
         _ = await h.startListening()
         h.vm.keepPending(shot)
-        XCTAssertEqual(h.vm.pendingShots.count, 1)
         h.vm.endTest()
         XCTAssertTrue(h.vm.pendingShots.isEmpty)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: shot.video!.path), "Gönderilmeyecek çekimin videosu telefonda bırakılmaz")
-        XCTAssertTrue(h.vm.statusNote.contains("1 soru Gemini'ye gönderilemedi"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: shot.video!.path), "Sahipsiz geçici video bırakılmaz")
+        XCTAssertTrue(h.vm.statusNote.contains("1 çekilmiş soru telefona kaydedilemediği için gönderilemedi"))
     }
 
     func testBlockedShotIsNotKeptOnThePhone() async {
