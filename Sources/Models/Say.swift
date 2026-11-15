@@ -223,11 +223,70 @@ enum Say {
     static let nothingToSkipQuestion = "Atlanacak soru yok. Sıradaki soruyu okuyabilirsiniz."
     /// "Son soruyu sil": silmeden önce onay istenir; silinen numara söylenir. Cevap gelmezse ya da anlaşılmazsa üçüncü soruşta vazgeçilir (hiçbir şey silinmez)
     static let nothingToDeleteLast = "Silinecek kayıtlı soru yok."
-    static func confirmDeleteLast(_ number: Int) -> String {
-        return "Soru \(number) kaydı silinecek: cevabı ve ses kaydı kalmayacak. Emin misiniz? Silmek için evet, vazgeçmek için hayır deyin."
+    /// `section`: bölümlü sınavda hangi bölümün kaydı olduğu da söylenir (aynı numaralı soru her bölümde bulunur); 0: bölümsüz sınav
+    static func confirmDeleteLast(_ number: Int, section: Int = 0) -> String {
+        return "\(questionPhrase(number, section: section)) kaydı silinecek: cevabı ve ses kaydı kalmayacak. Emin misiniz? Silmek için evet, vazgeçmek için hayır deyin."
     }
-    static func confirmDeleteLastAgain(_ number: Int) -> String {
-        return "Cevap alamadım, ikinci defa soruyorum. Soru \(number) kaydı silinsin mi? Evet ya da hayır deyin."
+    static func confirmDeleteLastAgain(_ number: Int, section: Int = 0) -> String {
+        return "Cevap alamadım, ikinci defa soruyorum. \(questionPhrase(number, section: section)) kaydı silinsin mi? Evet ya da hayır deyin."
+    }
+
+    // MARK: İstenen soruyu silme ve soru numarası düzeltme (bölüm ve numara söylenir, ikisi tekrarlanıp onay alınır)
+    /// "Birinci bölümdeki " / "Birinci bölümdeki" cümle başı; bölümsüz sınavda boş
+    static func sectionWhere(_ section: Int) -> String {
+        return section > 0 ? "\(ordinal(section)) bölümdeki " : ""
+    }
+    /// "Soru 7" (bölümsüz sınav) ya da "Birinci bölümdeki soru 7": hangi bölümün kaydı olduğu da söylenir (aynı numaralı soru her bölümde bulunur)
+    static func questionPhrase(_ number: Int, section: Int) -> String {
+        return section > 0 ? "\(ordinalCapital(section)) bölümdeki soru \(number)" : "Soru \(number)"
+    }
+    static let nothingToEdit = "Kayıtlı soru yok."
+    static func askWhichSection(current: Int) -> String {
+        return "Hangi bölümdeki soru? Şu an \(ordinal(current)) bölümdesiniz. Bu bölüm için bu bölüm deyin ya da bölüm numarasını söyleyin."
+    }
+    static func askDeleteNumber(section: Int) -> String {
+        return "Lütfen silinecek \(sectionWhere(section))sorunun numarasını söyleyin."
+    }
+    static func askRenumberFrom(section: Int) -> String {
+        return "Lütfen düzeltilecek \(sectionWhere(section))sorunun numarasını söyleyin."
+    }
+    static func askRenumberTo(from: Int) -> String {
+        return "Soru \(from). Lütfen bu soruya verdiğiniz yeni numarayı söyleyin."
+    }
+    /// Numara ya da bölüm anlaşılmadı / söylenmedi: ikinci ve üçüncü soruşta "ikinci / üçüncü defa soruyorum" denir; üçüncüde de olmazsa işlem bırakılır
+    static func editAgain(_ prompt: String, lead: String) -> String {
+        return "\(lead), ikinci defa soruyorum. " + prompt
+    }
+    static func noSuchRecord(_ number: Int, section: Int) -> String {
+        return "\(questionPhrase(number, section: section)) kayıtlı değil."
+    }
+    static func noRecordsInSection(_ section: Int) -> String {
+        return "\(ordinalCapital(section)) bölümde kayıtlı soru yok."
+    }
+    static func sameNumber(_ number: Int) -> String {
+        return "Yeni numara eski numarayla aynı: \(number)."
+    }
+    static let editGivenUp = "Numara alınamadı, işlem iptal edildi. Hiçbir kayıt değiştirilmedi."
+    static let editCancelled = "Tamam, işlem iptal edildi. Hiçbir kayıt değiştirilmedi."
+    /// İstenen sorunun kaydı silindi. `reread`: sıradaki numara silinen soruya döndü (soru yeniden okunur)
+    static func chosenQuestionDeleted(_ number: Int, section: Int, reread: Bool, cameraNext: Bool) -> String {
+        return "\(questionPhrase(number, section: section)) kaydı silindi." + (cameraNext ? "" : (reread ? " Soruyu yeniden okuyabilirsiniz." : " Lütfen sonraki soruyu okuyun."))
+    }
+    /// Numara düzeltme: iki numara tekrarlanır ve onay istenir. `overwrite`: yeni numaralı kayıt zaten var, değişince silinecek
+    static func confirmRenumber(from: Int, to: Int, section: Int, overwrite: Bool) -> String {
+        let warning = overwrite ? " Dikkat: şu an kayıtlı olan soru \(to) silinecek, yerine bu soru geçecek." : ""
+        return "\(questionPhrase(from, section: section)), soru \(to) olarak değiştirilecek.\(warning) Onaylıyor musunuz? Evet ya da hayır deyin."
+    }
+    static func confirmRenumberAgain(from: Int, to: Int, section: Int) -> String {
+        return "Cevap alamadım, ikinci defa soruyorum. \(questionPhrase(from, section: section)), soru \(to) olarak değiştirilsin mi? Evet ya da hayır deyin."
+    }
+    static func questionRenumbered(from: Int, to: Int, section: Int, cameraNext: Bool) -> String {
+        let place = section > 0 ? "\(ordinalCapital(section)) bölümde " : ""
+        return "\(place)\(from) olan soru numarası \(to) olarak değiştirildi." + (cameraNext ? "" : " Lütfen sonraki soruyu okuyun.")
+    }
+    static let renumberFailed = "Dosyalar yeniden adlandırılamadı; numara değiştirilemedi."
+    static func renumberCancelled(cameraNext: Bool) -> String {
+        return "Tamam, numara değiştirilmedi." + (cameraNext ? "" : " Soruyu okuyabilirsiniz.")
     }
     static func lastQuestionDeleted(_ number: Int, cameraNext: Bool) -> String {
         return "Soru \(number) kaydı silindi." + (cameraNext ? "" : " Soruyu yeniden okuyabilirsiniz.")

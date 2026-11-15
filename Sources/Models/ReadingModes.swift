@@ -202,6 +202,10 @@ enum VoiceCommand: Equatable {
     case skipQuestion
     /// "Son soruyu sil", "son cevabı sil": en son kaydedilen sorunun kaydı (cevap satırı ve ses dosyası) silinir; önce "emin misiniz?" diye onay istenir
     case deleteLastQuestion
+    /// "Kayıt sil", "belirli bir soruyu sil", "başka bir soruyu sil": kullanıcının söyleyeceği numaralı sorunun kaydı silinir (önce bölüm, sonra numara sorulur; onay istenir)
+    case deleteChosenQuestion
+    /// "Soru numarası düzelt", "numarayı değiştir": önce düzeltilecek sorunun numarası, sonra yeni numara sorulur; ikisi tekrarlanıp onay istenir
+    case renumberQuestion
     /// "5. sorunun cevabını tekrarla": yalnız o sorunun cevabı yeniden okunur
     case repeatNumber(Int)
     /// "Anlamadım", "duyamadım", "bir daha söyle", "yeniden söyle", "tekrar söyle", "ne dedin": programın son sözü (soru, menü, cevap) yeniden söylenir
@@ -351,6 +355,59 @@ enum VoiceCommand: Equatable {
         }
         if verb && last && noun { return VoiceCommand.deleteLastQuestion }
         return nil
+    }
+
+    /// "Kayıt sil", "soru kaydını sil", "belirli bir soruyu sil", "başka bir soruyu sil", "numaralı soruyu sil": son soru değil, kullanıcının seçeceği soru silinecek.
+    /// Metin TAMAMEN komut olmalı; "son" sözcüğü varsa `parseDeleteLastQuestion` işi görür; yalnız "soruyu sil" okunan soruyu iptal eder (`parseCancel`).
+    static let chosenMarkers: Set<String> = ["belirli", "belirtilen", "belli", "istedigim", "istedigimiz", "baska", "diger", "herhangi", "secilen", "numarali", "numara", "numarasi", "numarasini", "bir", "hangi"]
+    static let recordWords: Set<String> = ["kayit", "kaydi", "kaydini", "kayitli", "kayitlari", "kaydimi"]
+
+    static func parseDeleteChosen(_ all: [String]) -> VoiceCommand? {
+        guard all.count >= 2, all.count <= 8 else { return nil }
+        var verb = false, marker = false, record = false, noun = false
+        for word in all {
+            if SpokenWords.matches(word, fillers) || SpokenWords.matches(word, deleteFillers) { continue }
+            if SpokenWords.matches(word, deleteVerbs) || SpokenWords.startsLike(word, "iptal") {
+                verb = true
+            } else if SpokenWords.matches(word, recordWords) {
+                record = true
+            } else if SpokenWords.matches(word, chosenMarkers) {
+                marker = true
+            } else if SpokenWords.matches(word, recordNouns) {
+                noun = true
+            } else {
+                return nil   // tanınmayan sözcük (örneğin "son"): komut değil, soru metni olabilir ya da başka komuttur
+            }
+        }
+        guard verb else { return nil }
+        if record || (marker && noun) { return VoiceCommand.deleteChosenQuestion }
+        return nil
+    }
+
+    /// "Soru numarası düzelt", "numara düzeltme", "numarayı değiştir", "soru numarasını güncelle": kayıtlı bir sorunun numarası değiştirilecek
+    static let renumberVerbs: Set<String> = [
+        "duzelt", "duzeltin", "duzeltelim", "duzeltme", "duzeltmek", "duzeltmeyi", "duzeltsene", "duzeltecegim",
+        "degistir", "degistirin", "degistirelim", "degistirme", "degistirmek", "degistirmeyi", "degistirsene", "degistirecegim",
+        "guncelle", "guncelleme", "guncelleyin"
+    ]
+    static let numberNouns: Set<String> = ["numara", "numarasi", "numarasini", "numarayi", "numarani", "numaralari", "no", "nosu", "nosunu"]
+
+    static func parseRenumber(_ all: [String]) -> VoiceCommand? {
+        guard all.count >= 2, all.count <= 7 else { return nil }
+        var verb = false, number = false
+        for word in all {
+            if SpokenWords.matches(word, fillers) { continue }
+            if SpokenWords.matches(word, renumberVerbs) {
+                verb = true
+            } else if SpokenWords.matches(word, numberNouns) {
+                number = true
+            } else if SpokenWords.matches(word, recordNouns) {
+                continue
+            } else {
+                return nil   // tanınmayan sözcük: komut değil, soru metni olabilir
+            }
+        }
+        return verb && number ? VoiceCommand.renumberQuestion : nil
     }
 
     /// "5. sorunun cevabını tekrarla", "beşinci sorunun cevabını oku", "soru yedinin cevabını söyle": tek bir sorunun cevabı. Numara bulunamazsa nil
@@ -522,6 +579,8 @@ enum VoiceCommand: Equatable {
         if isNegated(all) { return nil }
         if let cancel = parseCancel(text) { return cancel }
         if let delete = parseDeleteLastQuestion(all) { return delete }
+        if let chosen = parseDeleteChosen(all) { return chosen }
+        if let renumber = parseRenumber(all) { return renumber }
         if let numbered = parseNumbered(text) { return numbered }
         if isRepeatSpeech(all) { return .repeatSpeech }
         if let info = parseInfo(all) { return info }

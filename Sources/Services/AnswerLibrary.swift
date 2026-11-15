@@ -302,6 +302,60 @@ struct AnswerLibrary {
         }
     }
 
+    /// "Soru numarası düzelt": `folder` içindeki "soru_7.m4a" gibi dosyalar "soru_8.m4a" olur (uzantı korunur). Hedef numaranın eski dosyaları önce silinir.
+    /// Yalnız verilen klasöre bakılır (bölüm klasörü ya da bölümsüz sınav klasörü; başka bölüme ya da oturuma dokunulmaz). Hiçbir dosya yoksa true.
+    /// Bir dosya taşınamazsa o ana kadar taşınanlar geri alınır ve false döner (yarım kalmış, iki numaralı kayıt bırakılmaz).
+    @discardableResult
+    func renumberFiles(from old: Int, to new: Int, in folder: URL) -> Bool {
+        let sources = directAnswerFiles(in: folder).filter { AnswerLibrary.questionNumber(fromFileName: $0.lastPathComponent) == old }
+        guard !sources.isEmpty else { return true }
+        var staged: [(from: URL, to: URL)] = []
+        for url in sources {
+            let target = folder.appendingPathComponent("soru_\(new)").appendingPathExtension(url.pathExtension)
+            staged.append((url, target))
+        }
+        // Hedef numaranın eski dosyaları (kaynak dosyalarla çakışmayanlar) silinir: aynı numaralı iki kayıt kalmasın
+        for url in directAnswerFiles(in: folder) where AnswerLibrary.questionNumber(fromFileName: url.lastPathComponent) == new {
+            try? fileManager.removeItem(at: url)
+        }
+        var done: [(from: URL, to: URL)] = []
+        for move in staged {
+            do {
+                try fileManager.moveItem(at: move.from, to: move.to)
+                done.append(move)
+            } catch {
+                for undo in done.reversed() { try? fileManager.moveItem(at: undo.to, to: undo.from) }
+                return false
+            }
+        }
+        return true
+    }
+
+    /// "Soru numarası düzelt": düz yazıdaki "Soru 7, …" satırı `line` ile (yeni numaralı) değiştirilir; yeni numaranın eski satırı (varsa) silinir. Satır
+    /// aynı yerde kalır. Eski numaranın satırı yoksa yeni satır sona eklenir. Dosya okunamaz ya da yazılamazsa false (üzerine yazılmaz).
+    @discardableResult
+    func renumberTranscript(from old: Int, to new: Int, line: String, in folder: URL) -> Bool {
+        let url = folder.appendingPathComponent(AnswerLibrary.transcriptName)
+        guard fileManager.fileExists(atPath: url.path) else { return appendTranscript(line, in: folder) }
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return false }
+        var lines = text.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
+        let oldPrefix = "Soru \(old),"
+        let newPrefix = "Soru \(new),"
+        lines.removeAll { $0.hasPrefix(newPrefix) }
+        if let index = lines.firstIndex(where: { $0.hasPrefix(oldPrefix) }) {
+            lines[index] = line
+            for extra in lines.indices.reversed() where extra != index && lines[extra].hasPrefix(oldPrefix) { lines.remove(at: extra) }
+        } else {
+            lines.append(line)
+        }
+        do {
+            try (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
+            return true
+        } catch {
+            return false
+        }
+    }
+
     /// Cevapları düz yazı olarak da tutar: sesler silinse de cevaplar okunabilir kalır. Yazılamadıysa (yer doldu, klasör erişimi gitti) false.
     /// Dosya varsa yalnız sonuna eklenir; açılamazsa üzerine yazılmaz (önceki cevapların satırları kaybolmasın).
     @discardableResult

@@ -240,7 +240,7 @@ extension SessionViewModel {
 
     func silenceExpired() {
         guard phase == .listening else { return }
-        if listenMode == .missingNumber, heldQuestion != nil {
+        if listenMode == .missingNumber, heldQuestion != nil || numberEdit != nil {
             work = Task { [weak self] in await self?.numberSilence() }   // numara söylenmedi: hatırlatılır, olmazsa sıradaki numara verilir
             return
         }

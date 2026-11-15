@@ -206,9 +206,12 @@ struct ContentView: View {
         case .question: return "Okunuyor: sorunuz bitince “Cevapla” deyin"
         case .passage: return "Ortak paragraf okunuyor: bitirince “Tamam” deyin"
         case .passageTargets: return "Paragraf alındı: hangi sorulara ait olduğunu söyleyip “Tamam” deyin"
-        case .missingNumber: return "Soru numarası bekleniyor: numarayı söyleyin (ör. “yedi”)"
+        case .missingNumber:
+            if session.numberEdit != nil { return "Numarayı söyleyin (ör. “yedi”); vazgeçmek için “soruyu iptal et” deyin" }
+            return "Soru numarası bekleniyor: numarayı söyleyin (ör. “yedi”)"
         case .confirmEnd:
-            return session.pendingDelete != nil ? "Son soruyu silmek için “evet”, vazgeçmek için “hayır” deyin" : "Testi bitirmek için “evet”, devam etmek için “hayır” deyin"
+            if session.pendingRenumber != nil { return "Numarayı değiştirmek için “evet”, vazgeçmek için “hayır” deyin" }
+            return session.pendingDelete != nil ? "Kaydı silmek için “evet”, vazgeçmek için “hayır” deyin" : "Testi bitirmek için “evet”, devam etmek için “hayır” deyin"
         case .cameraChoice: return "Kamera ile çekmek için “evet”, sesle okumak için “hayır” deyin (ortak paragraf için “ortak paragraf” deyin)"
         case .passageCameraChoice: return "Ortak paragrafı kamera ile çekmek için “evet”, sesle okumak için “hayır” deyin"
         case .captureKindChoice: return "Soru çekmek için “bir” ya da “soru”, ortak paragraf için “iki” ya da “paragraf” deyin"

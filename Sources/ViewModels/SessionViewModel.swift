@@ -246,6 +246,13 @@ final class SessionViewModel: ObservableObject {
     var answerOrder: [Int] = []
     /// "Son soruyu sil" onayı bekleniyor: silinecek sorunun numarası (onay "testi bitir" onayıyla aynı kipte sorulur; bitince nil olur)
     var pendingDelete: Int?
+    /// "Soru numarası düzelt" / "istenen soruyu sil" sürüyor: hangi adımda olunduğu (numara beklenirken dinleme kipi `.missingNumber` kullanılır; bekleyen soru yoksa)
+    var numberEdit: NumberEdit?
+    /// "Soru numarası düzelt" onayı bekleniyor (onay "testi bitir" onayıyla aynı kipte sorulur)
+    var pendingRenumber: PendingRenumber?
+    /// Silme onayı hangi bölümün kaydı için bekleniyor (0: bölümsüz sınav) ve silinecek soru kullanıcının seçtiği soru mu ("son soru" değil)
+    var pendingEditSection = 0
+    var pendingDeleteChosen = false
     /// Önceki oturumdan hatırlanan klasör ve sıradaki numara: uygulama açılırken defterden, "Testi bitir"de bellekten. Yeni başlatmada
     /// içinde cevap varsa "önceki kayıttan devam mı, yeni sınav mı?" diye sorulur.
     struct Carry: Equatable {
@@ -574,6 +581,9 @@ final class SessionViewModel: ObservableObject {
         answers = []
         answerOrder = []
         pendingDelete = nil
+        pendingRenumber = nil
+        pendingDeleteChosen = false
+        numberEdit = nil
         cameraProbeTask?.cancel()
         cameraProbeTask = nil
         cameraDownSince = nil
@@ -726,7 +736,12 @@ final class SessionViewModel: ObservableObject {
     /// Mikrofonu açar ve yeni soruyu bekler. Eldeki yarım metin ve ses silinir; yalnız `keepPartial` ise (kesinti sonrası, okunan soru ya da
     /// paragraf yarıda kalmışsa) korunur ve devam edilen okuma ona eklenir. `mode`: mikrofonun ne için açıldığı.
     func beginListening(mode: ListenMode = .question, keepPartial: Bool = false) {
-        if mode != .confirmEnd { pendingDelete = nil }   // "son soruyu sil" onayı yalnız onay kipinde geçerlidir; başka kipe geçilince bayat kalmaz
+        if mode != .confirmEnd {   // silme / numara düzeltme onayı yalnız onay kipinde geçerlidir; başka kipe geçilince bayat kalmaz
+            pendingDelete = nil
+            pendingRenumber = nil
+            pendingDeleteChosen = false
+        }
+        if mode != .missingNumber { numberEdit = nil }   // numara düzeltme / silme adımları yalnız numara kipinde sürer
         // Sürüm 4: yeni bir soru sınırında önce "kamera ile çekmek ister misiniz?" sorulur (evet / hayır dinlemesi buradan açılır)
         // Telefonda bekleyen çekim, kamera sorusu kapalı olsa da yeni bir soru sınırında önce gönderilir (askCameraChoice yönlendirir)
         let drainPending = resendablePending != nil && !pendingDrainSkipped
@@ -928,8 +943,8 @@ final class SessionViewModel: ObservableObject {
             // "tamam" paragrafın içinde de geçebilir (cümle sonunda): kısa duraklamada bitmez, daha uzun sabit kalmalı
             if TriggerDetector.fold(match.word) == "tamam" { delay = Timing.numberConfirm }
         case .missingNumber:
-            guard heldQuestion != nil else { return }
-            if numberReply() != nil {
+            guard heldQuestion != nil || numberEdit != nil else { return }
+            if numberHeard() {
                 delay = Timing.numberConfirm
             } else {
                 // Kısa ama numara olmayan bir söz duyuldu ("peş", "yedi mi"): 30 sn beklemeden yeniden sorulur. Uzun metin, kullanıcının
@@ -1029,7 +1044,11 @@ final class SessionViewModel: ObservableObject {
         case .passageTargets:
             guard command == .replayAnswers || command == .cancelPassage || command.isRepeatNumber || command.isEnding else { return }
         case .missingNumber:
-            guard command == .replayAnswers || command.isCancelQuestion || command == .deleteLastQuestion || command.isRepeatNumber || command.isEnding else { return }
+            if numberEdit != nil {
+                guard command.isCancelQuestion else { return }   // numara düzeltme / silme sürerken yalnız "soruyu iptal et" (vazgeçme) çalışır
+            } else {
+                guard command == .replayAnswers || command.isCancelQuestion || command == .deleteLastQuestion || command.isRepeatNumber || command.isEnding else { return }
+            }
         case .confirmEnd:
             guard command == .replayAnswers else { return }
         default:
@@ -1129,6 +1148,10 @@ final class SessionViewModel: ObservableObject {
         case .cancelQuestion, .skipQuestion:
             // Okunan soru (metin ve ses kaydı yukarıda temizlendi) vazgeçilir; kamera sorusundayken silinecek bir şey yoktur.
             // "Soruyu atla" aynı işi yapar (yarım kalan ya da yanlış anlaşılan soru bırakılır, sıradaki okunur); yalnız söylenen cümle farklıdır.
+            if from == .missingNumber, numberEdit != nil {
+                work = Task { [weak self] in await self?.cancelNumberEdit() }   // numara düzeltme / silme sırasında "iptal": işlem bırakılır
+                return
+            }
             let skipping = command == .skipQuestion
             tlog(skipping ? "[komut] sesli komut: soruyu atla" : "[komut] sesli komut: soruyu iptal et")
             let choice = from == .cameraChoice || from == .passageCameraChoice || from == .captureKindChoice
@@ -1168,12 +1191,17 @@ final class SessionViewModel: ObservableObject {
             // Geri alınamaz bir iş: önce onay istenir. "Evet" silmeyi tamamlar; "hayır", cevapsızlık ve anlaşılmayan söz silmez.
             tlog("[komut] sesli komut: son soruyu sil (soru \(target.number)); onay isteniyor")
             pendingDelete = target.number
+            pendingDeleteChosen = false
+            pendingEditSection = sectionIndex
             endReminders = 0
             endReturn = from == .missingNumber ? from : .question
+            let promptSection = sectionIndex
             work = Task { [weak self] in
-                guard let self = self, await self.speakNotice(Say.confirmDeleteLast(target.number)) else { return }
+                guard let self = self, await self.speakNotice(Say.confirmDeleteLast(target.number, section: promptSection)) else { return }
                 self.beginListening(mode: .confirmEnd)
             }
+        case .deleteChosenQuestion, .renumberQuestion:
+            startNumberEdit(command == .renumberQuestion ? .renumber : .delete)
         case .repeatSpeech, .help, .whatHeard, .deleteLast, .status, .missingAnswers, .report, .volume, .camera:
             break   // yukarıda ele alındı
         case .cancelPassage:
@@ -1221,6 +1249,10 @@ final class SessionViewModel: ObservableObject {
         liveEnglish = ""
         deps.recorder.reset()
         phase = .speaking
+        if let renumber = pendingRenumber {
+            confirmRenumber(renumber, reply: reply)
+            return
+        }
         if let number = pendingDelete {
             confirmDeleteLast(number, reply: reply)
             return
@@ -1259,7 +1291,14 @@ final class SessionViewModel: ObservableObject {
 
     /// "Son soruyu silmek istiyor musunuz?" sorusuna cevap: evet kaydı siler, hayır (ya da cevapsızlık) hiçbir şeyi silmez
     private func confirmDeleteLast(_ number: Int, reply: SpokenReply.YesNo) {
+        let chosen = pendingDeleteChosen
+        let section = pendingEditSection
         pendingDelete = nil
+        pendingDeleteChosen = false
+        if chosen {
+            confirmChosenDelete(number, section: section, reply: reply)   // kullanıcının seçtiği soru (bölüm ve numara söylendi)
+            return
+        }
         switch reply {
         case .yes:
             tlog("[komut] son soruyu silme onaylandı (soru \(number))")
@@ -1287,7 +1326,9 @@ final class SessionViewModel: ObservableObject {
     }
 
     /// Soru kaydını siler: cevap satırı, düz yazı satırı, ses dosyası ve ana ekrandaki satır. Sıradaki numara silinen soruya geri döner (soru yeniden okunur).
-    func deleteRecordedQuestion(_ number: Int) {
+    /// `clearPending`: telefonda bekleyen (gönderilmemiş) iş de bırakılır; yalnız en son sorunun silinmesinde doğrudur. Eski bir soruyu silerken
+    /// bekleyen iş başka bir soruya aittir ve korunur.
+    func deleteRecordedQuestion(_ number: Int, clearPending: Bool = true) {
         answers.removeAll { $0.number == number }
         answerOrder.removeAll { $0 == number }
         if let folder = sessionFolder {
@@ -1300,7 +1341,7 @@ final class SessionViewModel: ObservableObject {
             return false
         }
         if unheard?.number == number { unheard = nil }
-        deps.journal.savePending(nil)
+        if clearPending { deps.journal.savePending(nil) }
         if nextNumber == number + 1 {
             nextNumber = number
             deps.journal.saveNextNumber(number)
@@ -1352,14 +1393,19 @@ final class SessionViewModel: ObservableObject {
         switch listenMode {
         case .confirmEnd:
             endReminders += 1
+            if let renumber = pendingRenumber {
+                await renumberSilence(renumber)
+                return
+            }
             if let number = pendingDelete {
                 if endReminders <= Timing.choiceReminderLimit {
-                    guard await speakNotice(Say.reask(Say.confirmDeleteLastAgain(number), attempt: endReminders + 1)) else { return }
+                    guard await speakNotice(Say.reask(Say.confirmDeleteLastAgain(number, section: pendingEditSection), attempt: endReminders + 1)) else { return }
                     beginListening(mode: .confirmEnd)
                 } else {
-                    tlog("[komut] son soruyu silme sorusu cevapsız kaldı; hiçbir şey silinmedi")
+                    tlog("[komut] silme sorusu cevapsız kaldı; hiçbir şey silinmedi")
                     clearWarning("duyulan")
                     pendingDelete = nil
+                    pendingDeleteChosen = false
                     guard await speakNotice(deleteCancelledNotice) else { return }
                     beginListening(mode: endReturn)
                 }
@@ -1521,6 +1567,10 @@ final class SessionViewModel: ObservableObject {
 
     /// Numara duyuldu ("soru yedi") ya da "sıradaki" denildi: bekleyen soru numarası başa yazılarak Gemini'ye gider
     private func fireNumber() {
+        if let edit = numberEdit {
+            fireEditNumber(edit)   // numara düzeltme / istenen soruyu silme: söylenen numara ya da bölüm
+            return
+        }
         guard let held = heldQuestion else {
             listenMode = .question
             return
@@ -1546,16 +1596,24 @@ final class SessionViewModel: ObservableObject {
     /// Numara beklenirken duyulan söz numara değildi: ne duyulduğu ekranda yazılır, numara yeniden sorulur
     func numberUnclear() {
         confirmTask = nil
-        guard phase == .listening, listenMode == .missingNumber, heldQuestion != nil else { return }
+        guard phase == .listening, listenMode == .missingNumber, heldQuestion != nil || numberEdit != nil else { return }
         let heard = accumulator.text
-        guard numberReply() == nil else { return }
+        guard !numberHeard() else { return }
         tlog("[soru] numara anlaşılamadı; duyulan: \"\(heard)\"")
         warn("numara", "Duyulan: “\(heard)”. Numara anlaşılamadı.")
+        if let edit = numberEdit {
+            work = Task { [weak self] in await self?.editReprompt(edit, heard: true) }   // bir şey söylendi ama anlaşılmadı: "Anlayamadım, ikinci defa soruyorum"
+            return
+        }
         work = Task { [weak self] in await self?.numberSilence() }
     }
 
     /// Numara hiç söylenmeden sessizlik sürerse: hatırlatılır; yine olmazsa eski davranış (sıradaki numara) uygulanır, soru kaybolmaz
     func numberSilence() async {
+        if let edit = numberEdit {
+            await editReprompt(edit, heard: false)
+            return
+        }
         guard let held = heldQuestion else { return }
         numberReminders += 1
         guard numberReminders <= Timing.numberReminderLimit else {

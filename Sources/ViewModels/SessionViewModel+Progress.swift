@@ -115,6 +115,7 @@ extension SessionViewModel {
         if listenMode == .passageCameraChoice { return Continuation(text: Say.askPassageCameraAfterRecovery, mode: .passageCameraChoice, keep: false) }
         if listenMode == .captureKindChoice { return Continuation(text: Say.askCaptureKindAfterRecovery, mode: .captureKindChoice, keep: false) }
         if listenMode == .nextSectionChoice { return Continuation(text: Say.askNextSectionAfterRecovery(sectionIndex + 1), mode: .nextSectionChoice, keep: false) }
+        if let edit = numberEdit { return Continuation(text: "Bağlantı yeniden onarıldı. " + editPrompt(edit), mode: .missingNumber, keep: false) }
         if heldQuestion != nil { return Continuation(text: Say.recoveredAskNumber, mode: .missingNumber, keep: false) }
         if let draft = passageDraft { return Continuation(text: draft.shot == nil ? Say.recoveredAskTargets : Say.recoveredAskTargetsCamera, mode: .passageTargets, keep: false) }
         if settings.smartResume {
