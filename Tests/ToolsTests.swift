@@ -643,13 +643,13 @@ final class ReceiverNotRoutedTests: XCTestCase {
             h.scheduler.advance(by: SessionViewModel.Timing.hardwareGrace + 0.1)
             await settle()
         }
-        let first = h.speaker.spoken.filter { $0 == text }.count
-        XCTAssertEqual(first, 1, "İlk dakikada bir kez söylenir: \(h.speaker.spoken)")
+        let first = h.speaker.announcements.filter { $0 == text }.count
+        XCTAssertEqual(first, 1, "İlk dakikada bir kez söylenir: \(h.speaker.announcements)")
         for _ in 0..<3 {
             h.scheduler.advance(by: SessionViewModel.Timing.hardwareGrace + 0.1)
             await settle()
         }
-        XCTAssertGreaterThanOrEqual(h.speaker.spoken.filter { $0 == text }.count, 2, "Bir dakika sonra yeniden söylenir: \(h.speaker.spoken)")
+        XCTAssertGreaterThanOrEqual(h.speaker.announcements.filter { $0 == text }.count, 2, "Bir dakika sonra yeniden söylenir: \(h.speaker.announcements)")
         XCTAssertTrue(h.shortcuts.runs.isEmpty)
     }
 

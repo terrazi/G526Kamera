@@ -577,9 +577,10 @@ enum VoiceCommand: Equatable {
         let all = SpokenWords.of(text)
         if let askOff = parseCameraAskOff(all) { return askOff }   // "kamera sorusu olmasın" (olumsuzlamadan önce: "olmasın" olumsuz söz sayılır)
         if isNegated(all) { return nil }
+        // "Başka bir soruyu sil" / "kaydı sil": parseCancel'dan ÖNCE bakılır ("başka" sözcüğü "başla" gibi okunup soruyu iptal sanılmasın)
+        if let chosen = parseDeleteChosen(all) { return chosen }
         if let cancel = parseCancel(text) { return cancel }
         if let delete = parseDeleteLastQuestion(all) { return delete }
-        if let chosen = parseDeleteChosen(all) { return chosen }
         if let renumber = parseRenumber(all) { return renumber }
         if let numbered = parseNumbered(text) { return numbered }
         if isRepeatSpeech(all) { return .repeatSpeech }
