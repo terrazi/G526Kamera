@@ -58,6 +58,14 @@ Bu belge, programın sesle nasıl işlemesi gerektiğini adım adım yazar; her 
    "bitirmek istemiyorum", "yeni başlamayalım", "yeni değil") hiçbir seçeneği seçmez; cevap anlaşılmamış sayılır ve yeniden sorulur (böylece
    "bitirmek istemiyorum" testi bitirmez). Aynı olumsuz sözler komut da değildir: "testi bitirme", "cevapları tekrarlamayın", "son cevabı okuma" komut
    sayılmaz, metin olduğu gibi kalır.
+   **Karşılıklı tekrar:** İki taraf da anlamadığını söyleyip tekrar isteyebilir. Program anlamadığında ("Anlayamadım…") sorusunu yeniden sorar. Kullanıcı
+   programın söylediğini duymadıysa ya da anlamadıysa her an "anlamadım", "anlayamadım", "duyamadım", "duymadım", "bir daha söyle", "yeniden söyle",
+   "tekrar söyle", "yine söyle", "ne dedin", "efendim", "pardon", "tekrar söyler misin", "yeniden anlatır mısınız", "bir daha oku" gibi sözlerden birini
+   söyler: program son sözünü (en çok son iki anons: örneğin cevap + kamera sorusu) aynen yeniden söyler ve aynı kipte dinlemeye döner. Bu bir cevap
+   sayılmaz: hatırlatma sayaçları, tutulan soru, paragraf taslağı, kamera durumu değişmez. Soru okunurken araya girilirse yalnız komut atılır, okunan metin
+   korunur. Paragraf okunurken yalnız söz tek başınaysa komut sayılır (paragraf metnine karışmaz). Tek başına "tekrarla" / "tekrar et": soru ve kamera
+   sorusunda son cevabı okur (V3 gibi); onay, numara, paragraf numarası ve başlangıç sorusunda programın sözünü tekrarlar. Menüde "Tekrar" bir seçenektir
+   (cevapları yeniden oynatır); menüde programın sözünü tekrarlatmak için "bir daha söyle" / "anlamadım" denir.
 5. **Cevapları okuma ve menü.** Cevaplar numara sırasıyla, aralarında Tekrar boşluğu (varsayılan 3 sn) okunur. Bitince: "N sorunun cevabı okundu. Ne yapmak
    istersiniz? Teste kaldığınız yerden devam etmek için **Devam**, cevapları yeniden dinlemek için **Tekrar**, testi tamamlamak için **Bitir** deyin."
    Devam → kalınan yere dönülür (soru / eksik numara / paragraf numaraları); Tekrar → yeniden okunur ve yine sorulur; Bitir → "Test tamamlandı. N cevap

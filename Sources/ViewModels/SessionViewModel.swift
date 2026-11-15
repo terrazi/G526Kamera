@@ -303,6 +303,10 @@ final class SessionViewModel: ObservableObject {
     var gapTask: ScheduledTask?
     /// Üst üste anlaşılmayan komut denemesi sayısı; soru başına "Cevapla" hatırlatma sayısı
     var attemptFails = 0
+    /// Programın en son söylediği anonslar (en çok ikisi, ör. cevap + kamera sorusu): kullanıcı "anlamadım", "duyamadım", "bir daha söyle" derse
+    /// yeniden söylenir. Mikrofon kullanıcı için açıldıktan sonra söylenen ilk anons yeni bir grup başlatır (`speechSealed`).
+    var recentSpeech: [String] = []
+    var speechSealed = false
     var idleReminders = 0
     /// Cevaplar baştan okunuyor (oturum açık kalır; okuma bitince "Devam, Tekrar ya da Bitir" sorulur)
     var reviewing = false
@@ -698,6 +702,7 @@ final class SessionViewModel: ObservableObject {
         }
         clearWarning("mikrofon")
         phase = .listening
+        speechSealed = true   // kullanıcı söz sırasında: bundan sonra söylenen ilk anons yeni bir "son söz" grubu başlatır
         statusNote = ""
         micCooldown = Timing.micWarmupTicks
         micOKTicks = 0
@@ -796,6 +801,11 @@ final class SessionViewModel: ObservableObject {
         // "Cevapları tekrarla": soru, onay, numara ve paragraf numarası beklenirken her an söylenebilir; kısa süre sabit kalırsa çalışır
         if [ListenMode.question, .confirmEnd, .missingNumber, .passageTargets].contains(listenMode), spokenCommand() == .replayAnswers {
             confirmTask = deps.scheduler.after(Timing.numberConfirm) { [weak self] in self?.fireVoiceCommand() }
+            return
+        }
+        // "Anlamadım", "duyamadım", "bir daha söyle": her kipte söylenebilir; program son sözünü yeniden söyler ve aynı kipte dinler
+        if repeatSpeechRequested() {
+            confirmTask = deps.scheduler.after(Timing.numberConfirm) { [weak self] in self?.fireRepeatSpeech() }
             return
         }
         // "Paragrafı iptal et": paragraf okunurken ve numaraları beklenirken söylenebilir (öteki komutlar paragraf metnine karışır)
@@ -926,6 +936,10 @@ final class SessionViewModel: ObservableObject {
     }
 
     private func run(_ command: VoiceCommand) {
+        if command == .repeatSpeech {
+            repeatSpeech(keepPartial: false)   // "Anlamadım, Cevapla" gibi: kipi bozmadan programın son sözü yeniden söylenir
+            return
+        }
         var back = listenMode   // cevaplar okunduktan sonra "Devam" denirse buraya dönülür
         let from = listenMode
         // "Ortak paragrafı iptal et" diye başlandıysa paragraf okunmaya hiç başlanmamıştır (komutun kendisi dışında ≤ 3 sözcük)
@@ -984,6 +998,8 @@ final class SessionViewModel: ObservableObject {
                 guard let self = self, await self.speakNotice(notice) else { return }
                 self.beginListening(mode: .question)
             }
+        case .repeatSpeech:
+            break   // yukarıda ele alındı
         case .cancelPassage:
             let notice = cancelPassage(from: from, phraseOnly: phraseOnly)
             work = Task { [weak self] in
@@ -1622,7 +1638,8 @@ final class SessionViewModel: ObservableObject {
 
     /// Kısa anons: yalnız kulaklıktan çalar; `saveAs` verilmedikçe kaydedilmez. Sonuna kadar çalındıysa true.
     @discardableResult
-    func speakNotice(_ text: String, saveAs: URL? = nil) async -> Bool {
+    func speakNotice(_ text: String, saveAs: URL? = nil, remember: Bool = true) async -> Bool {
+        if remember { rememberSpeech(text) }
         phase = .speaking
         await settleAnnouncements()   // önce bekleyen uyarılar, sonra bu anons
         guard !Task.isCancelled, phase == .speaking else { return false }

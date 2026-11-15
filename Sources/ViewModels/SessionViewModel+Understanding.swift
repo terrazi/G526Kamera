@@ -86,6 +86,78 @@ extension SessionViewModel {
         return VoiceCommand.parseLenient(tail.joined(separator: " "))
     }
 
+    // MARK: "Anlamadım / bir daha söyle": programın son sözünü yeniden söyleme
+
+    /// Söylenen anonsu "son söz" grubuna ekler (en çok iki anons). Aynı cümleyi içeren yeni anons ("Anlayamadım. Bu soruyu kamera ile…") eskisinin yerini alır.
+    func rememberSpeech(_ text: String) {
+        let spoken = text.trimmed
+        guard !spoken.isEmpty else { return }
+        if speechSealed {
+            recentSpeech.removeAll()
+            speechSealed = false
+        }
+        recentSpeech.removeAll { spoken.contains($0) }
+        recentSpeech.append(spoken)
+        if recentSpeech.count > 2 { recentSpeech.removeFirst(recentSpeech.count - 2) }
+    }
+
+    /// Kullanıcı programın son sözünü yeniden söylemesini istiyor mu. Her kipte geçerlidir; paragraf okunurken yalnız söz tek başına komutsa
+    /// (paragraf metnine karışmasın). Tek başına "tekrarla" / "tekrar et" (V3: son cevabı tekrarlar) soru ve kamera sorusunda öyle kalır;
+    /// onay, numara, paragraf numarası ve başlangıç sorusunda programın sözünü tekrarlatır. Menüde "Tekrar" bir seçenektir, burada sayılmaz.
+    func repeatSpeechRequested() -> Bool {
+        let command = listenMode == .passage ? interpret(VoiceCommand.parseLenient) : spokenCommand()
+        switch command {
+        case .repeatSpeech?:
+            return true
+        case .repeatLast?:
+            return [ListenMode.confirmEnd, .missingNumber, .passageTargets, .startChoice].contains(listenMode)
+        default:
+            return false
+        }
+    }
+
+    /// "Anlamadım", "duyamadım", "bir daha söyle"… söylendi: kısa süre sabit kalırsa program son sözünü yeniden söyler
+    func fireRepeatSpeech() {
+        confirmTask = nil
+        guard phase == .listening, repeatSpeechRequested() else { return }
+        var keep = false
+        if listenMode == .question {
+            // Soru okunurken araya girildiyse yalnız komut sözü atılır, okunan soru metni korunur
+            let whole = interpret(VoiceCommand.parseLenient) == .repeatSpeech
+            if !whole, utteranceStart > 0, utteranceStart < wordCount(accumulator.text) {
+                accumulator.dropWords(from: utteranceStart)
+                liveText = accumulator.text
+                keep = true
+            }
+        }
+        repeatSpeech(keepPartial: keep)
+    }
+
+    /// Programın son sözü (en çok son iki anons) aynen yeniden söylenir; sonra aynı kipte dinlemeye dönülur. Cevap sayılmaz, hatırlatma sayaçlarını
+    /// ve bekleyen işleri (tutulan soru, paragraf taslağı) değiştirmez. Söylenecek anons yoksa son cevap, o da yoksa bunu söyler.
+    func repeatSpeech(keepPartial: Bool) {
+        let mode = listenMode
+        closeListening()
+        attemptFails = 0
+        clearWarning("duyulan")
+        if !keepPartial {
+            accumulator.clear()
+            englishAccumulator.clear()
+            liveText = ""
+            liveEnglish = ""
+            deps.recorder.reset()
+        }
+        phase = .speaking
+        let spoken = recentSpeech.joined(separator: " ")
+        tlog("[komut] sesli komut: programın son sözü yeniden söyleniyor (\(mode))")
+        work = Task { [weak self] in
+            guard let self = self else { return }
+            let text = spoken.isEmpty ? (self.answers.last?.spoken ?? Say.nothingToRepeat) : spoken
+            guard await self.speakNotice(text, remember: false) else { return }
+            self.beginListening(mode: mode, keepPartial: keepPartial)
+        }
+    }
+
     // MARK: Anlaşılmayan söz
 
     /// Soru dinlenirken metin değişmeden kaldı ve "Cevapla" yok: komut gibi duyulduysa kısa sürede, değilse uzun sessizlikten sonra konuşulur

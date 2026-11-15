@@ -130,6 +130,7 @@ extension SessionViewModel {
     func promptReviewMenu(_ report: String) async {
         reviewReminders = 0
         listenMode = .reviewMenu
+        speechSealed = true   // okuma bitti: "Cevaplar okunuyor" anonsu değil, yalnız bu menü "bir daha söyle" ile tekrarlanır
         guard await speakNotice(report + " " + Say.reviewMenu) else { return }
         beginListening(mode: .reviewMenu)
     }

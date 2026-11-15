@@ -183,6 +183,8 @@ enum Say {
     static let permissionDenied = "Mikrofon ve konuşma tanıma izni gerekli. Ayarlar, Sesli Kontrol bölümünden izin verin."
     static let notConfigured = "Kestirme adları boş; kendi kendini onarma kapalı. Ayarlardan kestirmelerin adını yazın."
     static let nothingToReplay = "Tekrarlanacak cevap yok."
+    /// "Anlamadım / bir daha söyle" denince söylenecek hiçbir anons ve cevap yoksa
+    static let nothingToRepeat = "Tekrar edilecek bir şey yok."
     /// Belirli bir sorunun cevabı istendi ("5. sorunun cevabını tekrarla") ama o numara için kayıt yok
     static func noAnswerFor(_ number: Int) -> String { return "\(number) numaralı soru için kayıtlı cevap yok." }
 

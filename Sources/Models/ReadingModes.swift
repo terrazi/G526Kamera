@@ -192,6 +192,8 @@ enum VoiceCommand: Equatable {
     case cancelPassage
     /// "5. sorunun cevabını tekrarla": yalnız o sorunun cevabı yeniden okunur
     case repeatNumber(Int)
+    /// "Anlamadım", "duyamadım", "bir daha söyle", "yeniden söyle", "tekrar söyle", "ne dedin": programın son sözü (soru, menü, cevap) yeniden söylenir
+    case repeatSpeech
 
     static let subjects: Set<String> = ["test", "testi", "testimi", "teste", "sinav", "sinavi", "sinavimi", "sinava", "denemeyi", "deneme"]
     static let endVerbs: Set<String> = [
@@ -286,6 +288,60 @@ enum VoiceCommand: Equatable {
         return .repeatNumber(number)
     }
 
+    // MARK: "Anlamadım / bir daha söyle": programın son sözünü yeniden söylemesi
+
+    /// Duyulmadı / anlaşılmadı sözleri: tek başına yeter ("anlamadım", "duyamadım", "duymadım", "anlaşılmadı", "efendim", "pardon")
+    static let misunderstood: Set<String> = [
+        "anlamadim", "anlayamadim", "anlamadik", "anlayamadik", "anlasilmadi", "anlasilmiyor", "anlamiyorum", "anlayamiyorum", "anlamiyoruz", "anlayamiyoruz",
+        "duyamadim", "duymadim", "duyamadik", "duymadik", "duyulmadi", "duyulmuyor", "duyamiyorum", "duymuyorum", "duyamiyoruz", "duymuyoruz",
+        "isitemedim", "isitmedim", "isitemiyorum", "isitmiyorum", "neydi", "efendim", "pardon"
+    ]
+    /// "Ne dedin?": "ne" ile birlikte
+    static let whatDidYouSay: Set<String> = ["dedin", "dediniz", "diyorsun", "diyorsunuz", "demistin", "demistiniz", "demissin", "demissiniz", "dedi"]
+    /// "Tekrar / yeniden / bir daha / yine" + söyleme fiili: "tekrar söyle", "bir daha söyler misin", "yeniden anlatır mısınız"
+    static let againWords: Set<String> = ["tekrar", "yeniden", "daha", "yine", "tekrardan"]
+    static let sayWords: Set<String> = [
+        "soyle", "soyler", "soyleyin", "soyleyebilir", "soyleyebilirsin", "soyleyebilirsiniz", "soylermisin", "soylermisiniz", "soylesene", "soylesenize", "soyleyiver",
+        "anlat", "anlatir", "anlatin", "anlatsana", "anlatabilir", "anlatabilirsin", "anlatabilirsiniz", "edebilir", "edebilirsin", "edebilirsiniz"
+    ]
+    /// "Bir daha oku", "yeniden oku": "tekrar oku" bu kümeye girmez (V3'te son cevabı okutur)
+    static let readAgainWords: Set<String> = [
+        "oku", "okur", "okuyun", "okusana", "okusanize", "okuyabilir", "okuyabilirsin", "okuyabilirsiniz", "okurmusun", "okurmusunuz"
+    ]
+    /// Nezaket ve dolgu sözcükleri
+    static let politeWords: Set<String> = [
+        "lutfen", "misin", "misiniz", "mi", "mu", "musun", "musunuz", "bir", "kez", "kere", "defa", "biraz", "hadi", "ya", "rica", "ederim", "bana", "sunu", "bunu", "onu"
+    ]
+
+    /// Metnin TAMAMI programdan son sözünü yeniden söylemesini istiyor mu. Bütün sözcükler bu sözlüklerden olmalıdır: soru metni komut sayılmaz.
+    /// "Tekrar", "tekrarla", "tekrar et" gibi tek başına söylenenler burada değildir (V3: son cevabı tekrarlar; menüde ve onayda programın sözünü tekrarlar).
+    static func isRepeatSpeech(_ words: [String]) -> Bool {
+        guard !words.isEmpty, words.count <= 7 else { return false }
+        var understood = false, ne = false, what = false, again = false, againWithoutTekrar = false, say = false, read = false
+        for word in words {
+            if SpokenWords.matches(word, misunderstood) {
+                understood = true
+            } else if word == "ne" {
+                ne = true
+            } else if SpokenWords.matches(word, whatDidYouSay) {
+                what = true
+            } else if SpokenWords.matches(word, sayWords) {
+                say = true
+            } else if SpokenWords.matches(word, readAgainWords) {
+                read = true
+            } else if SpokenWords.matches(word, againWords) {
+                again = true
+                if !SpokenWords.exactly(word, ["tekrar"]) { againWithoutTekrar = true }
+            } else if !SpokenWords.matches(word, politeWords) {
+                return false   // tanınmayan sözcük: komut değil, soru ya da paragraf metni olabilir
+            }
+        }
+        if understood || (ne && what) { return true }
+        if again && say { return true }
+        // Tek başına "bir daha" burada değildir: soru ya da paragraf cümlesinin başı olabilir ("Bir kez daha…")
+        return againWithoutTekrar && read
+    }
+
     /// Komutu OLUMSUZLAYAN söz var mı ("testi bitirme", "cevapları tekrarlama", "sınavı bitirmem"): yakın sesli eşleşme ("bitirme" ≈ "bitirmek")
     /// bunları komut sayardı. Olumsuz söz komut değildir; metin olduğu gibi soru/paragraf metni olarak kalır.
     private static func isNegated(_ words: [String]) -> Bool {
@@ -297,6 +353,7 @@ enum VoiceCommand: Equatable {
         if isNegated(all) { return nil }
         if let cancel = parseCancel(text) { return cancel }
         if let numbered = parseNumbered(text) { return numbered }
+        if isRepeatSpeech(all) { return .repeatSpeech }
         guard !all.isEmpty, all.count <= 7 else { return nil }
         let words = all.filter { !SpokenWords.matches($0, fillers) }
         guard !words.isEmpty else { return nil }
@@ -438,7 +495,8 @@ enum SpokenReply {
         "istemiyorum", "istemiyoruz", "istemem", "istemeyiz", "degil", "olmasin", "olmaz", "gerekmez", "gerekmiyor",
         "baslama", "baslamayalim", "baslamayin", "baslamam", "baslamiyorum", "baslamiyoruz", "baslamasin",
         "okuma", "okumayin", "okumayalim", "okumam", "okumuyorum", "dinleme", "dinlemeyelim", "dinlemeyin", "dinlemem", "dinlemiyorum",
-        "tekrarlama", "tekrarlamayin", "tekrarlamayalim", "tekrarlamam", "tekrarlamiyorum"
+        "tekrarlama", "tekrarlamayin", "tekrarlamayalim", "tekrarlamam", "tekrarlamiyorum",
+        "soyleme", "soylemeyin", "soylemeyelim", "soylemem", "soylemiyorum", "anlatma", "anlatmayin"
     ]
     static let continueWords: Set<String> = ["devam", "onceki", "eski", "kaldigi", "kaldigim", "kaldigimiz", "aynen", "surdur", "surdurelim", "surdurun"]
     static let newWords: Set<String> = ["yeni", "sifirdan", "bastan", "temiz"]

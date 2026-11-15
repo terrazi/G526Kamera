@@ -150,6 +150,9 @@ yol bildirimi ve onarım sınırı aynı anda üst üste gelince tetikleniyordu.
 | Kamera sorusuna "çekmek istiyorum", "çekmeyi isterim", "kamerayı kullan" | EVET sayılır (eskiden "çekmek" hayır sözüne benzediği için anlaşılmıyordu) | ✅ |
 | Testi bitirme onayına "bitirmek istiyorum" / "sonlandırmak istiyorum" | EVET (eskiden "bitirme"ye benzediği için HAYIR sayılıyordu); "bitirmiyorum", "bitirmeyelim", "bitirmek istemiyorum" hayır | ✅ |
 | Menüde "bitirme, devam edelim" | Devam sayılır (olumsuz "bitirme" bitirme isteği değildir) | ✅ |
+| Kullanıcı programı duymadı/anlamadı: "anlamadım", "duyamadım", "bir daha söyle", "yeniden söyle", "tekrar söyle", "ne dedin"… (her aşamada: soru, onay, menü, numara, paragraf, başlangıç, kamera sorusu) | Program son sözünü (cevap + kamera sorusu gibi son iki anons) aynen yeniden söyler, aynı kipte dinler; cevap sayılmaz, hiçbir durum bozulmaz | ✅ |
+| Program kullanıcıyı anlamadı | "Anlayamadım…" der ve sorusunu yeniden sorar (menü, onay, kamera, numara, paragraf numarası, komut) | ✅ |
+| Menüde "Tekrar" ile "tekrar söyle" | "Tekrar" cevapları yeniden oynatır; "tekrar söyle" / "anlamadım" menüyü yeniden söyler | ✅ |
 | Menüde "bitirmek istemiyorum", "devam etmeyelim", "tekrar etme"; başlangıçta "devam etmeyelim", "yeni başlamayalım" | Hiçbir seçenek seçilmez: "Anlayamadım" denip yeniden sorulur (eskiden "bitirmek istemiyorum" testi bitirirdi) | ✅ |
 | Komut gibi duyulan olumsuz söz: "testi bitirme", "sınavı bitirmem", "cevapları tekrarlamayın", "son cevabı okuma" | Komut sayılmaz (eskiden yakın sesli eşleşmeyle "testi bitirme" bitirme komutu sayılırdı) | ✅ |
 | Numara beklenirken (söylenmediği için) "soruyu iptal et" | Bekleyen soru bırakılır, "Okunan soru silindi" denir, boşuna sıradaki numarayla Gemini'ye gitmez | ✅ |

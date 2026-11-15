@@ -26,6 +26,15 @@ Yöntem (PUKÖ): **Planla** (bölümü seç, ne bozulabilir) → **Uygula** (kan
 | Başlangıç sorusunda "devam etmeyelim" devam, "yeni başlamayalım" yeni sayılıyordu | Aynı | Aynı ("hayır yeni" yine yeni: "hayır" tek başına olumsuzlama sayılmaz) | `testStartChoiceNegatedChoicesAreNeverSelected` |
 | "**Testi bitirme**", "sınavı bitirmem", "testi tamamlama", "cevapları tekrarlamayın", "son cevabı okuma" KOMUT sayılıyordu | Yakın sesli eşleşme: "bitirme" ≈ "bitirmek", "tekrarlama" `tekrar` ile başlıyor | Olumsuz söz içeren metin komut değildir | `testNegatedCommandsAreNeverCommands` (her olumsuz söz × her önek taraması) |
 
+## Tur 3: karşılıklı tekrar (kullanıcı isteği)
+
+| İstek / bulgu | Düzeltme | Önlem |
+|---|---|---|
+| Kullanıcı programın söylediğini duymadı/anlamadı: tekrar isteyebilmeli ("anlamadım", "duyamadım", "bir daha söyle", "yeniden söyle"…). Eskiden yalnız "tekrarla" ve yalnız soru/kamera sorusunda çalışıyordu; onay, menü, numara, paragraf, başlangıçta hiçbir şey olmuyordu | Yeni komut `repeatSpeech`: programın son sözü (en çok son iki anons) aynen yeniden söylenir, aynı kipte dinlenir; cevap sayılmaz, sayaçlar ve bekleyen işler değişmez | `RepeatSpeechTests` (26 söyleyiş, her kipte akış, soru metni/olumsuz söz komut değil) |
+| Cevap + kamera sorusu arka arkaya söylenince yalnız kamera sorusu tekrarlanırsa cevap kaçırılır | "Son söz" grubu: mikrofon açılınca yeni grup başlar; cevap ve ardından gelen soru birlikte tekrarlanır | `testRepeatAfterAnAnswerAndTheCameraQuestionSpeaksBoth…` |
+| Menüde "Tekrar" bir seçenek (cevapları oynatır): "tekrar söyle" ile karışmamalı | "Tekrar söyle" programın sözünü tekrarlatır; tek başına "Tekrar" yine cevapları oynatır | `testRepeatAtTheReviewMenu…`, `testMenuTekrarOptionStillReplaysTheAnswers` |
+| Paragraf metninde "bir kez daha söyledi… duyamadım" gibi sözler tekrar isteği sayılmamalı | Paragraf okunurken yalnız söz tek başınaysa komut sayılır; tek başına "bir daha" hiç komut değil | `testParagraphTextContainingTheWordsIsNotMistaken…` |
+
 İncelenip değişiklik gerekmeyenler (kanıtla): tetikleyici "Cevapla/Gönder" yalnız son sözcük ve aynı sesle eşleşir ("cevaplayınız" tetiklemez);
 paragraf numarası çözümleme ve kesinti/kurtarma akışı (tur 1 ve 2 incelemesi).
 
@@ -35,4 +44,5 @@ paragraf numarası çözümleme ve kesinti/kurtarma akışı (tur 1 ve 2 incelem
 2. Yeni komut sözcüğü eklenirse: gerçekçi soru parçalarıyla "komut sayılmaz" testi genişletilir.
 3. Her yeni komut: tanıyıcı ipucu + yardım cümlesi + uygulama içi yardım + `docs/PROSEDUR.md` satırı.
 4. Olumsuz söz hiçbir seçeneği seçmez ve komut sayılmaz; yeni bir komut/seçenek sözü eklenirse olumsuz biçimi `choiceNegations`/`finishNegations`'a da yazılır.
-5. Cihazda doğrulanmamış hiçbir davranış "çalışıyor" diye yazılmaz (gerçek dikte çıktısı, kestirmelerin Wi-Fi/hücreseli gerçekten değiştirmesi).
+5. Programın söylediği her şey "bir daha söyle" ile tekrarlatılabilmeli; yeni bir anons türü eklenirse `speakNotice` kullanılır (otomatik hatırlanır).
+6. Cihazda doğrulanmamış hiçbir davranış "çalışıyor" diye yazılmaz (gerçek dikte çıktısı, kestirmelerin Wi-Fi/hücreseli gerçekten değiştirmesi).
