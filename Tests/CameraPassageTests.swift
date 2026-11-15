@@ -425,16 +425,16 @@ final class CameraPassageTests: XCTestCase {
         shot.passageMedia = media(videoBytes: 5_000_000)
         shot.passageNote = QuestionComposer.cameraNote(passage: PassageContext(text: "", english: "", audio: nil, all: [5], remaining: [5], shot: FakeCamera.shot()))
         let list = try parts(try GeminiAnswerService.captureBody(shot, expectedNumber: 5))
-        XCTAssertEqual(kinds(list), ["metin", "image/jpeg", "video/mp4", "image/jpeg", "video/mp4"],
-                       "Paragraf fotoğrafı + videosu, sonra soru fotoğrafı + videosu")
-        let text = list.first?["text"] as? String ?? ""
+        XCTAssertEqual(kinds(list), ["image/jpeg", "video/mp4", "image/jpeg", "video/mp4", "metin"],
+                       "Paragraf fotoğrafı + videosu, sonra soru fotoğrafı + videosu; metin en sonda")
+        let text = list.last?["text"] as? String ?? ""
         XCTAssertTrue(text.contains("ORTAK PARAGRAFA"), text)
     }
 
     func testCameraRequestWithoutAPassageIsUnchanged() throws {
         let shot = FakeCamera.shot(bytes: 5_000_000)
         let list = try parts(try GeminiAnswerService.captureBody(shot, expectedNumber: 5))
-        XCTAssertEqual(kinds(list), ["metin", "image/jpeg", "video/mp4"])
+        XCTAssertEqual(kinds(list), ["image/jpeg", "video/mp4", "metin"])
     }
 
     /// İstek 20 MB'ı aşmasın: önce sorunun görüntüleri, sığmazsa paragrafın videosu atılır (fotoğrafı kalır)
@@ -444,7 +444,7 @@ final class CameraPassageTests: XCTestCase {
         XCTAssertTrue(shot.canSendVideo, "Sorunun videosu önceliklidir")
         XCTAssertFalse(shot.canSendPassageVideo, "6 + 9 MB sınırı aşar: paragrafın videosu gitmez")
         let list = try parts(try GeminiAnswerService.captureBody(shot, expectedNumber: 5))
-        XCTAssertEqual(kinds(list), ["metin", "image/jpeg", "image/jpeg", "video/mp4"],
+        XCTAssertEqual(kinds(list), ["image/jpeg", "image/jpeg", "video/mp4", "metin"],
                        "Paragraf yalnız fotoğrafla, soru fotoğraf + videoyla gider")
     }
 

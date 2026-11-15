@@ -128,7 +128,8 @@ final class GeminiAnswerService: Answering {
     static func captureBody(_ shot: CapturedQuestion, expectedNumber: Int, fps: Double? = VideoRecorder.fps) throws -> Data {
         var video: Data?
         if shot.canSendVideo, let url = shot.video { video = try? Data(contentsOf: url) }
-        var parts: [[String: Any]] = [["text": captureText(expectedNumber: expectedNumber, hasVideo: video != nil, extra: shot.extraInstruction, passage: shot.passageNote)]]
+        // Google'ın önerisi (video ve görüntü belgeleri): metin istemi görüntü / video parçalarından SONRA gelir
+        var parts: [[String: Any]] = []
         // Kamerayla çekilmiş ortak paragraf varsa görüntüleri soruninkinden ÖNCE gelir (mesajdaki not sırayı söyler)
         if let media = shot.passageMedia {
             parts.append(contentsOf: passageParts(media, withVideo: shot.canSendPassageVideo, fps: fps))
@@ -139,6 +140,7 @@ final class GeminiAnswerService: Answering {
             if let fps = fps { part["videoMetadata"] = ["fps": fps] }
             parts.append(part)
         }
+        parts.append(["text": captureText(expectedNumber: expectedNumber, hasVideo: video != nil, extra: shot.extraInstruction, passage: shot.passageNote)])
         var object: [String: Any] = [
             "systemInstruction": ["parts": [["text": captureSystemPrompt]]],
             "contents": [["role": "user", "parts": parts]]
@@ -274,13 +276,14 @@ final class GeminiAnswerService: Answering {
         return try await run(body: body, limit: passage == nil ? limit : captureLimit)
     }
 
-    /// Kamera ile çekilen soru: kare hızı ayarı bu modelde reddedilirse (400) ayarsız bir kez daha denenir
+    /// Kamera ile çekilen soru: kare hızı ayarı bu modelde reddedilirse (400) ayarsız bir kez daha denenir. Anahtar hataları (Google onları da
+    /// 400 ile döndürür) ve kare hızıyla ilgisi olmayan istekler yeniden denenmez: aynı büyük yükleme boşuna ikinci kez yapılmasın.
     func answer(capture: CapturedQuestion, expectedNumber: Int) async throws -> GeminiReply {
         guard !GeminiProfiles.usable(profilesProvider()).isEmpty else { throw GeminiError(Say.noKeyShort, .key) }
         let body = try GeminiAnswerService.captureBody(capture, expectedNumber: expectedNumber)
         do {
             return try await run(body: body, limit: captureLimit)
-        } catch let error as GeminiError where error.status == 400 && capture.canSendVideo {
+        } catch let error as GeminiError where error.status == 400 && error.kind == .http && capture.sendsFrameRate {
             tlog("[kamera] kare hızı ayarıyla istek reddedildi (\(error.message)); ayarsız yeniden deneniyor")
             return try await run(body: try GeminiAnswerService.captureBody(capture, expectedNumber: expectedNumber, fps: nil), limit: captureLimit)
         }

@@ -41,6 +41,10 @@ struct CapturedQuestion: Equatable {
         return used + media.videoBytes <= CapturedQuestion.maxInlineVideoBytes
     }
 
+    /// İstekte kare hızı ayarı (videoMetadata.fps) taşıyan bir video gidiyor mu: sorunun ya da paragrafın. Model bu ayarı reddederse
+    /// (400) istek ayarsız yeniden denenir.
+    var sendsFrameRate: Bool { return canSendVideo || canSendPassageVideo }
+
     /// Aynı çekim mi (fotoğraf baytlarını karşılaştırmak yerine kimlik)
     static func == (a: CapturedQuestion, b: CapturedQuestion) -> Bool { return a.id == b.id }
 

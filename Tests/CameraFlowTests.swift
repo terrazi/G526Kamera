@@ -846,11 +846,11 @@ final class CaptureRequestTests: XCTestCase {
         let body = try GeminiAnswerService.captureBody(shot, expectedNumber: 7)
         let p = try parts(body)
         XCTAssertEqual(p.count, 3)
-        XCTAssertTrue((p[0]["text"] as! String).contains("Soru 7"))
-        XCTAssertTrue((p[0]["text"] as! String).contains("Şıklar küçük yazılmış"))
-        XCTAssertEqual((p[1]["inlineData"] as! [String: Any])["mimeType"] as? String, "image/jpeg")
-        XCTAssertEqual((p[2]["inlineData"] as! [String: Any])["mimeType"] as? String, "video/mp4")
-        XCTAssertEqual((p[2]["videoMetadata"] as! [String: Any])["fps"] as? Double, VideoRecorder.fps)
+        XCTAssertTrue((p[2]["text"] as! String).contains("Soru 7"), "Metin istemi görüntü ve videodan sonra gelir (Google'ın önerisi)")
+        XCTAssertTrue((p[2]["text"] as! String).contains("Şıklar küçük yazılmış"))
+        XCTAssertEqual((p[0]["inlineData"] as! [String: Any])["mimeType"] as? String, "image/jpeg")
+        XCTAssertEqual((p[1]["inlineData"] as! [String: Any])["mimeType"] as? String, "video/mp4")
+        XCTAssertEqual((p[1]["videoMetadata"] as! [String: Any])["fps"] as? Double, VideoRecorder.fps)
         let object = try JSONSerialization.jsonObject(with: body) as! [String: Any]
         XCTAssertEqual((object["generationConfig"] as! [String: Any])["mediaResolution"] as? String, "MEDIA_RESOLUTION_HIGH")
     }
@@ -865,7 +865,7 @@ final class CaptureRequestTests: XCTestCase {
         var shot = FakeCamera.shot()
         shot.highResolution = false
         let body = try GeminiAnswerService.captureBody(shot, expectedNumber: 1, fps: nil)
-        XCTAssertNil(try parts(body)[2]["videoMetadata"])
+        XCTAssertNil(try parts(body)[1]["videoMetadata"])
         let object = try JSONSerialization.jsonObject(with: body) as! [String: Any]
         XCTAssertNil(object["generationConfig"])
     }

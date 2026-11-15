@@ -137,6 +137,9 @@ yol bildirimi ve onarım sınırı aynı anda üst üste gelince tetikleniyordu.
 | İnternet yokken bekleyen çekim | Oturum takılmaz: söylenir, soru okunmaya geçilir; çekim klasörde durur | ✅ |
 | Bekleyen çekim, internet çalışırken 3 kez gönderilemedi (Gemini hep hata veriyor) | O test için beklemeye alınır (söylenir), her soruda yeniden denenip sınav yavaşlamaz; çekim klasörde durur, silinmez, sonraki testte yeniden denenir | ✅ |
 | Çekim tam kulaklık/arama kesintisi anında bitti | Fotoğraf ve video klasöre yazılır; onarımdan sonra gönderilir (kaybolmaz) | ✅ |
+| Gemini kare hızı ayarını reddetti (400) | İstek ayarsız bir kez yeniden gönderilir (paragrafın videosu taşıyorsa da). Geçersiz anahtar gibi başka 400'lerde yinelenmez: aynı büyük yükleme boşuna ikinci kez yapılmaz | ✅ |
+| Gemini "5. soru, Denizli, …" gibi biçim dışı cevap verdi | Numara ve şık çözülür; okunan cümle yine "Soru 5, Denizli, …" olur | ✅ |
+| Çekim isteği | Görüntüler ve video önce, metin istemi en sonda gider (Google'ın video/görüntü önerisi); paragraf görüntüleri sorununkilerden önce | ✅ |
 | Çekim klasörüne yazılamaz (yer yok) | Çekim bellekte ve eski yerinde tutulur; test biterse gönderilemeyen bu çekimler için ayrıca uyarı yazılır (kaybolurlar) | ✅ |
 | Kamera sorusu söylenirken ya da açıkken kulaklık kopar / arama gelir | Soru kaybolmaz: onarımdan sonra "Bağlantı yeniden onarıldı" denip kamera yeniden sorulur (düz sesle okumaya düşülmez) | ✅ |
 | Çekimden sonra internete dönüş sırasında kesinti oldu (telefon kameranın Wi-Fi'sinde kaldı) | Onarımdan sonra, internet yoksa `Hücresele Geç` kestirmesi çalışır; ancak sonra bekleyen çekim gönderilir ya da kamera sorulur. İnternet varsa hiçbir kestirme çalışmaz. Test bu durumda bitirilirse de kestirme çalışır | ✅ |
