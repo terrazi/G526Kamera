@@ -67,6 +67,7 @@ jobs:
           TAG=son-surum
           if [ "$GITHUB_REF_NAME" = "yeni-surum" ]; then TAG=yeni-surum; fi
           if [ "$GITHUB_REF_NAME" = "surum-3" ]; then TAG=surum-3; fi
+          if [ "$GITHUB_REF_NAME" = "surum-4" ]; then TAG=surum-4; fi
           gh release delete "$TAG" --cleanup-tag --yes --repo "$GITHUB_REPOSITORY" || true
           gh release create "$TAG" build/ipa/G526CameraDrive-unsigned.ipa \
             --repo "$GITHUB_REPOSITORY" \
