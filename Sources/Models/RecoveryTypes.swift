@@ -1,6 +1,6 @@
 import Foundation
 
-/// Kendini onarma sırasında çalıştırılan Kestirme adımları (Modül 4). İnternette: Wi-Fi, hücresel, sistem sıfırlama.
+/// Kendini onarma sırasında çalıştırılan Kestirme adımları (Modül 4). Kamerada (Sürüm 4): `wifi`. İnternette: hücresel, sistem sıfırlama Kamera bağlantısı için ayrı onarım adımı vardır: `wifi` (Sürüm 4'te kamera Wi-Fi bağlantısını onarır; internet onarımına girmez).
 /// Ses yolunda: önce hafif Bluetooth yenileme, olmazsa sistem sıfırlama.
 enum RecoveryStep: String, CaseIterable, Equatable {
     case wifi
@@ -10,7 +10,7 @@ enum RecoveryStep: String, CaseIterable, Equatable {
 
     var title: String {
         switch self {
-        case .wifi: return "Wi-Fi"
+        case .wifi: return "Kamera Wi-Fi bağlantısı"
         case .cellular: return "Hücresel veri"
         case .bluetooth: return "Bluetooth yenileme"
         case .reset: return "Sistem sıfırlama"
@@ -29,7 +29,7 @@ enum RecoveryReason: Equatable {
     /// (internete dokunmaz), olmazsa sıfırlama.
     var steps: [RecoveryStep] {
         switch self {
-        case .network: return [.wifi, .cellular, .reset]
+        case .network: return [.cellular, .reset]   // Sürüm 4: Wi-Fi kameraya ayrılmıştır, yedek internet yolu değildir
         case .hardware: return [.bluetooth, .reset]
         case .recognition: return []   // Bluetooth ya da uçak modu tanıyıcıyı düzeltmez, kulaklığı koparır
         }

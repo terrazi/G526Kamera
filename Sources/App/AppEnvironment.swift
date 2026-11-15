@@ -7,7 +7,9 @@ import UserNotifications
 final class AppEnvironment: ObservableObject {
     let settings: AppSettings
     /// Kamera ayarları (V1'deki kamera bölümleri)
-    let camera = CameraSettings()
+    let camera: CameraSettings
+    /// Sürüm 4: soruyu kamera ile çeken bileşen (çekim sürerken ana ekranda canlı görüntü gösterir)
+    let cameraController: CameraCaptureController
     let session: SessionViewModel
     let settingsModel: SettingsViewModel
     private let folderStore: FolderStore
@@ -18,7 +20,10 @@ final class AppEnvironment: ObservableObject {
 
     init() {
         let settings = AppSettings()
+        let camera = CameraSettings()
+        let cameraController = CameraCaptureController(settings: camera)
         settings.applyShortcutPresetOnce()
+        settings.applyCameraPresetOnce(camera: camera)
         let folderStore = FolderStore()
         let recorder = PCMRecorder()
         let route = AudioSessionGuard()
@@ -48,11 +53,14 @@ final class AppEnvironment: ObservableObject {
                                        screen: SystemScreen(),
                                        scheduler: DispatchScheduler(),
                                        library: AnswerLibrary(resolver: { folderStore.resolution() }, refresh: { folderStore.refresh() }),
+                                       camera: cameraController,
                                        battery: SystemBattery(),
                                        system: SystemHealthMonitor(),
                                        journal: journal)
-        let session = SessionViewModel(settings: settings, deps: deps)
+        let session = SessionViewModel(settings: settings, deps: deps, camera: camera)
         self.settings = settings
+        self.camera = camera
+        self.cameraController = cameraController
         self.session = session
         self.folderStore = folderStore
         self.settingsModel = SettingsViewModel(settings: settings, shortcuts: shortcuts, folder: folderStore,

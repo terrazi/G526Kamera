@@ -388,7 +388,7 @@ final class ReadingFlowTests: XCTestCase {
     /// İnternet gider, kestirme düzeltir; onarım bitince oturum dinlemeye döner
     private func dropAndRepairInternet(_ h: SessionHarness) async {
         h.health.internet = false
-        h.shortcuts.onRun = { name in if name == "WiFi_Ac" { h.health.internet = true; h.network.isOnline = true } }
+        h.shortcuts.onRun = { name in if name == "Hücresel_Ac" { h.health.internet = true; h.network.isOnline = true } }
         h.network.set(online: false)
         h.scheduler.advance(by: Timing.offlineDebounce + 0.1)
     }
@@ -398,7 +398,7 @@ final class ReadingFlowTests: XCTestCase {
         h.answering.results = [.failure(GeminiError("Bağlantı koptu", .network))]
         _ = await h.startListening()
         h.health.internet = false
-        h.shortcuts.onRun = { name in if name == "WiFi_Ac" { h.health.internet = true } }
+        h.shortcuts.onRun = { name in if name == "Hücresel_Ac" { h.health.internet = true } }
         h.ask("Bir soru")
         let done = await waitUntil { h.speaker.spoken.last == Say.recoveredAfterSend && h.vm.phase == .listening }
         XCTAssertTrue(done)

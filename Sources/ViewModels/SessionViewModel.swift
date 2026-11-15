@@ -104,6 +104,15 @@ final class SessionViewModel: ObservableObject {
         static let rememberWindow: TimeInterval = 12 * 3600
         /// "Devam mı, yeni mi?" sorusu cevapsız kalırsa en çok bu kadar hatırlatılır, sonra varsayılan uygulanır
         static let choiceReminderLimit = 1
+        /// Sürüm 4: internete dönüşte beklenen en uzun süre (sn) ve Gemini gönderiminde ağ hatasından sonra deneme sayısı
+        static let cameraInternetWait: TimeInterval = 30
+        static let cameraInternetTries = 2
+        static let cameraSendTries = 2
+        /// Kameraya bağlanılamazsa kamera bağlantısı onarımının (Wi-Fi adımı) en çok kaç kez çalışıp çekimin yeniden deneneceği
+        static let cameraRepairs = 2
+        /// Kamera çekimi gönderilirken cevap beklemeye eklenen süre (sn) ve telefonda bekletilecek en çok çekim
+        static let cameraExtraWait: TimeInterval = 180
+        static let pendingShotLimit = 3
         /// "Programı kapat" düğmesi: basılı tutma süresi (sn) ve günlüğün/panonun yazılması için kapanıştan önceki kısa bekleme
         static let closeHold: TimeInterval = 3
         static let closeDelay: TimeInterval = 0.4
@@ -303,10 +312,27 @@ final class SessionViewModel: ObservableObject {
     var interruptedFrom: SessionPhase?
     /// Cevap beklenirken "cevap bekleniyor" anonsu ve 3 dakikalık bekleme sınırı için zamanlayıcı
     var answerWait: ScheduledTask?
+
+    // MARK: Sürüm 4: kamera
+    /// Kamera ayarları (V1'deki kamera bölümleri)
+    let cameraSettings: CameraSettings
+    /// Bir sonraki soru dinlemesinde önce "kamera ile çekmek ister misiniz?" sorulacak
+    var offerCamera = false
+    /// Kamera akışı (kestirme + çekim + internete dönüş + gönderim) sürüyor
+    var cameraBusy = false
+    var cameraReminders = 0
+    var cameraGuidanceSpeaking = false
+    /// Kullanıcı "hayır" dedi ya da kamera akışı olmadı: bu soru sesle okunur, aynı soru için kamera yeniden sorulmaz
+    var cameraOfferSuppressed = false
+    /// Çekilmiş ama internet olmadığı için gönderilememiş sorular (sırayla gönderilir)
+    var pendingShots: [CapturedQuestion] = []
+    /// Kendiliğinden yeniden gönderilmesi denenmiş bekleyen çekimler (bkz. `resendablePending`)
+    var retriedShots = Set<UUID>()
     var answerWaitElapsed: TimeInterval = 0
 
-    init(settings: AppSettings, deps: SessionDependencies) {
+    init(settings: AppSettings, deps: SessionDependencies, camera: CameraSettings = CameraSettings()) {
         self.settings = settings
+        self.cameraSettings = camera
         self.deps = deps
         watchdog = SilenceWatchdog(scheduler: deps.scheduler)
         recovery = RecoveryCoordinator(shortcuts: deps.shortcuts,
@@ -537,6 +563,10 @@ final class SessionViewModel: ObservableObject {
         abandonEntry("Kesildi: cevap gelmeden iş durdu. Soruyu yeniden okuyun.")
         work?.cancel()
         work = nil
+        if cameraBusy {
+            deps.camera.cancel()
+            cameraBusy = false
+        }
         cancelTimers()
         retryTask?.cancel()
         retryTask = nil
@@ -609,6 +639,14 @@ final class SessionViewModel: ObservableObject {
     /// Mikrofonu açar ve yeni soruyu bekler. Eldeki yarım metin ve ses silinir; yalnız `keepPartial` ise (kesinti sonrası, okunan soru ya da
     /// paragraf yarıda kalmışsa) korunur ve devam edilen okuma ona eklenir. `mode`: mikrofonun ne için açıldığı.
     func beginListening(mode: ListenMode = .question, keepPartial: Bool = false) {
+        // Sürüm 4: yeni bir soru sınırında önce "kamera ile çekmek ister misiniz?" sorulur (evet / hayır dinlemesi buradan açılır)
+        if mode == .question, !keepPartial, !cameraOfferSuppressed, offerCamera || resendablePending != nil {
+            offerCamera = false
+            if cameraOfferAvailable {
+                work = Task { [weak self] in await self?.askCameraChoice() }
+                return
+            }
+        }
         cancelTimers()
         abandonEntry("Cevap alınamadı. Soruyu yeniden okuyun.")
         deps.journal.savePending(nil)   // dinlemeye dönüldüyse yarım kalan iş yoktur
@@ -774,6 +812,9 @@ final class SessionViewModel: ObservableObject {
         case .reviewMenu:
             guard interpret(SpokenReply.review) != nil else { scheduleChoiceUnclear(); return }
             delay = Timing.numberConfirm
+        case .cameraChoice:
+            guard interpret(SpokenReply.yesNo) != nil else { scheduleChoiceUnclear(); return }
+            delay = Timing.numberConfirm
         }
         confirmTask = deps.scheduler.after(delay) { [weak self] in self?.fireTrigger() }
     }
@@ -789,6 +830,7 @@ final class SessionViewModel: ObservableObject {
         case .confirmEnd: fireConfirmEnd()
         case .startChoice: fireStartChoice()
         case .reviewMenu: fireReview()
+        case .cameraChoice: fireCameraChoice()
         }
     }
 
@@ -893,11 +935,12 @@ final class SessionViewModel: ObservableObject {
 
     func choiceUnclear() {
         confirmTask = nil
-        guard phase == .listening, listenMode == .confirmEnd || listenMode == .startChoice || listenMode == .reviewMenu else { return }
+        guard phase == .listening, listenMode == .confirmEnd || listenMode == .startChoice || listenMode == .reviewMenu || listenMode == .cameraChoice else { return }
         let heard = accumulator.text
         if listenMode == .confirmEnd, interpret(SpokenReply.yesNo) != nil { return }
         if listenMode == .startChoice, interpret(SpokenReply.start) != nil { return }
         if listenMode == .reviewMenu, interpret(SpokenReply.review) != nil { return }
+        if listenMode == .cameraChoice, interpret(SpokenReply.yesNo) != nil { return }
         tlog("[komut] cevap anlaşılamadı; duyulan: \"\(heard)\"")
         warn("duyulan", "Duyulan: “\(heard)”. Cevap anlaşılamadı.")
         work = Task { [weak self] in await self?.choiceSilence() }
@@ -930,6 +973,8 @@ final class SessionViewModel: ObservableObject {
             }
         case .reviewMenu:
             await reviewSilence()
+        case .cameraChoice:
+            await cameraChoiceSilence()
         default:
             beginListening(mode: .question)
         }
@@ -1232,9 +1277,15 @@ final class SessionViewModel: ObservableObject {
 
     // MARK: Cevaplama ve seslendirme (Modül 5)
 
-    func answer(question: String, english: String = "", audio: Data?, spokenNumber: Int? = nil) async {
+    func answer(question: String, english: String = "", audio: Data?, spokenNumber: Int? = nil,
+                fetch: (() async throws -> GeminiReply)? = nil) async {
         do {
-            let reply = try await deps.answering.answer(question: question, english: english, expectedNumber: spokenNumber ?? nextNumber, audio: audio)
+            let reply: GeminiReply
+            if let fetch = fetch {
+                reply = try await fetch()   // Sürüm 4: kamera ile çekilen soru (görüntü + video) kendi isteğini yapar
+            } else {
+                reply = try await deps.answering.answer(question: question, english: english, expectedNumber: spokenNumber ?? nextNumber, audio: audio)
+            }
             guard !Task.isCancelled, phase == .answering else { return }
             // Numara önceliği: kullanıcının okuduğu (dikte metninden) > Gemini'nin metinden/sesten okuduğu > sıradaki
             let number = spokenNumber ?? reply.number ?? nextNumber

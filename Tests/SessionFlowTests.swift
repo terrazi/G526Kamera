@@ -84,10 +84,10 @@ final class SessionFlowTests: XCTestCase {
     func testNoInternetAtStartIsFixedByWifiShortcutThenAnnouncesReady() async {
         let h = SessionHarness()
         h.health.internet = false
-        h.shortcuts.onRun = { name in if name == "WiFi_Ac" { h.health.internet = true } }
+        h.shortcuts.onRun = { name in if name == "Hücresel_Ac" { h.health.internet = true } }
         let listening = await h.startListening()
         XCTAssertTrue(listening)
-        XCTAssertEqual(h.shortcuts.runs, ["WiFi_Ac"])
+        XCTAssertEqual(h.shortcuts.runs, ["Hücresel_Ac"])
         XCTAssertEqual(h.speaker.spoken, [Say.ready], "Açılışta onarım sonrası da 'hazırım' anonsu söylenir")
     }
 
@@ -382,7 +382,7 @@ final class SessionFlowTests: XCTestCase {
         h.scheduler.advance(by: SessionViewModel.Timing.offlineDebounce + 0.1)
         let done = await waitUntil { h.speaker.spoken.last == Say.recovered && h.vm.phase == .listening }
         XCTAssertTrue(done)
-        XCTAssertEqual(h.shortcuts.runs, ["WiFi_Ac", "Hücresel_Ac"], "Önce Wi-Fi, sonra hücresel; düzelince durur")
+        XCTAssertEqual(h.shortcuts.runs, ["Hücresel_Ac"], "Hücresel açılır; düzelince durur (Wi-Fi artık yedek internet değil: kameraya ayrılmıştır)")
         XCTAssertGreaterThan(h.health.geminiCalls, geminiCallsBefore, "Düzeldiğini Gemini'ye de ping atarak doğrular")
     }
 
@@ -403,11 +403,11 @@ final class SessionFlowTests: XCTestCase {
         h.answering.results = [.failure(GeminiError("Bağlantı koptu", .network))]
         _ = await h.startListening()
         h.health.internet = false
-        h.shortcuts.onRun = { name in if name == "WiFi_Ac" { h.health.internet = true } }
+        h.shortcuts.onRun = { name in if name == "Hücresel_Ac" { h.health.internet = true } }
         h.ask("Bir soru")
         let done = await waitUntil { h.speaker.spoken.last == Say.recovered && h.vm.phase == .listening }
         XCTAssertTrue(done)
-        XCTAssertEqual(h.shortcuts.runs, ["WiFi_Ac"])
+        XCTAssertEqual(h.shortcuts.runs, ["Hücresel_Ac"])
         XCTAssertTrue(h.vm.answers.isEmpty)
         XCTAssertTrue(h.vm.liveText.isEmpty, "Soru baştan okunacak")
     }
@@ -420,12 +420,12 @@ final class SessionFlowTests: XCTestCase {
         h.scheduler.advance(by: SessionViewModel.Timing.offlineDebounce + 0.1)
         let paused = await waitUntil { h.isConnectionPause }
         XCTAssertTrue(paused)
-        XCTAssertEqual(h.shortcuts.runs, ["WiFi_Ac", "Hücresel_Ac", "Sistemi_Sifirla"])
+        XCTAssertEqual(h.shortcuts.runs, ["Hücresel_Ac", "Sistemi_Sifirla"])
         XCTAssertTrue(h.vm.warnings.contains { $0.id == "onarim" })
 
         // Bir dakika sonra yeniden dener
         h.scheduler.advance(by: SessionViewModel.Timing.connectionRetry + 0.1)
-        let retried = await waitUntil { h.shortcuts.runs.count == 6 }
+        let retried = await waitUntil { h.shortcuts.runs.count == 4 }
         XCTAssertTrue(retried)
         await settle()
         XCTAssertTrue(h.isConnectionPause)

@@ -184,7 +184,7 @@ final class SessionPhaseTests: XCTestCase {
     }
 
     func testRecoveryStepsOrder() {
-        XCTAssertEqual(RecoveryReason.network.steps, [.wifi, .cellular, .reset], "Önce Wi-Fi, sonra hücresel, sonra sıfırlama")
+        XCTAssertEqual(RecoveryReason.network.steps, [.cellular, .reset], "Önce hücresel, sonra sıfırlama; Wi-Fi kameraya ayrılmıştır (yedek internet değil)")
         XCTAssertEqual(RecoveryReason.hardware.steps, [.bluetooth, .reset], "Önce hafif Bluetooth yenileme, olmazsa sıfırlama")
         XCTAssertEqual(RecoveryReason.hardware.steps(force: true), [.reset], "Ses yolu sağlam görünürken yalnız sıfırlama")
         XCTAssertEqual(RecoveryReason.network.steps(force: true), RecoveryReason.network.steps)

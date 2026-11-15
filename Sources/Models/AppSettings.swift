@@ -27,16 +27,23 @@ final class AppSettings: ObservableObject {
         static let readAnswersAtEnd = "v3.readAnswersAtEnd"
         static let spokenProgress = "v3.spokenProgress"
         static let smartResume = "v3.smartResume"
+        static let shortcutInternet = "v3.shortcut.internet"
+        static let askCamera = "v3.askCamera"
     }
 
     /// Kullanıcının verdiği kestirme adları. Uygulama ilk açıldığında (bir kez) ilgili alanlara yazılır; sonra Ayarlar'dan silinip
     /// başka bir ad yazılabilir ya da boş bırakılabilir (bir daha geri yazılmaz).
     enum PresetShortcut {
-        static let wifi = "Wifi"
+        /// Sürüm 4: kamera Wi-Fi bağlantısını onaran kestirme (Wi-Fi'yi yenileyip kameranın ağına yeniden bağlanır)
+        static let wifi = "Kamera Bağlantısını Onar"
         static let cellular = "Hücresel Veri"
         static let bluetooth = "Bluetooth"
         static let reset = "Sistemi Sıfırla"
         static let output = "Kulaklık Düzeltme"
+        /// Sürüm 4: çekim bitince Wi-Fi'yi bırakıp hücresel veriyi açan kestirme
+        static let internet = "Hücresele Geç"
+        /// Sürüm 4: hücresel veriyi kesip kameranın Wi-Fi ağına bağlanan kestirme (`CameraSettings.cameraShortcutName`)
+        static let camera = "Kameraya Geç"
     }
 
     /// Hazır kestirme adlarını yalnız bir kez yazar (uygulama başlarken çağrılır; ayarlar testlerde etkilenmesin diye `init` yazmaz)
@@ -48,6 +55,16 @@ final class AppSettings: ObservableObject {
         bluetoothShortcut = PresetShortcut.bluetooth
         resetShortcut = PresetShortcut.reset
         outputShortcut = PresetShortcut.output
+    }
+
+    /// Sürüm 4 kestirme adları (V3'ten yükseltilen telefonda ön ayar bir kez daha yazılır; V4 anahtarı ayrıdır)
+    func applyCameraPresetOnce(camera: CameraSettings) {
+        guard !defaults.bool(forKey: "v4.shortcutPresetApplied") else { return }
+        defaults.set(true, forKey: "v4.shortcutPresetApplied")
+        if internetShortcut.trimmed.isEmpty { internetShortcut = PresetShortcut.internet }
+        // V3'te "Wifi" internet için Wi-Fi açardı; V4'te bu adım kamera bağlantısını onarır: eski ön ayar yenisiyle değişir, kullanıcının kendi adına dokunulmaz
+        if wifiShortcut.trimmed.isEmpty || wifiShortcut == "Wifi" { wifiShortcut = PresetShortcut.wifi }
+        if camera.cameraShortcutName.trimmed.isEmpty { camera.cameraShortcutName = PresetShortcut.camera }
     }
 
     /// Tekrar modunda iki cevap arasındaki boşluk (sn): Ayarlar'daki kaydırıcının aralığı
@@ -85,6 +102,16 @@ final class AppSettings: ObservableObject {
 
     @Published var resetShortcut: String {
         didSet { defaults.set(resetShortcut, forKey: Key.shortcutReset) }
+    }
+
+    /// Sürüm 4: çekimden sonra Wi-Fi'yi bırakıp hücresel veriyi açan kestirme ("Hücresele Geç"). Kamera kestirmesi `CameraSettings.cameraShortcutName`.
+    @Published var internetShortcut: String {
+        didSet { defaults.set(internetShortcut, forKey: Key.shortcutInternet) }
+    }
+
+    /// Sürüm 4: her soru için "kamera ile çekip göndermek ister misiniz?" diye sorulsun (kapalıyken yalnız sesle okunan soru)
+    @Published var askCamera: Bool {
+        didSet { defaults.set(askCamera, forKey: Key.askCamera) }
     }
 
     /// İsteğe bağlı: "Oynatma Hedefini Ayarla → Bluetooth kulaklık" kestirmesi. Ses iPhone'a düşünce çıkışı kulaklığa alır (Bluetooth'u kapatıp açmaz)
@@ -184,6 +211,8 @@ final class AppSettings: ObservableObject {
         cellularShortcut = defaults.string(forKey: Key.shortcutCellular) ?? ""
         bluetoothShortcut = defaults.string(forKey: Key.shortcutBluetooth) ?? ""
         resetShortcut = defaults.string(forKey: Key.shortcutReset) ?? ""
+        internetShortcut = defaults.string(forKey: Key.shortcutInternet) ?? ""
+        askCamera = defaults.object(forKey: Key.askCamera) as? Bool ?? true
         outputShortcut = defaults.string(forKey: Key.shortcutOutput) ?? ""
         replayGap = AppSettings.clampGap(defaults.object(forKey: Key.replayGap) as? Double ?? AppSettings.defaultReplayGap)
         sendAudio = defaults.object(forKey: Key.sendAudio) as? Bool ?? true

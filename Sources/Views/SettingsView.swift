@@ -201,7 +201,11 @@ struct SettingsView: View {
 
     private var shortcutsSection: some View {
         Section(header: Text("Kestirmeler (kendi kendini onarma)")) {
-            shortcutRow("Wi-Fi aç", placeholder: "WiFi_Ac", step: .wifi, text: $settings.wifiShortcut)
+            Toggle("Her soruda kamera ile çekmeyi sor", isOn: $settings.askCamera)
+            namedShortcutRow("Hücresele geç", placeholder: "Hücresele Geç", id: "internet", text: $settings.internetShortcut)
+            namedShortcutRow("Kameraya geç", placeholder: "Kameraya Geç", id: "camera", text: $camera.cameraShortcutName)
+            shortcutRow("Kamera bağlantısını onar", placeholder: "Kamera Bağlantısını Onar", step: .wifi, text: $settings.wifiShortcut)
+            HelpRow("Kamera ile çekimde program sırayla şunları yapar: “Kameraya geç” kestirmesi hücresel veriyi keser ve kameranın Wi-Fi ağına bağlar; çekim bitince kamera kapanır ve “Hücresele geç” kestirmesi Wi-Fi'yi bırakıp hücresel veriyi açar. Kameraya bağlanılamazsa “Kamera bağlantısını onar” kestirmesi çalışır ve çekim bir kez daha denenir (yazılmamışsa “Kameraya geç” yeniden çalışır). İnternet onarımı (hücresel aç, sistemi sıfırla) Wi-Fi'ye dokunmaz.")
             shortcutRow("Hücresel aç", placeholder: "Hücresel_Ac", step: .cellular, text: $settings.cellularShortcut)
             shortcutRow("Bluetooth yenile", placeholder: "Bluetooth_Yenile", step: .bluetooth, text: $settings.bluetoothShortcut)
             shortcutRow("Sistemi sıfırla", placeholder: "Sistemi_Sifirla", step: .reset, text: $settings.resetShortcut)
@@ -222,6 +226,25 @@ struct SettingsView: View {
             }
             HelpRow("“Çıkışı kulaklığa al” isteğe bağlıdır: Kestirmeler'de tek eylemli bir kestirme yapın, “Oynatma Hedefini Ayarla” eylemini ekleyip hedef olarak Bluetooth kulaklığınızı (listede “Bluetooth music” gibi görünür) seçin. Açılışta kulaklık yolda değilse ya da test sürerken kulaklık yoldan çıkarsa uygulama birkaç saniye içinde önce bunu çalıştırır; Bluetooth'u kapatıp açmaz, kulaklığı koparmaz. Çözmezse eskisi gibi “Bluetooth yenile” ve “Sistemi sıfırla” devreye girer. iOS bir uygulamanın Bluetooth ayarlarına girip bağlantıyı kesmesine ya da yeniden bağlamasına izin vermez; bunu yalnız Kestirmeler yapabilir.")
             HelpRow("Kestirmeler uygulamasında yaptığınız kestirmelerin adları. İnternet koparsa sırayla Wi-Fi, hücresel, sıfırlama; Bluetooth kulaklık yoldan çıkarsa önce Bluetooth yenileme, olmazsa sıfırlama çalışır. Yalnız mikrofon sorunluysa (yaka mikrofonu çıktı, alıcı yola girmedi, mikrofon sustu) hiçbir Kestirme çalışmaz: program bekler, nedenini yazar ve mikrofon dönünce devam eder. Ad boşsa o adım atlanır.")
+        }
+    }
+
+    /// Sürüm 4 geçiş kestirmeleri (kameraya geç / hücresele geç): adı yaz, "Dene" ile çalıştır
+    private func namedShortcutRow(_ title: String, placeholder: String, id: String, text: Binding<String>) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(title)
+                TextField(placeholder, text: text)
+                    .textInputAutocapitalization(.never)
+                    .disableAutocorrection(true)
+                    .multilineTextAlignment(.trailing)
+                Button(model.runningNamedShortcut == id ? "…" : "Dene") { Task { await model.testNamedShortcut(text.wrappedValue, id: id) } }
+                    .buttonStyle(.borderless)
+                    .disabled(model.runningNamedShortcut != nil)
+            }
+            if let result = model.namedShortcutResults[id] {
+                Text(result).font(.footnote).foregroundColor(.secondary)
+            }
         }
     }
 

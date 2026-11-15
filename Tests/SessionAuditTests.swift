@@ -189,11 +189,11 @@ final class SessionAuditTests: XCTestCase {
         let h = SessionHarness()
         _ = await h.startListening()
         h.health.internet = false   // iOS "çevrimiçi" diyor ama gerçekte internet yok
-        h.shortcuts.onRun = { name in if name == "WiFi_Ac" { h.health.internet = true } }
+        h.shortcuts.onRun = { name in if name == "Hücresel_Ac" { h.health.internet = true } }
         h.scheduler.advance(by: SilenceWatchdog.limit + 0.1)
         let done = await waitUntil { h.speaker.spoken.last == Say.recovered && h.vm.phase == .listening }
         XCTAssertTrue(done)
-        XCTAssertEqual(h.shortcuts.runs, ["WiFi_Ac"])
+        XCTAssertEqual(h.shortcuts.runs, ["Hücresel_Ac"])
     }
 
     // MARK: Tekrar klasörü

@@ -22,6 +22,8 @@ protocol Answering: AnyObject {
     /// `audio`: soruyu okuyanın ses kaydı (WAV); verilirse asıl kaynak odur, `question` dikte metni ipucu olur.
     /// `english`: aynı sesin İngilizce tanıyıcıdan geçmiş hâli (boş olabilir); İngilizce cümlelerde Türkçe metinden daha doğrudur.
     func answer(question: String, english: String, expectedNumber: Int, audio: Data?) async throws -> GeminiReply
+    /// Sürüm 4: kamera ile çekilmiş soru (sayfa fotoğrafı + kısa video). Cevap biçimi ve profil zinciri sesle gelen soruyla aynıdır.
+    func answer(capture: CapturedQuestion, expectedNumber: Int) async throws -> GeminiReply
 }
 
 extension Answering {
@@ -36,6 +38,8 @@ extension Answering {
 final class GeminiAnswerService: Answering {
     /// Son profil dışındakilerde cevap için beklenecek süre (sn); dolunca sıradaki profil denenir
     static let perModelLimit: TimeInterval = 40
+    /// Kamera ile çekilen soruda (fotoğraf + video yüklenir, hücresel veriyle) son profil dışındakilerde beklenecek süre: yükleme de buna girer
+    static let capturePerModelLimit: TimeInterval = 100
     static let optionCodes = "A=Adana, B=Bursa, C=Ceyhan, D=Denizli, E=Erzurum"
 
     /// Sistem komutu: kullanıcının verdiği çerçeve + (1) şık sözcükleri (2) dikte hatalarına ve zayıf İngilizce telaffuzuna karşı empati
@@ -70,19 +74,71 @@ final class GeminiAnswerService: Answering {
     Giriş, açıklama, markdown, tırnak ve ek cümle yazma. Emin değilsen en olası şıkkı yaz.
     """
 
+    /// Sürüm 4: kamera ile çekilen soru için sistem komutu. Cevap biçimi ve şık sözcükleri sesli sorudakiyle aynıdır; fark: soru görüntüden okunur
+    /// ve kadrajın kenarlarından yarım görünen komşu sorular yok sayılır (sayfa ortada tek bir soruya konumlandırılmıştır, ama kenar taşabilir).
+    static let captureSystemPrompt = """
+    Sen bir sınav okuyucu asistansın. Mesajda basılı bir test sorusunun FOTOĞRAFI ve (varsa) aynı sayfanın kısa VİDEOSU var. \
+    Soruyu görüntüden oku, çöz ve SADECE şu formatta tek satır yanıt ver: Soru [numara], [şık sözcüğü], [doğru cevabın metni]. \
+    Örnek: Soru 1, Denizli, Örgütsel Davranış.
+
+    Şıklar: A=Adana, B=Bursa, C=Ceyhan, D=Denizli, E=Erzurum. Şık için HER ZAMAN bu sözcüğü yaz, harf yazma. \
+    Sayfada şıklar A, B, C, D, E harfleriyle basılıdır; hangi harfin hangi sözcüğe denk geldiğini karıştırma.
+
+    ODAK: üzerinde çalışılan soru, görüntünün ortasındaki ve şıklarıyla birlikte tam görünen sorudur. Görüntünün kenarlarında yarım \
+    görünen başka sorular, şıklar, sütun ya da sayfa parçaları, sayfa numarası, üst ve alt bilgi başka sorulara aittir: bunları YOK SAY, \
+    cevaplama, numaralarını kullanma, "soru bölünmüş" gibi bir şey söyleme. Soru tam kadrajda ise sorun yok demektir; hemen cevapla.
+
+    Fotoğraf ve video aynı sayfayı gösterir. Fotoğrafta okunmayan, bulanık ya da parlama yüzünden görünmeyen bir yer varsa videodan \
+    tamamla; ikisi çelişirse net olana güven. Soru numarasını soru metninin başından oku ve aynen yaz; numara okunamıyorsa kullanıcı \
+    mesajındaki ipucunu kullan. Sayfada birkaç soruya ortak bir paragraf varsa onu oku ve ortada görünen soruyu o paragrafa dayanarak yanıtla. \
+    Cevap metnini şıktan kısaca yaz. Giriş, açıklama, markdown, tırnak ve ek cümle yazma. Emin değilsen en olası şıkkı yaz.
+    """
+
+    static func captureText(expectedNumber: Int, hasVideo: Bool, extra: String) -> String {
+        var text = "İpucu: soru numarası görüntüden okunamazsa bu soruyu Soru \(expectedNumber) say. Numara okunuyorsa sıraya değil okunan numaraya uy."
+        text += hasVideo
+            ? "\n\nBu mesajda soru sayfasının fotoğrafı ve aynı sayfanın kısa videosu var. Görüntünün ortasındaki soruyu cevapla; kenarlardan yarım görünen diğer soruları dikkate alma."
+            : "\n\nBu mesajda soru sayfasının fotoğrafı var. Görüntünün ortasındaki soruyu cevapla; kenarlardan yarım görünen diğer soruları dikkate alma."
+        let note = extra.trimmed
+        if !note.isEmpty { text += "\n\nKullanıcının ek talimatı: \(note)" }
+        return text
+    }
+
+    /// Çekilen soru için istek gövdesi. Video satır içi gider (≤ 14 MB; büyükse yalnız fotoğraf gider); `fps`: kaydın kare hızı (nil: ayarsız)
+    static func captureBody(_ shot: CapturedQuestion, expectedNumber: Int, fps: Double? = VideoRecorder.fps) throws -> Data {
+        var video: Data?
+        if shot.canSendVideo, let url = shot.video { video = try? Data(contentsOf: url) }
+        var parts: [[String: Any]] = [["text": captureText(expectedNumber: expectedNumber, hasVideo: video != nil, extra: shot.extraInstruction)]]
+        parts.append(["inlineData": ["mimeType": "image/jpeg", "data": shot.photo.base64EncodedString()]])
+        if let video = video {
+            var part: [String: Any] = ["inlineData": ["mimeType": "video/mp4", "data": video.base64EncodedString()]]
+            if let fps = fps { part["videoMetadata"] = ["fps": fps] }
+            parts.append(part)
+        }
+        var object: [String: Any] = [
+            "systemInstruction": ["parts": [["text": captureSystemPrompt]]],
+            "contents": [["role": "user", "parts": parts]]
+        ]
+        if shot.highResolution { object["generationConfig"] = ["mediaResolution": "MEDIA_RESOLUTION_HIGH"] }
+        return try JSONSerialization.data(withJSONObject: object)
+    }
+
     private let profilesProvider: () -> [GeminiProfileInfo]
     private let makeClient: (GeminiProfileInfo) -> GeminiClient
     private let limit: TimeInterval
+    private let captureLimit: TimeInterval
     private let now: () -> Date
     /// Bu profiller bu zamana kadar sona bırakılır (kotası doldu / cevap vermedi): her soruda boşuna beklenmesin
     private var restingUntil: [Int: Date] = [:]
 
     init(profiles: @escaping () -> [GeminiProfileInfo],
          limit: TimeInterval = GeminiAnswerService.perModelLimit,
+         captureLimit: TimeInterval = GeminiAnswerService.capturePerModelLimit,
          now: @escaping () -> Date = { Date() },
          makeClient: ((GeminiProfileInfo) -> GeminiClient)? = nil) {
         self.profilesProvider = profiles
         self.limit = limit
+        self.captureLimit = captureLimit
         self.now = now
         self.makeClient = makeClient ?? { profile in GeminiClient(key: { profile.key }, model: { profile.model }) }
     }
@@ -182,9 +238,27 @@ final class GeminiAnswerService: Answering {
     }
 
     func answer(question: String, english: String, expectedNumber: Int, audio: Data?) async throws -> GeminiReply {
+        guard !GeminiProfiles.usable(profilesProvider()).isEmpty else { throw GeminiError(Say.noKeyShort, .key) }
+        let body = try GeminiAnswerService.requestBody(question: question, english: english, expectedNumber: expectedNumber, audio: audio)
+        return try await run(body: body, limit: limit)
+    }
+
+    /// Kamera ile çekilen soru: kare hızı ayarı bu modelde reddedilirse (400) ayarsız bir kez daha denenir
+    func answer(capture: CapturedQuestion, expectedNumber: Int) async throws -> GeminiReply {
+        guard !GeminiProfiles.usable(profilesProvider()).isEmpty else { throw GeminiError(Say.noKeyShort, .key) }
+        let body = try GeminiAnswerService.captureBody(capture, expectedNumber: expectedNumber)
+        do {
+            return try await run(body: body, limit: captureLimit)
+        } catch let error as GeminiError where error.status == 400 && capture.canSendVideo {
+            tlog("[kamera] kare hızı ayarıyla istek reddedildi (\(error.message)); ayarsız yeniden deneniyor")
+            return try await run(body: try GeminiAnswerService.captureBody(capture, expectedNumber: expectedNumber, fps: nil), limit: captureLimit)
+        }
+    }
+
+    /// Profil zinciri: istek sırayla her profile gönderilir (kota, sunucu hatası, gecikme, anahtar ya da model sorununda sıradakine geçilir)
+    private func run(body: Data, limit: TimeInterval) async throws -> GeminiReply {
         let usable = GeminiProfiles.usable(profilesProvider())
         guard !usable.isEmpty else { throw GeminiError(Say.noKeyShort, .key) }
-        let body = try GeminiAnswerService.requestBody(question: question, english: english, expectedNumber: expectedNumber, audio: audio)
         let sequence = order(usable)
         var lastError = GeminiError("Gemini cevap vermedi.", .error)
         var trail: [String] = []

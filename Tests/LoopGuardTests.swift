@@ -114,7 +114,7 @@ final class LoopGuardTests: XCTestCase {
         await settle()
         h.scheduler.advance(by: Double(T.netRetryTicks) * T.sentinelTick + 0.01)
         await settle()
-        let ran = await waitUntil { h.shortcuts.runs.first == "WiFi_Ac" }
+        let ran = await waitUntil { h.shortcuts.runs.first == "Hücresel_Ac" }
         XCTAssertTrue(ran, "Gerçek kopma susturulmadan, nabızla yakalanır")
     }
 
@@ -123,7 +123,7 @@ final class LoopGuardTests: XCTestCase {
         _ = await h.startListening()
         h.health.internet = false
         await missTwoBeats(h)
-        let ran = await waitUntil { h.shortcuts.runs.first == "WiFi_Ac" }
+        let ran = await waitUntil { h.shortcuts.runs.first == "Hücresel_Ac" }
         XCTAssertTrue(ran, "Gerçek kopmada onarım gecikmeden başlar")
         XCTAssertFalse(h.vm.netProbeSlow, "Gerçek kopma yanlış alarm sayılmaz")
     }
@@ -289,7 +289,7 @@ final class LoopGuardTests: XCTestCase {
         let s = AppSettings(defaults: defaults)
         XCTAssertEqual(s.wifiShortcut, "", "Ayarlar kendiliğinden dolmaz; ön ayar uygulama başında bir kez yazılır")
         s.applyShortcutPresetOnce()
-        XCTAssertEqual(s.wifiShortcut, "Wifi")
+        XCTAssertEqual(s.wifiShortcut, "Kamera Bağlantısını Onar", "Wi-Fi adımı Sürüm 4'te kamera bağlantısı onarımıdır")
         XCTAssertEqual(s.cellularShortcut, "Hücresel Veri")
         XCTAssertEqual(s.bluetoothShortcut, "Bluetooth")
         XCTAssertEqual(s.resetShortcut, "Sistemi Sıfırla")

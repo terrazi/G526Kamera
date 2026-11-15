@@ -21,6 +21,8 @@ struct SessionDependencies {
         try? await Task.sleep(nanoseconds: UInt64(max(0, seconds) * 1_000_000_000))
     }
     var recoveryConfig = RecoveryCoordinator.Config()
+    /// Sürüm 4: soruyu kamera ile çeken bileşen (yapılandırılmamışsa kamera yok)
+    var camera: CameraCapturing = NoCamera()
     var battery: BatteryProviding = NoBattery()
     /// Telefonun kaynak durumu (bellek, ısı, güç modu, boş yer) ve sistemin uyarıları
     var system: SystemHealthProviding = NoSystemHealth()

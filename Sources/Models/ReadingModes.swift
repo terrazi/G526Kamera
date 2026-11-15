@@ -16,6 +16,8 @@ enum ListenMode: Equatable {
     case startChoice
     /// Cevaplar okundu; "devam" (teste devam), "tekrar" (cevapları yeniden oku) ya da "bitir" (testi tamamla) bekleniyor
     case reviewMenu
+    /// Sürüm 4: "Bu soruyu kamera ile çekip göndermek ister misiniz?" sorusuna "evet" / "hayır" bekleniyor
+    case cameraChoice
 }
 
 /// Kayıtlı ortak paragraf: ait olduğu sorulardan biri her sorulduğunda Gemini'ye soruyla birlikte gider

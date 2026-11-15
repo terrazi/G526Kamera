@@ -1146,6 +1146,10 @@ struct GuidanceConfig {
     /// Otomatik seçilecek bölümün en az yazı hücresi ve eni (kadraj oranı): küçük bir yazı parçası (sayfa numarası, başlık) seçilmesin
     var autoPickMinCells = 150
     var autoPickMinWidth = 0.15
+    /// Sürüm 4 "odak" kipi: üzerinde çalışılan soru kadrajın ortasındaki bölümdür. Bölüm sorusu sorulmaz; hedef kadrajın ortasına en yakın
+    /// bölümdür; üst ve alt kenardan taşma sayılmaz (komşu sorular yukarı ve aşağı doğru devam eder, sayfa zaten kadrajdan büyüktür);
+    /// yan kenardan taşma yalnız hedef bölüm için aranır (yandaki yarım sütun ya da sayfa parçası sorun değildir).
+    var focusQuestion = false
 }
 
 struct GuidanceDecision: Equatable {
@@ -1192,6 +1196,7 @@ enum GuidanceAdvisor {
         if !m.hasText { return GuidanceDecision(advice: m.hasPage ? .blurry : .noText) }
         // Yazıya benzemeyen desen (çizgili kumaş, tablo çizgisi…) belge sayılmaz
         if DocumentGate.verdict(m) != .document { return GuidanceDecision(advice: .noText) }
+        if c.focusQuestion { return decideFocused(m, config: c, sharpFloor: sharpFloor) }
         let cols = m.columns
         if cols.count >= 2 {
             let allFit = cols.allSatisfy { $0.x0 >= c.edgeMargin && $0.x1 <= 1 - c.edgeMargin }
@@ -1231,6 +1236,17 @@ enum GuidanceAdvisor {
                                 sharp: m.sharp, frac: 1, glare: m.glare, config: c, sharpFloor: sharpFloor)
     }
 
+    /// Sürüm 4 odak kipi (bkz. `GuidanceConfig.focusQuestion`): kadrajın ortasındaki bölüm hedeflenir, dikey taşma yok sayılır, bölüm sorulmaz.
+    static func decideFocused(_ m: PageMetrics, config c: GuidanceConfig, sharpFloor: Double) -> GuidanceDecision {
+        if let target = m.columns.count >= 2 ? m.columns.min(by: { abs($0.center - 0.5) < abs($1.center - 0.5) }) : nil {
+            return evaluateDetailed(x0: target.x0, x1: target.x1, y0: target.y0, y1: target.y1, cells: target.cells,
+                                    sharp: target.sharp, frac: 1.0 / Double(m.columns.count), glare: m.glare, config: c,
+                                    sharpFloor: sharpFloor, ignoreVertical: true)
+        }
+        return evaluateDetailed(x0: m.x0, x1: m.x1, y0: m.y0, y1: m.y1, cells: m.cells, sharp: m.sharp, frac: 1, glare: m.glare,
+                                config: c, sharpFloor: sharpFloor, ignoreVertical: true)
+    }
+
     /// Kaydırma miktarının sözcüğü: "azıcık" / "biraz" / "epey"
     static func amountWord(shift: Double, config c: GuidanceConfig = GuidanceConfig()) -> String {
         if shift < c.slightShift { return "azıcık" }
@@ -1264,7 +1280,7 @@ enum GuidanceAdvisor {
 
     static func evaluateDetailed(x0: Double, x1: Double, y0: Double, y1: Double, cells: Int, sharp: Double, frac: Double,
                                  glare: Double = 0, config c: GuidanceConfig,
-                                 sharpFloor: Double) -> GuidanceDecision {
+                                 sharpFloor: Double, ignoreVertical: Bool = false) -> GuidanceDecision {
         let fill = max((x1 - x0) / max(frac, 0.01), y1 - y0)
         // (öneri, o kenardaki boşluk, karşı kenardaki boşluk)
         let margins: [(GuidanceAdvice, Double, Double)] = [
@@ -1273,7 +1289,7 @@ enum GuidanceAdvisor {
             (.moveUp, y0 - c.topBand, 1 - y1),
             (.moveDown, 1 - y1, y0 - c.topBand),
         ]
-        let cut = margins.filter { $0.1 < c.edgeMargin }
+        let cut = margins.filter { $0.1 < c.edgeMargin && !(ignoreVertical && !$0.0.isHorizontal) }
         let leftRight = cut.contains { $0.0 == .moveLeft } && cut.contains { $0.0 == .moveRight }
         let topBottom = cut.contains { $0.0 == .moveUp } && cut.contains { $0.0 == .moveDown }
         if leftRight || topBottom { return GuidanceDecision(advice: .farther, fill: fill) }
@@ -1291,7 +1307,7 @@ enum GuidanceAdvisor {
         }
         if x1 - x0 < c.minFill * frac && y1 - y0 < c.minFill && Double(cells) >= Double(c.minCellsForCloser) * frac {
             let scale = min(c.closerMaxScale, c.closerTarget / max(fill, 0.01))
-            if let side = recentre(x0: x0, x1: x1, y0: y0, y1: y1, scale: scale, config: c) {
+            if let side = recentre(x0: x0, x1: x1, y0: y0, y1: y1, scale: scale, config: c), !(ignoreVertical && !side.advice.isHorizontal) {
                 return GuidanceDecision(advice: side.advice, fill: fill, scale: scale, shift: side.shift)
             }
             return GuidanceDecision(advice: .closer, fill: fill, scale: scale)
@@ -1768,7 +1784,7 @@ final class GuidanceEngine {
             let trend = a.isCorrection ? trendTracker.take(at: time, config: config) : .steady
             if trend != .steady || a != lastSpoken { repeats = 0 } else { repeats += 1 }
             if repeats >= config.maxRepeats {
-                out.speak = "Hâlâ uygun değil. \(triggerWord) diyerek yine de çekebilirsiniz."
+                out.speak = config.focusQuestion ? "Hâlâ uygun değil. Birazdan yine de çekeceğim." : "Hâlâ uygun değil. \(triggerWord) diyerek yine de çekebilirsiniz."
                 muted = a
             } else {
                 var text = phrase(for: a, again: repeats > 0, trend: trend, stuck: repeats >= 2)

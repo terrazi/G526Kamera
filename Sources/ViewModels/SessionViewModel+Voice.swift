@@ -18,6 +18,12 @@ extension SessionViewModel {
     /// Cevap duyulduktan sonra dinlemeye geçmeden önce: program sıradaki soruyu kendisi ister ("Lütfen sonraki soruyu okuyun").
     /// false: anons yarıda kesildi (duraklatma, kulaklık kopması); çağıran dinlemeye geçmez, iş devam eden akışa kalır.
     func promptNextQuestion() async -> Bool {
+        // Sürüm 4: kamera açıksa "Lütfen sonraki soruyu okuyun" yerine kamera sorusu sorulur (beginListening yönlendirir)
+        if cameraOfferAvailable {
+            offerCamera = true
+            cameraOfferSuppressed = false
+            return true
+        }
         guard settings.askNextQuestion else { return true }
         return await speakNotice(Say.nextQuestion)
     }

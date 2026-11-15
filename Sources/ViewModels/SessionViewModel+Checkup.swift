@@ -136,8 +136,10 @@ extension SessionViewModel {
             beginListening(mode: .startChoice)
             return
         }
-        guard await speakNotice(Say.ready) else { return }
+        guard await speakNotice(cameraOfferAvailable ? Say.readyCamera : Say.ready) else { return }
         pendingStart = false
+        offerCamera = cameraOfferAvailable   // Sürüm 4: ilk soru için de kamera sorulur
+        cameraOfferSuppressed = false
         beginListening()
     }
 

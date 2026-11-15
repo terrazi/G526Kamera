@@ -6,6 +6,7 @@ struct ContentView: View {
     @EnvironmentObject private var settings: AppSettings
     @EnvironmentObject private var settingsModel: SettingsViewModel
     @EnvironmentObject private var camera: CameraSettings
+    @EnvironmentObject private var cameraController: CameraCaptureController
     @State private var showSettings = false
     @State private var confirmEnd = false
 
@@ -14,6 +15,7 @@ struct ContentView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     statusCard
+                    if cameraController.active { cameraCard }
                     if !session.warnings.isEmpty { warningBox }
                     if !session.checkup.isEmpty { checkupList }
                     if !session.questions.isEmpty || liveBoxVisible || passageNote != nil { questionList }
@@ -64,6 +66,32 @@ struct ContentView: View {
                     .font(.subheadline)
                     .foregroundColor(.secondary)
             }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding()
+        .background(Color(.secondarySystemBackground))
+        .cornerRadius(12)
+    }
+
+    /// Sürüm 4: kamera çekimi sürerken canlı görüntü (yalnız çekim sırasında görünür; kamera kapanınca kalkar)
+    private var cameraCard: some View {
+        let size = PreviewLayout.box(screen: UIScreen.main.bounds.size, portrait: camera.guidanceFrame == 1)
+        return VStack(alignment: .leading, spacing: 8) {
+            Text("Kamera: " + (cameraController.statusText.isEmpty ? cameraController.cameraState.text : cameraController.statusText))
+                .font(.subheadline.bold())
+            if let battery = cameraController.cameraBattery {
+                Text(battery.shortText).font(.caption).foregroundColor(.secondary)
+            }
+            if camera.previewOff {
+                Text("Önizleme kapalı (pil tasarrufu)").font(.caption).foregroundColor(.secondary)
+            } else {
+                VideoLayerView(renderer: cameraController.renderer, orientation: camera.imageOrientation)
+                    .frame(width: size.width, height: size.height)
+                    .background(Color.black)
+                    .cornerRadius(12)
+            }
+            Button("Şimdi çek") { cameraController.captureNow() }
+                .buttonStyle(.bordered)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()

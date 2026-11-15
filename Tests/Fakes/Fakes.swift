@@ -284,12 +284,60 @@ final class FakeAnswering: Answering {
         return GeminiReply(number: number, option: option, text: text, spoken: "Soru \(number), \(option), \(text)", model: "fake")
     }
 
+    /// Sürüm 4: kamera ile çekilen sorular (sırayla) ve her çağrıda haber verilen kanca (olay sırası sınaması için)
+    private(set) var captureCalls: [(shot: CapturedQuestion, expectedNumber: Int)] = []
+    var onCall: ((String) -> Void)?
+
+    func answer(capture: CapturedQuestion, expectedNumber: Int) async throws -> GeminiReply {
+        captureCalls.append((capture, expectedNumber))
+        onCall?("gönderim")
+        if hold { await withCheckedContinuation { gate = $0 } }
+        guard !results.isEmpty else { throw GeminiError("Cevap hazırlanmadı.", .error) }
+        return try results.removeFirst().get()
+    }
+
     func answer(question: String, english: String, expectedNumber: Int, audio: Data?) async throws -> GeminiReply {
         calls.append(Call(question: question, english: english, expectedNumber: expectedNumber, audio: audio))
         if hold { await withCheckedContinuation { gate = $0 } }
         guard !results.isEmpty else { throw GeminiError("Cevap hazırlanmadı.", .error) }
         return try results.removeFirst().get()
     }
+}
+
+/// Sürüm 4: kamera çekimini taklit eder
+@MainActor
+final class FakeCamera: CameraCapturing {
+    var onSay: ((String) -> Void)?
+    var onStatus: ((String) -> Void)?
+    /// Sırayla verilecek çekim sonuçları (boşsa kamera yok)
+    var results: [Result<CapturedQuestion, CameraFailure>] = []
+    private(set) var captures = 0
+    private(set) var cancels = 0
+    /// Çekim başlarken haber verilir (olay sırası sınaması için)
+    var onCapture: (() -> Void)?
+    /// Konumlandırma sırasında söylenmiş gibi yapılacak cümle
+    var guidance: String?
+
+    static func shot(video: Bool = true, bytes: Int = 200_000) -> CapturedQuestion {
+        var s = CapturedQuestion(photo: Data([1, 2, 3]))
+        if video {
+            s.video = FileManager.default.temporaryDirectory.appendingPathComponent("fake-\(UUID().uuidString).mp4")
+            try? Data([0]).write(to: s.video!)
+            s.videoBytes = bytes
+            s.videoSeconds = 5
+        }
+        return s
+    }
+
+    func capture() async -> Result<CapturedQuestion, CameraFailure> {
+        captures += 1
+        onCapture?()
+        if let text = guidance { onSay?(text) }
+        guard !results.isEmpty else { return .failure(.unavailable) }
+        return results.removeFirst()
+    }
+
+    func cancel() { cancels += 1 }
 }
 
 @MainActor

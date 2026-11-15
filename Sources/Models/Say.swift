@@ -187,4 +187,30 @@ enum Say {
         default: return "Gemini cevap veremedi. Soruyu tekrar oku."
         }
     }
+
+    // MARK: Sürüm 4: kamera
+    static let askCamera = "Bu soruyu kamera ile çekip göndermek ister misiniz? Evet ya da hayır deyin."
+    static let askCameraAgain = "Anlayamadım. Bu soruyu kamera ile çekip göndermek ister misiniz? Evet ya da hayır deyin."
+    static let readyCamera = "Ben hazırım, sistem kontrol edildi ve problem yok."
+    static let cameraDeclined = "Tamam. Soruyu okuyun, bitince Cevapla deyin."
+    static let cameraDefaultVoice = "Cevap alamadım. Soruyu okuyarak devam ediyoruz. Soruyu okuyun, bitince Cevapla deyin."
+    static let cameraConnecting = "Kameraya geçiliyor. Birkaç saniye bekleyin."
+    static let cameraShortcutsMissing = "Kamera için kestirme adları yazılmamış. Ayarlardan yazın. Şimdilik soruyu okuyun, bitince Cevapla deyin."
+    static let cameraRepairing = "Kameraya bağlanılamadı. Bağlantı onarılıyor."
+    static let cameraCaptured = "Soru çekildi. Kamera kapatıldı, internete geçiliyor."
+    static let cameraSending = "Soru gönderiliyor."
+    static let cameraEntryText = "Kamera ile çekilen soru"
+    static let cameraSavedOffline = "Soru çekildi ama internet gelmedi. Telefonda saklandı; bağlantı onarılıyor, düzelince gönderilecek."
+    static let cameraPendingSending = "Önceki çekilen soru telefonda bekliyordu, şimdi gönderiyorum."
+
+    /// Kamera çekimi olmadı (internet geldi): neden ve sesle devam yolu
+    static func cameraFailed(_ failure: CameraFailure) -> String {
+        return "\(failure.message) Şimdilik soruyu okuyun, bitince Cevapla deyin."
+    }
+
+    /// Kamera çekimi olmadı ve internet de gelmedi: neden; bağlantı onarılır
+    static func cameraFailedOffline(_ failure: CameraFailure) -> String {
+        return "\(failure.message) İnternet de gelmedi, bağlantı onarılıyor."
+    }
+
 }

@@ -16,6 +16,7 @@ struct G526CameraDriveApp: App {
                 .environmentObject(environment.session)
                 .environmentObject(environment.settings)
                 .environmentObject(environment.camera)
+                .environmentObject(environment.cameraController)
                 .environmentObject(environment.settingsModel)
                 .onOpenURL { environment.session.handleURL($0) }
                 .onAppear { environment.session.launched() }

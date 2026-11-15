@@ -185,8 +185,8 @@ final class InstantDetectionTests: XCTestCase {
         XCTAssertEqual(h.vm.netPulse, .suspect, "Tek nabız eksikliği şüphe sayılır, onarım başlamaz")
         XCTAssertEqual(h.vm.phase, .listening)
         h.scheduler.advance(by: Double(T.netRetryTicks) * T.sentinelTick + 0.01)
-        let ran = await waitUntil { h.shortcuts.runs.first == "WiFi_Ac" }
-        XCTAssertTrue(ran, "İkinci nabız da yoksa Kestirme (önce Wi-Fi) çalışır")
+        let ran = await waitUntil { h.shortcuts.runs.first == "Hücresel_Ac" }
+        XCTAssertTrue(ran, "İkinci nabız da yoksa Kestirme (önce hücresel) çalışır")
         XCTAssertEqual(h.health.quickCalls, 2)
     }
 

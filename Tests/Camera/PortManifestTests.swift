@@ -38,16 +38,15 @@ final class PortManifestTests: XCTestCase {
         let names = Set(ported.flatMap { $0.types.map { String(describing: $0) } })
         for must in ["CameraClient", "CameraSession", "CameraUID", "PPPP", "H264Decoder", "FramePipeline", "CaptureEngine", "Enhancer",
                      "GuidanceEngine", "GuidanceVocabulary", "VideoRecorder", "FrameAnalysis", "DocumentGate", "PageEdgeTracker",
-                     "ImageOrientation", "PreviewLayout", "CameraSettings", "SpeechMatcher", "SpeechIntent", "CameraBatteryMonitor"] {
+                     "ImageOrientation", "PreviewLayout", "CameraSettings", "SpeechMatcher", "SpeechIntent", "CameraBatteryMonitor",
+                     "CameraCaptureController", "DiskGuard"] {
             XCTAssertTrue(names.contains(must), "kamera çekirdeğinde eksik tür: \(must)")
         }
     }
 
-    /// Yapılması kalan kamera işleri: bu liste sürüm bitince boşalmalıdır
-    static let pendingFiles: Set<String> = ["AppModel.swift", "ContentView.swift", "ConnectionAnnouncer.swift", "GeminiVideo.swift", "Health.swift"]
-
-    func testPendingEntriesAreExactlyTheKnownRemainingWork() {
-        let pending = Set(PortManifest.entries.filter { $0.status == .pending }.map { $0.v1 })
-        XCTAssertEqual(pending, Self.pendingFiles, "bekleyen iş listesi değişti: docs/SURUM4_TASIMA.md ile birlikte güncelleyin")
+    /// Hiçbir V1 dosyası "yapılacak" durumunda kalmamalı: her biri kopyalandı, uyarlandı, V3 karşılığıyla değiştirildi ya da gerekçeyle dışarıda
+    func testNothingIsLeftPending() {
+        let pending = PortManifest.entries.filter { $0.status == .pending }.map { $0.v1 }
+        XCTAssertTrue(pending.isEmpty, "bekleyen taşıma işi var: \(pending)")
     }
 }

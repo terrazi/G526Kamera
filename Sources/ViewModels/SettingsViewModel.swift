@@ -17,6 +17,9 @@ final class SettingsViewModel: ObservableObject {
     @Published var shortcutResults: [RecoveryStep: String] = [:]
     @Published var runningShortcut: RecoveryStep?
     @Published var outputShortcutResult = ""
+    /// Sürüm 4: kamera ve internet geçiş kestirmelerinin deneme sonucu (anahtar: "camera" / "internet") ve şu an çalışan
+    @Published var namedShortcutResults: [String: String] = [:]
+    @Published var runningNamedShortcut: String?
     @Published var testingOutputShortcut = false
     /// Profil numarası → anahtarın gördüğü, metin üretebilen modeller ("Modelleri listele")
     @Published var modelLists: [Int: [String]] = [:]
@@ -153,6 +156,18 @@ final class SettingsViewModel: ObservableObject {
         runningShortcut = step
         defer { runningShortcut = nil }
         shortcutResults[step] = SettingsViewModel.text(for: await shortcuts.run(name: name))
+    }
+
+    /// Sürüm 4 geçiş kestirmelerinden birini dener (`id`: sonucun yazılacağı yer)
+    func testNamedShortcut(_ name: String, id: String) async {
+        let trimmed = name.trimmed
+        guard !trimmed.isEmpty else {
+            namedShortcutResults[id] = "Önce kestirmenin adını yazın."
+            return
+        }
+        runningNamedShortcut = id
+        defer { runningNamedShortcut = nil }
+        namedShortcutResults[id] = SettingsViewModel.text(for: await shortcuts.run(name: trimmed))
     }
 
     /// "Çıkışı kulaklığa al" kestirmesini dener (isteğe bağlı kestirme)

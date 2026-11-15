@@ -12,6 +12,10 @@ final class SessionHarness {
     let health = FakeHealth()
     let shortcuts = FakeShortcuts()
     let answering = FakeAnswering()
+    let camera = FakeCamera()
+    let cameraSettings: CameraSettings
+    /// Sürüm 4 olay sırası: "kestirme:<ad>", "çekim", "gönderim"
+    private(set) var events: [String] = []
     let permissions = FakePermissions()
     let player = FakePlayer()
     let screen = FakeScreen()
@@ -24,7 +28,7 @@ final class SessionHarness {
     let settings: AppSettings
     let vm: SessionViewModel
 
-    init(shortcutNames: Bool = true, library: AnswerLibrary? = nil) {
+    init(shortcutNames: Bool = true, library: AnswerLibrary? = nil, cameraFlow: Bool = false) {
         root = makeTempFolder("g526-oturum")
         let defaults = UserDefaults(suiteName: "g526.testler.\(UUID().uuidString)")!
         settings = AppSettings(defaults: defaults)
@@ -36,11 +40,19 @@ final class SessionHarness {
         settings.askNextQuestion = false
         settings.spokenProgress = false
         settings.smartResume = false
+        // Sürüm 4: her soruda "kamera ile çekmek ister misiniz?" varsayılan olarak açıktır; V3 testlerinin akışı bozulmasın diye burada kapalı
+        settings.askCamera = cameraFlow
+        cameraSettings = CameraSettings(defaults: defaults)
         if shortcutNames {
             settings.wifiShortcut = "WiFi_Ac"
             settings.cellularShortcut = "Hücresel_Ac"
             settings.bluetoothShortcut = "Bluetooth_Yenile"
             settings.resetShortcut = "Sistemi_Sifirla"
+        }
+        if cameraFlow {
+            settings.internetShortcut = "Hücresele_Gec"
+            cameraSettings.cameraShortcutName = "Kameraya_Gec"
+            settings.wifiShortcut = "Kamera_Onar"   // Sürüm 4: Wi-Fi adımı kamera bağlantısını onarır
         }
         let exitCounter = exits
         let deps = SessionDependencies(route: route,
@@ -60,13 +72,25 @@ final class SessionHarness {
                                        sleep: { _ in },
                                        recoveryConfig: RecoveryCoordinator.Config(settle: 0, verifyWindow: 0, verifyInterval: 1,
                                                                                   cycleGap: 0, maxCycles: 1),
+                                       camera: camera,
                                        battery: battery,
                                        system: system,
                                        journal: journal,
                                        terminate: { exitCounter.count += 1 })
-        vm = SessionViewModel(settings: settings, deps: deps)
+        vm = SessionViewModel(settings: settings, deps: deps, camera: cameraSettings)
         let announcedBy = vm
         speaker.isAnnouncement = { text in announcedBy.announced.contains(text) }
+    }
+
+    /// Sürüm 4 olay sırasını kaydeder: kestirme çalışınca "kestirme:<ad>", kamera çekerken "çekim", Gemini'ye giderken "gönderim".
+    /// `onShortcut`: kestirme çalışınca dünyada olacak değişiklik (ör. interneti geri getirmek).
+    func trackEvents(onShortcut: ((String) -> Void)? = nil) {
+        shortcuts.onRun = { [unowned self] name in
+            self.events.append("kestirme:\(name)")
+            onShortcut?(name)
+        }
+        camera.onCapture = { [unowned self] in self.events.append("çekim") }
+        answering.onCall = { [unowned self] name in self.events.append(name) }
     }
 
     /// Oturumu başlatır ve "Ben hazırım" anonsundan sonra dinleme açılana kadar bekler

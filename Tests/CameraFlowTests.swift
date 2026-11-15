@@ -1,0 +1,362 @@
+import XCTest
+@testable import G526CameraDrive
+
+/// Sürüm 4: her soruda "kamera ile çekip göndermek ister misiniz?" akışı (sahte kamera, kestirme, internet ve Gemini ile)
+@MainActor
+final class CameraFlowTests: XCTestCase {
+    typealias T = SessionViewModel.Timing
+
+    /// Kameraya geçince internet gider, "Hücresele Geç" kestirmesi interneti getirir
+    private func harness(shots: [Result<CapturedQuestion, CameraFailure>] = [.success(FakeCamera.shot())],
+                         replies: [Result<GeminiReply, Error>] = [.success(FakeAnswering.reply(1))],
+                         internetBack: Bool = true) -> SessionHarness {
+        let h = SessionHarness(cameraFlow: true)
+        h.camera.results = shots
+        h.answering.results = replies
+        h.trackEvents { name in
+            if name == "Kameraya_Gec" { h.health.internet = false }
+            if name == "Hücresele_Gec" && internetBack { h.health.internet = true }
+            if name == "Hücresel_Ac" { h.health.internet = true }   // V3 internet onarımı
+        }
+        return h
+    }
+
+    private func reply(_ h: SessionHarness, _ text: String) {
+        h.listener.say(text)
+        h.scheduler.advance(by: T.numberConfirm + 0.1)
+    }
+
+    private func cameraQuestionOpen(_ h: SessionHarness) -> Bool {
+        return h.vm.listenMode == .cameraChoice && h.vm.phase == .listening
+    }
+
+    func testStartAsksTheCameraQuestionAfterTheReadyAnnouncement() async {
+        let h = harness()
+        let listening = await h.startListening()
+        XCTAssertTrue(listening)
+        XCTAssertEqual(h.speaker.spoken, [Say.readyCamera, Say.askCamera], "Önce hazırım, sonra kamera sorusu")
+        XCTAssertEqual(h.vm.listenMode, .cameraChoice)
+        XCTAssertEqual(h.camera.captures, 0)
+        XCTAssertTrue(h.shortcuts.runs.isEmpty, "Sorulmadan hiçbir bağlantı değişmez")
+    }
+
+    func testYesRunsShortcutsCaptureAndSendInTheRightOrderThenAsksAgain() async {
+        let shot = FakeCamera.shot()
+        let h = harness(shots: [.success(shot)])
+        _ = await h.startListening()
+        reply(h, "evet")
+        let again = await waitUntil { h.vm.answers.count == 1 && self.cameraQuestionOpen(h) }
+        XCTAssertTrue(again, "Cevap okunduktan sonra sıradaki soru için yine sorulur")
+        XCTAssertEqual(h.events, ["kestirme:Kameraya_Gec", "çekim", "kestirme:Hücresele_Gec", "gönderim"],
+                       "Önce hücresel kesilip kameraya geçilir, çekilir, sonra Wi-Fi bırakılıp hücresele dönülür, ondan sonra gönderilir")
+        XCTAssertEqual(h.answering.captureCalls.count, 1)
+        XCTAssertEqual(h.answering.captureCalls.first?.expectedNumber, 1)
+        XCTAssertEqual(h.answering.captureCalls.first?.shot.photo, shot.photo)
+        XCTAssertTrue(h.answering.calls.isEmpty, "Sesle soru gitmez")
+        XCTAssertEqual(h.speaker.spoken.last, Say.askCamera)
+        XCTAssertTrue(h.speaker.spoken.contains("Soru 1, Denizli, Örgütsel Davranış"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: shot.video!.path), "Gönderilen çekimin video dosyası telefondan silinir")
+        XCTAssertTrue(h.vm.pendingShots.isEmpty)
+        XCTAssertEqual(h.vm.questions.last?.number, 1)
+    }
+
+    func testNoLetsTheUserReadTheQuestionAsInVersionThree() async {
+        let h = harness(shots: [], replies: [.success(FakeAnswering.reply(1)), .success(FakeAnswering.reply(2))])
+        _ = await h.startListening()
+        reply(h, "hayır")
+        let voice = await waitUntil { h.speaker.spoken.last == Say.cameraDeclined && h.vm.listenMode == .question && h.vm.phase == .listening }
+        XCTAssertTrue(voice)
+        h.ask("Birinci soru")
+        let again = await waitUntil { h.vm.answers.count == 1 && self.cameraQuestionOpen(h) }
+        XCTAssertTrue(again, "Cevaptan sonra sıradaki soru için kamera yine sorulur")
+        XCTAssertEqual(h.answering.calls.count, 1)
+        XCTAssertEqual(h.camera.captures, 0)
+        XCTAssertTrue(h.shortcuts.runs.isEmpty, "Hayır denince hiçbir bağlantı değişmez")
+    }
+
+    func testFailedCaptureReturnsToInternetThenFallsBackToTheVoiceFlow() async {
+        let h = harness(shots: [.failure(.noPosition)], replies: [.success(FakeAnswering.reply(1))])
+        _ = await h.startListening()
+        reply(h, "evet")
+        let voice = await waitUntil { h.speaker.spoken.last == Say.cameraFailed(.noPosition) && h.vm.listenMode == .question && h.vm.phase == .listening }
+        XCTAssertTrue(voice, "Neden söylenir ve soru sesle okunur")
+        XCTAssertEqual(h.events, ["kestirme:Kameraya_Gec", "çekim", "kestirme:Hücresele_Gec"], "Çekim olmasa da internete dönülür")
+        XCTAssertTrue(h.answering.captureCalls.isEmpty)
+        XCTAssertTrue(h.vm.pendingShots.isEmpty)
+        h.ask("Birinci soru")
+        let done = await waitUntil { h.vm.answers.count == 1 && self.cameraQuestionOpen(h) }
+        XCTAssertTrue(done, "Sesle gidince de sıradaki soru için kamera yine sorulur")
+    }
+
+    func testCameraNotConnectedRunsTheRepairStepAndRetriesTheCapture() async {
+        let h = harness(shots: [.failure(.notConnected), .success(FakeCamera.shot())])
+        _ = await h.startListening()
+        reply(h, "evet")
+        let done = await waitUntil { h.vm.answers.count == 1 }
+        XCTAssertTrue(done)
+        XCTAssertEqual(h.events, ["kestirme:Kameraya_Gec", "çekim", "kestirme:Kamera_Onar", "çekim", "kestirme:Hücresele_Gec", "gönderim"],
+                       "Bağlanılamayınca Wi-Fi adımı (kamera bağlantısı onarımı) çalışır ve çekim yeniden denenir")
+    }
+
+    func testRepairIsGivenUpAfterTwoRepairsAndTheUserReadsTheQuestion() async {
+        let h = harness(shots: [.failure(.notConnected), .failure(.notConnected), .failure(.noFrames)])
+        _ = await h.startListening()
+        reply(h, "evet")
+        let voice = await waitUntil { h.speaker.spoken.last == Say.cameraFailed(.noFrames) && h.vm.listenMode == .question && h.vm.phase == .listening }
+        XCTAssertTrue(voice)
+        XCTAssertEqual(h.events, ["kestirme:Kameraya_Gec", "çekim", "kestirme:Kamera_Onar", "çekim", "kestirme:Kamera_Onar", "çekim",
+                                  "kestirme:Hücresele_Gec"])
+    }
+
+    func testRepairStepFallsBackToTheCameraShortcutWhenItsNameIsEmpty() async {
+        let h = harness(shots: [.failure(.notConnected), .success(FakeCamera.shot())])
+        h.settings.wifiShortcut = ""
+        _ = await h.startListening()
+        reply(h, "evet")
+        let done = await waitUntil { h.vm.answers.count == 1 }
+        XCTAssertTrue(done)
+        XCTAssertEqual(Array(h.events.prefix(4)), ["kestirme:Kameraya_Gec", "çekim", "kestirme:Kameraya_Gec", "çekim"])
+    }
+
+    func testFailedCameraShortcutNeverOpensTheCameraAndStillReturnsToInternet() async {
+        let h = harness(shots: [.success(FakeCamera.shot())], internetBack: true)
+        h.shortcuts.outcome = .failed("yok")
+        _ = await h.startListening()
+        reply(h, "evet")
+        let done = await waitUntil { h.camera.captures == 0 && h.shortcuts.runs.filter { $0 == "Hücresele_Gec" }.count == 2 }
+        XCTAssertTrue(done)
+        XCTAssertEqual(h.camera.captures, 0, "Kestirme çalışmadıysa kamera açılmaz")
+        XCTAssertEqual(Array(h.shortcuts.runs.prefix(3)), ["Kameraya_Gec", "Kamera_Onar", "Kamera_Onar"])
+    }
+
+    func testInternetNotBackKeepsTheShotRunsRecoveryThenSendsIt() async {
+        let shot = FakeCamera.shot()
+        let h = harness(shots: [.success(shot)], internetBack: false)
+        _ = await h.startListening()
+        reply(h, "evet")
+        let sent = await waitUntil(6) { h.vm.answers.count == 1 }
+        XCTAssertTrue(sent, "Hücresel onarımı interneti getirince bekleyen çekim gönderilir")
+        XCTAssertEqual(h.events.first, "kestirme:Kameraya_Gec")
+        XCTAssertTrue(h.events.contains("kestirme:Hücresel_Ac"), "V3'ün internet onarımı çalışır")
+        XCTAssertEqual(h.events.last, "gönderim")
+        XCTAssertEqual(h.answering.captureCalls.count, 1)
+        XCTAssertTrue(h.vm.pendingShots.isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: shot.video!.path))
+    }
+
+    func testNetworkErrorOnSendKeepsTheShotAndSendsItAgainAfterRecovery() async {
+        let h = harness(shots: [.success(FakeCamera.shot())],
+                        replies: [.failure(GeminiError("koptu", .network)), .failure(GeminiError("koptu", .network)),
+                                  .success(FakeAnswering.reply(1))])
+        _ = await h.startListening()
+        reply(h, "evet")
+        let sent = await waitUntil(6) { h.vm.answers.count == 1 }
+        XCTAssertTrue(sent)
+        XCTAssertEqual(h.answering.captureCalls.count, 3, "İki deneme (arada internet kestirmesi yeniden), sonra bekleyen çekim olarak üçüncü")
+        XCTAssertEqual(h.shortcuts.runs.filter { $0 == "Hücresele_Gec" }.count, 2, "Ağ hatasından sonra internet kestirmesi yeniden çalışır")
+        XCTAssertTrue(h.vm.pendingShots.isEmpty)
+    }
+
+    func testBlockedShotIsNotKeptOnThePhone() async {
+        let shot = FakeCamera.shot()
+        let h = harness(shots: [.success(shot)], replies: [.failure(GeminiError("engellendi", .blocked))])
+        _ = await h.startListening()
+        reply(h, "evet")
+        let failed = await waitUntil { h.vm.warnings.contains { $0.id == "cevap" } }
+        XCTAssertTrue(failed)
+        await settle()
+        XCTAssertTrue(h.vm.pendingShots.isEmpty, "Aynı sonucu verecek çekim telefonda tutulmaz")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: shot.video!.path))
+    }
+
+    func testUnansweredCameraQuestionIsRepeatedOnceThenTheVoiceFlowStartsWithoutTouchingTheNetwork() async {
+        let h = harness()
+        _ = await h.startListening()
+        h.scheduler.advance(by: SilenceWatchdog.limit + 0.1)
+        let reminded = await waitUntil { h.speaker.spoken.last == Say.askCameraAgain && self.cameraQuestionOpen(h) }
+        XCTAssertTrue(reminded)
+        h.scheduler.advance(by: SilenceWatchdog.limit + 0.1)
+        let voice = await waitUntil { h.speaker.spoken.last == Say.cameraDefaultVoice && h.vm.listenMode == .question && h.vm.phase == .listening }
+        XCTAssertTrue(voice, "Cevap gelmezse güvenli varsayılan: sesle okuma")
+        XCTAssertTrue(h.shortcuts.runs.isEmpty)
+        XCTAssertEqual(h.camera.captures, 0)
+    }
+
+    func testUnclearReplyIsAskedAgainRightAway() async {
+        let h = harness()
+        _ = await h.startListening()
+        h.listener.say("bilmem ki")
+        h.scheduler.advance(by: T.numberUnclear + 0.1)
+        let again = await waitUntil { h.speaker.spoken.last == Say.askCameraAgain && self.cameraQuestionOpen(h) }
+        XCTAssertTrue(again, "Anlaşılmayınca program kendisi tekrar sorar; kullanıcı sessizlikte kalmaz")
+        XCTAssertTrue(h.vm.warnings.contains { $0.id == "duyulan" && $0.text.contains("bilmem ki") })
+    }
+
+    func testCameraIsNotOfferedWithoutBothShortcutNames() async {
+        let h = harness()
+        h.settings.internetShortcut = ""
+        let listening = await h.startListening()
+        XCTAssertTrue(listening)
+        XCTAssertEqual(h.speaker.spoken, [Say.ready], "Kestirmeler yazılmamışsa V3 gibi çalışır")
+        XCTAssertEqual(h.vm.listenMode, .question)
+    }
+
+    func testTurningTheCameraQuestionOffGivesVersionThreeBehaviour() async {
+        let h = harness()
+        h.settings.askCamera = false
+        _ = await h.startListening()
+        XCTAssertEqual(h.speaker.spoken, [Say.ready])
+        XCTAssertEqual(h.vm.listenMode, .question)
+    }
+}
+
+/// Sürüm 4: Gemini'ye giden çekim isteği
+final class CaptureRequestTests: XCTestCase {
+    private func parts(_ data: Data) throws -> [[String: Any]] {
+        let object = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        let contents = object["contents"] as! [[String: Any]]
+        return contents[0]["parts"] as! [[String: Any]]
+    }
+
+    func testPhotoAndVideoAreSentInlineWithTheFrameRate() throws {
+        var shot = FakeCamera.shot(bytes: 100_000)
+        shot.extraInstruction = "Şıklar küçük yazılmış"
+        let body = try GeminiAnswerService.captureBody(shot, expectedNumber: 7)
+        let p = try parts(body)
+        XCTAssertEqual(p.count, 3)
+        XCTAssertTrue((p[0]["text"] as! String).contains("Soru 7"))
+        XCTAssertTrue((p[0]["text"] as! String).contains("Şıklar küçük yazılmış"))
+        XCTAssertEqual((p[1]["inlineData"] as! [String: Any])["mimeType"] as? String, "image/jpeg")
+        XCTAssertEqual((p[2]["inlineData"] as! [String: Any])["mimeType"] as? String, "video/mp4")
+        XCTAssertEqual((p[2]["videoMetadata"] as! [String: Any])["fps"] as? Double, VideoRecorder.fps)
+        let object = try JSONSerialization.jsonObject(with: body) as! [String: Any]
+        XCTAssertEqual((object["generationConfig"] as! [String: Any])["mediaResolution"] as? String, "MEDIA_RESOLUTION_HIGH")
+    }
+
+    func testOversizedVideoIsLeftOutAndOnlyThePhotoGoes() throws {
+        let shot = FakeCamera.shot(bytes: CapturedQuestion.maxInlineVideoBytes + 1)
+        let p = try parts(try GeminiAnswerService.captureBody(shot, expectedNumber: 1))
+        XCTAssertEqual(p.count, 2, "Satır içi sınırı aşan video gönderilmez")
+    }
+
+    func testFrameRateCanBeLeftOutAndHighResolutionCanBeTurnedOff() throws {
+        var shot = FakeCamera.shot()
+        shot.highResolution = false
+        let body = try GeminiAnswerService.captureBody(shot, expectedNumber: 1, fps: nil)
+        XCTAssertNil(try parts(body)[2]["videoMetadata"])
+        let object = try JSONSerialization.jsonObject(with: body) as! [String: Any]
+        XCTAssertNil(object["generationConfig"])
+    }
+
+    func testPromptTellsGeminiToIgnoreHalfVisibleNeighbours() {
+        let prompt = GeminiAnswerService.captureSystemPrompt
+        XCTAssertTrue(prompt.contains("YOK SAY"))
+        XCTAssertTrue(prompt.contains("ortasındaki"))
+        XCTAssertTrue(prompt.contains("Soru [numara], [şık sözcüğü], [doğru cevabın metni]"), "Cevap biçimi sesli soruyla aynı")
+        let text = GeminiAnswerService.captureText(expectedNumber: 3, hasVideo: false, extra: "")
+        XCTAssertTrue(text.contains("Soru 3"))
+        XCTAssertFalse(text.contains("video"), "Video yoksa mesajda videodan söz edilmez")
+    }
+}
+
+/// Sürüm 4 odak kipi: üzerinde çalışılan soru kadrajın ortasındaki bölümdür
+final class GuidanceFocusTests: XCTestCase {
+    private func col(_ x0: Double, _ x1: Double, y0: Double = 0.2, y1: Double = 0.8) -> ColumnBox {
+        return ColumnBox(x0: x0, x1: x1, y0: y0, y1: y1, cells: 300, sharp: 1.0)
+    }
+
+    private func metrics(x0: Double, x1: Double, y0: Double = 0.2, y1: Double = 0.8, columns: [ColumnBox] = []) -> PageMetrics {
+        var m = PageMetrics()
+        m.hasPage = true
+        m.hasText = true
+        m.x0 = x0; m.x1 = x1; m.y0 = y0; m.y1 = y1
+        m.cells = 600
+        m.sharp = 1.0
+        m.columns = columns
+        return m
+    }
+
+    private func decide(_ m: PageMetrics, focus: Bool) -> GuidanceDecision {
+        var c = GuidanceConfig()
+        c.focusQuestion = focus
+        return GuidanceAdvisor.decide(m, choice: nil, config: c, sharpFloor: 0.45)
+    }
+
+    func testTextRunningOffTheTopAndBottomIsFineBecauseNeighbouringQuestionsContinue() {
+        let m = metrics(x0: 0.2, x1: 0.8, y0: GuidanceAnalyzer.skipTop + 0.005, y1: 0.995)
+        XCTAssertNotEqual(decide(m, focus: false).advice, .ok, "V1 kipinde taşan yazı düzeltme ister")
+        XCTAssertEqual(decide(m, focus: true).advice, .ok, "Odak kipinde üst ve alttan taşma sorun sayılmaz")
+    }
+
+    func testCutNeighbouringColumnNeverAsksWhichOneAndTheCentreOneIsUsed() {
+        let m = metrics(x0: 0.1, x1: 0.999, columns: [col(0.1, 0.45), col(0.55, 0.999)])
+        XCTAssertEqual(decide(m, focus: false).advice, .chooseColumn, "V1 kipinde bölüm sorulur")
+        let d = decide(m, focus: true)
+        XCTAssertEqual(d.advice, .ok, "Ortaya yakın bölüm tam sığıyor: yandaki yarım sütun sorun değil, bölüm sorulmaz")
+    }
+
+    func testTheCentreColumnIsChosenEvenWhenItIsTheRightOne() {
+        let m = metrics(x0: 0.001, x1: 0.9, columns: [col(0.001, 0.4), col(0.5, 0.9)])
+        XCTAssertEqual(decide(m, focus: true).advice, .ok, "Ortaya yakın olan sağ sütun tam sığıyor; soldaki kesik olsa da")
+    }
+
+    func testTheTargetColumnCutAtTheSideStillGetsMoveAdvice() {
+        let m = metrics(x0: 0.005, x1: 0.9, columns: [col(0.005, 0.52), col(0.6, 0.9)])
+        XCTAssertEqual(decide(m, focus: true).advice, .moveLeft, "Hedef bölüm yandan taşıyorsa yön söylenir")
+    }
+
+    func testNoTextIsStillReportedInFocusMode() {
+        var m = metrics(x0: 0.2, x1: 0.8)
+        m.hasText = false
+        XCTAssertEqual(decide(m, focus: true).advice, .blurry)
+        m.hasPage = false
+        XCTAssertEqual(decide(m, focus: true).advice, .noText)
+    }
+
+    func testBlurAndGlareChecksRemainInFocusMode() {
+        var m = metrics(x0: 0.2, x1: 0.8)
+        m.sharp = 0.1
+        XCTAssertEqual(decide(m, focus: true).advice, .blurry)
+    }
+
+    func testVerticalRecentringIsNotAskedInFocusMode() {
+        // Küçük yazı bloğu üstte: V1 "yaklaşın" derken önce aşağı kaydırma isteyebilir; odak kipinde yalnız yaklaşma / yatay yön söylenir
+        let m = metrics(x0: 0.4, x1: 0.6, y0: 0.1, y1: 0.3)
+        let advice = decide(m, focus: true).advice
+        XCTAssertFalse(advice == .moveUp || advice == .moveDown)
+    }
+}
+
+final class CameraSupportTests: XCTestCase {
+    func testDiskGuardLevels() {
+        XCTAssertEqual(DiskGuard.level(freeMB: -1), .ok, "Ölçülemeyen boş yer sorun sayılmaz")
+        XCTAssertEqual(DiskGuard.level(freeMB: 100), .critical)
+        XCTAssertEqual(DiskGuard.level(freeMB: 1000), .low)
+        XCTAssertEqual(DiskGuard.level(freeMB: 5000), .ok)
+    }
+
+    func testDecodeClockIsInfiniteUntilAFrameArrives() {
+        let clock = DecodeClock()
+        XCTAssertEqual(clock.age(), .infinity)
+        clock.mark()
+        XCTAssertLessThan(clock.age(), 1)
+        clock.clear()
+        XCTAssertEqual(clock.age(), .infinity)
+    }
+
+    func testCapturedQuestionIdentityAndVideoLimit() {
+        let a = FakeCamera.shot()
+        var b = a
+        XCTAssertEqual(a, b)
+        b.id = UUID()
+        XCTAssertNotEqual(a, b)
+        XCTAssertTrue(a.canSendVideo)
+        XCTAssertFalse(FakeCamera.shot(bytes: CapturedQuestion.maxInlineVideoBytes + 1).canSendVideo)
+        XCTAssertFalse(FakeCamera.shot(video: false).canSendVideo)
+    }
+
+    func testCameraFailureMessagesAreNeverEmpty() {
+        let all: [CameraFailure] = [.notConnected, .noFrames, .noPosition, .lowDisk, .captureFailed("x"), .captureFailed(""), .cancelled, .unavailable]
+        all.forEach { XCTAssertFalse($0.message.isEmpty) }
+    }
+}

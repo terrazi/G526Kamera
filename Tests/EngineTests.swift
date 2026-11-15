@@ -27,11 +27,11 @@ final class RecoveryCoordinatorTests: XCTestCase {
         XCTAssertTrue(shortcuts.runs.isEmpty)
     }
 
-    func testNetworkOrderIsWifiThenCellularThenReset() async {
+    func testNetworkOrderIsCellularThenReset() async {
         let shortcuts = FakeShortcuts()
         let result = await make(shortcuts).recover(reason: .network, verify: { _ in false }, update: { _ in })
         XCTAssertEqual(result, .gaveUp)
-        XCTAssertEqual(shortcuts.runs, ["WiFi_Ac", "Hücresel_Ac", "Sistemi_Sifirla"])
+        XCTAssertEqual(shortcuts.runs, ["Hücresel_Ac", "Sistemi_Sifirla"], "Wi-Fi adımı yok: V4'te Wi-Fi kameraya ayrılmıştır, yedek internet değildir")
     }
 
     func testStopsAtTheStepThatFixesIt() async {
@@ -40,7 +40,7 @@ final class RecoveryCoordinatorTests: XCTestCase {
         shortcuts.onRun = { name in if name == "Hücresel_Ac" { fixed = true } }
         let result = await make(shortcuts).recover(reason: .network, verify: { _ in fixed }, update: { _ in })
         XCTAssertEqual(result, .recovered(by: .cellular))
-        XCTAssertEqual(shortcuts.runs, ["WiFi_Ac", "Hücresel_Ac"], "Düzelince sıradaki kestirme çalıştırılmaz")
+        XCTAssertEqual(shortcuts.runs, ["Hücresel_Ac"], "Düzelince sıradaki kestirme çalıştırılmaz")
     }
 
     func testHardwareRunsBluetoothRefreshThenReset() async {
@@ -67,9 +67,9 @@ final class RecoveryCoordinatorTests: XCTestCase {
 
     func testEmptyNamesAreSkippedAndAllEmptyIsNotConfigured() async {
         let shortcuts = FakeShortcuts()
-        _ = await make(shortcuts, name: { $0 == .wifi ? "  " : "X_\($0.rawValue)" })
+        _ = await make(shortcuts, name: { $0 == .cellular ? "  " : "X_\($0.rawValue)" })
             .recover(reason: .network, verify: { _ in false }, update: { _ in })
-        XCTAssertEqual(shortcuts.runs, ["X_cellular", "X_reset"])
+        XCTAssertEqual(shortcuts.runs, ["X_reset"])
 
         let none = FakeShortcuts()
         let result = await make(none, name: { _ in "" }).recover(reason: .network, verify: { _ in false }, update: { _ in })

@@ -92,6 +92,7 @@ extension SessionViewModel {
         if choiceOffer != nil { return Continuation(text: Say.askChoiceAgain, mode: .startChoice, keep: false) }
         // Cevaplar okunurken ya da okuma sonrası menü beklenirken kesinti oldu: menü yeniden sorulur
         if listenMode == .reviewMenu { return Continuation(text: Say.reviewResume, mode: .reviewMenu, keep: false) }
+        if listenMode == .cameraChoice { return Continuation(text: Say.askCameraAgain, mode: .cameraChoice, keep: false) }
         if heldQuestion != nil { return Continuation(text: Say.recoveredAskNumber, mode: .missingNumber, keep: false) }
         if passageDraft != nil { return Continuation(text: Say.recoveredAskTargets, mode: .passageTargets, keep: false) }
         if settings.smartResume {
@@ -113,7 +114,7 @@ extension SessionViewModel {
             return Continuation(text: Say.continuePartial(passage: true, number: nil, sentence: sentence), mode: .passage, keep: !body.isEmpty)
         case .passageTargets:
             return Continuation(text: Say.recoveredAskTargets, mode: .passageTargets, keep: false)
-        case .missingNumber, .confirmEnd, .startChoice, .reviewMenu:
+        case .missingNumber, .confirmEnd, .startChoice, .reviewMenu, .cameraChoice:
             return nil
         case .question:
             let words = text.split(whereSeparator: { $0.isWhitespace })

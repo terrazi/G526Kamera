@@ -106,19 +106,16 @@ struct CameraSettingsSections: View {
 
     private var motionSection: some View {
         Section(header: Text(CameraSettings.Group.motion.title)) {
-            // Sesli konumlandırma açıkken otomatik çekim çalışmaz: anahtar kapalı ve basılamaz görünür
-            Toggle("Görüntü değişince çek", isOn: camera.guidanceEnabled ? Binding<Bool>.constant(false) : $camera.motionEnabled)
-                .disabled(camera.guidanceEnabled)
-            if camera.guidanceEnabled {
-                Text("Sesli konumlandırma açıkken kullanılamaz.").font(.caption).foregroundColor(.secondary)
-            }
+            Toggle("Görüntü değişince çek", isOn: $camera.motionEnabled)
+                .disabled(true)
             Picker("Duyarlılık", selection: $camera.motionSensitivity) {
                 Text("Düşük").tag(0)
                 Text("Orta").tag(1)
                 Text("Yüksek").tag(2)
             }
             .pickerStyle(.segmented)
-            HelpRow("Sesli konumlandırma kapalıyken geçerlidir: kamera önüne yeni bir soru sayfası konup görüntü durulunca bir kez çeker. Sayfa değişmedikçe tekrar çekmez.")
+            .disabled(true)
+            HelpRow("Sürüm 4'te kullanılmaz: kamera yalnız “kamera ile çekmek ister misiniz?” sorusuna evet denince açılır ve tek bir soru çeker; çekim, soru kadraja alınınca kendiliğinden yapılır (Sesli konumlandırma bölümü). Ayarlar V1'den birebir korunur; Sürüm 1'e dönülürse o sürümde çalışır.")
         }
     }
 
@@ -128,12 +125,15 @@ struct CameraSettingsSections: View {
         Section(header: Text(CameraSettings.Group.voice.title),
                 footer: Text("Birden fazla sözcüğü virgülle ayırabilirsiniz.")) {
             Toggle("Sesli komutla çek", isOn: $camera.voiceEnabled)
+                .disabled(true)
             TextField("Tetikleme sözcüğü", text: $camera.triggerWord)
                 .disableAutocorrection(true)
+                .disabled(true)
             Stepper(value: $camera.cooldown, in: 2...20, step: 1) {
                 Text("İki çekim arası bekleme: \(Int(camera.cooldown)) sn")
             }
-            HelpRow("Konum uygun olunca program kendiliğinden çeker (“Konum uygunsa kendiliğinden çek” açıksa); kapalıyken tetikleme sözcüğünü söylemenizi bekler. Sözcük, çekim sırasında kulaklıktan gelen sesinizden aranır.")
+            .disabled(true)
+            HelpRow("Sürüm 4'te kullanılmaz: kamera açıkken sesli komut dinlenmez (mikrofon ve kulaklık yolu soru okumaya ayrılmıştır). Çekim kendiliğinden yapılır; yardım eden biri için ana ekranda çekim sırasında “Şimdi çek” düğmesi vardır. Konumlandırma 30 saniyede tamamlanmazsa program yine de çeker.")
         }
     }
 
@@ -144,8 +144,10 @@ struct CameraSettingsSections: View {
             Toggle("Sesle konumlandır", isOn: $camera.guidanceEnabled)
             Toggle("Uyarıları sesli söyle", isOn: $camera.guidanceVoice)
             Toggle("Video çekerken de konum tarifi ver", isOn: $camera.videoGuidance)
+                .disabled(true)
             Toggle("Kamera ve gönderim durumunu da söyle", isOn: $camera.statusNotices)
             Toggle("Konum uygunsa kendiliğinden çek", isOn: $camera.guidanceAutoCapture)
+                .disabled(true)
             Picker("Netlik isteği", selection: $camera.guidanceSharpness) {
                 Text("Gevşek").tag(0)
                 Text("Normal").tag(1)
@@ -156,6 +158,8 @@ struct CameraSettingsSections: View {
             Toggle("Sayfa kenarını da algıla", isOn: $camera.guidancePageEdges)
                 .disabled(!camera.guidanceDescribe)
             Toggle("Tam sığan bölümü kendiliğinden seç", isOn: $camera.guidanceAutoPick)
+                .disabled(true)
+            HelpRow("Sürüm 4'te sönük görünen üç ayar kullanılmaz: çekim her zaman kendiliğinden yapılır, video sırasında tarif verilmez (video, sayfa durulduktan sonra kısa süre kaydedilir) ve bölüm hiç sorulmaz: kadrajın ortasındaki bölüm hedeflenir. “Sesle konumlandır” kapalıysa program konumlandırma yapmadan bağlanır bağlanmaz çeker.")
             HelpRow("Program sayfayı ölçer ve “biraz sağa”, “yukarı”, “uzaklaş”, “yaklaş” gibi sesli yönlendirir; konum uygun olunca birkaç kareyi seri çekip en netini alır. Konumlandırma kısa tutulur: sorulan soru kadraja sığıyorsa hemen çekilir; kenarlarda yarım görünen komşu sorular sorun sayılmaz ve “soru bölünüyor” gibi uyarı verilmez (Gemini'ye de bu yarım soruların yok sayılması bildirilir). “Kadrajı tarif et” açıkken program kadrajda ne olduğunu da söyler (varsayılan kapalı). Yönlendirme sağa / sola / yukarı / aşağı için “azıcık, biraz, epey” der, doğru yöne gidip gitmediğinizi söyler ve konum düzelince “Tamam” der. Sayfada parlama (doymuş beyaz leke) görürse en çok iki kez uyarır, sonra yine de çeker. “Kamera ve gönderim durumunu da söyle” açıkken kamera koptu / geri geldi, gönderim başladı / bitti gibi haberler kısaca söylenir. Telefonda denenmemiş özellikler: sayfa kenarı algılama ve parlama kontrolü; rahatsız ederse kapatın.")
         }
     }
@@ -173,9 +177,10 @@ struct CameraSettingsSections: View {
 
     private var shortcutSection: some View {
         Section(header: Text(CameraSettings.Group.shortcuts.title)) {
-            TextField("Kamera Wi-Fi kestirmesi", text: $camera.cameraShortcutName)
+            TextField("Kameraya geç (kestirme adı)", text: $camera.cameraShortcutName)
+                .textInputAutocapitalization(.never)
                 .disableAutocorrection(true)
-            HelpRow("Kestirmeler uygulamasındaki kestirmenin adı: telefonu kameranın Wi-Fi ağına bağlar ve hücresel veriyi keser. Program çekimden önce çalıştırır; çekim bitince Wi-Fi'yi bırakıp hücresele geçiren kestirme “Kestirmeler (kendi kendini onarma)” bölümündedir. Boşsa bu adım atlanır.")
+            HelpRow("Kestirmeler uygulamasındaki kestirmenin adı: hücresel veriyi keser ve telefonu kameranın Wi-Fi ağına bağlar. Program, “Bu soruyu kamera ile çekmek ister misiniz?” sorusuna evet denince çekimden önce çalıştırır. Çekim bitince Wi-Fi'yi bırakıp hücresele geçiren kestirme “Kestirmeler (kendi kendini onarma)” bölümündeki “Hücresele geç”tir. İkisinden biri boşsa kamera sorusu sorulmaz, program sesli okumayla (Sürüm 3 gibi) çalışır.")
         }
     }
 }

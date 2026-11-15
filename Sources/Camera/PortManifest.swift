@@ -148,10 +148,10 @@ enum PortManifest {
         PortEntry(v1: "SelfHeal.swift", status: .excluded, note: "V1 kendini onarma: V3 RecoveryCoordinator kullanılır", types: []),
         PortEntry(v1: "StatusReport.swift", status: .excluded, note: "V1 durum raporu: V3'ün kendi durum bildirimi var", types: []),
         PortEntry(v1: "NoticeQueue.swift", status: .excluded, note: "V1 haber kuyruğu: V3 speakNotice / warn kullanılır", types: []),
-        PortEntry(v1: "AppModel.swift", status: .pending, note: "CameraCapture (SessionViewModel+Camera): kamera yaşam döngüsü, bağlantı izleme, çekim, sesli konumlandırma, sayfa videosu, kapatma", types: []),
-        PortEntry(v1: "ContentView.swift", status: .pending, note: "Kamera önizleme kutusu ve durum satırları (ana ekran)", types: []),
-        PortEntry(v1: "ConnectionAnnouncer.swift", status: .pending, note: "Kamera bağlandı / koptu duyurusu", types: []),
-        PortEntry(v1: "GeminiVideo.swift", status: .pending, note: "Video + fotoğrafı V3 Gemini zincirine gönderme (yükleme, mediaResolution)", types: []),
-        PortEntry(v1: "Health.swift", status: .pending, note: "DiskGuard: video öncesi boş yer denetimi (diğer sınıflar V3 SystemHealth ile karşılanır)", types: [])
+        PortEntry(v1: "AppModel.swift", status: .adapted, note: "CameraCaptureController (kamera yaşam döngüsü, konumlandırma, fotoğraf + sayfa videosu, kapatma) ve SessionViewModel+Camera (kestirmeler, internete dönüş, gönderim); V1'in elle çekim, sınav, Gemini sohbeti, yükleme kuyruğu, duraklatma ve sağlık izleme parçaları V4'te yoktur", types: [CameraCaptureController.self, CapturedQuestion.self]),
+        PortEntry(v1: "ContentView.swift", status: .adapted, note: "Kamera önizleme kartı yalnız çekim sürerken ana ekranda görünür (canlı görüntü, durum, pil, Şimdi çek düğmesi)", types: [ContentView.self]),
+        PortEntry(v1: "ConnectionAnnouncer.swift", status: .adapted, note: "Kamera yalnız çekim sırasında açıktır: bağlandı (Kamera hazır), koptu (8 sn görüntü yoksa vazgeçilir, söylenir) ve bağlanılamadı (onarım adımı) CameraCaptureController ve SessionViewModel+Camera içindedir", types: [CameraCaptureController.self]),
+        PortEntry(v1: "GeminiVideo.swift", status: .adapted, note: "Fotoğraf + video satır içi (≤ 14 MB; fps, mediaResolution) V3 Gemini profil zincirine gider; Files API yüklemesi ve toplu cevap biçimi V4'te yoktur (soru başına tek satır cevap)", types: [GeminiAnswerService.self]),
+        PortEntry(v1: "Health.swift", status: .adapted, note: "DiskGuard: çekimden önce boş yer denetimi (diğer sınıflar V3 SystemHealth ile karşılanır)", types: [DiskGuard.self])
     ]
 }
