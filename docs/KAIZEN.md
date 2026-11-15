@@ -69,11 +69,11 @@ paragraf numarası çözümleme ve kesinti/kurtarma akışı (tur 1 ve 2 incelem
 
 | Ekran / öğe | Bulgu |
 |---|---|
-| Ana ekran (başlat/bitir, durum, tekrar düğmesi) | V3 gibi; kamera durum satırı yalnız kamera açıkken |
+| Ana ekran (başlat/bitir, durum, tekrar düğmesi) | V3 gibi. Kullanıcı isteğiyle V1'deki gibi kamera kutusu hep görünür (görüntü yokken siyah; durum noktası, bildirim bandı, kamera pili), "Canlı önizleme" ve "Test sürerken ekranı kıs" anahtarları ve "Şimdi çek" (yalnız çekim sürerken) ana ekranda; çekimden sonra "Son fotoğraf" küçük resmi |
 | Ayarlar: anahtar, profiller, kestirmeler, süreler, yardım | V3 ile aynı; yardım metni yeni rapor ve ayar komutlarıyla genişletildi |
 | Ayarlar > Kamera (UID, kestirme adı, kalite, video, süre, kadraj, yön, iyileştirme, önizleme, konumlandırma sesi) | V1'den taşındı ve oturum ayarlarına bağlandı; sesle de değiştirilebilir |
-| "Kamerayı dene" | V4'e özgü; küçük resim eklendi. Kamera pil satırı eklenmedi: `CameraCapturing` pili açığa vermiyor ve kamera kapandıktan sonra bilinmiyor |
-| V1 yalnız-ekran denetimleri (canlı görüntü, elle çekim) | Sınavda ekranı kullanılmadığı için bilinçli yok; ölü denetimler kapalı ve nedeni yazılı |
+| "Kamerayı dene" | V4'e özgü; küçük resim ve (görüntü karesinden okunduysa) kamera pili satırı var |
+| V1 ana ekran öğeleri | Canlı kutu, durum noktası, bildirim bandı, elle çekim ("Şimdi çek"), son fotoğraf V4'e eklendi. Eklenmeyenler (bilinçli): "Görüntü değişince otomatik çek" (V4 çekimi soru sırasında sesli konumlandırmayla kendiliğinden yapar) ve Google Drive durum satırı (V4 cevapları Gemini'ye gönderir, kayıt klasörüne yazar) |
 
 ## Kurallar (bundan sonrası için)
 

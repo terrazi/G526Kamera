@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import UIKit
 
 /// Oturumun beyni (MVVM'deki ViewModel). Durum makinesi: kontrol → dinle → Gemini → seslendir → dinle … ;
 /// donanım koparsa duraklat (fail-safe), bağlantı koparsa Kestirmelerle onar. Dış dünya SessionDependencies üzerinden gelir.
@@ -172,6 +173,9 @@ final class SessionViewModel: ObservableObject {
     @Published var questions: [QuestionEntry] = []
     /// "Sesi dene" sonucu ve çalışıyor mu
     @Published var soundTest = ""
+    /// Kameranın son çektiği sayfanın küçük resmi ve bilgisi (ana ekranda "Son fotoğraf"; V1'deki gibi); fotoğraf okunamazsa değişmez
+    @Published var lastShot: UIImage?
+    @Published var lastShotInfo = ""
     @Published var testingSound = false
     @Published var warnings: [SessionWarning] = []
     @Published var checkup: [CheckItem] = []

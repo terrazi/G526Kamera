@@ -163,7 +163,15 @@ final class ScreenshotTests: XCTestCase {
         let shooting = rig(cameraFlow: true)
         _ = await shooting.h.startListening()
         shooting.controller.showForScreenshots(state: .streaming, status: "Sayfa konumlandırılıyor", battery: .level(3))
-        await render(withEnvironment(ContentView(), shooting), "03b-ana-ekran-kamera-onizleme")
+        // "Son fotoğraf" kartı: örnek bir sayfa resmi (gerçek çekim değildir; yalnız yerleşimi göstermek için)
+        shooting.h.vm.lastShot = UIGraphicsImageRenderer(size: CGSize(width: 300, height: 400)).image { ctx in
+            UIColor.white.setFill()
+            ctx.fill(CGRect(x: 0, y: 0, width: 300, height: 400))
+            UIColor.darkGray.setFill()
+            for line in 0..<18 { ctx.fill(CGRect(x: 24, y: 30 + line * 20, width: line % 5 == 4 ? 140 : 252, height: 6)) }
+        }
+        shooting.h.vm.lastShotInfo = "14:05:12 · fotoğraf 212 KB · video var"
+        await render(withEnvironment(ContentView(), shooting), "03b-ana-ekran-kamera-onizleme", height: 1500)
 
         // 3c) Aynı ekran, "Canlı önizlemeyi kapat" açıkken
         let previewOff = rig(cameraFlow: true)

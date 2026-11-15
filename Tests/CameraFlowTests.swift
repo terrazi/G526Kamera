@@ -1,4 +1,5 @@
 import XCTest
+import UIKit
 @testable import G526CameraDrive
 
 /// Sürüm 4: her soruda "kamera ile çekip göndermek ister misiniz?" akışı (sahte kamera, kestirme, internet ve Gemini ile)
@@ -28,6 +29,37 @@ final class CameraFlowTests: XCTestCase {
 
     private func cameraQuestionOpen(_ h: SessionHarness) -> Bool {
         return h.vm.listenMode == .cameraChoice && h.vm.phase == .listening
+    }
+
+    private func jpegPhoto() -> Data {
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: 40, height: 60))
+        return renderer.jpegData(withCompressionQuality: 0.8) { ctx in
+            UIColor.red.setFill()
+            ctx.fill(CGRect(x: 0, y: 0, width: 40, height: 60))
+        }
+    }
+
+    /// Ana ekrandaki "Son fotoğraf": çekim sonrası küçük resim ve bilgi saklanır; okunamayan fotoğraf (sahte veri) akışı bozmaz
+    func testTheLastShotThumbnailAndInfoAreKeptForTheMainScreen() async {
+        var shot = FakeCamera.shot(video: false)
+        shot.photo = jpegPhoto()
+        let h = harness(shots: [.success(shot)])
+        _ = await h.startListening()
+        XCTAssertNil(h.vm.lastShot, "Çekim yokken son fotoğraf yok")
+        reply(h, "evet")
+        let again = await waitUntil(45) { h.vm.answers.count == 1 && self.cameraQuestionOpen(h) }
+        XCTAssertTrue(again)
+        XCTAssertNotNil(h.vm.lastShot)
+        XCTAssertTrue(h.vm.lastShotInfo.contains("KB"), h.vm.lastShotInfo)
+    }
+
+    func testAnUnreadablePhotoLeavesTheLastShotUntouchedAndTheFlowGoesOn() async {
+        let h = harness()
+        _ = await h.startListening()
+        reply(h, "evet")
+        let again = await waitUntil(45) { h.vm.answers.count == 1 && self.cameraQuestionOpen(h) }
+        XCTAssertTrue(again, "Fotoğraf okunamasa da soru gönderilir")
+        XCTAssertNil(h.vm.lastShot)
     }
 
     func testStartAsksTheCameraQuestionAfterTheReadyAnnouncement() async {

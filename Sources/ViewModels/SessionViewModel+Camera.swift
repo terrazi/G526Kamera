@@ -239,6 +239,7 @@ extension SessionViewModel {
                 await repairInternetAfterCamera(Say.cameraFailedOffline(failure))
             }
         case .success(let shot):
+            rememberShot(shot)
             tlog("[kamera] çekildi\(isPassage ? " (ortak paragraf)" : ""): fotoğraf \(shot.photo.count / 1024) KB, video \(shot.video == nil ? "yok" : "\(shot.videoBytes / 1024) KB, \(Int(shot.videoSeconds.rounded())) sn"); internet \(online ? "geldi" : "gelmedi")")
             if isPassage {
                 if online {

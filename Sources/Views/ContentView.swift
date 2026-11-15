@@ -15,7 +15,8 @@ struct ContentView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     statusCard
-                    if cameraController.active { cameraCard }
+                    cameraCard
+                    lastShotCard
                     if !session.warnings.isEmpty { warningBox }
                     if !session.checkup.isEmpty { checkupList }
                     if !session.questions.isEmpty || liveBoxVisible || passageNote != nil { questionList }
@@ -73,30 +74,87 @@ struct ContentView: View {
         .cornerRadius(12)
     }
 
-    /// Sürüm 4: kamera çekimi sürerken canlı görüntü (yalnız çekim sırasında görünür; kamera kapanınca kalkar)
+    /// Sürüm 4: kamera kutusu V1'deki gibi ana ekranda hep durur (görüntü yokken siyahtır). Üstünde kamera durumu, altında bildirim bandı;
+    /// önizleme ve ekran kısma buradan açılıp kapatılır; "Şimdi çek" yalnız çekim sürerken çalışır.
     private var cameraCard: some View {
         let size = PreviewLayout.box(screen: UIScreen.main.bounds.size, portrait: camera.guidanceFrame == 1)
+        let previewOn = Binding<Bool>(get: { !camera.previewOff }, set: { camera.previewOff = !$0 })
         return VStack(alignment: .leading, spacing: 8) {
-            Text("Kamera: " + (cameraController.statusText.isEmpty ? cameraController.cameraState.text : cameraController.statusText))
-                .font(.subheadline.bold())
-            if let battery = cameraController.cameraBattery {
-                Text(battery.shortText).font(.caption).foregroundColor(.secondary)
-            }
             if camera.previewOff {
+                cameraStateLine
                 Text("Önizleme kapalı (pil tasarrufu)").font(.caption).foregroundColor(.secondary)
             } else {
-                VideoLayerView(renderer: cameraController.renderer, orientation: camera.imageOrientation)
-                    .frame(width: size.width, height: size.height)
-                    .background(Color.black)
-                    .cornerRadius(12)
+                ZStack(alignment: .topLeading) {
+                    VideoLayerView(renderer: cameraController.renderer, orientation: camera.imageOrientation)
+                        .frame(width: size.width, height: size.height)
+                        .background(Color.black)
+                        .cornerRadius(12)
+                    cameraStateLine
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(.ultraThinMaterial)
+                        .cornerRadius(10)
+                        .padding(8)
+                }
+                .frame(width: size.width, height: size.height)
+                .overlay(alignment: .bottom) {
+                    if cameraController.active, !cameraController.statusText.isEmpty {
+                        Text(cameraController.statusText)
+                            .font(.subheadline.weight(.semibold))
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(Color.black.opacity(0.75))
+                            .foregroundColor(.white)
+                            .cornerRadius(10)
+                            .padding(10)
+                    }
+                }
             }
+            Toggle("Canlı önizleme", isOn: previewOn).font(.subheadline)
+            Toggle("Test sürerken ekranı kıs", isOn: $settings.dimScreen).font(.subheadline)
             Button("Şimdi çek") { cameraController.captureNow() }
                 .buttonStyle(.bordered)
+                .disabled(!cameraController.active)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
         .background(Color(.secondarySystemBackground))
         .cornerRadius(12)
+    }
+
+    /// Kamera durum noktası (canlıysa yeşil) ve yazısı; kamera pili okunduysa yanında
+    private var cameraStateLine: some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(cameraController.cameraState.isLive ? Color.green : Color.orange)
+                .frame(width: 9, height: 9)
+            Text("Kamera: " + cameraController.cameraState.text)
+                .font(.caption)
+                .lineLimit(2)
+            if let battery = cameraController.cameraBattery {
+                Text(battery.shortText).font(.caption2).foregroundColor(.secondary)
+            }
+        }
+    }
+
+    /// V1'deki "Son fotoğraf": kameranın en son çektiği sayfa (küçük resim) ve bilgisi
+    @ViewBuilder
+    private var lastShotCard: some View {
+        if let image = session.lastShot {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Son fotoğraf").font(.footnote).foregroundColor(.secondary)
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxHeight: 220)
+                    .cornerRadius(10)
+                Text(session.lastShotInfo).font(.caption).foregroundColor(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding()
+            .background(Color(.secondarySystemBackground))
+            .cornerRadius(12)
+        }
     }
 
     private var warningBox: some View {
