@@ -172,6 +172,8 @@ struct CameraSettingsSections: View {
     private var powerSection: some View {
         Section(header: Text(CameraSettings.Group.power.title)) {
             Toggle("Canlı önizlemeyi kapat", isOn: $camera.previewOff)
+            Toggle("Son fotoğrafı ana ekranda gösterme", isOn: $camera.lastShotOff)
+            HelpRow("Açıkken ana ekranda “Son fotoğraf” kartı çıkmaz ve son çekimin küçük resmi bellekte tutulmaz (başkası ekrana bakıyorsa sınav sorusu görünmesin diye). Çekim ve gönderim aynen çalışır; “Kamerayı dene” küçük resmi bundan etkilenmez.")
             HelpRow("Önizleme kapalıyken ekrana video çizilmez ve kareler seyreltilerek incelenir; fotoğraf çekme ve video kaydı aynen çalışır. Kamera kadrajını önce önizlemeyle ayarlayın. Ekran parlaklığını azaltmak için “Telefon sesi ve ekran” bölümündeki ayarı kullanın. Kamera yayını, Wi-Fi ve mikrofon yine çalıştığı için pil ve ısınma tamamen sıfırlanmaz.")
         }
     }

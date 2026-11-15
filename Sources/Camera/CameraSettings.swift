@@ -29,6 +29,7 @@ final class CameraSettings: ObservableObject {
         static let motionEnabled = "motionEnabled"
         static let motionSensitivity = "motionSensitivity"
         static let previewOff = "previewOff"
+        static let lastShotOff = "lastShotOff"
         static let guidanceEnabled = "guidanceEnabled"
         static let guidanceVoice = "guidanceVoice"
         static let videoGuidance = "videoGuidance"
@@ -84,7 +85,7 @@ final class CameraSettings: ObservableObject {
                 return [Key.guidanceEnabled, Key.guidanceVoice, Key.videoGuidance, Key.statusNotices, Key.guidanceAutoCapture,
                         Key.guidanceSharpness, Key.guidanceGlare, Key.guidanceDescribe, Key.guidancePageEdges, Key.guidanceAutoPick]
             case .power:
-                return [Key.previewOff]
+                return [Key.previewOff, Key.lastShotOff]
             case .shortcuts:
                 return [Key.cameraShortcutName]
             }
@@ -191,6 +192,8 @@ final class CameraSettings: ObservableObject {
     // MARK: Pil tasarrufu (ekran kısma V3'ün `dimScreen` ayarıdır)
     /// Canlı önizleme kapalı: ekrana video çizilmez, kare çözme/çekim/kaydetme aynen sürer
     @Published var previewOff: Bool { didSet { defaults.set(previewOff, forKey: Key.previewOff) } }
+    /// Ana ekranda "Son fotoğraf" (kameranın son çektiği sayfanın küçük resmi) gösterilmez ve saklanmaz
+    @Published var lastShotOff: Bool { didSet { defaults.set(lastShotOff, forKey: Key.lastShotOff) } }
 
     // MARK: Sesli konumlandırma
     @Published var guidanceEnabled: Bool { didSet { defaults.set(guidanceEnabled, forKey: Key.guidanceEnabled) } }
@@ -270,6 +273,7 @@ final class CameraSettings: ObservableObject {
         motionEnabled = defaults.object(forKey: Key.motionEnabled) as? Bool ?? false
         motionSensitivity = defaults.object(forKey: Key.motionSensitivity) as? Int ?? 1
         previewOff = defaults.object(forKey: Key.previewOff) as? Bool ?? false
+        lastShotOff = defaults.object(forKey: Key.lastShotOff) as? Bool ?? false
 
         guidanceEnabled = defaults.object(forKey: Key.guidanceEnabled) as? Bool ?? true
         guidanceVoice = defaults.object(forKey: Key.guidanceVoice) as? Bool ?? true

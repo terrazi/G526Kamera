@@ -53,6 +53,37 @@ final class CameraFlowTests: XCTestCase {
         XCTAssertTrue(h.vm.lastShotInfo.contains("KB"), h.vm.lastShotInfo)
     }
 
+    func testTheLastShotIsNeitherKeptNorShownWhenTurnedOffInSettings() async {
+        var shot = FakeCamera.shot(video: false)
+        shot.photo = jpegPhoto()
+        let h = harness(shots: [.success(shot)])
+        h.cameraSettings.lastShotOff = true
+        _ = await h.startListening()
+        reply(h, "evet")
+        let again = await waitUntil(45) { h.vm.answers.count == 1 && self.cameraQuestionOpen(h) }
+        XCTAssertTrue(again, "Gönderim ayardan etkilenmez")
+        XCTAssertNil(h.vm.lastShot, "Ayar açıkken küçük resim saklanmaz")
+        XCTAssertEqual(h.vm.lastShotInfo, "")
+    }
+
+    func testClearLastShotRemovesAnExistingThumbnail() {
+        let h = harness()
+        h.vm.lastShot = UIImage()
+        h.vm.lastShotInfo = "14:05:12 · fotoğraf 212 KB"
+        h.vm.clearLastShot()
+        XCTAssertNil(h.vm.lastShot)
+        XCTAssertEqual(h.vm.lastShotInfo, "")
+    }
+
+    func testLastShotSettingIsRememberedAndOffByDefault() {
+        let defaults = UserDefaults(suiteName: "g526.testler.\(UUID().uuidString)")!
+        let first = CameraSettings(defaults: defaults)
+        XCTAssertFalse(first.lastShotOff, "Varsayılan: son fotoğraf gösterilir")
+        first.lastShotOff = true
+        XCTAssertTrue(CameraSettings(defaults: defaults).lastShotOff, "Ayar kalıcıdır")
+        XCTAssertTrue(CameraSettings.allKeys.contains("lastShotOff"))
+    }
+
     func testAnUnreadablePhotoLeavesTheLastShotUntouchedAndTheFlowGoesOn() async {
         let h = harness()
         _ = await h.startListening()

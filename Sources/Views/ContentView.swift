@@ -42,6 +42,9 @@ struct ContentView: View {
             } message: {
                 Text("Dinleme durur. Kaydedilen cevaplar kalır, “Cevapları Tekrarla” ile dinlenir.")
             }
+            .onChange(of: camera.lastShotOff) { off in
+                if off { session.clearLastShot() }
+            }
             .onChange(of: session.phase.isAtRest) { rest in
                 // Test bitince ya da hiç başlamadıysa ekran kilidi kalmasın
                 if rest { ScreenLock.shared.unlock() }
@@ -140,7 +143,7 @@ struct ContentView: View {
     /// V1'deki "Son fotoğraf": kameranın en son çektiği sayfa (küçük resim) ve bilgisi
     @ViewBuilder
     private var lastShotCard: some View {
-        if let image = session.lastShot {
+        if !camera.lastShotOff, let image = session.lastShot {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Son fotoğraf").font(.footnote).foregroundColor(.secondary)
                 Image(uiImage: image)
