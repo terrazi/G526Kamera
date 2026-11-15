@@ -151,9 +151,10 @@ final class ReadingFlowTests: XCTestCase {
         _ = await waitUntil { h.vm.phase == .listening && h.vm.listenMode == .passageTargets }
         for attempt in 1...2 {
             say(h, "bilmiyorum Tamam")
+            let expected = Say.reask(Say.passageTargetsAgain, attempt: attempt + 1)
             let again = await waitUntil {
-                h.speaker.spoken.last == Say.passageTargetsAgain && h.vm.phase == .listening
-                    && h.speaker.spoken.filter { $0 == Say.passageTargetsAgain }.count == attempt
+                h.speaker.spoken.last == expected && h.vm.phase == .listening
+                    && h.speaker.spoken.filter { $0 == expected }.count == 1
             }
             XCTAssertTrue(again, "\(attempt). yeniden sorma")
         }
@@ -208,7 +209,8 @@ final class ReadingFlowTests: XCTestCase {
         XCTAssertTrue(asking)
         for round in 1...Timing.numberReminderLimit {
             h.scheduler.advance(by: SilenceWatchdog.limit + 0.1)
-            asking = await waitUntil { h.speaker.spoken.last == Say.askNumberAgain && h.vm.phase == .listening && h.speaker.spoken.filter { $0 == Say.askNumberAgain }.count == round }
+            let expected = Say.reask(Say.askNumberAgain, attempt: round + 1)
+            asking = await waitUntil { h.speaker.spoken.last == expected && h.vm.phase == .listening && h.speaker.spoken.filter { $0 == expected }.count == 1 }
             XCTAssertTrue(asking, "\(round). hatırlatma")
         }
         XCTAssertTrue(h.answering.calls.isEmpty)

@@ -181,8 +181,13 @@ final class VoiceCommandFlowTests: XCTestCase {
         XCTAssertTrue(h.vm.warnings.contains { $0.id == "duyulan" && $0.text.contains("hmm bilmem") }, "Ne duyulduğu ekranda yazar")
         h.listener.say("şey")
         h.scheduler.advance(by: T.numberUnclear + 0.1)
+        let third = await waitUntil { h.speaker.spoken.last == Say.reask(Say.confirmEndAgain, attempt: 3) && h.vm.listenMode == .confirmEnd && h.vm.phase == .listening }
+        XCTAssertTrue(third, "İkinci kez de anlaşılmazsa üçüncü defa sorulur: \(h.speaker.spoken)")
+        XCTAssertTrue(Say.reask(Say.confirmEndAgain, attempt: 3).contains("üçüncü defa soruyorum"))
+        h.listener.say("yine bir şey")
+        h.scheduler.advance(by: T.numberUnclear + 0.1)
         let kept = await waitUntil { h.speaker.spoken.last == Say.endCancelled && h.vm.listenMode == .question && h.vm.phase == .listening }
-        XCTAssertTrue(kept, "İkinci kez de anlaşılmazsa test bitmez")
+        XCTAssertTrue(kept, "Üçüncü kez de anlaşılmazsa test bitmez")
     }
 
     func testNoToTheConfirmationKeepsTheTestGoing() async {
@@ -205,7 +210,10 @@ final class VoiceCommandFlowTests: XCTestCase {
         _ = await waitUntil { h.vm.listenMode == .confirmEnd && h.vm.phase == .listening }
         h.scheduler.advance(by: SilenceWatchdog.limit + 0.1)
         let again = await waitUntil { h.speaker.spoken.last == Say.confirmEndAgain && h.vm.listenMode == .confirmEnd && h.vm.phase == .listening }
-        XCTAssertTrue(again, "Önce bir kez daha sorulur")
+        XCTAssertTrue(again, "Önce \"ikinci defa soruyorum\" denir")
+        h.scheduler.advance(by: SilenceWatchdog.limit + 0.1)
+        let third = await waitUntil { h.speaker.spoken.last == Say.reask(Say.confirmEndAgain, attempt: 3) && h.vm.listenMode == .confirmEnd && h.vm.phase == .listening }
+        XCTAssertTrue(third, "Sonra \"üçüncü defa soruyorum\" denir: \(h.speaker.spoken)")
         h.scheduler.advance(by: SilenceWatchdog.limit + 0.1)
         let back = await waitUntil { h.vm.listenMode == .question && h.vm.phase == .listening && h.speaker.spoken.last == Say.endCancelled }
         XCTAssertTrue(back, "Cevap gelmezse test bitmez")
@@ -333,6 +341,9 @@ final class VoiceCommandFlowTests: XCTestCase {
         let reminded = await waitUntil { h.speaker.spoken.last == Say.askChoiceAgain && h.vm.phase == .listening }
         XCTAssertTrue(reminded)
         h.scheduler.advance(by: SilenceWatchdog.limit + 0.1)
+        let third = await waitUntil { h.speaker.spoken.last == Say.reask(Say.askChoiceAgain, attempt: 3) && h.vm.phase == .listening }
+        XCTAssertTrue(third, "Üçüncü defa sorulur: \(h.speaker.spoken)")
+        h.scheduler.advance(by: SilenceWatchdog.limit + 0.1)
         let on = await waitUntil { h.speaker.spoken.last == Say.continuingPrevious(next: 2) && h.vm.phase == .listening }
         XCTAssertTrue(on)
         XCTAssertEqual(h.vm.sessionFolder, folder)
@@ -345,6 +356,8 @@ final class VoiceCommandFlowTests: XCTestCase {
         _ = await h.startListening()
         h.scheduler.advance(by: SilenceWatchdog.limit + 0.1)
         _ = await waitUntil { h.speaker.spoken.last == Say.askChoiceAgain && h.vm.phase == .listening }
+        h.scheduler.advance(by: SilenceWatchdog.limit + 0.1)
+        _ = await waitUntil { h.speaker.spoken.last == Say.reask(Say.askChoiceAgain, attempt: 3) && h.vm.phase == .listening }
         h.scheduler.advance(by: SilenceWatchdog.limit + 0.1)
         let on = await waitUntil { h.speaker.spoken.last == Say.startingNew && h.vm.phase == .listening }
         XCTAssertTrue(on)

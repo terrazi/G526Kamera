@@ -120,7 +120,10 @@ final class ReviewFlowTests: XCTestCase {
         await finishReading(h, files: 1)
         h.scheduler.advance(by: SilenceWatchdog.limit + 0.1)
         let again = await waitUntil { h.speaker.spoken.last == Say.reviewMenuAgain && h.vm.listenMode == .reviewMenu && h.vm.phase == .listening }
-        XCTAssertTrue(again, "Önce bir kez hatırlatılır")
+        XCTAssertTrue(again, "Önce \"ikinci defa soruyorum\" denir")
+        h.scheduler.advance(by: SilenceWatchdog.limit + 0.1)
+        let third = await waitUntil { h.speaker.spoken.last == Say.reask(Say.reviewMenuAgain, attempt: 3) && h.vm.listenMode == .reviewMenu && h.vm.phase == .listening }
+        XCTAssertTrue(third, "Sonra \"üçüncü defa soruyorum\" denir: \(h.speaker.spoken)")
         h.scheduler.advance(by: SilenceWatchdog.limit + 0.1)
         let back = await waitUntil { h.vm.listenMode == .question && h.vm.phase == .listening && h.speaker.spoken.last == Say.reviewNoAnswer + " " + Say.reviewBackToQuestion }
         XCTAssertTrue(back, "Yalnız tekrar istendiyse sessizlikte test devam eder")
@@ -154,6 +157,8 @@ final class ReviewFlowTests: XCTestCase {
         await finishReading(h, files: 1)
         h.scheduler.advance(by: SilenceWatchdog.limit + 0.1)
         _ = await waitUntil { h.speaker.spoken.last == Say.reviewMenuAgain && h.vm.listenMode == .reviewMenu && h.vm.phase == .listening }
+        h.scheduler.advance(by: SilenceWatchdog.limit + 0.1)
+        _ = await waitUntil { h.speaker.spoken.last == Say.reask(Say.reviewMenuAgain, attempt: 3) && h.vm.listenMode == .reviewMenu && h.vm.phase == .listening }
         h.scheduler.advance(by: SilenceWatchdog.limit + 0.1)
         let ended = await waitUntil { h.vm.phase == .finished }
         XCTAssertTrue(ended, "Bitirme istenmişti: sessizlikte test tamamlanır")

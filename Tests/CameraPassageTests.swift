@@ -210,6 +210,9 @@ final class CameraPassageTests: XCTestCase {
         let reminded = await waitUntil(45) { h.speaker.spoken.last == Say.askPassageCameraAgain && h.vm.listenMode == .passageCameraChoice && h.vm.phase == .listening }
         XCTAssertTrue(reminded)
         h.scheduler.advance(by: SilenceWatchdog.limit + 0.1)
+        let third = await waitUntil(45) { h.speaker.spoken.last == Say.reask(Say.askPassageCameraAgain, attempt: 3) && h.vm.listenMode == .passageCameraChoice && h.vm.phase == .listening }
+        XCTAssertTrue(third, "\(h.speaker.spoken)")
+        h.scheduler.advance(by: SilenceWatchdog.limit + 0.1)
         let voice = await waitUntil(45) { h.speaker.spoken.last == Say.passageCameraDefaultVoice && h.vm.listenMode == .passage && h.vm.phase == .listening }
         XCTAssertTrue(voice, "Cevap gelmezse güvenli varsayılan: sesle okuma")
         XCTAssertTrue(h.shortcuts.runs.isEmpty)

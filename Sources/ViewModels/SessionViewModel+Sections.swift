@@ -99,8 +99,8 @@ extension SessionViewModel {
         closeListening()
         phase = .speaking
         sectionReminders += 1
-        if sectionReminders <= 1 {
-            guard await speakNotice(Say.askNextSectionAgain(sectionIndex + 1)) else { return }
+        if sectionReminders <= Timing.choiceReminderLimit {
+            guard await speakNotice(Say.reask(Say.askNextSectionAgain(sectionIndex + 1), attempt: sectionReminders + 1)) else { return }
             beginListening(mode: .nextSectionChoice)
         } else {
             tlog("[komut] yeni bölüm sorusu cevapsız kaldı; yeni bölüme geçiliyor")

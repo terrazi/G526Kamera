@@ -237,7 +237,7 @@ final class CameraFlowTests: XCTestCase {
     /// Cihaz günlüğü (22:10): telefonda "Kamera Bağlantısını Onar" kestirmesi yoktu; aynı yok kestirme iki kez denendi ve kamera hiç yeniden denenmedi.
     /// Yok olan onarım kestirmesi bir daha çalıştırılmaz; ikinci denemede kameraya geçiş kestirmesi çalışır ve çekim yeniden denenir.
     func testMissingRepairShortcutIsNotRunTwiceAndTheCameraShortcutIsUsedInstead() async {
-        let h = harness(shots: [.failure(.notConnected), .success(FakeCamera.shot())])
+        let h = harness(shots: [.failure(.notConnected), .failure(.noFrames), .success(FakeCamera.shot())])
         h.shortcuts.script = [.success, .failed("“Kamera_Onar” kestirmesi bulunamadı.")]
         _ = await h.startListening()
         reply(h, "evet")
@@ -245,7 +245,19 @@ final class CameraFlowTests: XCTestCase {
         XCTAssertTrue(done)
         XCTAssertEqual(Array(h.shortcuts.runs.prefix(3)), ["Kameraya_Gec", "Kamera_Onar", "Kameraya_Gec"],
                        "Yok olan onarım kestirmesi ikinci kez denenmez")
-        XCTAssertEqual(h.camera.captures, 2, "İkinci denemede kamera yeniden açılır")
+        XCTAssertEqual(h.camera.captures, 3, "Onarım kestirmesi olmasa da her denemede kamera yeniden denenir")
+    }
+
+    /// Cihaz günlüğü (22:10): kamera görüntüsü kesildi ama telefon hâlâ kameranın Wi-Fi'sindeydi; onarım kestirmesi yoktu, kamera hiç yeniden denenmedi
+    func testWhenTheRepairShortcutFailsTheCameraIsStillTriedAgain() async {
+        let h = harness(shots: [.failure(.noFrames), .success(FakeCamera.shot())])
+        h.shortcuts.script = [.success, .failed("“Kamera_Onar” kestirmesi bulunamadı.")]
+        _ = await h.startListening()
+        reply(h, "evet")
+        let done = await waitUntil(45) { h.vm.answers.count == 1 }
+        XCTAssertTrue(done, "\(h.speaker.spoken)")
+        XCTAssertEqual(Array(h.shortcuts.runs.prefix(2)), ["Kameraya_Gec", "Kamera_Onar"])
+        XCTAssertEqual(h.camera.captures, 2, "Onarım kestirmesi çalışmasa da kameraya yeniden bağlanılır")
     }
 
     func testMissingShortcutMessageIsRecognised() {
@@ -857,7 +869,8 @@ final class CameraFlowTests: XCTestCase {
             h.listener.say("bilmem ki")
             h.scheduler.advance(by: T.numberUnclear + 0.1)
             // Önceki turun "Anlayamadım"ı da son söz olduğundan yalnız sonuncuya bakmak yetmez: bu turun anonsu sayılır
-            let again = await waitUntil(45) { h.speaker.spoken.filter { $0 == Say.askCameraAgain }.count == round && self.cameraQuestionOpen(h) }
+            let expected = Say.reask(Say.askCameraAgain, attempt: round + 1)   // 2. soruşta "ikinci", 3. soruşta "üçüncü defa soruyorum"
+            let again = await waitUntil(45) { h.speaker.spoken.filter { $0 == expected }.count == 1 && self.cameraQuestionOpen(h) }
             XCTAssertTrue(again, "\(round). anlaşılmayan söz: \(h.speaker.spoken)")
         }
         h.listener.say("bilmem ki")

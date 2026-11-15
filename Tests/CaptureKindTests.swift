@@ -8,12 +8,12 @@ import XCTest
 final class CaptureKindTests: XCTestCase {
     typealias T = SessionViewModel.Timing
 
-    private func harness(shots: [Result<CapturedQuestion, CameraFailure>] = [.success(FakeCamera.shot())],
-                         replies: [Result<GeminiReply, Error>] = [.success(FakeAnswering.reply(1))]) -> SessionHarness {
+    private func harness(shots: [Result<CapturedQuestion, CameraFailure>]? = nil,
+                         replies: [Result<GeminiReply, Error>]? = nil) -> SessionHarness {
         let h = SessionHarness(cameraFlow: true)
         h.settings.askCaptureKind = true
-        h.camera.results = shots
-        h.answering.results = replies
+        h.camera.results = shots ?? [.success(FakeCamera.shot())]
+        h.answering.results = replies ?? [.success(FakeAnswering.reply(1))]
         h.trackEvents { name in
             if name == "Kameraya_Gec" { h.health.internet = false }
             if name == "Hücresele_Gec" { h.health.internet = true }

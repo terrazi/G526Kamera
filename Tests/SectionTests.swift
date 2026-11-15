@@ -298,6 +298,9 @@ final class SectionFlowTests: XCTestCase {
         let again = await waitUntil(45) { h.speaker.spoken.last == Say.askNextSectionAgain(2) && h.vm.listenMode == .nextSectionChoice && h.vm.phase == .listening }
         XCTAssertTrue(again, "\(h.speaker.spoken)")
         h.scheduler.advance(by: SilenceWatchdog.limit + 0.1)
+        let third = await waitUntil(45) { h.speaker.spoken.last == Say.reask(Say.askNextSectionAgain(2), attempt: 3) && h.vm.listenMode == .nextSectionChoice && h.vm.phase == .listening }
+        XCTAssertTrue(third, "Üçüncü defa sorulur: \(h.speaker.spoken)")
+        h.scheduler.advance(by: SilenceWatchdog.limit + 0.1)
         let started = await waitUntil(45) { h.vm.sectionIndex == 2 && h.vm.listenMode == .question && h.vm.phase == .listening }
         XCTAssertTrue(started, "Cevap gelmezse test bitirilmez, yeni bölüme geçilir: \(h.speaker.spoken)")
         XCTAssertEqual(h.speaker.spoken.last, Say.nextSectionDefault + " " + Say.sectionStart(2, questions: 2) + " İlk soruyu okuyabilirsiniz.")

@@ -24,7 +24,7 @@ enum Say {
 
     /// Yalnız "Cevapla" denmiş, soru metni yok (tanıyıcı soruyu duymamış ya da soru okunmamış)
     static let noQuestionHeard = "Soruyu duymadım. Lütfen soruyu okuyup Cevapla deyin."
-    static let confirmEndAgain = "Anlayamadım. Testi bitirmek için evet, devam etmek için hayır deyin."
+    static let confirmEndAgain = "Cevap alamadım, ikinci defa soruyorum. Testi bitirmek için evet, devam etmek için hayır deyin."
     /// Sesli "testi bitir" komutu: önce onay istenir; "evet" denirse kısa bilgi verilir ve test biter
     static let confirmEnd = "Testi bitirmek istiyor musunuz? Bitirmek için evet, devam etmek için hayır deyin."
     /// Soru numarası ya da paragraf numaraları beklenirken "testi bitir" denince: bekleyen iş bitirmeyle gönderilmeden kalır, bu da söylenir
@@ -37,7 +37,7 @@ enum Say {
     static func readyAskContinue(answers: Int, next: Int) -> String {
         return "Ben hazırım, sistem kontrol edildi ve problem yok. Önceki kayıtta \(answers) cevap var, sıradaki soru \(next). Önceki kayıttan devam mı, yeni sınav mı? Devam ya da yeni deyin."
     }
-    static let askChoiceAgain = "Önceki kayıttan devam mı, yeni sınav mı? Devam ya da yeni deyin."
+    static let askChoiceAgain = "Cevap alamadım, ikinci defa soruyorum. Önceki kayıttan devam mı, yeni sınav mı? Devam ya da yeni deyin."
     static func continuingPrevious(next: Int, camera: Bool = false) -> String {
         return "Önceki kayıttan devam ediliyor. Sıradaki soru \(next)." + (camera ? "" : " Soruyu okuyabilirsiniz.")
     }
@@ -58,7 +58,7 @@ enum Say {
     static let reviewStopped = "Cevaplar okunamadı."
     /// Rapordan hemen sonra: üç seçenek, birbirine benzemeyen üç sözcükle
     static let reviewMenu = "Ne yapmak istersiniz? Teste kaldığınız yerden devam etmek için Devam, cevapları yeniden dinlemek için Tekrar, testi tamamlamak için Bitir deyin."
-    static let reviewMenuAgain = "Anlayamadım. Devam, Tekrar ya da Bitir deyin."
+    static let reviewMenuAgain = "Cevap alamadım, ikinci defa soruyorum. Devam, Tekrar ya da Bitir deyin."
     /// İki hatırlatmaya da cevap gelmedi
     static let reviewNoAnswer = "Yanıt alınamadı."
     /// Okuma ya da menü sırasında kesinti oldu ve düzeldi
@@ -90,18 +90,23 @@ enum Say {
     }
     /// Cevap duyulduktan sonra, dinlemeye geçmeden: program sıradaki soruyu kendisi ister
     static let nextQuestion = "Lütfen sonraki soruyu okuyun."
+    /// Cevapsız ya da anlaşılmayan soru yeniden sorulurken sıra sayısı söylenir: ikinci soruşta "ikinci defa soruyorum" (metinlerin kendisinde),
+    /// üçüncü soruşta "üçüncü defa soruyorum". Üçüncüde de cevap gelmezse ilgili kipin güvenli varsayılanı uygulanır.
+    static func reask(_ text: String, attempt: Int) -> String {
+        return attempt >= 3 ? text.replacingOccurrences(of: "ikinci defa", with: "üçüncü defa") : text
+    }
     static let askNumber = "Lütfen okuduğunuz sorunun numarasını söyleyin."
     /// Bölümün soru sayısı biliniyorken numara anlaşılamadı: aralık söylenir (yanlış girilmiş soru sayısı da buradan fark edilir)
     static func askNumberAgainInSection(_ questions: Int) -> String {
-        return "Soru numarasını anlayamadım. Bu bölümde 1'den \(questions)'e kadar soru var. Lütfen sorunun numarasını söyleyin. Numarayı bilmiyorsanız sıradaki deyin, sıradaki numara verilir."
+        return "Soru numarasını anlayamadım, ikinci defa soruyorum. Bu bölümde 1'den \(questions)'e kadar soru var. Lütfen sorunun numarasını söyleyin. Numarayı bilmiyorsanız sıradaki deyin, sıradaki numara verilir."
     }
-    static let askNumberAgain = "Soru numarasını duyamadım. Lütfen sorunun numarasını söyleyin. Numarayı bilmiyorsanız sıradaki deyin, sıradaki numara verilir."
+    static let askNumberAgain = "Soru numarasını duyamadım, ikinci defa soruyorum. Lütfen sorunun numarasını söyleyin. Numarayı bilmiyorsanız sıradaki deyin, sıradaki numara verilir."
     static let recoveredAskNumber = "Bağlantı yeniden onarıldı. Lütfen okuduğunuz sorunun numarasını söyleyin."
 
     /// "Ortak paragraf" denince (başka bir şey söylenmeden duraklanırsa) kulaklıktan söylenir
     static let passagePrompt = "Lütfen ortak paragrafı okuyun, bitince Tamam deyin."
     static let passageTaken = "Paragraf metnini aldım. Bu paragraf hangi sorular için? Soru numaralarını söyleyip Tamam deyin."
-    static let passageTargetsAgain = "Numaraları anlayamadım. Örneğin beş altı yedi deyip Tamam deyin."
+    static let passageTargetsAgain = "Numaraları anlayamadım, ikinci defa soruyorum. Örneğin beş altı yedi deyip Tamam deyin."
     /// Numaralar üst üste anlaşılamadı: paragraf yalnız sıradaki soruya bağlanır (kaybolmasın, döngü bitsin)
     static func passageFallback(_ next: Int, cameraNext: Bool = false) -> String {
         return "Numaraları anlayamadım. Paragraf yalnız sıradaki soru, yani \(next). soru için kaydedildi."
@@ -283,7 +288,7 @@ enum Say {
     // MARK: Sürüm 4: kamera
     static let askCamera = "Bu soruyu kamera ile çekip göndermek ister misiniz? Evet ya da hayır deyin."
     static let askCameraAfterRecovery = "Bağlantı yeniden onarıldı. Bu soruyu kamera ile çekip göndermek ister misiniz? Evet ya da hayır deyin."
-    static let askCameraAgain = "Anlayamadım. Bu soruyu kamera ile çekip göndermek ister misiniz? Evet ya da hayır deyin."
+    static let askCameraAgain = "Anlayamadım, ikinci defa soruyorum. Bu soruyu kamera ile çekip göndermek ister misiniz? Evet ya da hayır deyin."
     static let readyCamera = "Ben hazırım, sistem kontrol edildi ve problem yok."
     /// Kamera sorusu açık ama kamera adı ya da kestirme adları yazılmamış: sessizce V3'e dönülmez, kullanıcıya söylenir
     static let readyCameraMissing = "Ben hazırım, sistem kontrol edildi. Kamera ayarları eksik olduğu için sorular sesle okunacak."
@@ -296,7 +301,7 @@ enum Say {
     /// "Evet" denince (ya da üçüncü soruşta cevap gelmeyince): çekilecek şeyin soru mu paragraf mı olduğu sorulur
     static let askCaptureKind = "Soru mu, ortak paragraf mı çekeceksiniz? Birinci seçenek soru, ikinci seçenek paragraf."
     static let askCaptureKindAfterRecovery = "Bağlantı yeniden onarıldı. " + askCaptureKind
-    static let askCaptureKindAgain = "Anlayamadım. " + askCaptureKind
+    static let askCaptureKindAgain = "Anlayamadım, ikinci defa soruyorum. " + askCaptureKind
     static func askCaptureKindRepeat(_ attempt: Int) -> String {
         let ordinal = attempt >= 3 ? "üçüncü" : "ikinci"
         return "Cevap vermediniz, \(ordinal) defa soruyorum. " + askCaptureKind
@@ -321,7 +326,7 @@ enum Say {
 
     // MARK: Sürüm 4: kamerayla ortak paragraf
     static let askPassageCamera = "Ortak paragraf. Paragrafı kamera ile çekmek ister misiniz? Evet ya da hayır deyin."
-    static let askPassageCameraAgain = "Anlayamadım. Ortak paragrafı kamera ile çekmek ister misiniz? Evet ya da hayır deyin."
+    static let askPassageCameraAgain = "Cevap alamadım, ikinci defa soruyorum. Ortak paragrafı kamera ile çekmek ister misiniz? Evet ya da hayır deyin."
     static let askPassageCameraAfterRecovery = "Bağlantı yeniden onarıldı. Ortak paragrafı kamera ile çekmek ister misiniz? Evet ya da hayır deyin."
     /// "Hayır": paragraf V3'teki gibi sesle okunur
     static let passageCameraDeclined = "Tamam. Lütfen ortak paragrafı okuyun, bitince Tamam deyin."
@@ -407,7 +412,7 @@ enum Say {
 
     // "Bölümü tamamla" onayı (testi bitirme onayının bölüm biçimi)
     static let confirmSectionEnd = "Bölümü tamamlamak istiyor musunuz? Tamamlamak için evet, devam etmek için hayır deyin."
-    static let confirmSectionEndAgain = "Anlayamadım. Bölümü tamamlamak için evet, devam etmek için hayır deyin."
+    static let confirmSectionEndAgain = "Cevap alamadım, ikinci defa soruyorum. Bölümü tamamlamak için evet, devam etmek için hayır deyin."
     static let confirmSectionHeldQuestion = "Okuduğunuz soru henüz gönderilmedi; tamamlarsanız gönderilmeyecek. Bölümü tamamlamak istiyor musunuz? Tamamlamak için evet, devam etmek için hayır deyin."
     static let confirmSectionHeldPassage = "Ortak paragraf henüz kaydedilmedi; tamamlarsanız kaydedilmeyecek. Bölümü tamamlamak istiyor musunuz? Tamamlamak için evet, devam etmek için hayır deyin."
     static let sectionEndCancelled = "Tamam, bölüm devam ediyor. Soruyu okuyabilirsiniz."
@@ -432,7 +437,7 @@ enum Say {
         return "Yeni bir bölüm ile devam etmek ister misiniz, yoksa testi tamamlayalım mı? \(ordinalCapital(next)) bölüme geçmek için evet, testi tamamlamak için hayır deyin."
     }
     static func askNextSectionAgain(_ next: Int) -> String {
-        return "Anlayamadım. \(ordinalCapital(next)) bölüme geçmek için evet, testi tamamlamak için hayır deyin."
+        return "Cevap alamadım, ikinci defa soruyorum. \(ordinalCapital(next)) bölüme geçmek için evet, testi tamamlamak için hayır deyin."
     }
     static let nextSectionDefault = "Cevap alamadım. Yeni bölüme geçiyorum."
     static let allSectionsDone = "Bütün bölümler tamamlandı."

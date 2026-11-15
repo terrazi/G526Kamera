@@ -6,7 +6,7 @@ Bu belge, programın sesle nasıl işlemesi gerektiğini adım adım yazar; her 
 ## Akış
 
 1. **Açılış.** İzinler, çevrimdışı dikte, kulaklık + mikrofon, internet, Gemini denetlenir. Önceki klasörde cevap varsa: "Önceki kayıtta N cevap var,
-   sıradaki soru M. Devam mı, yeni sınav mı?" (devam / yeni; cevapsızsa bir hatırlatma, sonra 12 saatten yeniyse devam). Sonra "Hazır".
+   sıradaki soru M. Devam mı, yeni sınav mı?" (devam / yeni; cevapsızsa "ikinci defa soruyorum", sonra "üçüncü defa soruyorum", sonra 12 saatten yeniyse devam). Sonra "Hazır".
    Kamera sorusu açıksa kontrol listesine "Kamera ayarları" maddesi eklenir; kamera adı ya da kestirme adları eksikse "Hazırım" anonsu bunu söyler
    ("Kamera ayarları eksik olduğu için sorular sesle okunacak") ve oturum V3 gibi çalışır.
 2. **Tek soru.** Soru numarasıyla okunur → "Cevapla" ya da "Gönder" → numara okunmadıysa "Lütfen okuduğunuz sorunun numarasını söyleyin" →
@@ -99,14 +99,14 @@ Bu belge, programın sesle nasıl işlemesi gerektiğini adım adım yazar; her 
 5. **Cevapları okuma ve menü.** Cevaplar numara sırasıyla, aralarında Tekrar boşluğu (varsayılan 3 sn) okunur. Bitince: "N sorunun cevabı okundu. Başka cevap yok. Ne yapmak
    istersiniz? Teste kaldığınız yerden devam etmek için **Devam**, cevapları yeniden dinlemek için **Tekrar**, testi tamamlamak için **Bitir** deyin."
    Devam → kalınan yere dönülür (soru / eksik numara / paragraf numaraları); Tekrar → yeniden okunur ve yine sorulur; Bitir → "Test tamamlandı. N cevap
-   kaydedildi." ve test biter. Anlaşılmazsa ya da sessizlikte bir kez hatırlatılır; yine olmazsa varsayılan: bitirme isteğiyle gelindiyse test tamamlanır,
+   kaydedildi." ve test biter. Anlaşılmazsa ya da sessizlikte "ikinci", sonra "üçüncü defa soruyorum" denir; yine olmazsa varsayılan: bitirme isteğiyle gelindiyse test tamamlanır,
    yalnız tekrar istendiyse teste devam edilir. (Ayar: "Testi bitirince cevapları oku", açık; kapalıysa onaydan sonra test doğrudan tamamlanır.)
 5a. **Sınav bölümleri (Ayarlar > Sınav bölümleri).** En çok 4 bölüm açılır, her birinin soru sayısı (en çok 100) yazılır; böylece program sınavdan önce her bölümün kaç soru olduğunu bilir.
    Sınav başlarken "1. bölüme başlıyorum. Bu bölümde N soru var." denir. Her sınav oturumu üst klasörünü yıl-ay-gün-saat-dakika-saniye adıyla alır (ör. `20261115223912`);
    bölümlü sınavda cevaplar bu klasörün içindeki `bolum_1`, `bolum_2`… klasörlerine yazılır (her bölümde numara 1'den başlar, bölümler birbirini ezmez). **"Bölümü tamamla"**
    (ya da "bölümü bitir") denince onay istenir; evet → o bölümün cevapları okunur, menüde **Bitir** denince "N cevap, cevapsız: …" söylenir ve
    "Yeni bir bölüm ile devam etmek ister misiniz, yoksa testi tamamlayalım mı?" diye sorulur. **Evet** → "2. bölüme başlıyorum" (numara 1'den), **hayır / testi tamamla** → test biter.
-   Yanıt gelmezse bir kez hatırlatılır, sonra yeni bölüme geçilir (test kendiliğinden bitirilmez). Son bölüm tamamlanınca soru sorulmaz, test tamamlanır. Bölümün soru sayısından büyük
+   Yanıt gelmezse "ikinci", sonra "üçüncü defa soruyorum" denir, sonra yeni bölüme geçilir (test kendiliğinden bitirilmez). Son bölüm tamamlanınca soru sorulmaz, test tamamlanır. Bölümün soru sayısından büyük
    numara kabul edilmez (numara yeniden sorulur); hiçbir sınavda 100'ün üstünde numara yoktur. Bölüm açık değilse sınav tek parçadır ve eskisi gibi çalışır; "bölümü tamamla" denirse
    "Bölüm ayarlı değil" denir. Kapanıp açılınca kalınan bölümden devam edilir.
 6. **Kendini onarma.** Kulaklık/mikrofon/internet kopunca susulur, onarılır, söylenir, kaldığı yerden devam edilir (ayrıntı: SURUM3.md, SENARYOLAR.md).
@@ -169,3 +169,11 @@ bitişik "567" (üç haneli ve 150'nin üstündeyse tek tek rakam sayılır).
 - "Cevapları tekrarla" paragraf okunurken ve "Devam mı, yeni sınav mı?" sorusu beklenirken çalışmaz.
 - Tanıyıcının alternatif okumaları cihaz ve modele bağlıdır; vermiyorsa yalnız en iyi okuma ve yakın ses toleransı kullanılır (cihazda görülmedi).
 - Gerçek dikte çıktısının biçimi (rakam mı, sözcük mü, bitişik mi) cihazda görülmedi; anlaşılmayan söz ekranda "Duyulan: …" olarak yazar, günlükte `[soru]` / `[paragraf]` satırlarında durur.
+
+
+## Sessizlikte kalmama kuralı (tüm sorular için)
+
+- Program bir şey sorduktan sonra cevap gelmez ya da anlaşılmazsa aynı soruyu "ikinci defa soruyorum", sonra "üçüncü defa soruyorum" diye yeniden sorar; üçüncüde de cevap gelmezse güvenli varsayılana geçer (test hiçbir zaman sessizlikten dolayı bitmez). Bu kural kamera sorusu, soru/paragraf sorusu, paragraf kamerası, bitirme onayı, cevap menüsü, devam/yeni, yeni bölüm, eksik numara ve paragraf numaraları için aynıdır.
+- Komut gibi duyulup tanınmayan söz için program "Komutu anlayamadım" der ve ne yapılacağını söyler.
+- Mikrofon eksikken (duraklatılmış) program yönlendirmeyi bir kez söyleyip susmaz; yaklaşık dakikada bir yeniden söyler, mikrofon takılınca kendiliğinden devam eder.
+- Kameraya geçildikten sonra görüntü gelmezse onarım kestirmesi telefonda olmasa bile kamera yeniden denenir (en çok iki yeniden deneme).

@@ -174,8 +174,8 @@ extension SessionViewModel {
     /// tamamlanır, yalnız tekrar istendiyse teste devam edilir)
     func reviewSilence() async {
         reviewReminders += 1
-        if reviewReminders <= 1 {
-            guard await speakNotice(Say.reviewMenuAgain) else { return }
+        if reviewReminders <= Timing.choiceReminderLimit {
+            guard await speakNotice(Say.reask(Say.reviewMenuAgain, attempt: reviewReminders + 1)) else { return }
             beginListening(mode: .reviewMenu)
             return
         }

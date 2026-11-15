@@ -16,6 +16,9 @@ final class SessionViewModel: ObservableObject {
         static let offlineDebounce: TimeInterval = 1
         /// Kulaklık/mikrofon bu kadar süre dönmezse sıfırlama kestirmesi çalışır
         static let hardwareGrace: TimeInterval = 20
+        /// Mikrofon eksikken (duraklatılmış) yönlendirme her bu kadar kontrolde (`hardwareGrace` aralıklı, yani yaklaşık dakikada bir) yeniden
+        /// söylenir: kullanıcı dakikalarca sessizlikte kalmaz
+        static let pausedGuidanceEvery = 3
         /// Donanım geri geldikten sonra bu kadar süre sabit kalırsa devam edilir
         static let routeStable: TimeInterval = 1
         /// Yarım okuma kesilince (kesinti sonrası) devam ettirmek için eldeki metnin en az sözcük sayısı
@@ -112,8 +115,9 @@ final class SessionViewModel: ObservableObject {
         static let loopLimit = 3
         /// Önceki kayıt bu süreden (12 saat) eskiyse sesli soruya cevap gelmezse "yeni sınav" sayılır (eski cevapların üzerine yazılmasın)
         static let rememberWindow: TimeInterval = 12 * 3600
-        /// "Devam mı, yeni mi?" sorusu cevapsız kalırsa en çok bu kadar hatırlatılır, sonra varsayılan uygulanır
-        static let choiceReminderLimit = 1
+        /// Evet/hayır ve menü soruları ("devam mı, yeni mi", testi bitirme onayı, cevap menüsü, yeni bölüm…) cevapsız ya da anlaşılmaz kalırsa
+        /// en çok bu kadar yeniden sorulur ("ikinci defa soruyorum", "üçüncü defa soruyorum"); üçüncüde de cevap gelmezse varsayılan uygulanır
+        static let choiceReminderLimit = 2
         /// Sürüm 4: internete dönüşte beklenen en uzun süre (sn) ve Gemini gönderiminde ağ hatasından sonra deneme sayısı
         static let cameraInternetWait: TimeInterval = 30
         static let cameraInternetTries = 2
@@ -156,6 +160,7 @@ final class SessionViewModel: ObservableObject {
             if phase != oldValue {
                 tlog("[oturum] \(phase.title)")
                 trackInterruption(from: oldValue)
+                if case .paused(.hardware) = phase {} else { pausedGuidanceTicks = 0 }
                 let open = SessionViewModel.countsAsSession(phase)
                 if open != SessionViewModel.countsAsSession(oldValue) {
                     // Oturumun açık olduğu deftere ve günlüğe işlenir: uygulama bu arada kapanırsa sonraki açılış bunu görür
@@ -274,6 +279,8 @@ final class SessionViewModel: ObservableObject {
     var confirmTask: ScheduledTask?
     var offlineCheck: ScheduledTask?
     var hardwareGrace: ScheduledTask?
+    /// Duraklatma yönlendirmesi için yapılan kontrol sayısı (duraklatma bitince sıfırlanır)
+    var pausedGuidanceTicks = 0
     var stableTask: ScheduledTask?
     var retryTask: ScheduledTask?
     /// Arama/alarm/Siri kesintisi sürüyor
@@ -1228,8 +1235,9 @@ final class SessionViewModel: ObservableObject {
         switch listenMode {
         case .confirmEnd:
             endReminders += 1
-            if endReminders <= 1 {
-                guard await speakNotice(endScope == .section ? Say.confirmSectionEndAgain : Say.confirmEndAgain) else { return }
+            if endReminders <= Timing.choiceReminderLimit {
+                let again = endScope == .section ? Say.confirmSectionEndAgain : Say.confirmEndAgain
+                guard await speakNotice(Say.reask(again, attempt: endReminders + 1)) else { return }
                 beginListening(mode: .confirmEnd)
             } else {
                 tlog(endScope == .section ? "[komut] bölümü tamamlama sorusu cevapsız kaldı; bölüm devam ediyor" : "[komut] testi bitirme sorusu cevapsız kaldı; test devam ediyor")
@@ -1240,7 +1248,7 @@ final class SessionViewModel: ObservableObject {
         case .startChoice:
             choiceReminders += 1
             if choiceReminders <= Timing.choiceReminderLimit {
-                guard await speakNotice(Say.askChoiceAgain) else { return }
+                guard await speakNotice(Say.reask(Say.askChoiceAgain, attempt: choiceReminders + 1)) else { return }
                 beginListening(mode: .startChoice)
             } else {
                 await applyStartChoice(continuePrevious: choiceOffer?.recent ?? true)
@@ -1370,9 +1378,9 @@ final class SessionViewModel: ObservableObject {
     }
 
     /// "Lütfen okuduğunuz sorunun numarasını söyleyin" der ve numarayı dinler
-    func askForNumber(again: Bool) async {
+    func askForNumber(again: Bool, attempt: Int = 2) async {
         guard heldQuestion != nil else { return }
-        let ask = again ? (sectionQuestionCount > 0 ? Say.askNumberAgainInSection(sectionQuestionCount) : Say.askNumberAgain) : Say.askNumber
+        let ask = again ? Say.reask(sectionQuestionCount > 0 ? Say.askNumberAgainInSection(sectionQuestionCount) : Say.askNumberAgain, attempt: attempt) : Say.askNumber
         guard await speakNotice(ask) else { return }
         beginListening(mode: .missingNumber)
     }
@@ -1431,7 +1439,7 @@ final class SessionViewModel: ObservableObject {
         deps.listener.pause()
         watchdog.disarm()
         phase = .speaking
-        await askForNumber(again: true)
+        await askForNumber(again: true, attempt: numberReminders + 1)
     }
 
     /// "Ortak paragraf" denip beklendi: "Lütfen ortak paragrafı okuyun, bitince Tamam deyin" der ve paragrafı dinler
@@ -1514,7 +1522,7 @@ final class SessionViewModel: ObservableObject {
             warn("numara", "Duyulan: “\(heard)”. Soru numaraları anlaşılamadı.")
             guard targetReminders > Timing.targetReminderLimit else {
                 work = Task { [weak self] in
-                    guard let self = self, await self.speakNotice(Say.passageTargetsAgain) else { return }
+                    guard let self = self, await self.speakNotice(Say.reask(Say.passageTargetsAgain, attempt: self.targetReminders + 1)) else { return }
                     self.beginListening(mode: .passageTargets)
                 }
                 return

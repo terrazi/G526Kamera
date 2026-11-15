@@ -306,8 +306,8 @@ final class RepeatSpeechTests: XCTestCase {
         h.scheduler.advance(by: T.numberUnclear)
         let asked = await waitUntil(45) { h.speaker.spoken.last == Say.confirmEndAgain && h.vm.listenMode == .confirmEnd && h.vm.phase == .listening }
         XCTAssertTrue(asked, "\(h.speaker.spoken)")
-        XCTAssertTrue(Say.confirmEndAgain.hasPrefix("Anlayamadım"))
-        XCTAssertTrue(Say.reviewMenuAgain.hasPrefix("Anlayamadım"))
+        XCTAssertTrue(Say.confirmEndAgain.contains("ikinci defa soruyorum"))
+        XCTAssertTrue(Say.reviewMenuAgain.contains("ikinci defa soruyorum"))
         XCTAssertTrue(Say.askCameraAgain.hasPrefix("Anlayamadım"))
         XCTAssertTrue(Say.commandNotUnderstood.lowercased().contains("anlayamad"))
     }

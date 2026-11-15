@@ -631,6 +631,28 @@ final class ReceiverNotRoutedTests: XCTestCase {
         XCTAssertTrue(h.shortcuts.runs.isEmpty)
     }
 
+    /// Cihaz günlüğü: mikrofon yokken program yalnız bir kez konuştu, sonra 10 dakika sessiz bekledi; kullanıcı ne olduğunu bilemedi
+    func testPausedForTheMicrophoneRepeatsTheGuidanceInsteadOfWaitingSilently() async {
+        let h = SessionHarness()
+        _ = await h.startListening()
+        h.route.inputs = []
+        h.route.change(to: FakeRoute.noMic)
+        XCTAssertTrue(h.isHardwarePause)
+        let text = "Duraklatıldı: " + Say.micMissing
+        for _ in 0..<3 {
+            h.scheduler.advance(by: SessionViewModel.Timing.hardwareGrace + 0.1)
+            await settle()
+        }
+        let first = h.speaker.spoken.filter { $0 == text }.count
+        XCTAssertEqual(first, 1, "İlk dakikada bir kez söylenir: \(h.speaker.spoken)")
+        for _ in 0..<3 {
+            h.scheduler.advance(by: SessionViewModel.Timing.hardwareGrace + 0.1)
+            await settle()
+        }
+        XCTAssertGreaterThanOrEqual(h.speaker.spoken.filter { $0 == text }.count, 2, "Bir dakika sonra yeniden söylenir: \(h.speaker.spoken)")
+        XCTAssertTrue(h.shortcuts.runs.isEmpty)
+    }
+
     func testMicUnpluggedDuringTheTestNeverRunsTheShortcuts() async {
         let h = SessionHarness()
         _ = await h.startListening()

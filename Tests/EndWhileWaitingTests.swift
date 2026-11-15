@@ -98,6 +98,9 @@ final class EndWhileWaitingTests: XCTestCase {
         let again = await waitUntil(45) { h.speaker.spoken.last == Say.confirmEndAgain && h.vm.listenMode == .confirmEnd && h.vm.phase == .listening }
         XCTAssertTrue(again, "\(h.speaker.spoken)")
         h.scheduler.advance(by: SilenceWatchdog.limit + 0.1)
+        let third = await waitUntil(45) { h.speaker.spoken.last == Say.reask(Say.confirmEndAgain, attempt: 3) && h.vm.listenMode == .confirmEnd && h.vm.phase == .listening }
+        XCTAssertTrue(third, "\(h.speaker.spoken)")
+        h.scheduler.advance(by: SilenceWatchdog.limit + 0.1)
         let back = await waitUntil(45) { h.vm.listenMode == .missingNumber && h.vm.phase == .listening && h.speaker.spoken.last == Say.reviewBackToNumber }
         XCTAssertTrue(back, "Cevap gelmezse test bitmez, numara beklenmeye dönülür: \(h.speaker.spoken)")
         XCTAssertNotNil(h.vm.heldQuestion)

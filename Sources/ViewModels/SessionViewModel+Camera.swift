@@ -100,7 +100,7 @@ extension SessionViewModel {
     func cameraChoiceSilence(unclear: Bool = false) async {
         cameraReminders += 1
         if cameraReminders < Timing.cameraAsks {
-            let text = unclear ? Say.askCameraAgain : Say.askCameraRepeat(cameraReminders + 1)
+            let text = unclear ? Say.reask(Say.askCameraAgain, attempt: cameraReminders + 1) : Say.askCameraRepeat(cameraReminders + 1)
             guard await speakNotice(text) else { return }
             beginListening(mode: .cameraChoice)
         } else {
@@ -151,7 +151,7 @@ extension SessionViewModel {
     func captureKindSilence(unclear: Bool = false) async {
         cameraReminders += 1
         if cameraReminders < Timing.cameraAsks {
-            let text = unclear ? Say.askCaptureKindAgain : Say.askCaptureKindRepeat(cameraReminders + 1)
+            let text = unclear ? Say.reask(Say.askCaptureKindAgain, attempt: cameraReminders + 1) : Say.askCaptureKindRepeat(cameraReminders + 1)
             guard await speakNotice(text) else { return }
             beginListening(mode: .captureKindChoice)
         } else {
@@ -194,7 +194,7 @@ extension SessionViewModel {
     func passageCameraChoiceSilence() async {
         cameraReminders += 1
         if cameraReminders <= Timing.choiceReminderLimit {
-            guard await speakNotice(Say.askPassageCameraAgain) else { return }
+            guard await speakNotice(Say.reask(Say.askPassageCameraAgain, attempt: cameraReminders + 1)) else { return }
             beginListening(mode: .passageCameraChoice)
         } else {
             cameraReminders = 0
@@ -434,6 +434,7 @@ extension SessionViewModel {
     func captureWithRepair(cameraName: String) async -> Result<CapturedQuestion, CameraFailure> {
         var result: Result<CapturedQuestion, CameraFailure> = .failure(.notConnected)
         var repairMissing = false   // onarım kestirmesi telefonda yok ("kestirmesi bulunamadı"): aynı yok kestirme bir daha denenmez
+        var onCameraNetwork = false   // kameraya geçiş kestirmesi çalıştı: telefon kameranın Wi-Fi'sindedir, onarım kestirmesi olmasa da kamera yeniden denenir
         for attempt in 0...Timing.cameraRepairs {
             var name = cameraName
             if attempt > 0 {
@@ -456,7 +457,11 @@ extension SessionViewModel {
             }
             let camera = deps.camera
             // Zaman aşımında kestirme çalışmış ama dönüş haberi gelmemiş olabilir: kameranın kendisi karar verir
-            if outcome == .success || outcome == .timedOut {
+            if outcome == .success || outcome == .timedOut { onCameraNetwork = true }
+            // Onarım denemesinde Wi-Fi onarım kestirmesi yoksa ya da çalışmadıysa bile (telefon zaten kameranın ağındaysa) kameraya yeniden bağlanılır
+            var retryWithoutShortcut = false
+            if attempt > 0, onCameraNetwork, case .failed = outcome { retryWithoutShortcut = true }
+            if outcome == .success || outcome == .timedOut || retryWithoutShortcut {
                 deps.camera.onSay = { [weak self] text in self?.sayGuidance(text) }
                 deps.camera.onStatus = { [weak self] text in self?.statusNote = text }
                 // V3 işi iptal ederse (kulaklık, arama, onarım: `work?.cancel()`) kamera da kapanır; yoksa 70 sn boyunca açık kalırdı

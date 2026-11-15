@@ -193,9 +193,21 @@ extension SessionViewModel {
         let receiver = deps.route.availableInputs().contains(where: { $0.isExternal })
         tlog("[onarım] kulaklık sağlam, yalnız mikrofon sorunlu (\(receiver ? "alıcı takılı ama girişte yok" : "mikrofon alıcısı görünmüyor")); Kestirme çalıştırılmadı, bekleniyor")
         deps.route.preferExternalInput()
-        warn("donanim", "Duraklatıldı: \(receiver ? Say.receiverNotRouted : Say.micMissing)")
+        let text = "Duraklatıldı: \(receiver ? Say.receiverNotRouted : Say.micMissing)"
+        warn("donanim", text)
+        repeatPausedGuidance(text)
         hardwareGrace = deps.scheduler.after(Timing.hardwareGrace) { [weak self] in self?.hardwareGraceExpired() }
         routeChanged(deps.route.snapshot())
+    }
+
+    /// Duraklatılmışken kullanıcıya ne yapacağı söylenir; aynı uyarı ekranda değişmediği için bir kez söylenip susmasın diye
+    /// her `Timing.pausedGuidanceEvery` kontrolde (yaklaşık dakikada bir) yeniden söylenir; ilk söyleyişi `warn` yapar.
+    func repeatPausedGuidance(_ text: String) {
+        pausedGuidanceTicks += 1
+        guard pausedGuidanceTicks > 1, pausedGuidanceTicks % Timing.pausedGuidanceEvery == 1 else { return }
+        lastVoiced[text] = nil
+        tlog("[onarım] duraklatma yönlendirmesi yeniden söyleniyor")
+        announce(text)
     }
 
     /// Kulaklık sağlam ama onarım istendi (dinleme açılamadı, mikrofon tamponları kesildi, sessizlikte mikrofon donuk): sorun mikrofon
