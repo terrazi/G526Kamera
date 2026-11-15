@@ -110,7 +110,7 @@ struct ScreenLockView: View {
                 Spacer()
                 Image(systemName: "lock.fill").font(.system(size: 40))
                 Text("Ekran kilitli").font(.title2.weight(.bold))
-                Text("Test sürüyor, soruları okumaya devam edin. Ekrana dokunmak bir şey yaptırmaz.")
+                Text("Ekrana dokunmak bir şey yaptırmaz. Test sürüyorsa soruları okumaya devam edin.")
                     .font(.callout)
                     .multilineTextAlignment(.center)
                 Spacer()

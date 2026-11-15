@@ -329,6 +329,17 @@ struct ContentView: View {
             .accessibilityHidden(true)
     }
 
+    /// Dokunmatik ekran kilidi: test başlamadan da, test sürerken de aynı düğme. Hazır durumdayken kilitlenen ekran test başlayınca da kilitli
+    /// kalır; test bitince (hazır durumuna dönülünce) kilit kendiliğinden kalkar. Elle açmak için kilit penceresindeki yuvarlak düğmeye 3 sn basılır.
+    private var lockButton: some View {
+        Button {
+            ScreenLock.shared.lock()
+        } label: {
+            Label("Ekranı kilitle", systemImage: "lock.fill")
+        }
+        .buttonStyle(.bordered)
+    }
+
     private var controls: some View {
         VStack(spacing: 10) {
             if session.phase.isAtRest {
@@ -340,6 +351,7 @@ struct ContentView: View {
                 Button(session.testingSound ? "Ses deneniyor…" : "Sesi dene") { session.testSound() }
                     .buttonStyle(.bordered)
                     .disabled(session.testingSound)
+                lockButton
                 if !session.soundTest.isEmpty {
                     Text(session.soundTest)
                         .font(.footnote)
@@ -358,12 +370,7 @@ struct ContentView: View {
                     Button("Duraklat") { session.pauseByUser() }
                         .buttonStyle(.bordered)
                 }
-                Button {
-                    ScreenLock.shared.lock()
-                } label: {
-                    Label("Ekranı kilitle", systemImage: "lock.fill")
-                }
-                .buttonStyle(.bordered)
+                lockButton
                 Button("Testi Bitir") { confirmEnd = true }
                     .buttonStyle(.borderedProminent)
                     .tint(.red)

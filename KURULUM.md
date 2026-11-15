@@ -182,7 +182,7 @@ uygulamayı geri açar. İşaret her açılışta silinir (düğmeyle kapattıkt
 yazdığı işaret silinir; arada başka bir şey kopyaladıysanız panonuza dokunulmaz (silmek için panoyu okumak da gerekmez, iOS'un
 "yapıştırmaya izin ver" sorusu çıkmaz).
 
-**Bilerek kapatmak:** ana ekranın altındaki **Programı kapat** düğmesine **3 saniye basılı tutun**. Bu kapanış "bilerek" sayılır:
+**Bilerek kapatmak:** ana ekranın altındaki büyük yuvarlak **Programı kapat** düğmesine (kilit açma düğmesiyle aynı görünümde) **3 saniye basılı tutun**; halka dolunca program kapanır. Bu kapanış "bilerek" sayılır:
 oturum biter, uygulama panoya `SESLIKONTROL-KAPALI` yazar, otomasyon bunu görüp uygulamayı yeniden açmaz. Bu düğme dışındaki her
 kapanış otomasyonla geri açılır; oturum sürerken kapandıysa oturum kaldığı yerden sürer ("beklenmedik" sayılır), "Testi Bitir"den sonra ya da
 oturum yokken kapandıysa uygulama yalnız açılır, yeni oturum **başlatmaz**. Bunun bedeli: otomasyon kuruluyken uygulamadan başka uygulamaya
@@ -234,8 +234,9 @@ döngüsüne girmemek için otomatik başlatma durur ve ekranda yazar. (5) Panon
   Kulaklık bağlı değilse hiçbir şey çalmaz (ses telefon hoparlöründen çıkmaz).
 - **Duraklat / Devam et:** görevliyle konuşmanız gerekirse mikrofon kapanır, konuşulanlar yazıya çevrilmez, hiçbir şey gönderilmez.
   Gemini'ye gitmekte olan soru gitmedi sayılır (soruyu yeniden okursunuz); okunurken kesilen cevap kayıtlıdır ve devam edince yeniden okunur.
-- **Ekranı kilitle:** ekrana yanlışlıkla dokunmak (ör. **Testi Bitir**) bir şey yaptırmasın diye dokunmatik ekranı kilitler. Program
-  çalışmaya devam eder. Kilidi açmak için ekrandaki düğmeye **3 saniye basılı tutun**; test bitince kilit kendiliğinden kalkar.
+- **Ekranı kilitle** (test başlamadan da, test sürerken de görünür): ekrana yanlışlıkla dokunmak (ör. **Testi Bitir**) bir şey yaptırmasın
+  diye dokunmatik ekranı kilitler. Program çalışmaya devam eder. Test başlamadan kilitlerseniz kilit test başlayınca da sürer. Kilidi
+  açmak için çıkan büyük yuvarlak düğmeye **3 saniye basılı tutun** (halka dolar); test bitince kilit kendiliğinden kalkar.
   Sınır: yan tuş, ses tuşları ve ekran kenarından kaydırma iOS'un işidir, uygulama engelleyemez; tam kilit için iPhone'un
   **Kılavuzlu Erişim** özelliğini açın.
 - **Şarj uyarısı:** telefon şarjı %20, %10 ve %5'e düşünce (şarjda değilse) kırmızı kutuda bir kez yazar; sesli söylemez, soru
