@@ -949,6 +949,17 @@ final class CameraTesterTests: XCTestCase {
         XCTAssertNil(r.tester.lastPhoto, "Sonraki deneme başarısızsa eski resim kalmaz")
     }
 
+    func testTheCameraBatteryLineAppearsOnlyWhenItWasRead() async {
+        let r = rig()
+        r.camera.results = [.success(FakeCamera.shot(video: false))]
+        await r.tester.run()
+        XCTAssertFalse(r.tester.lines.contains { $0.hasPrefix("🔋") }, "Pil okunmadıysa satır yazılmaz")
+        r.camera.lastBattery = .level(3)
+        r.camera.results = [.success(FakeCamera.shot(video: false))]
+        await r.tester.run()
+        XCTAssertTrue(r.tester.lines.contains("🔋 Kamera pili ≈ %60–80 (son görüntü karesinden okundu)."), "\(r.tester.lines)")
+    }
+
     func testACameraFailureIsReportedAndThePhoneStillReturnsToTheInternet() async {
         let r = rig()
         r.camera.results = [.failure(.notConnected)]

@@ -141,9 +141,10 @@ bitişik "567" (üç haneli ve 150'nin üstündeyse tek tek rakam sayılır).
 ## Bilinen eksikler
 
 - Cevaplar okunurken sesle araya girilemez (okuma sürerken dinleme açık değildir). Durdurmak için ekrandaki Duraklat düğmesi kullanılır; cihazda denenmedi.
-- Numara / paragraf numarası beklerken "testi bitir" denmez (kısa numara cevabıyla karışır); önce "soruyu iptal et" ya da numarayı söyleyin.
+- Numara / paragraf numarası beklerken "testi bitir" denebilir; bu durumda program bekleyen soru ya da paragrafın bitirmeyle gönderilmeyeceğini/kaydedilmeyeceğini söyleyip onay ister. Vazgeçilirse (hayır, anlaşılmayan söz, cevapsızlık) aynı bekleme sürer. Yalnız tam "testi bitir" sözü bunu yapar; numara cevabıyla karışmaz. Cihazda denenmedi.
+- Paragraf okunurken yapılan yeniden dinleme (cevapları tekrarla) cevapsız bırakılan paragrafı korumaz: paragraf serbest metin olduğundan bu komut orada çalışmaz; bilerek eklenmedi.
 - Ses seviyesini sesle değiştirme iOS'un izin vermediği bir işlemi gizli ses çubuğuyla dener; **cihazda doğrulanmadı**. Değişmezse program bunu söyler.
-- Kamera pili yalnız kamera açıkken bilinir; sınav sırasındaki pil raporu telefonun pilidir. "Genel rapor" kamera ayarlarını saymaz ("kamera raporu" ayrı).
+- Kamera pili yalnız kamera açıkken, görüntü karesinden okunur; "kamera raporu" ve "Kamerayı dene" son okunan pili söyler (hiç okunmadıysa söylemez). "Şarj durumu" telefonun pilidir. "Genel rapor" kamera ayarlarını saymaz ("kamera raporu" ayrı).
 - Kamera sorusu kapatılırken bekleyen bir çekim varsa o çekim yine gönderilir.
 
 - Paragraf okunurken yalnız "paragrafı iptal et" çalışır; diğer komutlar (testi bitir, cevapları tekrarla…) paragrafa karışır, çünkü paragraf serbest metindir.

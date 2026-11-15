@@ -91,7 +91,7 @@ extension SessionViewModel {
         let c = cameraSettings
         return Say.reportCamera(configured: cameraConfigured, ask: settings.askCamera, highQuality: c.streamQuality == 1, vertical: c.guidanceFrame == 1,
                                 orientation: c.imageOrientation, guidance: c.guidanceEnabled, pageSeconds: c.pageVideoSeconds, video: c.videoToGemini,
-                                enhancement: c.enhancement, preview: !c.previewOff, pending: pendingShots.count)
+                                enhancement: c.enhancement, preview: !c.previewOff, pending: pendingShots.count, battery: deps.camera.lastBattery)
     }
 
     private func volumePercent(_ level: Float) -> Int {

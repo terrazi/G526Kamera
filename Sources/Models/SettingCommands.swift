@@ -121,6 +121,18 @@ extension VoiceCommand {
         return parseReport(all) ?? parseVolume(all) ?? parseCameraSetting(all)
     }
 
+    /// "Kamera sorusu olmasın": "olmasın" olumsuzlama listesinde olduğu için (`isNegated`) komut çözümünden ÖNCE, yalnız bu kalıp için ayrıca ele alınır:
+    /// sözün tamamı kamera + soru + olmasın olmalıdır
+    static func parseCameraAskOff(_ raw: [String]) -> VoiceCommand? {
+        let words = raw.map { $0.filter { $0 != "'" && $0 != "’" && $0 != "-" } }.filter { !SpokenWords.exactly($0, settingPolite) && !$0.isEmpty }
+        guard words.count >= 3, words.count <= 5 else { return nil }
+        guard words.contains(where: { SpokenWords.exactly($0, ["olmasin"]) }) else { return nil }
+        let rest = words.filter { !SpokenWords.exactly($0, ["olmasin"]) }
+        let cameraWords: Set<String> = ["kamera", "kamerayi", "kamerayla", "kameranin"]
+        guard settingKnown(rest, [cameraWords, askNouns, askExtras]), settingHas(rest, cameraWords), settingHas(rest, askNouns) else { return nil }
+        return .camera(.askQuestion(false))
+    }
+
     private static func settingKnown(_ words: [String], _ vocabularies: [Set<String>]) -> Bool {
         return words.allSatisfy { word in vocabularies.contains { SpokenWords.matches(word, $0) } }
     }

@@ -34,7 +34,7 @@ yazar (tetik → kodda işlem → kullanıcının duyduğu → hata dalı → te
 | 21 | Hiçbir adımda sonsuz bekleme/döngü yok (gözcü, sınırlı hatırlatma) | ✔ |
 | 22 | Cevapların okunması sırasında sesle araya girme | ⚠ yok (okuma sürerken dinleme açık değil); ekrandaki Duraklat düğmesi kullanılır |
 | 23 | Paragraf okunurken komut söyleme | ⚠ yalnız söz tek başınaysa (paragraf serbest metindir) |
-| 24 | Numara / paragraf numarası beklerken "testi bitir" | ⚠ yok (kısa numara cevabıyla karışır); önce soruyu cevaplayın ya da "soruyu iptal et" |
+| 24 | Numara / paragraf numarası beklerken "testi bitir" | ✔ (bekleyen iş bitirmeyle gönderilmez/kaydedilmez, bu söylenir; vazgeçilirse aynı bekleme sürer) |
 
 ## 2. Zincirler
 

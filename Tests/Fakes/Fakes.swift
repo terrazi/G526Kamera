@@ -323,6 +323,8 @@ final class FakeCamera: CameraCapturing {
     var results: [Result<CapturedQuestion, CameraFailure>] = []
     private(set) var captures = 0
     private(set) var cancels = 0
+    /// Kameranın son bilinen pil durumu ("kamera raporu", "Kamerayı dene")
+    var lastBattery: CameraBatteryLevel?
     /// Çekim başlarken haber verilir (olay sırası sınaması için)
     var onCapture: (() -> Void)?
     /// Konumlandırma sırasında söylenmiş gibi yapılacak cümle

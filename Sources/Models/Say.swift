@@ -27,6 +27,9 @@ enum Say {
     static let confirmEndAgain = "Anlayamadım. Testi bitirmek için evet, devam etmek için hayır deyin."
     /// Sesli "testi bitir" komutu: önce onay istenir; "evet" denirse kısa bilgi verilir ve test biter
     static let confirmEnd = "Testi bitirmek istiyor musunuz? Bitirmek için evet, devam etmek için hayır deyin."
+    /// Soru numarası ya da paragraf numaraları beklenirken "testi bitir" denince: bekleyen iş bitirmeyle gönderilmeden kalır, bu da söylenir
+    static let confirmEndHeldQuestion = "Okuduğunuz soru henüz gönderilmedi; bitirirseniz gönderilmeyecek. Testi bitirmek istiyor musunuz? Bitirmek için evet, devam etmek için hayır deyin."
+    static let confirmEndHeldPassage = "Ortak paragraf henüz kaydedilmedi; bitirirseniz kaydedilmeyecek. Testi bitirmek istiyor musunuz? Bitirmek için evet, devam etmek için hayır deyin."
     static let endCancelled = "Tamam, test devam ediyor. Soruyu okuyabilirsiniz."
     /// Kamera sorusu hemen ardından sorulacaksa "soruyu okuyabilirsiniz" denmez (çelişir)
     static let endCancelledCamera = "Tamam, test devam ediyor."

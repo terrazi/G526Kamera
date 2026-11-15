@@ -35,15 +35,45 @@ final class ScreenshotTests: XCTestCase {
             .environmentObject(r.model)
     }
 
-    /// Görünümü ekran dışı bir pencerede kurar ve PNG olarak yazar (`height` uzun listeler için büyütülür)
+    private var diagnostics: [String] = []
+    private var nonBlank = 0
+
+    /// Görüntü tek renk mi (çizim boş kaldıysa)? 24×48'e küçültülüp en açık ve en koyu nokta karşılaştırılır
+    private func isBlank(_ image: UIImage) -> Bool {
+        guard let cg = image.cgImage else { return true }
+        let w = 24, h = 48
+        var pixels = [UInt8](repeating: 0, count: w * h * 4)
+        let drawn: Bool = pixels.withUnsafeMutableBytes { raw in
+            guard let ctx = CGContext(data: raw.baseAddress, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                      space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+            ctx.interpolationQuality = .high
+            ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+            return true
+        }
+        guard drawn else { return true }
+        var low = Int.max, high = 0
+        for i in stride(from: 0, to: pixels.count, by: 4) {
+            let v = Int(pixels[i]) + Int(pixels[i + 1]) + Int(pixels[i + 2])
+            low = min(low, v); high = max(high, v)
+        }
+        return high - low < 12
+    }
+
+    /// Görünümü ekran dışı bir pencerede kurar ve PNG olarak yazar (`height` uzun listeler için büyütülür).
+    /// Üç yöntem sırayla denenir (ilk boş olmayan seçilir): pencerenin drawHierarchy'si, katmanın render'ı, ImageRenderer (iOS 16+).
     private func render<V: View>(_ view: V, _ name: String, height: CGFloat = 812) async {
         let size = CGSize(width: 375, height: height)
+        let bounds = CGRect(origin: .zero, size: size)
         let host = UIHostingController(rootView: view)
-        let window = UIWindow(frame: CGRect(origin: .zero, size: size))
+        let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+        let window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow(frame: bounds)
+        window.frame = bounds
+        window.windowLevel = .alert + 1
         window.backgroundColor = .systemBackground
         window.rootViewController = host
+        window.isHidden = false
         window.makeKeyAndVisible()
-        host.view.frame = window.bounds
+        host.view.frame = bounds
         for _ in 0..<4 {
             host.view.setNeedsLayout()
             host.view.layoutIfNeeded()
@@ -51,10 +81,51 @@ final class ScreenshotTests: XCTestCase {
         }
         let format = UIGraphicsImageRendererFormat()
         format.scale = height > 1500 ? 2 : 3
-        let image = UIGraphicsImageRenderer(bounds: window.bounds, format: format).image { _ in
-            _ = window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        format.opaque = true
+        var ok: Bool?
+        let viaWindow = UIGraphicsImageRenderer(bounds: bounds, format: format).image { _ in
+            ok = window.drawHierarchy(in: bounds, afterScreenUpdates: true)
         }
-        if let data = image.pngData() {
+        var chosen = viaWindow
+        var method = "pencere"
+        var blankWindow = isBlank(viaWindow)
+        var blankLayer: Bool?
+        var blankKit: Bool?
+        if blankWindow {
+            let viaLayer = UIGraphicsImageRenderer(bounds: bounds, format: format).image { ctx in
+                UIColor.systemBackground.setFill()
+                ctx.fill(bounds)
+                host.view.layer.render(in: ctx.cgContext)
+            }
+            blankLayer = isBlank(viaLayer)
+            if blankLayer == false { chosen = viaLayer; method = "katman"; blankWindow = false }
+        }
+        if blankWindow, #available(iOS 16.0, *) {
+            let renderer = ImageRenderer(content: view.frame(width: size.width, height: size.height).background(Color(UIColor.systemBackground)))
+            renderer.scale = format.scale
+            if let image = renderer.uiImage {
+                blankKit = isBlank(image)
+                if blankKit == false { chosen = image; method = "ImageRenderer"; blankWindow = false }
+            }
+        }
+        let stillBlank = blankWindow
+        if !stillBlank { nonBlank += 1 }
+        let method2: String = stillBlank ? "HİÇBİRİ (boş)" : method
+        let pixelSize = "\(Int(chosen.size.width * chosen.scale))x\(Int(chosen.size.height * chosen.scale))"
+        var parts: [String] = []
+        parts.append("\(name): yöntem=\(method2)")
+        parts.append("drawHierarchy=\(String(describing: ok))")
+        parts.append("sahne=\(scene != nil)")
+        parts.append("anahtar=\(window.isKeyWindow)")
+        parts.append("gizli=\(window.isHidden)")
+        parts.append("altGörünüm=\(host.view.subviews.count)")
+        parts.append("katmanBoş=\(String(describing: blankLayer))")
+        parts.append("imageRendererBoş=\(String(describing: blankKit))")
+        parts.append("boyut=\(pixelSize)")
+        let line = parts.joined(separator: " ")
+        diagnostics.append(line)
+        print("[ekran] " + line)
+        if let data = chosen.pngData() {
             try? data.write(to: dir.appendingPathComponent("\(name).png"))
         }
         window.isHidden = true
@@ -116,6 +187,8 @@ final class ScreenshotTests: XCTestCase {
         await render(settingsView, "07-ayarlar-tamami", height: 6000)
 
         let written = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
+        try? diagnostics.joined(separator: "\n").write(to: dir.appendingPathComponent("tani.txt"), atomically: true, encoding: .utf8)
         XCTAssertGreaterThanOrEqual(written.filter { $0.hasSuffix(".png") }.count, 6, "Ekran görüntüleri yazılmadı: \(written)")
+        XCTAssertGreaterThanOrEqual(nonBlank, 6, "Ekran görüntüleri boş çıktı: \(diagnostics)")
     }
 }

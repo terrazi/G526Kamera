@@ -81,6 +81,8 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
     @Published private(set) var cameraState: CameraState = .stopped
     @Published private(set) var statusText = ""
     @Published private(set) var cameraBattery: CameraBatteryLevel?
+    /// Kamera kapanınca `cameraBattery` silinir; bu son okunan değeri tutar ("kamera raporu", "Kamerayı dene")
+    private(set) var lastBattery: CameraBatteryLevel?
 
     /// Konumlandırma için en çok beklenecek süre (sn); dolunca kadrajda belge varsa yine de çekilir
     static let positionSeconds: TimeInterval = 30
@@ -163,6 +165,7 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
 
     private func batteryChanged(_ level: CameraBatteryLevel) {
         cameraBattery = level
+        lastBattery = level
         if running, let n = lowBattery.update(level) { say(CameraBattery.lowWarning(level: n), status: true) }
     }
 

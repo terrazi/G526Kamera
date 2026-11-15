@@ -77,7 +77,7 @@ extension Say {
 
     /// Kamera ve görüntü ayarlarının özeti
     static func reportCamera(configured: Bool, ask: Bool, highQuality: Bool, vertical: Bool, orientation: ImageOrientation, guidance: Bool,
-                             pageSeconds: Int, video: Bool, enhancement: Int, preview: Bool, pending: Int) -> String {
+                             pageSeconds: Int, video: Bool, enhancement: Int, preview: Bool, pending: Int, battery: CameraBatteryLevel? = nil) -> String {
         var parts = ["Görüntü kalitesi \(highQuality ? "yüksek" : "düşük"), kadraj \(vertical ? "dikey" : "yatay"), görüntü yönü \(orientation.spoken)."]
         parts.append("Sesle konumlandırma \(guidance ? "açık" : "kapalı").")
         parts.append("Soru videosu sayfa başına \(pageSeconds) saniye" + (video ? ", Gemini'ye de gönderiliyor." : ", Gemini'ye gönderilmiyor."))
@@ -85,6 +85,7 @@ extension Say {
         parts.append("Her soruda kamera sorusu \(ask ? "açık" : "kapalı").")
         if !configured { parts.append("Kamera adı ya da kestirme adları eksik; kamera kullanılamaz.") }
         if pending > 0 { parts.append("\(pending) çekim gönderilmeyi bekliyor.") }
+        if let level = battery { parts.append("Son çekimde \(CameraBattery.phrase(level)) görüldü.") }
         return parts.joined(separator: " ")
     }
 

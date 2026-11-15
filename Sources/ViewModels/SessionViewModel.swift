@@ -303,6 +303,8 @@ final class SessionViewModel: ObservableObject {
     var targetReminders = 0
     var targetDoneReminders = 0
     var endReminders = 0
+    /// "Testi bitir" onayında "hayır" (ya da cevapsızlık) denirse dönülecek kip: soru; numara ya da paragraf numarası beklenirken söylendiyse o bekleme (tutulan soru / paragraf taslağı korunur)
+    var endReturn: ListenMode = .question
     /// Söz bölümleri: son sözün metindeki ilk sözcük sırası, son sessizlikte metinde kaç sözcük vardı, sessizlik geçti mi ve sessizlik zamanlayıcısı
     var utteranceStart = 0
     /// Önceki sözlerin başlangıç sırası ("son cümleyi sil" son sözü bulur)
@@ -814,7 +816,7 @@ final class SessionViewModel: ObservableObject {
         }
         // "Beşinci sorunun cevabını tekrarla": soru numarası ya da paragraf numaraları beklenirken de söylenebilir (kısa numara cevabı sanılmasın);
         // cevap okunur ve aynı soru yeniden sorulur
-        if [ListenMode.missingNumber, .passageTargets].contains(listenMode), spokenCommand()?.isRepeatNumber == true {
+        if [ListenMode.missingNumber, .passageTargets].contains(listenMode), let waiting = spokenCommand(), waiting.isRepeatNumber || waiting == .endTest {
             confirmTask = deps.scheduler.after(Timing.numberConfirm) { [weak self] in self?.fireVoiceCommand() }
             return
         }
@@ -948,9 +950,9 @@ final class SessionViewModel: ObservableObject {
         case .passage:
             guard command == .cancelPassage else { return }
         case .passageTargets:
-            guard command == .replayAnswers || command == .cancelPassage || command.isRepeatNumber else { return }
+            guard command == .replayAnswers || command == .cancelPassage || command.isRepeatNumber || command == .endTest else { return }
         case .missingNumber:
-            guard command == .replayAnswers || command == .cancelQuestion || command.isRepeatNumber else { return }
+            guard command == .replayAnswers || command == .cancelQuestion || command.isRepeatNumber || command == .endTest else { return }
         case .confirmEnd:
             guard command == .replayAnswers else { return }
         default:
@@ -994,8 +996,11 @@ final class SessionViewModel: ObservableObject {
             // Yanlış tanımaya karşı önce onay istenir: "evet" bitirir, "hayır" (ya da cevapsızlık) devam ettirir
             tlog("[komut] sesli komut: testi bitir; onay isteniyor")
             endReminders = 0
+            // Numara ya da paragraf numarası beklenirken söylendiyse bekleyen iş (tutulan soru / paragraf taslağı) korunur; vazgeçilirse oraya dönülür
+            endReturn = (from == .missingNumber || from == .passageTargets) ? from : .question
+            let ask = from == .missingNumber ? Say.confirmEndHeldQuestion : (from == .passageTargets ? Say.confirmEndHeldPassage : Say.confirmEnd)
             work = Task { [weak self] in
-                guard let self = self, await self.speakNotice(Say.confirmEnd) else { return }
+                guard let self = self, await self.speakNotice(ask) else { return }
                 self.beginListening(mode: .confirmEnd)
             }
         case .repeatLast:
@@ -1092,7 +1097,7 @@ final class SessionViewModel: ObservableObject {
             work = Task { [weak self] in
                 guard let self = self else { return }
                 if reading {
-                    await self.beginReview(origin: .endRequest, returnTo: .question)
+                    await self.beginReview(origin: .endRequest, returnTo: self.endReturn)
                 } else {
                     await self.completeTestByVoice()
                 }
@@ -1100,9 +1105,18 @@ final class SessionViewModel: ObservableObject {
         case .no:
             tlog("[komut] testi bitirmekten vazgeçildi")
             work = Task { [weak self] in
-                guard let self = self, await self.speakNotice(self.cameraQuestionWillBeAsked ? Say.endCancelledCamera : Say.endCancelled) else { return }
-                self.beginListening(mode: .question)
+                guard let self = self, await self.speakNotice(self.endCancelledNotice) else { return }
+                self.beginListening(mode: self.endReturn)
             }
+        }
+    }
+
+    /// "Testi bitir" onayından vazgeçilince (ya da onay cevapsız kalınca) söylenen cümle: bekleyen numara / paragraf numarası varsa ona dönüldüğü söylenir
+    private var endCancelledNotice: String {
+        switch endReturn {
+        case .missingNumber: return Say.reviewBackToNumber
+        case .passageTargets: return Say.reviewBackToTargets
+        default: return cameraQuestionWillBeAsked ? Say.endCancelledCamera : Say.endCancelled
         }
     }
 
@@ -1140,8 +1154,8 @@ final class SessionViewModel: ObservableObject {
             } else {
                 tlog("[komut] testi bitirme sorusu cevapsız kaldı; test devam ediyor")
                 clearWarning("duyulan")
-                guard await speakNotice(cameraQuestionWillBeAsked ? Say.endCancelledCamera : Say.endCancelled) else { return }
-                beginListening(mode: .question)
+                guard await speakNotice(endCancelledNotice) else { return }
+                beginListening(mode: endReturn)
             }
         case .startChoice:
             choiceReminders += 1

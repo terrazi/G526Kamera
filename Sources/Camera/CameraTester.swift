@@ -90,6 +90,11 @@ final class CameraTester: ObservableObject {
             }
         }
 
+        // Kamera pili: görüntü karelerinden okunabildiyse yazılır (kamera yüzde vermez, 5 kademe + şarjda)
+        if let level = camera.lastBattery {
+            lines.append("🔋 " + level.shortText + " (son görüntü karesinden okundu).")
+        }
+
         // 3) Hücresele geç ve internetin gelmesini bekle
         lines.append("3/3 İnternete geçiliyor: “\(internetName)”…")
         let toInternet = await shortcuts.run(name: internetName)

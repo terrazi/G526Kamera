@@ -454,6 +454,7 @@ enum VoiceCommand: Equatable {
 
     static func parse(_ text: String) -> VoiceCommand? {
         let all = SpokenWords.of(text)
+        if let askOff = parseCameraAskOff(all) { return askOff }   // "kamera sorusu olmasın" (olumsuzlamadan önce: "olmasın" olumsuz söz sayılır)
         if isNegated(all) { return nil }
         if let cancel = parseCancel(text) { return cancel }
         if let numbered = parseNumbered(text) { return numbered }

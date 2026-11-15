@@ -23,7 +23,7 @@ final class SettingCommandTests: XCTestCase {
     ]
     private let volumeSetPhrases: [(String, Int)] = [("sesi yüzde elli yap", 50), ("ses seviyesini yüzde yetmiş yap", 70), ("sesi 50 yap", 50), ("sesi yüzde 80 yap", 80), ("sesi yüzde yüz yap", 100), ("sesi yüzde otuz olsun", 30), ("ses seviyesini yüzde on yap", 10), ("sesi yüzde yirmi beş yap", 25), ("sesi yüzde altmış ayarla", 60), ("ses seviyesini 70 yap", 70), ("sesi sonuna kadar aç", 100), ("sesi tamamen aç", 100), ("sesi yüzde peş yap", 5)]
     private let cameraPhrases: [(VoiceCommand, [String])] = [
-        (.camera(.askQuestion(false)), ["kamera sorusunu kapat", "kamera sorusunu sorma", "kamera sorusu kapalı olsun", "kamera sormayı kapat", "kamera sorusunu devre dışı bırak", "her soruda kamera sorma", "kamera sorusunu iptal"]),
+        (.camera(.askQuestion(false)), ["kamera sorusunu kapat", "kamera sorusunu sorma", "kamera sorusu kapalı olsun", "kamera sormayı kapat", "kamera sorusunu devre dışı bırak", "her soruda kamera sorma", "kamera sorusunu iptal", "kamera sorusu olmasın", "her soruda kamera sorusu olmasın"]),
         (.camera(.askQuestion(true)), ["kamera sorusunu aç", "kamera sorusu açık olsun", "kamera sorusunu etkinleştir", "kamera sorusunu başlat"]),
         (.camera(.quality(high: true)), ["görüntü kalitesini yüksek yap", "kamera kalitesini yüksek yap", "kaliteyi yüksek yap", "görüntü kalitesini artır", "çözünürlüğü yüksek yap", "kalite yüksek olsun", "görüntü kalitesi yüksek"]),
         (.camera(.quality(high: false)), ["görüntü kalitesini düşük yap", "kamera kalitesini düşür", "kaliteyi düşük yap", "çözünürlüğü düşür", "kalite düşük olsun"]),
@@ -277,6 +277,19 @@ final class SettingCommandTests: XCTestCase {
         said = await command(h, "görüntü raporu")
         XCTAssertTrue(said?.hasPrefix("Görüntü kalitesi düşük") == true, "\(String(describing: said))")
         XCTAssertTrue(said?.contains("Canlı önizleme kapalı.") == true, "\(String(describing: said))")
+    }
+
+    func testCameraReportAndTesterShowTheLastKnownCameraBattery() async {
+        let h = SessionHarness()
+        _ = await h.startListening()
+        var said = await command(h, "kamera durumu")
+        XCTAssertFalse(said?.contains("Son çekimde") == true, "Pil hiç okunmadıysa söylenmez: \(String(describing: said))")
+        h.camera.lastBattery = .level(2)
+        said = await command(h, "kamera durumu")
+        XCTAssertTrue(said?.hasSuffix("Son çekimde kamera şarjı tahminen yüzde 40 ile 60 arasında görüldü.") == true, "\(String(describing: said))")
+        h.camera.lastBattery = .charging
+        said = await command(h, "kamera raporu")
+        XCTAssertTrue(said?.hasSuffix("Son çekimde kamera şarjda görüldü.") == true, "\(String(describing: said))")
     }
 
     /// Rapor soru okunurken söylenirse okunan soru metni korunur; rapor soruya karışmaz ve soru normal gider
