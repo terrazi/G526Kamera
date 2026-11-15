@@ -57,3 +57,33 @@ struct HoldToCloseButton: View {
         .accessibilityIdentifier("programiKapatBasili")
     }
 }
+
+/// "Programı kapat" düğmesine dokununca çıkan örtü: yarı saydam arka plan ve ortada bir kart (açıklama, yuvarlak basılı tutma düğmesi, Vazgeç).
+/// Dışına dokunmak ya da Vazgeç `onCancel`'ı çağırır; program yalnız yuvarlak düğmeye `seconds` saniye basılı tutulunca (`onClose`) kapanır.
+struct CloseHoldOverlay: View {
+    let seconds: TimeInterval
+    let onClose: () -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.5)
+                .ignoresSafeArea()
+                .contentShape(Rectangle())
+                .onTapGesture { onCancel() }
+            VStack(spacing: 18) {
+                Text("Kapatmak için yuvarlak düğmeye basılı tutun.")
+                    .font(.callout)
+                    .multilineTextAlignment(.center)
+                HoldToCloseButton(seconds: seconds, onClose: onClose)
+                Button("Vazgeç") { onCancel() }
+                    .buttonStyle(.bordered)
+            }
+            .padding(24)
+            .frame(maxWidth: 360)
+            .background(Color(.systemBackground))
+            .cornerRadius(20)
+            .padding(24)
+        }
+    }
+}

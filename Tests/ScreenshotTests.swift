@@ -195,6 +195,20 @@ final class ScreenshotTests: XCTestCase {
         warned.h.vm.warn("gorsel", "Pil yüzde 18: şarja takın.")
         await render(withEnvironment(ContentView(), warned), "05-ana-ekran-uyarilar", height: 1400)
 
+        // 5b) "Programı kapat"a dokununca çıkan yuvarlak kapatma düğmesi ve "Ekranı kilitle" ile çıkan kilit penceresi (ana ekranın üstünde)
+        let overlays = rig()
+        _ = await overlays.h.startListening()
+        await render(ZStack {
+            withEnvironment(ContentView(), overlays)
+            CloseHoldOverlay(seconds: 3, onClose: {}, onCancel: {})
+        }, "05b-programi-kapat-yuvarlak-dugme", height: 812)
+        let lockRig = rig()
+        _ = await lockRig.h.startListening()
+        await render(ZStack {
+            withEnvironment(ContentView(), lockRig)
+            ScreenLockView(onUnlock: {})
+        }, "05c-ekran-kilit-penceresi", height: 812)
+
         // 6) Ayarlar (gerçek varsayılanlarla; uzun liste tek görüntüde)
         let defaults = UserDefaults(suiteName: "g526.ekran.\(UUID().uuidString)")!
         let settings = AppSettings(defaults: defaults)

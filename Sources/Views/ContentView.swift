@@ -362,28 +362,12 @@ struct ContentView: View {
     @ViewBuilder
     private var closeOverlay: some View {
         if showCloseHold {
-            ZStack {
-                Color.black.opacity(0.5)
-                    .ignoresSafeArea()
-                    .contentShape(Rectangle())
-                    .onTapGesture { showCloseHold = false }
-                VStack(spacing: 18) {
-                    Text("Kapatmak için yuvarlak düğmeye basılı tutun.")
-                        .font(.callout)
-                        .multilineTextAlignment(.center)
-                    HoldToCloseButton(seconds: SessionViewModel.Timing.closeHold) {
-                        showCloseHold = false
-                        session.closeByUser()
-                    }
-                    Button("Vazgeç") { showCloseHold = false }
-                        .buttonStyle(.bordered)
-                }
-                .padding(24)
-                .frame(maxWidth: 360)
-                .background(Color(.systemBackground))
-                .cornerRadius(20)
-                .padding(24)
-            }
+            CloseHoldOverlay(seconds: SessionViewModel.Timing.closeHold,
+                             onClose: {
+                                 showCloseHold = false
+                                 session.closeByUser()
+                             },
+                             onCancel: { showCloseHold = false })
         }
     }
 
