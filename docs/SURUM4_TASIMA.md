@@ -174,6 +174,6 @@ Soru başına: "Bu soruyu kamera ile çekip göndermek ister misiniz?" Evet: (1)
 
 - Kameraya bağlanılamazsa `Kamera Bağlantısını Onar` kestirmesi (Ayarlar'daki Wi-Fi adımı; yazılmamışsa `Kameraya Geç` yeniden) en çok iki kez çalışır ve çekim yeniden denenir.
 - İnternet gelmezse V3'ün internet onarımı çalışır (hücresel, sıfırlama); Wi-Fi artık internet onarım adımı değildir.
-- Çekilen soru gönderilemezse (ağ hatası) telefonda bekler, bir sonraki soru sınırında bir kez yeniden denenir; en çok 3 çekim saklanır. Engellenen ya da çok büyük çekim saklanmaz.
+- Çekilen soru gönderilemezse (ağ hatası) telefonda bekler, bir sonraki soru sınırında bir kez yeniden denenir (arama / kulaklık kesintisi bu hakkı tüketmez); yine olmazsa atılır, söylenir ve kamera sorusu yeniden sorulur. En çok 3 çekim saklanır. Engellenen ya da çok büyük çekim saklanmaz.
 - Soru numarasını Gemini görüntüden okur; okuyamazsa sıra numarası kullanılır (sesle sorulmaz). Kadrajdaki yarım görünen komşu sorular Gemini'ye yok sayılması söylenerek gönderilir.
 - Çekilen fotoğraf ve video cevap klasörüne kaydedilmez; yalnız gönderilir, video gönderimden sonra silinir.
