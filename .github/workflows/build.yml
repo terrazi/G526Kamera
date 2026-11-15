@@ -186,3 +186,86 @@ jobs:
           name: G526CameraDrive-Screenshot-Log
           path: screens.log
           if-no-files-found: ignore
+
+  # Gerçek Gemini'ye giden uçtan uca deneme (Tests/LiveGeminiTests.swift). Gerçek API'ye istek attığı için her gönderimde çalışmaz:
+  # yalnız elle başlatılınca ya da commit iletisinde [canli] varsa. Anahtar deponun GEMINI_API_KEY gizli değişkeninden gelir; yoksa atlanır.
+  live-gemini:
+    name: Live Gemini (real API, simulator)
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[canli]')
+    timeout-minutes: 30
+    runs-on: macos-15
+    continue-on-error: true
+    env:
+      HAS_KEY: ${{ secrets.GEMINI_API_KEY != '' }}
+
+    steps:
+      - name: Check secret
+        run: |
+          if [ "$HAS_KEY" = "true" ]; then
+            echo "GEMINI_API_KEY var: gerçek Gemini testi çalışacak"
+          else
+            echo "::warning::GEMINI_API_KEY gizli değişkeni yok: gerçek Gemini testi atlandı"
+          fi
+
+      - name: Get source code
+        if: env.HAS_KEY == 'true'
+        uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        if: env.HAS_KEY == 'true'
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        if: env.HAS_KEY == 'true'
+        run: xcodegen generate
+
+      # Sesli soru denemesi için gerçek konuşma kaydı: macOS'un kendi sesiyle okunmuş İngilizce sorular, uygulamanın kaydı gibi 16 kHz tek kanal 16 bit WAV
+      - name: Make speech recordings
+        if: env.HAS_KEY == 'true'
+        run: |
+          mkdir -p /tmp/canli
+          say -o /tmp/canli/soru6.aiff "Question six. Which animal barks? A, cat. B, bird. C, horse. D, fish. E, dog." || echo "say başarısız: soru6"
+          say -o /tmp/canli/soru7.aiff "Question seven. Who owns the red bicycle? A, Anna's father. B, Anna's teacher. C, Anna's grandfather. D, Anna's friend. E, Anna's uncle." || echo "say başarısız: soru7"
+          for n in soru6 soru7; do
+            afconvert -f WAVE -d LEI16@16000 -c 1 /tmp/canli/$n.aiff /tmp/canli/$n.wav || echo "afconvert başarısız: $n"
+          done
+          ls -l /tmp/canli
+          for f in /tmp/canli/*.wav; do echo "$f: $(head -c 4 "$f")"; done
+
+      - name: Run live Gemini tests
+        if: env.HAS_KEY == 'true'
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          set -o pipefail
+          DEVICE=$(xcrun simctl list devices available | grep -m1 -oE 'iPhone [0-9A-Za-z ]+ \(' | sed 's/ ($//')
+          echo "Simulator: $DEVICE"
+          : > /tmp/canli/rapor.txt
+          TEST_RUNNER_GEMINI_API_KEY="$GEMINI_API_KEY" \
+          TEST_RUNNER_LIVE_ASSETS_DIR=/tmp/canli \
+          TEST_RUNNER_LIVE_REPORT_FILE=/tmp/canli/rapor.txt \
+          xcodebuild \
+            -project G526CameraDrive.xcodeproj \
+            -scheme G526CameraDrive \
+            -destination "platform=iOS Simulator,name=$DEVICE" \
+            -only-testing:G526CameraDriveTests/LiveGeminiTests \
+            CODE_SIGNING_ALLOWED=NO \
+            test 2>&1 | tee live.log
+
+      - name: Show live report
+        if: always() && env.HAS_KEY == 'true'
+        run: |
+          echo "===== CANLI RAPOR ====="
+          cat /tmp/canli/rapor.txt || echo "(rapor dosyası yok)"
+          echo "===== CANLI SATIRLAR (günlükten) ====="
+          grep "CANLI-GEMINI" live.log || echo "(günlükte satır yok)"
+
+      - name: Upload live report
+        if: always() && env.HAS_KEY == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: G526CameraDrive-Live-Gemini
+          path: |
+            /tmp/canli/rapor.txt
+            live.log
+          if-no-files-found: ignore
