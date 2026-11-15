@@ -236,6 +236,10 @@ extension SessionViewModel {
             work = Task { [weak self] in await self?.choiceSilence() }
             return
         }
+        if listenMode == .passageTargets, passageDraft != nil {
+            targetsIdle()   // numaralar söylenmedi ya da "Tamam" denmedi: sessizce beklemek yerine program sorar
+            return
+        }
         work = Task { [weak self] in await self?.handleSilence() }
     }
 

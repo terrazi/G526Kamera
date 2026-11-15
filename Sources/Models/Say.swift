@@ -61,6 +61,15 @@ enum Say {
     static func testCompleted(_ answers: Int) -> String {
         return answers > 0 ? "Test tamamlandı. \(answers) cevap kaydedildi." : "Test tamamlandı."
     }
+    /// Duyulan söz komuta benziyor ama anlaşılamadı: program anladığını sanıp susmaz, açıkça söyler ve tekrar ister
+    static let commandNotUnderstood = "Komutu anlayamadım. Lütfen komutu bir kez daha söyleyin."
+    static let commandHelp = "Yine anlayamadım. Cevapları tekrarla, son cevabı tekrarla ya da testi bitir diyebilirsiniz."
+    /// Soru metni geldi, uzun süre konuşulmadı ve "Cevapla" duyulmadı: kullanıcı söylediyse tanıyıcı kaçırmıştır
+    static let noTriggerHeard = "Cevapla komutunu duyamadım. Soru bittiyse lütfen Cevapla deyin."
+    /// Paragraf numaraları söylendi ama "Tamam" duyulmadı
+    static func passageTargetsConfirm(_ numbers: [Int]) -> String {
+        return "\(QuestionComposer.listText(numbers)) numaralı sorular için duydum. Doğruysa Tamam deyin; değilse numaraları yeniden söyleyin."
+    }
     /// Cevap duyulduktan sonra, dinlemeye geçmeden: program sıradaki soruyu kendisi ister
     static let nextQuestion = "Lütfen sonraki soruyu okuyun."
     static let askNumber = "Lütfen okuduğunuz sorunun numarasını söyleyin."

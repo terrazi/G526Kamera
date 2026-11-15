@@ -33,6 +33,14 @@ struct TranscriptAccumulator: Equatable {
         current = ""
     }
 
+    /// Metnin `index`. sözcüğünden sonrasını atar (anlaşılmayan komut denemesi soru metnine karışmasın). Çalışan görevin kısmi metni de
+    /// bölüme çevrilir: dinleme yeniden kurulunca yeni görev boş başlar.
+    mutating func dropWords(from index: Int) {
+        let kept = text.split(whereSeparator: { $0.isWhitespace }).prefix(max(0, index)).joined(separator: " ")
+        committed = kept.isEmpty ? [] : [kept]
+        current = ""
+    }
+
     /// Yeni kısmi metin eskinin devamı değil de baştan başlayan bir metin mi (tanıyıcı duraklamadan sonra sıfırlanır):
     /// eski metin en az 4 sözcükse ve yeni metin belirgin biçimde kısaysa ya da ilk sözcüğü tutmuyorsa.
     static func looksLikeRestart(old: String, new: String) -> Bool {

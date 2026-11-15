@@ -103,6 +103,9 @@ final class FakeRoute: AudioRouteProviding {
 @MainActor
 final class FakeListener: SpeechListening {
     var onEvent: (@MainActor (SpeechEvent) -> Void)?
+    var hints: ListenHints = .dictation
+    /// Her `start()` çağrısında geçerli olan ipucu listesi (testler kipe göre ipucunu bundan okur)
+    private(set) var startedHints: [ListenHints] = []
     private(set) var isRunning = false
     var secondsSinceAudio: TimeInterval? = 0.2
     /// Üst üste çabuk biten tanıma görevi sayısı (0: sağlam); testler artırarak tanıyıcının düştüğünü gösterir
@@ -114,6 +117,7 @@ final class FakeListener: SpeechListening {
 
     func start() throws {
         startCalls += 1
+        startedHints.append(hints)
         if !startErrors.isEmpty { throw startErrors.removeFirst() }
         isRunning = true
     }

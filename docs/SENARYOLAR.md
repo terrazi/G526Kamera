@@ -92,6 +92,11 @@ Durum: ✅ önlem var ve testli · 🛠 bu incelemede bulundu ve düzeltildi · 
 | Bilerek kapatma | Kapanma yalnız "Programı kapat" düğmesiyle serbest: 3 sn basılı tutulur; oturum biter, "kullanıcı kapattı" işlenir, panoya `SESLIKONTROL-KAPALI` yazılır (otomasyon yeniden açmaz). Oturum yokken ve "Testi Bitir"den sonra da pano işaretsizdir: başka yolla kapanırsa otomasyon uygulamayı yeniden açar (yeni oturum başlatmaz). İşaret her açılışta silinir | ✅ kod ve testler; 📱 otomasyon |
 | Bir aşama sonsuza dek takılır (kontrol, Gemini, okuma, onarım) | Gözcü: kontrol 4 dk, Gemini 11 dk, okuma 3 dk, onarım 6 dk hiç değişmezse iş iptal edilip oturum yeniden kurulur. Dinleme ve duraklatmalar sınırsız bekleyebilir | ✅ |
 | Ana iş parçacığı takılır / uygulama askıya alınır | Nabız 3 sn'den geç gelirse günlüğe "gecikti" yazılır (sonradan teşhis) | ✅ |
+| Komut anlaşılmadı ("testi bit") | 2,5 sn sonra "Komutu anlayamadım" der, o sözü metinden atar, tekrar ister; ikinci kez olursa komutları sayar | ✅ kod ve testler; 📱 cihazda görülmedi |
+| Eski yanlış komut metinde kaldı, doğrusu söylendi | Komut yalnız son sözden aranır (1 sn sessizlik söz sınırı); "testi bit testi bitir" → testi bitir | ✅ kod ve testler |
+| Soru okundu ama "Cevapla" duyulmadı | 20 sn sonra "Cevapla komutunu duyamadım…" (soruda en çok 2 kez, metin korunur) | ✅ kod ve testler |
+| Paragraf numaraları söylendi, "Tamam" duyulmadı | 4 sn sonra numaraları okuyup onay ister; yine denmezse kabul eder | ✅ kod ve testler |
+| Paragraf numaraları beklerken sessizlik | "Numaraları anlayamadım…" (sınırlı), sonra sıradaki soruya bağlanır | ✅ kod ve testler |
 
 ## 6. Durum makinesi taraması (kaos testi)
 

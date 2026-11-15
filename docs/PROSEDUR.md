@@ -39,12 +39,30 @@ Bu belge, programın sesle nasıl işlemesi gerektiğini adım adım yazar; her 
 beş harften uzun sözcüklerde tek harf farkı kabul edilir. Komut sözlükleri birbirine yaklaşmaz (testle denetlenir). Paragraf numaralarında alternatif okuma yalnız
 numara EKLER, duyulan numarayı değiştirmez ya da silmez. Tanıyıcıya ipucu olarak komut, menü ve sayı sözcükleri verilir.
 
+**Anlayamayınca susmaz.** Program yalnız şu durumlarda sessiz bekler: soru okunurken ve cevap beklenirken. Diğer her durumda ne duyduğunu ve ne yapmasını
+beklediğini söyler:
+
+| Durum | Program ne yapar |
+|---|---|
+| Komut gibi duyuldu ama tanınmadı ("testi bit") | 2,5 sn sonra "Komutu anlayamadım. Lütfen komutu bir kez daha söyleyin." der; söz metinden **atılır** (soruya karışmaz); ikinci kez olursa komutları sayar; ekranda "Duyulan: …" |
+| Soru metni geldi, 20 sn hiçbir şey söylenmedi, "Cevapla" yok | "Cevapla komutunu duyamadım. Soru bittiyse lütfen Cevapla deyin." (bir soruda en çok 2 kez; okunan metin korunur) |
+| Paragraf numaraları söylendi, "Tamam" yok | 4 sn sonra "5, 6 ve 7 numaralı sorular için duydum. Doğruysa Tamam deyin…"; yine denmezse numaralar kabul edilir |
+| Paragraf numaraları anlaşılmadı ya da 30 sn sessizlik | "Numaraları anlayamadım…" (en çok 2 kez, sonra sıradaki soruya bağlanır) |
+
+**Komut yalnız son sözden aranır.** Konuşmada 1 sn sessizlik yeni bir söz başlatır. Önceki anlaşılmayan söz ("testi bit") metinde kalsa bile sonraki doğru söz
+("testi bitir") tanınır; önceden metnin tamamı "testi bit testi bitir" okunduğu için art arda tekrar gerekiyordu. Tek sözcüklük son söz ancak öncesi de komut
+denemesiyse komut sayılır (soru ortasındaki duraklamadan sonra gelen "tekrar" komut olmasın). Tanıyıcının böldüğü komut ("tekrar la", "testi bit ir") birleştirilir.
+
+**Kipe göre ipucu.** Evet/hayır ve devam/tekrar/bitir sorularında yalnız o sözcükler, numara beklerken yalnız sayılar, paragraf numaralarında sayılar ve Tamam/Cevapla
+tanıyıcıya ipucu verilir (dar liste tanıyıcıyı o sözcüklere yöneltir). Soru dinlerken geniş liste kullanılır. Cihazda ölçülmedi.
+
 Kabul edilen numara söyleyişleri: "yedi", "7", "yedinci", "7. soru", "soru yedi", "5, 6, 7", "beş altı yedi", "5. soru, 6. soru", "beşten yediye kadar", "5-7",
 bitişik "567" (üç haneli ve 150'nin üstündeyse tek tek rakam sayılır).
 
 ## Bilinen eksikler
 
 - Komutlar paragraf okurken çalışmaz (paragrafa karışır).
+- Komut denemesi yalnız çok katı bir kuralla ("bütün sözcükler komut sözcüğü, en az biri fiil/işaret") algılanır; ondan uzak bir yanlış okuma (komutla ilgisiz sözcükler) hâlâ soru metni sayılır ve sessiz birikir.
 - "Testi Bitir" **düğmesi** cevapları kendiliğinden okutmaz; yalnız sesle bitirme okutur (düğme sonrası ana ekrandaki tekrar düğmesi kullanılır).
 - "Cevapları tekrarla" paragraf okunurken ve "Devam mı, yeni sınav mı?" sorusu beklenirken çalışmaz.
 - Tanıyıcının alternatif okumaları cihaz ve modele bağlıdır; vermiyorsa yalnız en iyi okuma ve yakın ses toleransı kullanılır (cihazda görülmedi).

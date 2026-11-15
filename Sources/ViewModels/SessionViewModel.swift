@@ -26,6 +26,15 @@ final class SessionViewModel: ObservableObject {
         static let numberUnclear: TimeInterval = 4
         /// Paragrafın soru numaraları bu kadar kez anlaşılamazsa paragraf yalnız sıradaki soruya bağlanır
         static let targetReminderLimit = 2
+        /// Konuşmada bu kadar sessizlik olursa sonraki söz yeni bir sözdür (komut yalnız son sözden aranır; eski anlaşılmayan söz engel olmaz)
+        static let utteranceGap: TimeInterval = 1
+        /// Komut gibi duyulan ama anlaşılmayan söz bu süre değişmezse "anlayamadım" denir
+        static let attemptConfirm: TimeInterval = 2.5
+        /// Soru metni geldikten sonra bu süre hiçbir şey söylenmezse ve "Cevapla" duyulmadıysa hatırlatılır; bir soruda en çok bu kadar kez
+        static let questionIdle: TimeInterval = 20
+        static let idleReminderLimit = 2
+        /// Paragraf numaraları söylendikten sonra bu süre "Tamam" duyulmazsa program kendisi sorar
+        static let targetsIdle: TimeInterval = 4
         /// Cevap beklerken "cevap bekleniyor" anonsu bu aralıkla (sn) söylenir; bu süre dolarsa (sn) bekleme bırakılır
         static let answerCueEvery: TimeInterval = 30
         static let answerCap: TimeInterval = 180
@@ -269,7 +278,16 @@ final class SessionViewModel: ObservableObject {
     var passageDraft: PassageDraft?
     var numberReminders = 0
     var targetReminders = 0
+    var targetDoneReminders = 0
     var endReminders = 0
+    /// Söz bölümleri: son sözün metindeki ilk sözcük sırası, son sessizlikte metinde kaç sözcük vardı, sessizlik geçti mi ve sessizlik zamanlayıcısı
+    var utteranceStart = 0
+    var settledCount = 0
+    var gapPassed = false
+    var gapTask: ScheduledTask?
+    /// Üst üste anlaşılmayan komut denemesi sayısı; soru başına "Cevapla" hatırlatma sayısı
+    var attemptFails = 0
+    var idleReminders = 0
     /// Cevaplar baştan okunuyor (oturum açık kalır; okuma bitince "Devam, Tekrar ya da Bitir" sorulur)
     var reviewing = false
     /// Okunan cevap dosyası sayısı (okuma sonunda "N sorunun cevabı okundu" raporu için)
@@ -601,7 +619,10 @@ final class SessionViewModel: ObservableObject {
             englishAccumulator.commitCurrent()
             liveText = accumulator.text
             liveEnglish = englishAccumulator.text
+            beginNewUtterance()   // yeni görevin sözü, eldeki metnin arkasında yeni bir sözdür
         } else {
+            resetUtterances()
+            idleReminders = 0
             accumulator.clear()
             englishAccumulator.clear()
             liveText = ""
@@ -613,6 +634,7 @@ final class SessionViewModel: ObservableObject {
             }
         }
         listenMode = mode
+        deps.listener.hints = ListenHints.hints(for: mode)
         do {
             try deps.listener.start()
         } catch {
@@ -639,6 +661,7 @@ final class SessionViewModel: ObservableObject {
             hardwareRecoveries = 0   // mikrofon gerçekten çalışıyor
             recognizerRepairs = 0    // tanıma gerçekten çalışıyor
             liveText = accumulator.text
+            noteUtterance()
             watchdog.kick()
             if listenMode == .question, PassageCommand.startsWith(accumulator.text) {
                 listenMode = .passage   // "ortak paragraf": paragraf okunuyor, "Tamam" ile biter
@@ -701,20 +724,27 @@ final class SessionViewModel: ObservableObject {
         let text = accumulator.text
         var delay = Timing.triggerConfirm
         // "Cevapları tekrarla": soru, onay, numara ve paragraf numarası beklenirken her an söylenebilir; kısa süre sabit kalırsa çalışır
-        if [ListenMode.question, .confirmEnd, .missingNumber, .passageTargets].contains(listenMode), interpret(VoiceCommand.parse) == .replayAnswers {
+        if [ListenMode.question, .confirmEnd, .missingNumber, .passageTargets].contains(listenMode), spokenCommand() == .replayAnswers {
             confirmTask = deps.scheduler.after(Timing.numberConfirm) { [weak self] in self?.fireVoiceCommand() }
             return
         }
         switch listenMode {
         case .question:
             // Tek başına söylenen komut ("testi bitir"): kısa süre sabit kalırsa çalışır, "Cevapla" demek gerekmez
-            if interpret(VoiceCommand.parse) != nil {
+            if spokenCommand() != nil {
                 confirmTask = deps.scheduler.after(Timing.numberConfirm) { [weak self] in self?.fireVoiceCommand() }
                 return
             }
-            guard TriggerDetector.match(in: text) != nil else { return }
+            guard TriggerDetector.match(in: text) != nil else {
+                scheduleQuestionChecks()   // komut gibi ama anlaşılmadı mı, "Cevapla" mı duyulmadı: susmak yerine söylenir
+                return
+            }
         case .passageTargets:
-            guard interpret({ TriggerDetector.match(in: $0, words: PassageCommand.targetWords) }) != nil else { return }
+            guard interpret({ TriggerDetector.match(in: $0, words: PassageCommand.targetWords) }) != nil else {
+                // Numaralar söylendi ama "Tamam" duyulmadı (ya da hiçbir şey anlaşılmadı): program kendisi sorar
+                confirmTask = deps.scheduler.after(Timing.targetsIdle) { [weak self] in self?.targetsIdle() }
+                return
+            }
         case .passage:
             // Yalnız "ortak paragraf" denmiş, paragraf henüz okunmaya başlanmamış: kısa süre sabit kalırsa kulaklıktan okuma istenir
             if PassageCommand.startsWith(text), PassageCommand.stripStart(text).isEmpty {
@@ -772,7 +802,7 @@ final class SessionViewModel: ObservableObject {
     /// "cevapları tekrarla" çalışır.
     func fireVoiceCommand() {
         confirmTask = nil
-        guard phase == .listening, let command = interpret(VoiceCommand.parse) else { return }
+        guard phase == .listening, let command = spokenCommand() else { return }
         switch listenMode {
         case .question:
             break
@@ -787,6 +817,8 @@ final class SessionViewModel: ObservableObject {
     private func run(_ command: VoiceCommand) {
         let back = listenMode   // cevaplar okunduktan sonra "Devam" denirse buraya dönülür
         closeListening()
+        attemptFails = 0
+        clearWarning("duyulan")
         accumulator.clear()
         englishAccumulator.clear()
         liveText = ""
@@ -946,7 +978,7 @@ final class SessionViewModel: ObservableObject {
     private func fireQuestion() {
         guard let match = TriggerDetector.match(in: accumulator.text) else { return }
         // "Testi bitir, Cevapla": komut kısmı soru gibi gönderilmez
-        if let command = VoiceCommand.parse(match.question) {
+        if let command = commandIn(match.question) {
             run(command)
             return
         }
@@ -972,6 +1004,8 @@ final class SessionViewModel: ObservableObject {
         let english = settings.englishDictation ? englishAccumulator.text : ""
         let question = match.question
         closeListening()
+        attemptFails = 0
+        clearWarning("duyulan")
         liveText = question
         // Kayıt, okunan numarayla yapılır: kullanıcı soruları sırayla okumak zorunda değildir
         let spoken = SpokenNumber.extract(from: question)
@@ -1092,6 +1126,7 @@ final class SessionViewModel: ObservableObject {
         }
         passageDraft = PassageDraft(text: text, english: english, audio: audio, audioTruncated: audioTruncated)
         targetReminders = 0
+        targetDoneReminders = 0
         listenMode = .passageTargets
         tlog("[paragraf] ortak paragraf alındı (\(text.count) karakter); hangi sorulara ait olduğu soruluyor")
         work = Task { [weak self] in
@@ -1103,7 +1138,12 @@ final class SessionViewModel: ObservableObject {
     /// Paragrafın ait olduğu soru numaraları ("beş altı yedi, Cevapla") alınır; paragraf o sorularla birlikte gider
     private func fireTargets() {
         guard let match = interpret({ TriggerDetector.match(in: $0, words: PassageCommand.targetWords) }) else { return }
-        var numbers = bestNumbers(primary: SpokenNumber.list(from: match.question))
+        finishTargets(numbers: bestNumbers(primary: SpokenNumber.list(from: match.question)), heard: match.question)
+    }
+
+    /// Paragraf numaraları belli oldu (ya da anlaşılamadı): kaydedilir; anlaşılamadıysa sınırlı sayıda yeniden sorulur, sonra sıradaki soruya bağlanır
+    func finishTargets(numbers given: [Int], heard: String) {
+        var numbers = given
         closeListening()
         liveText = ""
         phase = .speaking
@@ -1115,8 +1155,8 @@ final class SessionViewModel: ObservableObject {
         var notice: String?
         if numbers.isEmpty {
             targetReminders += 1
-            tlog("[paragraf] soru numaraları anlaşılamadı (deneme \(targetReminders)); duyulan: \"\(match.question)\"")
-            warn("numara", "Duyulan: “\(match.question)”. Soru numaraları anlaşılamadı.")
+            tlog("[paragraf] soru numaraları anlaşılamadı (deneme \(targetReminders)); duyulan: \"\(heard)\"")
+            warn("numara", "Duyulan: “\(heard)”. Soru numaraları anlaşılamadı.")
             guard targetReminders > Timing.targetReminderLimit else {
                 work = Task { [weak self] in
                     guard let self = self, await self.speakNotice(Say.passageTargetsAgain) else { return }
@@ -1130,6 +1170,7 @@ final class SessionViewModel: ObservableObject {
             tlog("[paragraf] numaralar anlaşılamadı; paragraf sıradaki soruya (\(nextNumber)) bağlandı")
         }
         targetReminders = 0
+        targetDoneReminders = 0
         clearWarning("numara")
         passage = PassageContext(text: draft.text, english: draft.english, audio: draft.audio, all: numbers, remaining: numbers,
                                  audioTruncated: draft.audioTruncated)

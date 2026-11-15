@@ -228,6 +228,56 @@ enum VoiceCommand: Equatable {
         guard hasEnd, hasSubject || hasBareEnd else { return nil }
         return .endTest
     }
+
+    /// Tanıyıcı komutu bölmüş olabilir ("tekrar la", "testi bit ir"): önce olduğu gibi, olmazsa üç harfe kadar kısa parçalar öncekine
+    /// eklenerek denenir
+    static func parseLenient(_ text: String) -> VoiceCommand? {
+        if let command = parse(text) { return command }
+        let tokens = text.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+        guard tokens.count >= 2 else { return nil }
+        for index in 1..<tokens.count where SpokenWords.fold(tokens[index]).count <= 3 {
+            var merged = tokens
+            merged[index - 1] += merged[index]
+            merged.remove(at: index)
+            if let command = parse(merged.joined(separator: " ")) { return command }
+        }
+        return nil
+    }
+}
+
+/// Komut denemesi: tanıyıcı komut sözcüklerini yazmış ama söz komut kuralına uymamış ("testi bit", "cevapları tekrar çok"). Böyle bir söz soru
+/// metni sayılıp sessizce biriktirilmez; program "anlayamadım" der ve tekrar ister. Yanlış alarm olmasın diye KATI davranılır: bütün sözcükler
+/// komut sözcüğü olmalı ve en az biri fiil/işaret sözcüğü olmalı (yalnız "test", "sınav" gibi konu sözcükleri soru başlangıcı olabilir).
+enum CommandAttempt {
+    /// Fiil ve işaret sözcüklerinin gövdeleri; sözcük gövdenin kısa ön eki de olabilir (en az `minPrefix` harf: "bit" → "bitir")
+    private static let cores: [(stem: String, minPrefix: Int)] = [
+        ("tekrar", 4), ("bitir", 3), ("sonlandir", 4), ("tamamla", 6), ("cevap", 4), ("cevaplari", 4), ("cevabi", 4)
+    ]
+    static let maxWords = 6
+
+    static func isCore(_ word: String) -> Bool {
+        let heard = SpokenWords.key(word)
+        for core in cores {
+            let stem = SpokenWords.key(core.stem)
+            if heard.count >= core.minPrefix, stem.hasPrefix(heard) { return true }
+            if SpokenWords.startsLike(word, core.stem) { return true }
+        }
+        return SpokenWords.matches(word, VoiceCommand.endVerbs) || SpokenWords.matches(word, VoiceCommand.allMarkers)
+            || SpokenWords.matches(word, VoiceCommand.lastMarkers)
+    }
+
+    static func isCommandish(_ word: String) -> Bool {
+        return isCore(word) || SpokenWords.matches(word, VoiceCommand.subjects) || SpokenWords.matches(word, VoiceCommand.fillers)
+            || SpokenWords.matches(word, VoiceCommand.repeatVerbs) || SpokenWords.startsLike(word, "tekrar")
+            || SpokenWords.startsLike(word, "test") || SpokenWords.startsLike(word, "sinav")
+    }
+
+    static func looksLike(_ text: String) -> Bool {
+        let words = SpokenWords.of(text)
+        guard !words.isEmpty, words.count <= maxWords else { return false }
+        guard words.allSatisfy(isCommandish) else { return false }
+        return words.contains(where: isCore)
+    }
 }
 
 /// Programın sorduğu kısa sorulara verilen sözlü cevaplar. Yalnız kısa cevaplar tanınır (en çok 8 sözcük); anahtar sözcüğe bakılır, böylece

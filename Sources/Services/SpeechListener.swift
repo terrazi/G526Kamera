@@ -85,10 +85,41 @@ enum RecognitionOptions {
     }
 }
 
+/// Dinleme kipine göre tanıyıcıya verilen ipucu listesi. Kısa cevap beklenirken (evet/hayır, numara) dar liste kullanılır: tanıyıcı o sözcüklere
+/// daha çok ağırlık verir. Soru dinlenirken geniş liste kullanılır (soru metni her şey olabilir).
+@MainActor
+enum ListenHints: Equatable {
+    case dictation, choice, number, targets
+
+    private static let numberWords = [
+        "bir", "iki", "üç", "dört", "beş", "altı", "yedi", "sekiz", "dokuz", "on", "yirmi", "otuz", "kırk", "elli", "altmış", "yetmiş",
+        "seksen", "doksan", "yüz"
+    ]
+    private static let ordinals = [
+        "birinci", "ikinci", "üçüncü", "dördüncü", "beşinci", "altıncı", "yedinci", "sekizinci", "dokuzuncu", "onuncu"
+    ]
+
+    var strings: [String] {
+        switch self {
+        case .dictation:
+            return OnDeviceSpeechListener.contextualStrings
+        case .choice:
+            return ["Evet", "Hayır", "Tamam", "Devam", "Devam et", "Tekrar", "Tekrar oku", "Bitir", "Testi bitir", "Vazgeç", "Yeni sınav",
+                    "Önceki kayıt", "Önceki kayıttan devam", "Cevapları tekrarla"]
+        case .number:
+            return ["Soru", "Sıradaki", "Cevapları tekrarla"] + ListenHints.numberWords + ListenHints.ordinals
+        case .targets:
+            return ["Tamam", "Cevapla", "Gönder", "ve", "Cevapları tekrarla"] + ListenHints.numberWords
+        }
+    }
+}
+
 /// Cihaz içi (çevrimdışı) sürekli dinleme
 @MainActor
 protocol SpeechListening: AnyObject {
     var onEvent: (@MainActor (SpeechEvent) -> Void)? { get set }
+    /// Sonraki tanıma görevlerinde kullanılacak ipucu listesi (dinleme kipine göre ayarlanır, `start()`ten önce)
+    var hints: ListenHints { get set }
     var isRunning: Bool { get }
     /// Mikrofondan en son ses tamponunun geldiği andan beri geçen saniye (hiç gelmediyse nil)
     var secondsSinceAudio: TimeInterval? { get }
@@ -196,6 +227,7 @@ final class OnDeviceSpeechListener: SpeechListening {
     }
 
     var onEvent: (@MainActor (SpeechEvent) -> Void)?
+    var hints: ListenHints = .dictation
     private(set) var isRunning = false
 
     private var recognizer = SFSpeechRecognizer(locale: OnDeviceSpeechListener.locale)
@@ -354,7 +386,7 @@ final class OnDeviceSpeechListener: SpeechListening {
         request.shouldReportPartialResults = true
         request.requiresOnDeviceRecognition = true
         request.taskHint = .dictation
-        request.contextualStrings = OnDeviceSpeechListener.contextualStrings
+        request.contextualStrings = hints.strings
         self.request = request
         sink.attach(request)
         taskStarted = Date()
