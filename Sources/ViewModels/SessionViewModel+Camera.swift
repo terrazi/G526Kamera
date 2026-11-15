@@ -164,7 +164,6 @@ extension SessionViewModel {
             do {
                 let reply = try await deps.answering.answer(capture: shot, expectedNumber: expected)
                 dropPending(shot)
-                retriedShots.removeAll()   // internet ve Gemini çalışıyor: bekleyen diğer çekimler yeniden denenebilir
                 return reply
             } catch let error as GeminiError {
                 last = error

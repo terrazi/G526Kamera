@@ -1300,6 +1300,7 @@ final class SessionViewModel: ObservableObject {
             let record = AnswerRecord(number: number, option: reply.option, text: reply.text, spoken: spoken)
             tlog("[soru \(number)] numara kaynağı: \(source.logName)")
             finishEntry(.answered(record.spoken), number: number, model: reply.model, source: source)
+            retriedShots.removeAll()   // internet ve Gemini çalışıyor: telefonda bekleyen çekimler yeniden denenebilir (bkz. resendablePending)
             // Cevap yedek profilden geldiyse sebebi kırmızı kutuda yazılır; ilk profilden gelince silinir
             // Ekranda ayrıntılı not (sunucunun hata metinleri dahil) kalır; kulaklıktan hangi modelin cevapladığı söylenmez, yalnız
             // ücretli modelden geldiyse "Ücretli modelden cevaplandı." denir (hata metinleri hiç okunmaz)

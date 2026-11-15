@@ -63,7 +63,7 @@ struct CameraSettingsSections: View {
             Toggle("Videoyu da Gemini'ye gönder", isOn: $camera.videoToGemini)
             Toggle("Videoyu yüksek çözünürlükle oku", isOn: $camera.videoHighRes)
             TextField("Gemini'ye ek talimat (isteğe bağlı)", text: $camera.videoQuestion)
-            HelpRow("Program soruyu sesle konumlandırır; konum uygun olunca soruyu ayardaki süre kadar (varsayılan 5 sn, 2–15) videoya yazar ve bir fotoğraf çeker. Uzun video sınırı Sürüm 1'in sürekli kaydı içindir; Sürüm 4'te kullanılmaz (soru başına video süresi yukarıdaki “sayfa başına” süredir). Video saniyede 2 kare yazılır; tahmini boyut: 30 sn ≈ 4,5–8 MB, 90 sn ≈ 14–24 MB. 14 MB'ı aşan video Gemini'ye yüklenerek gönderilir. “Videoyu da gönder” kapalıyken yalnız fotoğraf gider. “Yüksek çözünürlük” küçük yazı için önerilir. Ek talimat, programın kendi talimatının sonuna eklenir (programın talimatı kadrajdaki yarım görünen komşu soruların yok sayılmasını da içerir). Değişiklik bir sonraki çekimden itibaren geçerlidir.")
+            HelpRow("Program soruyu sesle konumlandırır; konum uygun olunca soruyu ayardaki süre kadar (varsayılan 5 sn, 2–15) videoya yazar ve bir fotoğraf çeker. Uzun video sınırı Sürüm 1'in sürekli kaydı içindir; Sürüm 4'te kullanılmaz (soru başına video süresi yukarıdaki “sayfa başına” süredir). Video saniyede 2 kare yazılır; tahmini boyut: 30 sn ≈ 4,5–8 MB, 90 sn ≈ 14–24 MB. Sürüm 4'te fotoğraf ve video birlikte satır içi gider; toplamı 14 MB'ı aşarsa (soru başına 15 sn'lik video bile genellikle 3 MB'ın altındadır) yalnız fotoğraf gönderilir, yükleme yöntemi kullanılmaz. “Videoyu da gönder” kapalıyken yalnız fotoğraf gider. “Yüksek çözünürlük” küçük yazı için önerilir. Ek talimat, programın kendi talimatının sonuna eklenir (programın talimatı kadrajdaki yarım görünen komşu soruların yok sayılmasını da içerir). Değişiklik bir sonraki çekimden itibaren geçerlidir.")
         }
     }
 
@@ -101,7 +101,7 @@ struct CameraSettingsSections: View {
             Stepper(value: $camera.burstAfter, in: 0.2...2.0, step: 0.1) {
                 Text(String(format: "Seri çekim: sonrası %.1f sn", camera.burstAfter))
             }
-            HelpRow("“Yalnız belge çek” açıkken kadrajda kâğıt ve üzerinde yazı yoksa (el, yüz, boş masa, duvar, çizgili desen) fotoğraf çekilmez; program “Belge görünmüyor” der. Belge hiç çekilmiyorsa ya da bu kontrol rahatsız ederse kapatın. Belge taraması için: İyileştirme Hafif, kalite %92 ve üzeri, Yüksek 1920×1080 görüntü önerilir. Büyütme ayrıntı eklemez, yalnızca yazıyı daha rahat okutur. Kamera tarih/saati görüntünün içine işler, silinemez: Bulanıklaştır yalnızca sağ üstteki tarih yazısının kutusunu okunmaz yapar, Kes ise üstteki şeridi atar (fotoğraf biraz kısalır).")
+            HelpRow("“Yalnız belge çek” açıkken kadrajda kâğıt ve üzerinde yazı yoksa (el, yüz, boş masa, duvar, çizgili desen) fotoğraf çekilmez; program sayfa kadraja alınamadığını söyler ve soruyu sesle okumaya geçer. Belge hiç çekilmiyorsa ya da bu kontrol rahatsız ederse kapatın. Belge taraması için: İyileştirme Hafif, kalite %92 ve üzeri, Yüksek 1920×1080 görüntü önerilir. Büyütme ayrıntı eklemez, yalnızca yazıyı daha rahat okutur. Kamera tarih/saati görüntünün içine işler, silinemez: Bulanıklaştır yalnızca sağ üstteki tarih yazısının kutusunu okunmaz yapar, Kes ise üstteki şeridi atar (fotoğraf biraz kısalır).")
         }
     }
 

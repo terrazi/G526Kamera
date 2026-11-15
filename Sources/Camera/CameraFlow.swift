@@ -17,10 +17,13 @@ struct CapturedQuestion: Equatable {
     /// Videoyu yüksek çözünürlükle oku (küçük yazı)
     var highResolution = true
 
-    /// Gemini'ye satır içi gönderilebilen en büyük video (satır içi istek sınırı 20 MB; base64 şişmesi ve ses payı için güvenli pay)
-    static let maxInlineVideoBytes = 14 * 1024 * 1024
+    /// Gemini'ye satır içi gönderilebilen fotoğraf + video toplamı (bayt). İstek sınırı 20 MB'tır ve veri base64 ile üçte bir şişer
+    /// (14 MB → ~18,7 MB); metin ve talimat payı için de yer kalır. Video sığmazsa yalnız fotoğraf gider.
+    static let maxInlineVideoBytes = 14_000_000
 
-    var canSendVideo: Bool { return video != nil && videoBytes > 0 && videoBytes <= CapturedQuestion.maxInlineVideoBytes }
+    var canSendVideo: Bool {
+        return video != nil && videoBytes > 0 && videoBytes + photo.count <= CapturedQuestion.maxInlineVideoBytes
+    }
 
     /// Aynı çekim mi (fotoğraf baytlarını karşılaştırmak yerine kimlik)
     static func == (a: CapturedQuestion, b: CapturedQuestion) -> Bool { return a.id == b.id }

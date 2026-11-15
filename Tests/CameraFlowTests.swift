@@ -197,6 +197,21 @@ final class CameraFlowTests: XCTestCase {
         XCTAssertTrue(h.vm.pendingShots.isEmpty)
     }
 
+    /// Gönderilemeyen çekim her onarımdan sonra sonsuza dek yeniden denenmez: bir kez yeniden denenir, sonra sıradaki başarılı cevaba kadar bekler
+    func testAShotThatKeepsFailingIsRetriedOnceAndNotInALoop() async {
+        let errors: [Result<GeminiReply, Error>] = (0..<4).map { _ in .failure(GeminiError("koptu", .network)) }
+        let h = harness(shots: [.success(FakeCamera.shot())], replies: errors)
+        _ = await h.startListening()
+        reply(h, "evet")
+        let settled = await waitUntil(8) { h.answering.captureCalls.count == 4 && h.vm.phase == .listening }
+        XCTAssertTrue(settled, "İlk gönderim 2 deneme, bir kez de bekleyen çekim olarak 2 deneme: toplam 4")
+        await settle()
+        h.scheduler.advance(by: 30)
+        await settle()
+        XCTAssertEqual(h.answering.captureCalls.count, 4, "Yeniden deneme döngüye girmez")
+        XCTAssertEqual(h.vm.pendingShots.count, 1, "Çekim telefonda bekler")
+    }
+
     func testBlockedShotIsNotKeptOnThePhone() async {
         let shot = FakeCamera.shot()
         let h = harness(shots: [.success(shot)], replies: [.failure(GeminiError("engellendi", .blocked))])
