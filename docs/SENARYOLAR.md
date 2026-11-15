@@ -151,6 +151,7 @@ yol bildirimi ve onarım sınırı aynı anda üst üste gelince tetikleniyordu.
 | Testi bitirme onayına "bitirmek istiyorum" / "sonlandırmak istiyorum" | EVET (eskiden "bitirme"ye benzediği için HAYIR sayılıyordu); "bitirmiyorum", "bitirmeyelim", "bitirmek istemiyorum" hayır | ✅ |
 | Menüde "bitirme, devam edelim" | Devam sayılır (olumsuz "bitirme" bitirme isteği değildir) | ✅ |
 | Numara beklenirken (söylenmediği için) "soruyu iptal et" | Bekleyen soru bırakılır, "Okunan soru silindi" denir, boşuna sıradaki numarayla Gemini'ye gitmez | ✅ |
+| "Soruyu iptal et" bozuk okunur ("soruyu iptalet") | Soru metnine karışıp sessizce birikmez: "Komutu anlayamadım, lütfen bir kez daha söyleyin" denir, söz atılır (yalnız iptal fiili + soru/paragraf sözcüğü birlikteyse; tek başına "iptal et" soru metni olabilir) | ✅ |
 | Her aşamada bilgi | Soru ve paragraf için: "Kameraya geçiliyor", "Kamera hazır… kadraja alın", "Çekim başarıyla yapıldı, internete geçiliyor", "İnternet geldi, Gemini'ye gönderiliyor", cevap okunur | ✅ |
 | Program kapanıp açıldı (kamera sorusu açıkken) | Önceki cevap yeniden okunmaz (yarım iş kaydı kamera sorusundan önce silinir); "Sistem hazır" denip kamera sorulur | ✅ |
 | Kestirmeler Wi-Fi / hücreseli değiştirmez ya da onay sorar | Cihazda denenmedi: Ayarlar > Kamera > **Kamerayı dene** ile sınanmalı | ⚠️ 📱 |

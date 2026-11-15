@@ -84,7 +84,7 @@ beklediğini söyler:
 
 | Durum | Program ne yapar |
 |---|---|
-| Komut gibi duyuldu ama tanınmadı ("testi bit") | 2,5 sn sonra "Komutu anlayamadım. Lütfen komutu bir kez daha söyleyin." der; söz metinden **atılır** (soruya karışmaz); ikinci kez olursa komutları sayar; ekranda "Duyulan: …" |
+| Komut gibi duyuldu ama tanınmadı ("testi bit", "soruyu iptalet", "paragrafı iptalet") | 2,5 sn sonra "Komutu anlayamadım. Lütfen komutu bir kez daha söyleyin." der; söz metinden **atılır** (soruya karışmaz); ikinci kez olursa komutları sayar; ekranda "Duyulan: …" |
 | Soru metni geldi, 20 sn hiçbir şey söylenmedi, "Cevapla" yok | "Cevapla komutunu duyamadım. Soru bittiyse lütfen Cevapla deyin." (bir soruda en çok 2 kez; okunan metin korunur) |
 | Paragraf numaraları söylendi, "Tamam" yok | 4 sn sonra "5, 6 ve 7 numaralı sorular için duydum. Doğruysa Tamam deyin…"; yine denmezse numaralar kabul edilir |
 | Paragraf numaraları anlaşılmadı ya da 30 sn sessizlik | "Numaraları anlayamadım…" (en çok 2 kez, sonra sıradaki soruya bağlanır) |

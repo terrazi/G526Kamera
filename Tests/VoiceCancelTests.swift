@@ -275,6 +275,22 @@ final class VoiceCancelTests: XCTestCase {
 }
 
 extension VoiceCancelTests {
+    /// Bozuk okunan iptal komutu susulmadan geri bildirim alır (komut denemesi sayılır); soru metni sayılmaz
+    func testMisheardCancelCommandIsReportedNotSwallowedSilently() async {
+        XCTAssertTrue(CommandAttempt.looksLike("soruyu iptalet"), "Birleşik yazılan komut")
+        XCTAssertTrue(CommandAttempt.looksLike("paragrafı iptalet"))
+        XCTAssertFalse(CommandAttempt.looksLike("iptal et"), "Konu sözcüğü yok: soru metni olabilir")
+        XCTAssertFalse(CommandAttempt.looksLike("soruyu"))
+        XCTAssertFalse(CommandAttempt.looksLike("Soru iptal edilmiştir"))
+        let h = SessionHarness()
+        _ = await h.startListening()
+        h.listener.say("soruyu iptalet")
+        h.scheduler.advance(by: T.attemptConfirm + 0.1)
+        let told = await waitUntil(45) { h.speaker.spoken.last == Say.commandNotUnderstood && h.vm.phase == .listening }
+        XCTAssertTrue(told, "\(h.speaker.spoken)")
+        XCTAssertEqual(h.vm.accumulator.text, "", "Anlaşılmayan söz soru metnine karışmaz")
+    }
+
     /// Numarası okunmadığı için numara beklenen soru "soruyu iptal et" ile bırakılır: boşuna sıradaki numarayla Gemini'ye gitmez
     func testCancelQuestionWhileTheNumberIsAskedDropsTheHeldQuestion() async {
         let h = SessionHarness()

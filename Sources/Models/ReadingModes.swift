@@ -367,8 +367,27 @@ enum CommandAttempt {
     static func looksLike(_ text: String) -> Bool {
         let words = SpokenWords.of(text)
         guard !words.isEmpty, words.count <= maxWords else { return false }
+        if looksLikeCancel(words) { return true }
         guard words.allSatisfy(isCommandish) else { return false }
         return words.contains(where: isCore)
+    }
+
+    /// Bozuk iptal denemesi ("soruyu iptalet", birleşik yazılan ya da sonuna ek eklenen komut): yalnız iptal fiili (ya da yakın sesi) + soru/paragraf konu sözcüğü + dolgu.
+    /// Fiil ya da konu sözcüğü tek başına yetmez ("iptal et", "soruyu"): soru metni olabilir.
+    private static func looksLikeCancel(_ words: [String]) -> Bool {
+        var verb = false, subject = false
+        for word in words {
+            if SpokenWords.matches(word, VoiceCommand.fillers) || SpokenWords.matches(word, VoiceCommand.cancelFillers) { continue }
+            if SpokenWords.matches(word, VoiceCommand.cancelVerbs) || SpokenWords.startsLike(word, "iptal") {
+                verb = true
+            } else if SpokenWords.matches(word, VoiceCommand.questionSubjects) || SpokenWords.matches(word, VoiceCommand.passageSubjects)
+                        || SpokenWords.startsLike(word, "paragraf") {
+                subject = true
+            } else {
+                return false
+            }
+        }
+        return verb && subject
     }
 }
 
@@ -436,10 +455,10 @@ enum SpokenReply {
         guard !w.isEmpty else { return nil }
         let kinds = w.map { classify($0, yes: yes, weakYes: confirmWeakYes, no: no) }
         let hasNo = kinds.contains(.no)
-        let hasYes = kinds.contains(.yes) || kinds.contains(.weakYes)
-        if hasNo && hasYes { return nil }   // çelişen söz ("evet hayır"): anlaşılmamış sayılır, yeniden sorulur
-        if hasNo { return .no }
-        if hasYes { return .yes }
+        let hasYes = kinds.contains(.yes)
+        let hasWeakYes = kinds.contains(.weakYes)
+        if hasNo { return hasYes ? nil : .no }   // çelişen söz ("evet hayır"): anlaşılmamış sayılır; "bitirmek istemiyorum": hayır
+        if hasYes || hasWeakYes { return .yes }
         // Onay sorusuna komutu yeniden söylemek ("testi bitir") de evet demektir
         if VoiceCommand.parse(text) == .endTest { return .yes }
         return nil
