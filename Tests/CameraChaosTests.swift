@@ -171,7 +171,9 @@ final class CameraChaosTests: XCTestCase {
             if name == "Hücresel_Ac" { h.health.internet = true }
         }
         h.answering.results = [.success(FakeAnswering.reply(1))]
-        guard await h.startListening() else { return ["oturum açılışta dinlemeye geçemedi"] }
+        // Açılış beklemesi uzun tutulur: koşucuda disk ya da ana iş parçacığı birkaç saniye takılabilir (kilitlenme sınaması bunu aramaz)
+        h.vm.start()
+        guard await waitUntil(30, { h.vm.phase == .listening }) else { return ["oturum açılışta dinlemeye geçemedi (30 sn)"] }
 
         var log: [String] = []
         let count = Int.random(in: 8...16, using: &rng)
