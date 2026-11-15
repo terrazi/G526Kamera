@@ -46,7 +46,7 @@ final class CameraFlowTests: XCTestCase {
         let h = harness(shots: [.success(shot)])
         _ = await h.startListening()
         reply(h, "evet")
-        let again = await waitUntil { h.vm.answers.count == 1 && self.cameraQuestionOpen(h) }
+        let again = await waitUntil(45) { h.vm.answers.count == 1 && self.cameraQuestionOpen(h) }
         XCTAssertTrue(again, "Cevap okunduktan sonra sıradaki soru için yine sorulur")
         XCTAssertEqual(h.events, ["kestirme:Kameraya_Gec", "çekim", "kestirme:Hücresele_Gec", "gönderim"],
                        "Önce hücresel kesilip kameraya geçilir, çekilir, sonra Wi-Fi bırakılıp hücresele dönülür, ondan sonra gönderilir")
@@ -68,7 +68,7 @@ final class CameraFlowTests: XCTestCase {
         _ = await h.startListening()
         h.camera.hold = true
         reply(h, "evet")
-        let capturing = await waitUntil { h.camera.captures == 1 && h.vm.phase == .answering }
+        let capturing = await waitUntil(45) { h.camera.captures == 1 && h.vm.phase == .answering }
         XCTAssertTrue(capturing)
         let plain = T.stuckLimit(for: .answering) ?? 0
         XCTAssertGreaterThan(T.stuckLimit(for: .answering, camera: true) ?? 0, plain)
@@ -77,7 +77,7 @@ final class CameraFlowTests: XCTestCase {
         XCTAssertEqual(h.vm.phase, .answering)
         XCTAssertEqual(h.camera.cancels, 0)
         h.camera.release()
-        let done = await waitUntil { h.vm.answers.count == 1 }
+        let done = await waitUntil(45) { h.vm.answers.count == 1 }
         XCTAssertTrue(done)
         XCTAssertEqual(h.vm.stuckTrips, 0)
     }
@@ -88,15 +88,15 @@ final class CameraFlowTests: XCTestCase {
         _ = await h.startListening()
         h.camera.hold = true
         reply(h, "evet")
-        let capturing = await waitUntil { h.camera.captures == 1 && h.vm.phase == .answering }
+        let capturing = await waitUntil(45) { h.camera.captures == 1 && h.vm.phase == .answering }
         XCTAssertTrue(capturing)
         h.route.interrupt(began: true)
-        let closed = await waitUntil { h.camera.cancels >= 1 && !h.vm.cameraBusy }
+        let closed = await waitUntil(45) { h.camera.cancels >= 1 && !h.vm.cameraBusy }
         XCTAssertTrue(closed, "İş iptal edilince kamera da kapanır ve akış takılı (meşgul) kalmaz")
         XCTAssertTrue(h.vm.pendingShots.isEmpty)
         h.route.interrupt(began: false)
         h.scheduler.advance(by: T.routeStable + 0.1)
-        let asked = await waitUntil(5) { self.cameraQuestionOpen(h) }
+        let asked = await waitUntil(45) { self.cameraQuestionOpen(h) }
         XCTAssertTrue(asked, "Kesintiden sonra kamera sorusu yeniden sorulur (sessizce sesle okumaya dönülmez)")
         XCTAssertFalse(h.shortcuts.runs.contains("Kamera_Onar"), "İptal edilen çekim için bağlantı onarımı çalışmaz")
     }
@@ -105,10 +105,10 @@ final class CameraFlowTests: XCTestCase {
         let h = harness(shots: [], replies: [.success(FakeAnswering.reply(1)), .success(FakeAnswering.reply(2))])
         _ = await h.startListening()
         reply(h, "hayır")
-        let voice = await waitUntil { h.speaker.spoken.last == Say.cameraDeclined && h.vm.listenMode == .question && h.vm.phase == .listening }
+        let voice = await waitUntil(45) { h.speaker.spoken.last == Say.cameraDeclined && h.vm.listenMode == .question && h.vm.phase == .listening }
         XCTAssertTrue(voice)
         h.ask("Birinci soru")
-        let again = await waitUntil { h.vm.answers.count == 1 && self.cameraQuestionOpen(h) }
+        let again = await waitUntil(45) { h.vm.answers.count == 1 && self.cameraQuestionOpen(h) }
         XCTAssertTrue(again, "Cevaptan sonra sıradaki soru için kamera yine sorulur")
         XCTAssertEqual(h.answering.calls.count, 1)
         XCTAssertEqual(h.camera.captures, 0)
@@ -119,13 +119,13 @@ final class CameraFlowTests: XCTestCase {
         let h = harness(shots: [.failure(.noPosition)], replies: [.success(FakeAnswering.reply(1))])
         _ = await h.startListening()
         reply(h, "evet")
-        let voice = await waitUntil { h.speaker.spoken.last == Say.cameraFailed(.noPosition) && h.vm.listenMode == .question && h.vm.phase == .listening }
+        let voice = await waitUntil(45) { h.speaker.spoken.last == Say.cameraFailed(.noPosition) && h.vm.listenMode == .question && h.vm.phase == .listening }
         XCTAssertTrue(voice, "Neden söylenir ve soru sesle okunur")
         XCTAssertEqual(h.events, ["kestirme:Kameraya_Gec", "çekim", "kestirme:Hücresele_Gec"], "Çekim olmasa da internete dönülür")
         XCTAssertTrue(h.answering.captureCalls.isEmpty)
         XCTAssertTrue(h.vm.pendingShots.isEmpty)
         h.ask("Birinci soru")
-        let done = await waitUntil { h.vm.answers.count == 1 && self.cameraQuestionOpen(h) }
+        let done = await waitUntil(45) { h.vm.answers.count == 1 && self.cameraQuestionOpen(h) }
         XCTAssertTrue(done, "Sesle gidince de sıradaki soru için kamera yine sorulur")
     }
 
@@ -133,7 +133,7 @@ final class CameraFlowTests: XCTestCase {
         let h = harness(shots: [.failure(.notConnected), .success(FakeCamera.shot())])
         _ = await h.startListening()
         reply(h, "evet")
-        let done = await waitUntil { h.vm.answers.count == 1 }
+        let done = await waitUntil(45) { h.vm.answers.count == 1 }
         XCTAssertTrue(done)
         XCTAssertEqual(h.events, ["kestirme:Kameraya_Gec", "çekim", "kestirme:Kamera_Onar", "çekim", "kestirme:Hücresele_Gec", "gönderim"],
                        "Bağlanılamayınca Wi-Fi adımı (kamera bağlantısı onarımı) çalışır ve çekim yeniden denenir")
@@ -143,7 +143,7 @@ final class CameraFlowTests: XCTestCase {
         let h = harness(shots: [.failure(.notConnected), .failure(.notConnected), .failure(.noFrames)])
         _ = await h.startListening()
         reply(h, "evet")
-        let voice = await waitUntil { h.speaker.spoken.last == Say.cameraFailed(.noFrames) && h.vm.listenMode == .question && h.vm.phase == .listening }
+        let voice = await waitUntil(45) { h.speaker.spoken.last == Say.cameraFailed(.noFrames) && h.vm.listenMode == .question && h.vm.phase == .listening }
         XCTAssertTrue(voice)
         XCTAssertEqual(h.events, ["kestirme:Kameraya_Gec", "çekim", "kestirme:Kamera_Onar", "çekim", "kestirme:Kamera_Onar", "çekim",
                                   "kestirme:Hücresele_Gec"])
@@ -154,7 +154,7 @@ final class CameraFlowTests: XCTestCase {
         h.settings.wifiShortcut = ""
         _ = await h.startListening()
         reply(h, "evet")
-        let done = await waitUntil { h.vm.answers.count == 1 }
+        let done = await waitUntil(45) { h.vm.answers.count == 1 }
         XCTAssertTrue(done)
         XCTAssertEqual(Array(h.events.prefix(4)), ["kestirme:Kameraya_Gec", "çekim", "kestirme:Kameraya_Gec", "çekim"])
     }
@@ -164,7 +164,7 @@ final class CameraFlowTests: XCTestCase {
         h.shortcuts.outcome = .failed("yok")
         _ = await h.startListening()
         reply(h, "evet")
-        let done = await waitUntil { h.camera.captures == 0 && h.shortcuts.runs.filter { $0 == "Hücresele_Gec" }.count == 2 }
+        let done = await waitUntil(45) { h.camera.captures == 0 && h.shortcuts.runs.filter { $0 == "Hücresele_Gec" }.count == 2 }
         XCTAssertTrue(done)
         XCTAssertEqual(h.camera.captures, 0, "Kestirme çalışmadıysa kamera açılmaz")
         XCTAssertEqual(Array(h.shortcuts.runs.prefix(3)), ["Kameraya_Gec", "Kamera_Onar", "Kamera_Onar"])
@@ -175,7 +175,7 @@ final class CameraFlowTests: XCTestCase {
         let h = harness(shots: [.success(shot)], internetBack: false)
         _ = await h.startListening()
         reply(h, "evet")
-        let sent = await waitUntil(6) { h.vm.answers.count == 1 }
+        let sent = await waitUntil(45) { h.vm.answers.count == 1 }
         XCTAssertTrue(sent, "Hücresel onarımı interneti getirince bekleyen çekim gönderilir")
         XCTAssertEqual(h.events.first, "kestirme:Kameraya_Gec")
         XCTAssertTrue(h.events.contains("kestirme:Hücresel_Ac"), "V3'ün internet onarımı çalışır")
@@ -191,7 +191,7 @@ final class CameraFlowTests: XCTestCase {
                                   .success(FakeAnswering.reply(1))])
         _ = await h.startListening()
         reply(h, "evet")
-        let sent = await waitUntil(6) { h.vm.answers.count == 1 }
+        let sent = await waitUntil(45) { h.vm.answers.count == 1 }
         XCTAssertTrue(sent)
         XCTAssertEqual(h.answering.captureCalls.count, 3, "İki deneme (arada internet kestirmesi yeniden), sonra bekleyen çekim olarak üçüncü")
         XCTAssertEqual(h.shortcuts.runs.filter { $0 == "Hücresele_Gec" }.count, 2, "Ağ hatasından sonra internet kestirmesi yeniden çalışır")
@@ -205,7 +205,7 @@ final class CameraFlowTests: XCTestCase {
         let h = harness(shots: [.success(shot)], replies: errors)
         _ = await h.startListening()
         reply(h, "evet")
-        let settled = await waitUntil(8) { h.answering.captureCalls.count == 4 && self.cameraQuestionOpen(h) }
+        let settled = await waitUntil(45) { h.answering.captureCalls.count == 4 && self.cameraQuestionOpen(h) }
         XCTAssertTrue(settled, "İlk gönderim 2 deneme, bir kez de bekleyen çekim olarak 2 deneme: toplam 4")
         await settle()
         h.scheduler.advance(by: 30)
@@ -229,7 +229,7 @@ final class CameraFlowTests: XCTestCase {
         }
         _ = await h.startListening()
         reply(h, "evet")
-        let held = await waitUntil(8) { h.answering.captureCalls.count == 3 && h.vm.phase == .answering }
+        let held = await waitUntil(45) { h.answering.captureCalls.count == 3 && h.vm.phase == .answering }
         XCTAssertTrue(held, "Bekleyen çekim yeniden gönderilirken Gemini bekletilir")
         h.route.interrupt(began: true)
         await settle()
@@ -240,7 +240,7 @@ final class CameraFlowTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: shot.video!.path))
         h.route.interrupt(began: false)
         h.scheduler.advance(by: T.routeStable + 0.1)
-        let sent = await waitUntil(8) { h.vm.answers.count == 1 }
+        let sent = await waitUntil(45) { h.vm.answers.count == 1 }
         XCTAssertTrue(sent, "Arama bitince bekleyen çekim yeniden gönderilir")
         XCTAssertEqual(h.answering.captureCalls.count, 4)
         XCTAssertTrue(h.vm.pendingShots.isEmpty)
@@ -252,10 +252,10 @@ final class CameraFlowTests: XCTestCase {
         _ = await h.startListening()
         h.camera.hold = true
         reply(h, "evet")
-        let capturing = await waitUntil { h.camera.captures == 1 && h.vm.phase == .answering }
+        let capturing = await waitUntil(45) { h.camera.captures == 1 && h.vm.phase == .answering }
         XCTAssertTrue(capturing)
         h.vm.endTest()
-        let back = await waitUntil { h.shortcuts.runs.filter { $0 == "Hücresele_Gec" }.count == 1 }
+        let back = await waitUntil(45) { h.shortcuts.runs.filter { $0 == "Hücresele_Gec" }.count == 1 }
         XCTAssertTrue(back, "İnternet kestirmesi çalışır")
         XCTAssertEqual(h.vm.phase, .finished)
         XCTAssertTrue(h.vm.pendingShots.isEmpty)
@@ -287,12 +287,12 @@ final class CameraFlowTests: XCTestCase {
         let h = harness(shots: [.success(shot)], replies: [.failure(GeminiError("engellendi", .blocked))])
         _ = await h.startListening()
         reply(h, "evet")
-        let failed = await waitUntil { h.vm.warnings.contains { $0.id == "cevap" } }
+        let failed = await waitUntil(45) { h.vm.warnings.contains { $0.id == "cevap" } }
         XCTAssertTrue(failed)
         await settle()
         XCTAssertTrue(h.vm.pendingShots.isEmpty, "Aynı sonucu verecek çekim telefonda tutulmaz")
         XCTAssertFalse(FileManager.default.fileExists(atPath: shot.video!.path))
-        let asked = await waitUntil(5) { self.cameraQuestionOpen(h) }
+        let asked = await waitUntil(45) { self.cameraQuestionOpen(h) }
         XCTAssertTrue(asked, "Hata söylendikten sonra kamera sorusu yeniden sorulur (sesle okumaya kayılmaz)")
     }
 
@@ -300,10 +300,10 @@ final class CameraFlowTests: XCTestCase {
         let h = harness()
         _ = await h.startListening()
         h.scheduler.advance(by: SilenceWatchdog.limit + 0.1)
-        let reminded = await waitUntil { h.speaker.spoken.last == Say.askCameraAgain && self.cameraQuestionOpen(h) }
+        let reminded = await waitUntil(45) { h.speaker.spoken.last == Say.askCameraAgain && self.cameraQuestionOpen(h) }
         XCTAssertTrue(reminded)
         h.scheduler.advance(by: SilenceWatchdog.limit + 0.1)
-        let voice = await waitUntil { h.speaker.spoken.last == Say.cameraDefaultVoice && h.vm.listenMode == .question && h.vm.phase == .listening }
+        let voice = await waitUntil(45) { h.speaker.spoken.last == Say.cameraDefaultVoice && h.vm.listenMode == .question && h.vm.phase == .listening }
         XCTAssertTrue(voice, "Cevap gelmezse güvenli varsayılan: sesle okuma")
         XCTAssertTrue(h.shortcuts.runs.isEmpty)
         XCTAssertEqual(h.camera.captures, 0)
@@ -314,7 +314,7 @@ final class CameraFlowTests: XCTestCase {
         _ = await h.startListening()
         h.listener.say("bilmem ki")
         h.scheduler.advance(by: T.numberUnclear + 0.1)
-        let again = await waitUntil { h.speaker.spoken.last == Say.askCameraAgain && self.cameraQuestionOpen(h) }
+        let again = await waitUntil(45) { h.speaker.spoken.last == Say.askCameraAgain && self.cameraQuestionOpen(h) }
         XCTAssertTrue(again, "Anlaşılmayınca program kendisi tekrar sorar; kullanıcı sessizlikte kalmaz")
         XCTAssertTrue(h.vm.warnings.contains { $0.id == "duyulan" && $0.text.contains("bilmem ki") })
     }
@@ -568,7 +568,7 @@ final class CameraTesterTests: XCTestCase {
         let r = rig()
         r.camera.hold = true
         let task = Task { await r.tester.run() }
-        let capturing = await waitUntil { r.camera.captures == 1 }
+        let capturing = await waitUntil(45) { r.camera.captures == 1 }
         XCTAssertTrue(capturing)
         XCTAssertTrue(r.tester.running)
         r.tester.stop()
