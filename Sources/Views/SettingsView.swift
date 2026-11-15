@@ -240,6 +240,8 @@ struct SettingsView: View {
         Section(header: Text("Kestirmeler (kendi kendini onarma)")) {
             Toggle("Her soruda kamera ile çekmeyi sor", isOn: $settings.askCamera)
             Toggle("Kamera açılırken soru mu paragraf mı diye sor", isOn: $settings.askCaptureKind)
+            Stepper("Kamera kapalıysa kontrol aralığı: \(settings.cameraCheckMinutes) dakika", value: $settings.cameraCheckMinutes, in: AppSettings.cameraCheckMinutesRange)
+            HelpRow("Kameraya beş denemede ulaşılamazsa (kapalı, şarjı bitti, menzil dışı) program sesle devam eder ve kamerayı bu aralıkla, yalnız sorular arasında yeniden kontrol eder; kamera döndüyse haber verir. Kontrol telefonu birkaç saniye kameranın Wi-Fi'sine geçirir ve interneti keser; aralığı uzatırsanız bu kesinti daha seyrek olur, kısaltırsanız kamera daha çabuk geri alınır (1 ile 60 dakika arası). Değişiklik bir sonraki kontrolden itibaren geçerlidir.")
             namedShortcutRow("Hücresele geç", placeholder: "Hücresel Veri", id: "internet", text: $settings.internetShortcut)
             namedShortcutRow("Kameraya geç", placeholder: "Kameraya Geç", id: "camera", text: $camera.cameraShortcutName)
             shortcutRow("Kamera bağlantısını onar", placeholder: "Kamera Bağlantısını Onar", step: .wifi, text: $settings.wifiShortcut)

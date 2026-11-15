@@ -9,13 +9,18 @@ extension SessionViewModel {
     func markCameraDown(since: Date) {
         guard cameraDownSince == nil else { return }
         cameraDownSince = since
-        tlog("[kamera] kameraya \(Timing.cameraRepairs + 1) denemede ulaşılamadı; sesle devam ediliyor, \(Int(Timing.cameraProbeEvery)) sn'de bir yoklanacak")
+        tlog("[kamera] kameraya \(Timing.cameraRepairs + 1) denemede ulaşılamadı; sesle devam ediliyor, \(Int(cameraProbeInterval)) sn'de bir yoklanacak")
         scheduleCameraProbe()
     }
 
-    func scheduleCameraProbe(after seconds: TimeInterval = Timing.cameraProbeEvery) {
+    /// Kameranın yeniden kontrol aralığı: Ayarlar'daki dakika (1...60; varsayılan 5)
+    var cameraProbeInterval: TimeInterval {
+        return TimeInterval(AppSettings.clampCameraCheckMinutes(settings.cameraCheckMinutes) * 60)
+    }
+
+    func scheduleCameraProbe(after seconds: TimeInterval? = nil) {
         cameraProbeTask?.cancel()
-        cameraProbeTask = deps.scheduler.after(seconds) { [weak self] in self?.cameraProbeDue() }
+        cameraProbeTask = deps.scheduler.after(seconds ?? cameraProbeInterval) { [weak self] in self?.cameraProbeDue() }
     }
 
     /// Yoklama zamanı geldi: uygun bir an mı (sorular arası boşluk), değilse kısa süre sonra yeniden bakılır

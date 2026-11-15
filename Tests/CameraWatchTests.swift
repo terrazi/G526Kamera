@@ -25,10 +25,10 @@ final class CameraWatchTests: XCTestCase {
     }
 
     /// İlk soruda kamera "evet" denir ve 5 deneme de başarısız olur; sesle devam edilmeye başlanana kadar bekler
-    private func giveUp(_ h: SessionHarness) async {
+    private func giveUp(_ h: SessionHarness, minutes: Int = 5) async {
         _ = await h.startListening()
         reply(h, "evet")
-        let voice = await waitUntil(45) { h.speaker.spoken.last == Say.cameraFailed(.noFrames, down: true) && h.vm.listenMode == .question && h.vm.phase == .listening }
+        let voice = await waitUntil(45) { h.speaker.spoken.last == Say.cameraFailed(.noFrames, down: true, minutes: minutes) && h.vm.listenMode == .question && h.vm.phase == .listening }
         XCTAssertTrue(voice, "Sesle devam edilmedi: \(h.speaker.spoken)")
     }
 
@@ -38,8 +38,9 @@ final class CameraWatchTests: XCTestCase {
         XCTAssertFalse(Say.cameraBack(seconds: 60).contains("saniye boyunca"))
         XCTAssertTrue(Say.cameraBack(seconds: 45).contains("45 saniye boyunca"))
         XCTAssertTrue(Say.cameraBack(seconds: 0).contains("0 saniye"))
-        XCTAssertTrue(Say.cameraFailed(.noFrames, down: true).contains("beş dakikada bir"))
-        XCTAssertFalse(Say.cameraFailed(.noFrames).contains("beş dakikada bir"))
+        XCTAssertTrue(Say.cameraFailed(.noFrames, down: true).contains("5 dakikada bir"))
+        XCTAssertTrue(Say.cameraFailed(.noFrames, down: true, minutes: 12).contains("12 dakikada bir"))
+        XCTAssertFalse(Say.cameraFailed(.noFrames).contains("dakikada bir"))
     }
 
     func testAfterGivingUpTheCameraQuestionIsNotAskedAgain() async {
@@ -62,6 +63,47 @@ final class CameraWatchTests: XCTestCase {
         await settle()
         XCTAssertEqual(h.camera.probes, 0, "Beş dakika dolmadan yoklanmaz")
         XCTAssertEqual(T.cameraProbeEvery, 300)
+    }
+
+    /// Ayarlar'dan kontrol aralığı değiştirilebilir: 1...60 dakika, kalıcı, varsayılan 5
+    func testTheCheckIntervalIsSetInTheSettingsAndKept() {
+        let defaults = UserDefaults(suiteName: "g526.kamera.kontrol")!
+        defaults.removePersistentDomain(forName: "g526.kamera.kontrol")
+        let s = AppSettings(defaults: defaults)
+        XCTAssertEqual(s.cameraCheckMinutes, 5, "Varsayılan 5 dakika")
+        s.cameraCheckMinutes = 12
+        XCTAssertEqual(AppSettings(defaults: defaults).cameraCheckMinutes, 12, "Kalıcı")
+        s.cameraCheckMinutes = 0
+        XCTAssertEqual(s.cameraCheckMinutes, 1, "En az 1 dakika")
+        s.cameraCheckMinutes = 500
+        XCTAssertEqual(s.cameraCheckMinutes, 60, "En çok 60 dakika")
+    }
+
+    func testAShorterIntervalFromTheSettingsChecksTheCameraSooner() async {
+        let h = harness()
+        h.settings.cameraCheckMinutes = 2
+        await giveUp(h, minutes: 2)
+        XCTAssertTrue(h.speaker.spoken.contains(Say.cameraFailed(.noFrames, down: true, minutes: 2)), "Söylenen süre ayardaki süredir: \(h.speaker.spoken)")
+        XCTAssertEqual(h.vm.cameraProbeInterval, 120)
+        h.scheduler.advance(by: 119)
+        await settle()
+        XCTAssertEqual(h.camera.probes, 0, "İki dakika dolmadan yoklanmaz")
+        h.camera.probeResults = [true]
+        h.clock.offset = 125
+        h.scheduler.advance(by: 1.2)
+        let told = await waitUntil(45) { h.speaker.spoken.contains(Say.cameraBack(seconds: 125)) }
+        XCTAssertTrue(told, "\(h.speaker.spoken)")
+        XCTAssertEqual(h.camera.probes, 1)
+    }
+
+    func testALongerIntervalFromTheSettingsWaitsLonger() async {
+        let h = harness()
+        h.settings.cameraCheckMinutes = 10
+        await giveUp(h, minutes: 10)
+        XCTAssertEqual(h.vm.cameraProbeInterval, 600)
+        h.scheduler.advance(by: T.cameraProbeEvery + 1)   // 5 dakika geçti: 10 dakikalık ayarda henüz yoklanmaz
+        await settle()
+        XCTAssertEqual(h.camera.probes, 0)
     }
 
     func testTheCameraComingBackIsAnnouncedWithTheDownTimeAndTheCameraQuestionReturns() async {

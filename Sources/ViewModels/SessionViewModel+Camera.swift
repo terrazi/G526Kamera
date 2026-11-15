@@ -305,9 +305,9 @@ extension SessionViewModel {
             clearWarning("kamera")
             if online {
                 if isPassage {
-                    await fallBackToVoicePassage(Say.passageCameraFailed(failure, down: cameraGaveUp))
+                    await fallBackToVoicePassage(Say.passageCameraFailed(failure, down: cameraGaveUp, minutes: settings.cameraCheckMinutes))
                 } else {
-                    await fallBackToVoice(Say.cameraFailed(failure, down: cameraGaveUp))
+                    await fallBackToVoice(Say.cameraFailed(failure, down: cameraGaveUp, minutes: settings.cameraCheckMinutes))
                 }
             } else {
                 await repairInternetAfterCamera(Say.cameraFailedOffline(failure))

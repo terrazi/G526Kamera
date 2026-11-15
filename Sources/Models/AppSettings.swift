@@ -30,6 +30,7 @@ final class AppSettings: ObservableObject {
         static let shortcutInternet = "v3.shortcut.internet"
         static let askCamera = "v3.askCamera"
         static let askCaptureKind = "v4.askCaptureKind"
+        static let cameraCheckMinutes = "v4.cameraCheckMinutes"
         static let sectionsOn = "v4.sectionsOn"
         static let sectionQuestions = "v4.sectionQuestions"
     }
@@ -85,6 +86,8 @@ final class AppSettings: ObservableObject {
     /// Tekrar modunda iki cevap arasındaki boşluk (sn): Ayarlar'daki kaydırıcının aralığı
     static let replayGapRange: ClosedRange<Double> = 0...10
     static let defaultReplayGap: Double = 3
+    static let defaultCameraCheckMinutes = 5
+    static let cameraCheckMinutesRange = 1...60
     static let defaultStartMinutes = 9 * 60
 
     private let defaults: UserDefaults
@@ -132,6 +135,15 @@ final class AppSettings: ObservableObject {
     /// Sürüm 4: kamera "evet" denince "soru mu, ortak paragraf mı çekeceksiniz?" diye sorulsun (kapalıyken her çekim soru sayılır)
     @Published var askCaptureKind: Bool {
         didSet { defaults.set(askCaptureKind, forKey: Key.askCaptureKind) }
+    }
+
+    /// Kameraya 5 denemede ulaşılamayınca sesle devam edilir ve kamera kaç dakikada bir yeniden kontrol edilir (1...60; varsayılan 5)
+    @Published var cameraCheckMinutes: Int {
+        didSet {
+            let fixed = AppSettings.clampCameraCheckMinutes(cameraCheckMinutes)
+            if fixed != cameraCheckMinutes { cameraCheckMinutes = fixed; return }
+            defaults.set(cameraCheckMinutes, forKey: Key.cameraCheckMinutes)
+        }
     }
 
     /// Sürüm 4: sınavın bölümleri. En çok `sectionSlots` bölüm; her biri etkin olabilir ve soru sayısı girilir (0: sayı girilmemiş). Etkin bölümler
@@ -243,6 +255,7 @@ final class AppSettings: ObservableObject {
         internetShortcut = defaults.string(forKey: Key.shortcutInternet) ?? ""
         askCamera = defaults.object(forKey: Key.askCamera) as? Bool ?? true
         askCaptureKind = defaults.object(forKey: Key.askCaptureKind) as? Bool ?? true
+        cameraCheckMinutes = AppSettings.clampCameraCheckMinutes(defaults.object(forKey: Key.cameraCheckMinutes) as? Int ?? AppSettings.defaultCameraCheckMinutes)
         sectionsOn = AppSettings.fitted(defaults.array(forKey: Key.sectionsOn) as? [Bool] ?? [], fill: false)
         sectionQuestions = AppSettings.fitted((defaults.array(forKey: Key.sectionQuestions) as? [Int] ?? []).map(AppSettings.clampQuestions), fill: 0)
         outputShortcut = defaults.string(forKey: Key.shortcutOutput) ?? ""
@@ -301,6 +314,10 @@ final class AppSettings: ObservableObject {
     func setSectionQuestions(_ index: Int, _ count: Int) {
         guard sectionQuestions.indices.contains(index) else { return }
         sectionQuestions[index] = AppSettings.clampQuestions(count)
+    }
+
+    static func clampCameraCheckMinutes(_ minutes: Int) -> Int {
+        return min(max(minutes, cameraCheckMinutesRange.lowerBound), cameraCheckMinutesRange.upperBound)
     }
 
     static func clampGap(_ seconds: Double) -> Double {

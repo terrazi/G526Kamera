@@ -415,18 +415,21 @@ enum Say {
     static let passageSavedOffline = "Paragraf çekildi ama internet gelmedi. Görüntüler telefonda saklandı; bağlantı onarılıyor, düzelince hangi sorulara ait olduğunu soracağım."
     static let recoveredAskTargetsCamera = "Bağlantı yeniden onarıldı. Paragrafın video ve fotoğrafı alındı. Hangi sorulara ait olduğunu söyleyip Tamam deyin."
     /// Kamera paragrafı çekemedi: neden ve sesle devam yolu (V3'teki gibi okunur)
-    static func passageCameraFailed(_ failure: CameraFailure, down: Bool = false) -> String {
-        return "\(failure.message)" + (down ? " " + cameraWatching : "") + " Şimdilik ortak paragrafı okuyun, bitince Tamam deyin."
+    static func passageCameraFailed(_ failure: CameraFailure, down: Bool = false, minutes: Int = 5) -> String {
+        return "\(failure.message)" + (down ? " " + cameraWatching(minutes: minutes) : "") + " Şimdilik ortak paragrafı okuyun, bitince Tamam deyin."
     }
 
     /// Kamera çekimi olmadı (internet geldi): neden ve sesle devam yolu
-    static func cameraFailed(_ failure: CameraFailure, down: Bool = false) -> String {
-        return "\(failure.message)" + (down ? " " + cameraWatching : "") + " Şimdilik soruyu okuyun, bitince Cevapla deyin."
+    static func cameraFailed(_ failure: CameraFailure, down: Bool = false, minutes: Int = 5) -> String {
+        return "\(failure.message)" + (down ? " " + cameraWatching(minutes: minutes) : "") + " Şimdilik soruyu okuyun, bitince Cevapla deyin."
     }
 
     // MARK: Kameraya ulaşılamıyor: sesle devam, 5 dakikada bir yoklama
     /// Kameraya 5 denemede de ulaşılamadı: kamera sistemden çıkar, sesle devam edilir
-    static let cameraWatching = "Kameraya beş denemede ulaşılamadı; sesle devam ediyoruz. Kamerayı beş dakikada bir kontrol edeceğim, düzelirse haber vereceğim."
+    /// `minutes`: Ayarlar'daki kontrol aralığı
+    static func cameraWatching(minutes: Int = 5) -> String {
+        return "Kameraya beş denemede ulaşılamadı; sesle devam ediyoruz. Kamerayı \(minutes) dakikada bir kontrol edeceğim, düzelirse haber vereceğim."
+    }
     static let cameraChecking = "Kamera kontrol ediliyor, lütfen bekleyin."
     static let cameraStillDown = "Kamera hâlâ kapalı, sesle devam ediyoruz."
     /// Kamera döndü: ne kadar süre ulaşılamadığı söylenir ("7 dakika 12 saniye"); sonraki sorudan başlayarak kamera sorusu yeniden sorulur
