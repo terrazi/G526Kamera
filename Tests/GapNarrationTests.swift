@@ -45,7 +45,7 @@ final class GapNarrationTests: XCTestCase {
         _ = await h.startListening()
         h.vm.phase = .checking
         XCTAssertEqual(h.vm.busyPhrase, Say.gapChecking)
-        h.vm.phase = .recovering
+        h.vm.phase = .recovering(.network)
         XCTAssertEqual(h.vm.busyPhrase, Say.gapRepairing)
         h.vm.phase = .answering
         h.vm.statusNote = "Kameraya geçiliyor (hücresel kesiliyor)"
@@ -89,7 +89,7 @@ final class GapNarrationTests: XCTestCase {
         h.scheduler.advance(by: 25)
         let checking = await waitUntil { self.count(h, Say.gapChecking) >= 1 }
         XCTAssertTrue(checking, "açılış kontrolü uzarsa sessiz kalınmaz: \(h.speaker.spoken)")
-        h.vm.phase = .recovering
+        h.vm.phase = .recovering(.network)
         h.scheduler.advance(by: 25)
         let repairing = await waitUntil { self.count(h, Say.gapRepairing) >= 1 }
         XCTAssertTrue(repairing, "onarım sürerken sessiz kalınmaz: \(h.speaker.spoken)")
