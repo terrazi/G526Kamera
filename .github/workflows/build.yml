@@ -119,3 +119,70 @@ jobs:
           name: G526CameraDrive-Test-Log
           path: test.log
           if-no-files-found: ignore
+
+  screens:
+    name: Screenshots (simulator)
+    needs: build
+    timeout-minutes: 30
+    runs-on: macos-15
+    continue-on-error: true
+    permissions:
+      contents: write
+
+    steps:
+      - name: Get source code
+        uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      # Uygulamanın ekranlarını simülatörde gerçekten çizip PNG yazar (Tests/ScreenshotTests.swift)
+      - name: Render screens
+        run: |
+          set -o pipefail
+          DEVICE=$(xcrun simctl list devices available | grep -m1 -oE 'iPhone [0-9A-Za-z ]+ \(' | sed 's/ ($//')
+          echo "Simulator: $DEVICE"
+          mkdir -p /tmp/g526-ekranlar
+          TEST_RUNNER_SCREENSHOT_DIR=/tmp/g526-ekranlar xcodebuild \
+            -project G526CameraDrive.xcodeproj \
+            -scheme G526CameraDrive \
+            -destination "platform=iOS Simulator,name=$DEVICE" \
+            -only-testing:G526CameraDriveTests/ScreenshotTests \
+            CODE_SIGNING_ALLOWED=NO \
+            test 2>&1 | tee screens.log
+          ls -l /tmp/g526-ekranlar
+
+      - name: Zip screenshots
+        if: always()
+        run: |
+          cd /tmp && zip -r "$GITHUB_WORKSPACE/ekran-goruntuleri.zip" g526-ekranlar || true
+
+      - name: Attach screenshots to the release
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG=son-surum
+          if [ "$GITHUB_REF_NAME" = "yeni-surum" ]; then TAG=yeni-surum; fi
+          if [ "$GITHUB_REF_NAME" = "surum-3" ]; then TAG=surum-3; fi
+          if [ "$GITHUB_REF_NAME" = "surum-4" ]; then TAG=surum-4; fi
+          gh release upload "$TAG" "$GITHUB_WORKSPACE/ekran-goruntuleri.zip" --clobber --repo "$GITHUB_REPOSITORY" || true
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: G526CameraDrive-Screenshots
+          path: /tmp/g526-ekranlar
+          if-no-files-found: ignore
+
+      - name: Upload screenshot log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: G526CameraDrive-Screenshot-Log
+          path: screens.log
+          if-no-files-found: ignore
