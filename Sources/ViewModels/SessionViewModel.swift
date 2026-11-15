@@ -122,6 +122,8 @@ final class SessionViewModel: ObservableObject {
         static let cameraRepairs = 2
         /// Kestirmeler uygulamasının geçici ret hatasında ("Çalma Hedefi aygıt bulunamadı") aynı kestirmenin en çok kaç kez, kaç sn arayla yeniden çalıştırılacağı
         static let shortcutTransientRetries = 2
+        /// "Bu soruyu kamera ile çekmek ister misiniz?" en çok bu kadar sorulur; cevap gelmezse (ya da anlaşılmazsa) sonuncudan sonra kameraya kendiliğinden geçilir
+        static let cameraAsks = 3
         static let shortcutTransientPause: TimeInterval = 2.5
         /// Kamera çekimi gönderilirken cevap beklemeye eklenen süre (sn). Telefonda bekleyen çekim sayısına SINIR YOK: çekimler silinmez.
         static let cameraExtraWait: TimeInterval = 180
@@ -1155,12 +1157,13 @@ final class SessionViewModel: ObservableObject {
         if listenMode == .passageCameraChoice, interpret(SpokenReply.cameraChoice) != nil || spokenCommand() != nil { return }
         tlog("[komut] cevap anlaşılamadı; duyulan: \"\(heard)\"")
         warn("duyulan", "Duyulan: “\(heard)”. Cevap anlaşılamadı.")
-        work = Task { [weak self] in await self?.choiceSilence() }
+        work = Task { [weak self] in await self?.choiceSilence(unclear: true) }
     }
 
     /// Cevap gelmedi ("evet/hayır" ya da "devam/yeni" denmedi): testi bitirme sorusunda bitirilmez; başlangıç sorusunda bir kez hatırlatılır,
     /// yine olmazsa varsayılan uygulanır (önceki kayıt 12 saatten yeniyse devam, değilse yeni sınav)
-    func choiceSilence() async {
+    /// `unclear`: bir şey söylendi ama anlaşılmadı (hiç ses gelmediyse false)
+    func choiceSilence(unclear: Bool = false) async {
         closeListening()
         phase = .speaking
         switch listenMode {
@@ -1186,7 +1189,7 @@ final class SessionViewModel: ObservableObject {
         case .reviewMenu:
             await reviewSilence()
         case .cameraChoice:
-            await cameraChoiceSilence()
+            await cameraChoiceSilence(unclear: unclear)
         case .passageCameraChoice:
             await passageCameraChoiceSilence()
         default:

@@ -284,7 +284,12 @@ enum Say {
     /// Kamera sorusu açık ama kamera adı ya da kestirme adları yazılmamış: sessizce V3'e dönülmez, kullanıcıya söylenir
     static let readyCameraMissing = "Ben hazırım, sistem kontrol edildi. Kamera ayarları eksik olduğu için sorular sesle okunacak."
     static let cameraDeclined = "Tamam. Soruyu okuyun, bitince Cevapla deyin."
-    static let cameraDefaultVoice = "Cevap alamadım. Soruyu okuyarak devam ediyoruz. Soruyu okuyun, bitince Cevapla deyin."
+    /// Kamera sorusu cevapsız kaldıkça sıra sayısıyla yeniden sorulur (2. ve 3. soruş); üçüncüde de cevap gelmezse kameraya kendiliğinden geçilir
+    static func askCameraRepeat(_ attempt: Int) -> String {
+        let ordinal = attempt >= 3 ? "üçüncü" : "ikinci"
+        return "Cevap vermediniz, \(ordinal) defa soruyorum. Bu soruyu kamera ile çekip göndermek ister misiniz? Evet ya da hayır deyin."
+    }
+    static let cameraAutoStart = "Cevap vermediniz. Üç defa sordum, kamera ile devam ediyorum."
     static let cameraConnecting = "Kameraya geçiliyor. Birkaç saniye bekleyin."
     static let cameraShortcutsMissing = "Kamera için kestirme adları yazılmamış. Ayarlardan yazın. Şimdilik soruyu okuyun, bitince Cevapla deyin."
     static let cameraRepairing = "Kameraya bağlanılamadı. Bağlantı onarılıyor."

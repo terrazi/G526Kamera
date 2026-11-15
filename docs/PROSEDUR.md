@@ -12,7 +12,7 @@ Bu belge, programın sesle nasıl işlemesi gerektiğini adım adım yazar; her 
 2. **Tek soru.** Soru numarasıyla okunur → "Cevapla" ya da "Gönder" → numara okunmadıysa "Lütfen okuduğunuz sorunun numarasını söyleyin" →
    "Soru gönderildi, cevap bekleniyor" → cevap kulaklıktan okunur ve `soru_N` + `cevaplar.txt` olarak kaydedilir → "Lütfen sonraki soruyu okuyun".
 2a. **Sürüm 4: kamera ile tek soru.** "Lütfen sonraki soruyu okuyun" yerine her soru sınırında: "Bu soruyu kamera ile çekip göndermek ister misiniz?"
-   (evet / hayır; anlaşılmazsa "Anlayamadım…", yine olmazsa güvenli varsayılan: sesle okuma). **Hayır** → 2. adımdaki gibi sesle. **Evet** →
+   (evet / hayır; cevap gelmezse "Cevap vermediniz, ikinci defa soruyorum", sonra "üçüncü defa"; üçüncüde de gelmezse kameraya kendiliğinden geçilir; anlaşılmazsa "Anlayamadım…"). **Hayır** → 2. adımdaki gibi sesle. **Evet** →
    "Kameraya geçiliyor" → `Kameraya Geç` kestirmesi (hücresel kapanır, kameranın Wi-Fi'si) → kameraya bağlanma (olmazsa `Kamera Bağlantısını Onar`,
    en çok 2 kez) → sesle konumlandırma (ortadaki soru; 30 sn'de yine de çeker) → fotoğraf + kısa video → kamera kapanır → `Hücresele Geç` kestirmesi
    (Wi-Fi kapanır) → internet gelince fotoğraf + video Gemini'ye gider → cevap 2. adımdaki gibi okunur ve kaydedilir → sıradaki soru için yine sorulur.

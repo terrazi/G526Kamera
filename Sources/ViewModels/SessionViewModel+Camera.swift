@@ -30,6 +30,7 @@ extension SessionViewModel {
 
     /// "Bu soruyu kamera ile çekip göndermek ister misiniz?"
     func askCameraChoice(again: Bool = false) async {
+        if !again { cameraReminders = 0 }   // her soru için sayaç baştan başlar (önceki sorudan kalan "cevapsız" sayısı taşınmaz)
         // Önceki kamera akışı yarıda kesildiyse telefon kameranın Wi-Fi'sinde kalmış olabilir: önce internet geri getirilir
         await restoreInternetIfStrandedOnCamera()
         // Kesinti (kulaklık, arama, onarım) soruyu söylerken ya da bekleyen çekimi gönderirken gelirse soru kaybolmaz: onarımdan sonra yeniden sorulur
@@ -94,17 +95,24 @@ extension SessionViewModel {
         beginListening(mode: .question)
     }
 
-    /// Cevap gelmedi ya da anlaşılmadı: bir kez daha sorulur; yine olmazsa güvenli varsayılan (sesle okuma, ağ değiştirmeden)
-    func cameraChoiceSilence() async {
+    /// Cevap gelmedi ya da anlaşılmadı: soru toplam `Timing.cameraAsks` kez sorulur. Sessizlikte "Cevap vermediniz, ikinci (üçüncü) defa
+    /// soruyorum", anlaşılmayan sözde "Anlayamadım" denir. Sonuncuda da cevap gelmezse kameraya kendiliğinden geçilir ("evet" denmiş gibi).
+    func cameraChoiceSilence(unclear: Bool = false) async {
         cameraReminders += 1
-        if cameraReminders <= Timing.choiceReminderLimit {
-            guard await speakNotice(Say.askCameraAgain) else { return }
+        if cameraReminders < Timing.cameraAsks {
+            let text = unclear ? Say.askCameraAgain : Say.askCameraRepeat(cameraReminders + 1)
+            guard await speakNotice(text) else { return }
             beginListening(mode: .cameraChoice)
         } else {
             cameraReminders = 0
-            tlog("[kamera] evet / hayır cevabı gelmedi; sesle okumaya dönüldü")
-            guard await speakNotice(Say.cameraDefaultVoice) else { return }
-            listenForVoiceQuestion()
+            tlog("[kamera] evet / hayır cevabı \(Timing.cameraAsks) kez gelmedi; kameraya kendiliğinden geçiliyor")
+            clearWarning("duyulan")
+            listenMode = .question   // seçim yapıldı: bundan sonraki bir onarım "evet / hayır"ı yeniden sormaz, kesilen çekim yeniden denenir
+            guard await speakNotice(Say.cameraAutoStart) else {
+                offerCamera = true
+                return
+            }
+            await runCameraCapture()
         }
     }
 

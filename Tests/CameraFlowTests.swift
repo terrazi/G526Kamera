@@ -806,17 +806,43 @@ final class CameraFlowTests: XCTestCase {
         XCTAssertTrue(asked, "Hata söylendikten sonra kamera sorusu yeniden sorulur (sesle okumaya kayılmaz)")
     }
 
-    func testUnansweredCameraQuestionIsRepeatedOnceThenTheVoiceFlowStartsWithoutTouchingTheNetwork() async {
+    /// Kullanıcı isteği: cevap gelmezse "ikinci defa", "üçüncü defa" denir; üçüncüde de cevap yoksa kameraya kendiliğinden geçilir
+    func testUnansweredCameraQuestionIsAskedThreeTimesThenTheCameraStartsByItself() async {
         let h = harness()
         _ = await h.startListening()
         h.scheduler.advance(by: SilenceWatchdog.limit + 0.1)
-        let reminded = await waitUntil(45) { h.speaker.spoken.last == Say.askCameraAgain && self.cameraQuestionOpen(h) }
-        XCTAssertTrue(reminded)
-        h.scheduler.advance(by: SilenceWatchdog.limit + 0.1)
-        let voice = await waitUntil(45) { h.speaker.spoken.last == Say.cameraDefaultVoice && h.vm.listenMode == .question && h.vm.phase == .listening }
-        XCTAssertTrue(voice, "Cevap gelmezse güvenli varsayılan: sesle okuma")
-        XCTAssertTrue(h.shortcuts.runs.isEmpty)
+        let second = await waitUntil(45) { h.speaker.spoken.last == Say.askCameraRepeat(2) && self.cameraQuestionOpen(h) }
+        XCTAssertTrue(second, "\(h.speaker.spoken)")
+        XCTAssertTrue(Say.askCameraRepeat(2).contains("ikinci defa soruyorum"))
         XCTAssertEqual(h.camera.captures, 0)
+        h.scheduler.advance(by: SilenceWatchdog.limit + 0.1)
+        let third = await waitUntil(45) { h.speaker.spoken.last == Say.askCameraRepeat(3) && self.cameraQuestionOpen(h) }
+        XCTAssertTrue(third, "\(h.speaker.spoken)")
+        XCTAssertTrue(Say.askCameraRepeat(3).contains("üçüncü defa soruyorum"))
+        XCTAssertEqual(h.camera.captures, 0, "Üçüncü soruştan önce kamera açılmaz")
+        h.scheduler.advance(by: SilenceWatchdog.limit + 0.1)
+        let sent = await waitUntil(45) { h.vm.answers.count == 1 }
+        XCTAssertTrue(sent, "Üçüncüde de cevap yoksa kamera kendiliğinden açılır, çekim gönderilir: \(h.speaker.spoken)")
+        XCTAssertTrue(h.speaker.spoken.contains(Say.cameraAutoStart))
+        XCTAssertEqual(h.camera.captures, 1)
+        XCTAssertEqual(h.shortcuts.runs.first, "Kameraya_Gec")
+    }
+
+    /// Anlaşılmayan söz de sayılır: "Anlayamadım" denir, üçüncü soruştan sonra yine kameraya geçilir
+    func testUnclearRepliesCountTowardsTheThreeAsksAndThenTheCameraStarts() async {
+        let h = harness()
+        _ = await h.startListening()
+        for round in 1...2 {
+            h.listener.say("bilmem ki")
+            h.scheduler.advance(by: T.numberUnclear + 0.1)
+            let again = await waitUntil(45) { h.speaker.spoken.last == Say.askCameraAgain && self.cameraQuestionOpen(h) }
+            XCTAssertTrue(again, "\(round). anlaşılmayan söz: \(h.speaker.spoken)")
+        }
+        h.listener.say("bilmem ki")
+        h.scheduler.advance(by: T.numberUnclear + 0.1)
+        let sent = await waitUntil(45) { h.vm.answers.count == 1 }
+        XCTAssertTrue(sent, "\(h.speaker.spoken)")
+        XCTAssertEqual(h.camera.captures, 1)
     }
 
     func testUnclearReplyIsAskedAgainRightAway() async {
