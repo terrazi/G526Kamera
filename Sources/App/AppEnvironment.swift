@@ -27,6 +27,7 @@ final class AppEnvironment: ObservableObject {
         let cameraController = CameraCaptureController(settings: camera)
         settings.applyShortcutPresetOnce()
         settings.applyCameraPresetOnce(camera: camera)
+        settings.moveInternetPresetOnce()
         let folderStore = FolderStore()
         let recorder = PCMRecorder()
         let route = AudioSessionGuard()

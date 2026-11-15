@@ -144,7 +144,7 @@ boyunca ekran kararmaz).
 Kamera ile çekim için Kestirmeler'de üç kestirme daha yapın; adları Ayarlar'daki alanlarla birebir aynı olsun (ilk açılışta kendiliğinden yazılır):
 
 1. `Kameraya Geç` — hücresel veriyi kapat, Wi-Fi'yi aç. Telefon kameranın ağına kendiliğinden bağlanır: kamerayı bir kez elle bağlayıp **Otomatik Bağlan**'ı açık bırakın (Kestirmeler belirli bir ağa bağlanma eylemi sunmaz).
-2. `Hücresele Geç` — Wi-Fi'yi kapat, hücresel veriyi aç.
+2. `Hücresel Veri` — Wi-Fi'yi kapat, hücresel veriyi aç (internete dönüş kestirmesi olarak da bu kullanılır; ayrı bir `Hücresele Geç` yapmanız gerekmez).
 3. `Kamera Bağlantısını Onar` — Wi-Fi'yi kapat, 2 sn bekle, aç (telefon kameranın ağına yeniden bağlanır; kamera bağlanamayınca çalışır).
 
 Günlükte `“…” kestirmesi bulunamadı` görürseniz o ad telefonunuzdaki bir kestirmeyle birebir uyuşmuyor ya da kestirme yok: Ayarlar'daki adı Kestirmeler'deki gerçek adla aynı yapın. `Çalma Hedefi aygıt bulunamadığı için iş ayarlanamadı` ise Kestirmeler'in kestirmeyi kendisinin geri çevirdiği geçici bir durumdur (sınavda ses açıkken görüldü); program aynı kestirmeyi 2,5 sn arayla en çok 2 kez yeniden çalıştırır, günlükte `[kestirme] … geri çevrildi` satırı görünür.

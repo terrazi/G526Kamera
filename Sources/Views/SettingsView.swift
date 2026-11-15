@@ -203,7 +203,7 @@ struct SettingsView: View {
     private var shortcutsSection: some View {
         Section(header: Text("Kestirmeler (kendi kendini onarma)")) {
             Toggle("Her soruda kamera ile çekmeyi sor", isOn: $settings.askCamera)
-            namedShortcutRow("Hücresele geç", placeholder: "Hücresele Geç", id: "internet", text: $settings.internetShortcut)
+            namedShortcutRow("Hücresele geç", placeholder: "Hücresel Veri", id: "internet", text: $settings.internetShortcut)
             namedShortcutRow("Kameraya geç", placeholder: "Kameraya Geç", id: "camera", text: $camera.cameraShortcutName)
             shortcutRow("Kamera bağlantısını onar", placeholder: "Kamera Bağlantısını Onar", step: .wifi, text: $settings.wifiShortcut)
             HelpRow("Kamera ile çekimde program sırayla şunları yapar: “Kameraya geç” kestirmesi hücresel veriyi keser ve kameranın Wi-Fi ağına bağlar; çekim bitince kamera kapanır ve “Hücresele geç” kestirmesi Wi-Fi'yi bırakıp hücresel veriyi açar. Kameraya bağlanılamazsa “Kamera bağlantısını onar” kestirmesi çalışır ve çekim bir kez daha denenir (yazılmamışsa “Kameraya geç” yeniden çalışır). İnternet onarımı (hücresel aç, sistemi sıfırla) Wi-Fi'ye dokunmaz.")

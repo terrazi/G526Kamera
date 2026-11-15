@@ -304,4 +304,28 @@ final class LoopGuardTests: XCTestCase {
         XCTAssertEqual(again.outputShortcut, "")
         XCTAssertEqual(again.cellularShortcut, "Hücresel Veri")
     }
+
+    /// Cihaz günlüğü: "“Hücresele Geç” kestirmesi bulunamadı" (telefonda "Hücresel Veri" var; Wi-Fi'yi kapatıp hücreseli açar)
+    func testInternetShortcutMovesFromTheMissingOldPresetToHucreselVeriOnlyOnce() {
+        let defaults = UserDefaults(suiteName: "g526.testler.\(UUID().uuidString)")!
+        let s = AppSettings(defaults: defaults)
+        s.internetShortcut = "Hücresele Geç"
+        s.moveInternetPresetOnce()
+        XCTAssertEqual(s.internetShortcut, "Hücresel Veri")
+        // Bir kez: sonradan kullanıcı eski adı bilerek yazsa bile geri alınmaz
+        s.internetShortcut = "Hücresele Geç"
+        s.moveInternetPresetOnce()
+        XCTAssertEqual(s.internetShortcut, "Hücresele Geç")
+
+        // Kullanıcının kendi yazdığı ada dokunulmaz
+        let own = AppSettings(defaults: UserDefaults(suiteName: "g526.testler.\(UUID().uuidString)")!)
+        own.internetShortcut = "Benim Kestirmem"
+        own.moveInternetPresetOnce()
+        XCTAssertEqual(own.internetShortcut, "Benim Kestirmem")
+
+        // Boşsa da yazılır
+        let empty = AppSettings(defaults: UserDefaults(suiteName: "g526.testler.\(UUID().uuidString)")!)
+        empty.moveInternetPresetOnce()
+        XCTAssertEqual(empty.internetShortcut, "Hücresel Veri")
+    }
 }

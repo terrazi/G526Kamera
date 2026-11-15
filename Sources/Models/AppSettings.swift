@@ -40,8 +40,11 @@ final class AppSettings: ObservableObject {
         static let bluetooth = "Bluetooth"
         static let reset = "Sistemi Sıfırla"
         static let output = "Kulaklık Düzeltme"
-        /// Sürüm 4: çekim bitince Wi-Fi'yi bırakıp hücresel veriyi açan kestirme
-        static let internet = "Hücresele Geç"
+        /// Sürüm 4: çekim bitince Wi-Fi'yi bırakıp hücresel veriyi açan kestirme. Kullanıcının telefonundaki "Hücresel Veri" kestirmesi
+        /// (önce Wi-Fi'yi kapatır, sonra hücreseli açar) tam bu işi yapar; ayrı bir "Hücresele Geç" kestirmesi gerekmez.
+        static let internet = "Hücresel Veri"
+        /// Önceki sürümlerin yazdığı ad: telefonda böyle bir kestirme yoktu ("bulunamadı"); `moveInternetPresetOnce` bunu yenisiyle değiştirir
+        static let legacyInternet = "Hücresele Geç"
         /// Sürüm 4: hücresel veriyi kesip kameranın Wi-Fi ağına bağlanan kestirme (`CameraSettings.cameraShortcutName`)
         static let camera = "Kameraya Geç"
     }
@@ -65,6 +68,15 @@ final class AppSettings: ObservableObject {
         // V3'te "Wifi" internet için Wi-Fi açardı; V4'te bu adım kamera bağlantısını onarır: eski ön ayar yenisiyle değişir, kullanıcının kendi adına dokunulmaz
         if wifiShortcut.trimmed.isEmpty || wifiShortcut == "Wifi" { wifiShortcut = PresetShortcut.wifi }
         if camera.cameraShortcutName.trimmed.isEmpty { camera.cameraShortcutName = PresetShortcut.camera }
+    }
+
+    /// Eski ön ayar "Hücresele Geç" telefonlarda hiç yoktu (günlükte "kestirmesi bulunamadı"): kullanıcı kendi adını yazmadıysa
+    /// internete dönüş kestirmesi bir kez "Hücresel Veri"ye çevrilir. Kullanıcının kendi yazdığı ada dokunulmaz.
+    func moveInternetPresetOnce() {
+        guard !defaults.bool(forKey: "v4.internetPresetMoved") else { return }
+        defaults.set(true, forKey: "v4.internetPresetMoved")
+        let current = internetShortcut.trimmed
+        if current.isEmpty || current == PresetShortcut.legacyInternet { internetShortcut = PresetShortcut.internet }
     }
 
     /// Tekrar modunda iki cevap arasındaki boşluk (sn): Ayarlar'daki kaydırıcının aralığı
