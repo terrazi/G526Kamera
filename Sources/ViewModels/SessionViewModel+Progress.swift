@@ -110,8 +110,9 @@ extension SessionViewModel {
         // İkisini de beginListening yapar; burada yalnız kısa bir cümle söylenir
         if resendablePending != nil || offerCamera { return Continuation(text: Say.recoveredPendingShot, mode: .question, keep: false) }
         if listenMode == .cameraChoice { return Continuation(text: Say.askCameraAfterRecovery, mode: .cameraChoice, keep: false) }
+        if listenMode == .passageCameraChoice { return Continuation(text: Say.askPassageCameraAfterRecovery, mode: .passageCameraChoice, keep: false) }
         if heldQuestion != nil { return Continuation(text: Say.recoveredAskNumber, mode: .missingNumber, keep: false) }
-        if passageDraft != nil { return Continuation(text: Say.recoveredAskTargets, mode: .passageTargets, keep: false) }
+        if let draft = passageDraft { return Continuation(text: draft.shot == nil ? Say.recoveredAskTargets : Say.recoveredAskTargetsCamera, mode: .passageTargets, keep: false) }
         if settings.smartResume {
             if interruptedFrom == .answering {
                 return Continuation(text: Say.recoveredAfterSend, mode: .question, keep: false)
@@ -130,8 +131,8 @@ extension SessionViewModel {
             let sentence = LastSentence.of(body)
             return Continuation(text: Say.continuePartial(passage: true, number: nil, sentence: sentence), mode: .passage, keep: !body.isEmpty)
         case .passageTargets:
-            return Continuation(text: Say.recoveredAskTargets, mode: .passageTargets, keep: false)
-        case .missingNumber, .confirmEnd, .startChoice, .reviewMenu, .cameraChoice:
+            return Continuation(text: passageDraft?.shot == nil ? Say.recoveredAskTargets : Say.recoveredAskTargetsCamera, mode: .passageTargets, keep: false)
+        case .missingNumber, .confirmEnd, .startChoice, .reviewMenu, .cameraChoice, .passageCameraChoice:
             return nil
         case .question:
             let words = text.split(whereSeparator: { $0.isWhitespace })

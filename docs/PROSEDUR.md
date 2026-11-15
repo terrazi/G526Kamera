@@ -25,6 +25,15 @@ Bu belge, programın sesle nasıl işlemesi gerektiğini adım adım yazar; her 
    yanıt yoksa atılır, söylenir ve kamera sorusu yeniden sorulur. Kamera sorusunu beklemeden soru okunursa (9+ sözcük) sesle okuma seçilmiş sayılır.
    Sesle kaydedilmiş ortak paragraf çekilen soruyla birlikte Gemini'ye gider. Kamera akışı kesilirse telefon kameranın Wi-Fi'sinde kalmış olabilir:
    onarımdan sonra internet yoksa `Hücresele Geç` kestirmesi çalışır, sonra bekleyen çekim gönderilir ya da kamera sorulur.
+   **Her aşamada kısa bilgi verilir:** "Kameraya geçiliyor" → "Kamera hazır, soruyu kadraja alın" → "Soru için video ve fotoğraf çekimi başarıyla
+   yapıldı. Kamera kapatıldı, internete geçiliyor" → "İnternet geldi. Soru Gemini'ye gönderiliyor, cevabı bekleyin" → cevap okunur.
+2b. **Sürüm 4: kamera ile ortak paragraf.** Kamera sorusunda (ya da sesle okuma seçildikten sonra) "Ortak paragraf" denirse program "Paragrafı kamera ile
+   çekmek ister misiniz?" diye sorar. **Hayır** → 3. adımdaki gibi paragraf sesle okunur. **Evet** → paragraf OKUNMAZ: kameraya geçilir, kadraja alınır
+   ("Ortak paragrafı kadraja alın"), 5 sn video + fotoğraf çekilir, "Paragraf için video ve fotoğraf çekimi başarıyla yapıldı" denir, internete dönülür
+   ve "Bu paragraf hangi sorular için? Numaraları söyleyip Tamam deyin" diye sorulur → "5, 6, 7" + Tamam → "Ortak paragraf 5, 6 ve 7 için kaydedildi" →
+   bu soru için kamera yeniden sorulur. Paragraf tek başına Gemini'ye gitmez; paragrafın fotoğrafı ve videosu o numaralı her soruyla (sesle okunan ya da
+   kamerayla çekilen) birlikte gider, hepsi cevaplanınca bırakılır. Paragraf ve soru görüntüleri birlikte 14 MB'ı aşarsa paragrafın videosu atılır
+   (fotoğrafı gider). Video süresi Ayarlar > Kamera > "Soru videosu" ayarındandır. Uygulama kapanıp açılırsa paragrafın yalnız fotoğrafı korunur.
 3. **Ortak paragraf.** "Ortak paragraf" (duraklayın) → "Lütfen ortak paragrafı okuyun, bitince Tamam deyin" → paragraf + "Tamam" → "Paragraf metnini
    aldım, hangi sorular için? Numaraları söyleyip Tamam deyin" → "5, 6, 7" → "Ortak paragraf 5, 6 ve 7 için kaydedildi. Şimdi soruları okuyabilirsiniz" →
    her soru (numarası listede ise) paragrafla birlikte gider; hepsi cevaplanınca paragraf bırakılır.
@@ -44,6 +53,7 @@ Bu belge, programın sesle nasıl işlemesi gerektiğini adım adım yazar; her 
 |---|---|---|---|---|
 | soru | "Hazır" / "Lütfen sonraki soruyu okuyun" | soru + Cevapla/Gönder; komutlar | 30 sn sessizlikte dinleme sessizce yenilenir | yok |
 | ortak paragraf | "Lütfen ortak paragrafı okuyun, bitince Tamam deyin" | paragraf + Tamam / Tamamlandı | — ("tamam" cümle içinde geçerse 1,5 sn sabit kalmadan bitmez) | yok |
+| ortak paragraf: kamera mı, ses mi (yalnız kamera açıkken) | "Ortak paragraf. Paragrafı kamera ile çekmek ister misiniz?" | evet / hayır | anlaşılmazsa ya da sessizlikte bir kez daha sorulur; olmazsa sesle okuma | 1 hatırlatma |
 | paragraf numaraları | "Paragraf metnini aldım, hangi sorular için?" | numaralar + Tamam / Cevapla / Gönder | kısa yeniden sorma; ekranda ne duyulduğu yazar | 2 yeniden, sonra paragraf sıradaki soruya bağlanır ve söylenir |
 | eksik soru numarası | "Lütfen okuduğunuz sorunun numarasını söyleyin" | numara, "sıradaki" | numara olmayan kısa söz 4 sn sonra, sessizlik 30 sn sonra yeniden sorulur; ekranda ne duyulduğu yazar | 2 hatırlatma, sonra sıradaki numara |
 | testi bitirme onayı | "Testi bitirmek istiyor musunuz?" | evet / hayır (komutu yeniden söylemek de evet); "cevapları tekrarla" | anlaşılmazsa bir kez daha sorulur; cevapsızlıkta test sürer | 1 hatırlatma |

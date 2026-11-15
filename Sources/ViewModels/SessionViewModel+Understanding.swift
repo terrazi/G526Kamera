@@ -5,7 +5,7 @@ extension ListenHints {
     static func hints(for mode: ListenMode) -> ListenHints {
         switch mode {
         case .question, .passage: return .dictation
-        case .confirmEnd, .startChoice, .reviewMenu, .cameraChoice: return .choice
+        case .confirmEnd, .startChoice, .reviewMenu, .cameraChoice, .passageCameraChoice: return .choice
         case .missingNumber: return .number
         case .passageTargets: return .targets
         }

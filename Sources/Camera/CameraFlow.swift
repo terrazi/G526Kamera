@@ -19,13 +19,24 @@ struct CapturedQuestion: Equatable {
     /// Sesle kaydedilmiş ortak paragraf varsa gönderim sırasında eklenen not (çekim telefonda beklerken paragraf değişebilir, o yüzden
     /// çekimle birlikte saklanmaz; her gönderimde yeniden yazılır)
     var passageNote = ""
+    /// Kamerayla çekilmiş ortak paragraf varsa gönderim sırasında eklenen görüntüleri (aynı gerekçeyle çekimle birlikte saklanmaz)
+    var passageMedia: PassageMedia?
 
     /// Gemini'ye satır içi gönderilebilen fotoğraf + video toplamı (bayt). İstek sınırı 20 MB'tır ve veri base64 ile üçte bir şişer
     /// (14 MB → ~18,7 MB); metin ve talimat payı için de yer kalır. Video sığmazsa yalnız fotoğraf gider.
     static let maxInlineVideoBytes = 14_000_000
 
+    /// Sorunun videosu gider mi: önce sorunun kendi fotoğrafı ve paragrafın fotoğrafı yer açar, sığarsa video eklenir (soru, paragraftan önceliklidir)
     var canSendVideo: Bool {
-        return video != nil && videoBytes > 0 && videoBytes + photo.count <= CapturedQuestion.maxInlineVideoBytes
+        return video != nil && videoBytes > 0
+            && videoBytes + photo.count + (passageMedia?.photo.count ?? 0) <= CapturedQuestion.maxInlineVideoBytes
+    }
+
+    /// Paragrafın videosu gider mi: yalnız sorunun fotoğraf + videosundan sonra hâlâ yer kalıyorsa
+    var canSendPassageVideo: Bool {
+        guard let media = passageMedia, media.canHaveVideo else { return false }
+        let used = photo.count + media.photo.count + (canSendVideo ? videoBytes : 0)
+        return used + media.videoBytes <= CapturedQuestion.maxInlineVideoBytes
     }
 
     /// Aynı çekim mi (fotoğraf baytlarını karşılaştırmak yerine kimlik)
@@ -35,6 +46,24 @@ struct CapturedQuestion: Equatable {
     func discard() {
         if let url = video { try? FileManager.default.removeItem(at: url) }
     }
+}
+
+/// Kamerayla çekilmiş ortak paragrafın Gemini'ye giden görüntüleri (fotoğraf + kısa video)
+struct PassageMedia: Equatable {
+    var photo: Data
+    var video: URL?
+    var videoBytes: Int
+    /// Aynı çekim mi (fotoğraf baytlarını karşılaştırmak yerine kimlik)
+    var id: UUID
+
+    init(_ shot: CapturedQuestion) {
+        photo = shot.photo
+        video = shot.video
+        videoBytes = shot.videoBytes
+        id = shot.id
+    }
+
+    var canHaveVideo: Bool { return video != nil && videoBytes > 0 }
 }
 
 /// Kamera çekimi neden olmadı
@@ -67,6 +96,12 @@ enum CameraFailure: Error, Equatable {
     }
 }
 
+/// Çekilen şey: tek bir soru ya da birkaç soruya ortak paragraf
+enum CaptureSubject: Equatable {
+    case question
+    case passage
+}
+
 /// Kamerayı açıp soruyu çeken bileşen. Gerçeği V1'in kamera altyapısıyla çalışır (`CameraCaptureController`), testler sahtesini kullanır.
 @MainActor
 protocol CameraCapturing: AnyObject {
@@ -74,6 +109,8 @@ protocol CameraCapturing: AnyObject {
     var onSay: ((String) -> Void)? { get set }
     /// Ekranda görünen kısa durum satırı ("Kameraya bağlanılıyor", "Sayfa kadrajda"…)
     var onStatus: ((String) -> Void)? { get set }
+    /// Neyin çekildiği: konumlandırma cümleleri buna göre söylenir ("Soruyu kadraja alın" / "Paragrafı kadraja alın"). Her çekimden önce ayarlanır.
+    var subject: CaptureSubject { get set }
     /// Kamerayı açar, bağlanır, sesle konumlandırır, soruyu videoya ve fotoğrafa alır ve BİTİNCE kamerayı kapatır (başarısız da olsa).
     func capture() async -> Result<CapturedQuestion, CameraFailure>
     /// Süren çekimi iptal eder (kamera kapanır)
@@ -85,6 +122,7 @@ protocol CameraCapturing: AnyObject {
 final class NoCamera: CameraCapturing {
     var onSay: ((String) -> Void)?
     var onStatus: ((String) -> Void)?
+    var subject: CaptureSubject = .question
     func capture() async -> Result<CapturedQuestion, CameraFailure> { return .failure(.unavailable) }
     func cancel() {}
 }

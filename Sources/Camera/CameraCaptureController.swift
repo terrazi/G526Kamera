@@ -55,6 +55,10 @@ enum DiskGuard {
 /// Kamera çekimi sırasında söylenen cümleler (konumlandırma cümleleri Guidance.swift'ten gelir)
 enum CameraSay {
     static let ready = "Kamera hazır. Soruyu kadraja alın."
+    /// Ortak paragraf çekilirken (Sürüm 4)
+    static let readyPassage = "Kamera hazır. Ortak paragrafı kadraja alın."
+    static func readyLine(_ subject: CaptureSubject) -> String { return subject == .passage ? readyPassage : ready }
+    static func framing(_ subject: CaptureSubject) -> String { return subject == .passage ? "Paragrafı kadraja alın" : "Soruyu kadraja alın" }
     static let shooting = "Çekiyorum, kamerayı sabit tutun."
     static let forced = "Yine de çekiyorum, kamerayı sabit tutun."
     static let manual = "Çekiyorum, kamerayı sabit tutun."
@@ -70,6 +74,7 @@ enum CameraSay {
 final class CameraCaptureController: ObservableObject, CameraCapturing {
     var onSay: ((String) -> Void)?
     var onStatus: ((String) -> Void)?
+    var subject: CaptureSubject = .question
 
     /// Ekranda: kamera görüntüsü gösterilsin mi (çekim sürerken)
     @Published private(set) var active = false
@@ -220,8 +225,8 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         let trigger: Trigger
         if settings.guidanceEnabled {
             configureGuidance()
-            status("Soruyu kadraja alın")
-            say(CameraSay.ready)
+            status(CameraSay.framing(subject))
+            say(CameraSay.readyLine(subject))
             trigger = await awaitTrigger(seconds: CameraCaptureController.positionSeconds)
         } else {
             trigger = .manual

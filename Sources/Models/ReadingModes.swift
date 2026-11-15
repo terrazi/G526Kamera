@@ -18,6 +18,8 @@ enum ListenMode: Equatable {
     case reviewMenu
     /// Sürüm 4: "Bu soruyu kamera ile çekip göndermek ister misiniz?" sorusuna "evet" / "hayır" bekleniyor
     case cameraChoice
+    /// Sürüm 4: "Ortak paragraf" denmiş; "Ortak paragrafı kamera ile çekmek ister misiniz?" sorusuna "evet" (kamera) / "hayır" (sesle okuma) bekleniyor
+    case passageCameraChoice
 }
 
 /// Kayıtlı ortak paragraf: ait olduğu sorulardan biri her sorulduğunda Gemini'ye soruyla birlikte gider
@@ -31,14 +33,20 @@ struct PassageContext: Equatable {
     var remaining: [Int]
     /// Paragraf o kadar uzun okundu ki kaydın başı bellek sınırı yüzünden atıldı (metin tam, ses eksik)
     var audioTruncated = false
+    /// Sürüm 4: paragraf sesle okunmadı, kamerayla çekildi (fotoğraf + kısa video); bu durumda `text` boştur ve görüntüler her ilgili soruyla gider
+    var shot: CapturedQuestion?
+
+    var viaCamera: Bool { return shot != nil }
 }
 
-/// "Tamam" denmiş ama hangi sorulara ait olduğu henüz söylenmemiş paragraf
+/// "Tamam" denmiş (ya da kamerayla çekilmiş) ama hangi sorulara ait olduğu henüz söylenmemiş paragraf
 struct PassageDraft: Equatable {
     var text: String
     var english: String
     var audio: Data?
     var audioTruncated = false
+    /// Sürüm 4: kamerayla çekilen paragraf (yalnız görüntü)
+    var shot: CapturedQuestion?
 }
 
 /// Numarası okunmadığı için numara beklenirken tutulan soru
@@ -439,8 +447,21 @@ enum QuestionComposer {
         return text + "\n\nŞimdi sorulan soru:\n\(question)"
     }
 
+    /// Sesle okunan soru + KAMERAYLA çekilmiş paragraf: paragrafın görüntüleri mesaja eklenir, metin yerine bu cümle yazılır
+    static func withCameraPassage(question: String, passage: PassageContext) -> String {
+        return "Ortak paragraf (\(listText(passage.all)) numaralı sorular için ortaktır; soruyu bu paragrafa göre çöz):\n"
+            + "(Paragraf yazı olarak değil, bu mesaja eklenen fotoğraf ve varsa videoda görüntü olarak veriliyor; paragrafı oradan oku.)"
+            + "\n\nŞimdi sorulan soru:\n\(question)"
+    }
+
     /// Kamera ile çekilen soru için: numara görüntüden okunacağından paragraf, hangi numaralara ait olduğuyla birlikte eklenir
     static func cameraNote(passage: PassageContext) -> String {
+        if passage.viaCamera {
+            guard !passage.remaining.isEmpty else { return "" }
+            return "Bu mesajdaki görüntülerin İLK fotoğrafı (ve varsa ilk videosu) ORTAK PARAGRAFA, sonraki fotoğraf ve video ÇEKİLEN SORUYA aittir. "
+                + "Ortak paragraf \(listText(passage.all)) numaralı sorular için ortaktır. Çekilen soru bu numaralardan biriyse paragrafı görüntüden oku "
+                + "ve soruyu ona göre çöz, değilse paragrafı yok say."
+        }
         let text = passage.text.trimmed
         guard !text.isEmpty, !passage.remaining.isEmpty else { return "" }
         return "Kullanıcı bu paragrafı sesle okuttu; \(listText(passage.all)) numaralı sorular için ortaktır. Çekilen soru bu numaralardan biriyse "

@@ -88,13 +88,16 @@ enum Say {
     static let passageTaken = "Paragraf metnini aldım. Bu paragraf hangi sorular için? Soru numaralarını söyleyip Tamam deyin."
     static let passageTargetsAgain = "Numaraları anlayamadım. Örneğin beş altı yedi deyip Tamam deyin."
     /// Numaralar üst üste anlaşılamadı: paragraf yalnız sıradaki soruya bağlanır (kaybolmasın, döngü bitsin)
-    static func passageFallback(_ next: Int) -> String {
-        return "Numaraları anlayamadım. Paragraf yalnız sıradaki soru, yani \(next). soru için kaydedildi. Şimdi soruyu okuyabilirsiniz."
+    static func passageFallback(_ next: Int, cameraNext: Bool = false) -> String {
+        return "Numaraları anlayamadım. Paragraf yalnız sıradaki soru, yani \(next). soru için kaydedildi."
+            + (cameraNext ? "" : " Şimdi soruyu okuyabilirsiniz.")
     }
     static let recoveredAskTargets = "Bağlantı yeniden onarıldı. Paragraf metnini aldım. Hangi sorulara ait olduğunu söyleyip Tamam deyin."
     static let passageEmpty = "Paragraf metni boş kaldı. Ortak paragraf deyip paragrafı yeniden okuyun."
-    static func passageReady(_ numbers: [Int]) -> String {
-        return "Ortak paragraf \(QuestionComposer.listText(numbers)) numaralı sorular için kaydedildi. Şimdi soruları okuyabilirsiniz."
+    /// `cameraNext`: sıradaki adım kamera sorusu (ayrıca söylenir); "soruları okuyabilirsiniz" denmez
+    static func passageReady(_ numbers: [Int], cameraNext: Bool = false) -> String {
+        return "Ortak paragraf \(QuestionComposer.listText(numbers)) numaralı sorular için kaydedildi."
+            + (cameraNext ? "" : " Şimdi soruları okuyabilirsiniz.")
     }
 
     /// Yarım okuma kesilip bağlantı düzelince: en son okunan cümle tekrarlanır, kullanıcı oradan devam eder (söyledikleri birleştirilir)
@@ -130,8 +133,9 @@ enum Say {
     }
 
     /// Kapanmadan önceki ortak paragraf geri yüklendi (ses kaydı kayboldu, metin kaldı)
-    static func resumedPassage(_ numbers: [Int]) -> String {
-        return "Ortak paragraf yazı olarak korundu: \(QuestionComposer.listText(numbers)) numaralı sorular için geçerli."
+    /// `photo`: paragraf kamerayla çekilmişti; kapanmada videosu kayboldu, yalnız fotoğrafı korundu
+    static func resumedPassage(_ numbers: [Int], photo: Bool = false) -> String {
+        return "Ortak paragraf \(photo ? "fotoğraf olarak" : "yazı olarak") korundu: \(QuestionComposer.listText(numbers)) numaralı sorular için geçerli."
     }
 
     static func duration(_ seconds: Int) -> String {
@@ -207,13 +211,35 @@ enum Say {
     static let cameraConnecting = "Kameraya geçiliyor. Birkaç saniye bekleyin."
     static let cameraShortcutsMissing = "Kamera için kestirme adları yazılmamış. Ayarlardan yazın. Şimdilik soruyu okuyun, bitince Cevapla deyin."
     static let cameraRepairing = "Kameraya bağlanılamadı. Bağlantı onarılıyor."
-    static let cameraCaptured = "Soru çekildi. Kamera kapatıldı, internete geçiliyor."
-    static let cameraSending = "Soru gönderiliyor."
+    /// Çekim başarılı: kullanıcı neyin tamamlandığını ve sıradaki adımı duyar
+    static let cameraCaptured = "Soru için video ve fotoğraf çekimi başarıyla yapıldı. Kamera kapatıldı, internete geçiliyor."
+    static let cameraSending = "İnternet geldi. Soru Gemini'ye gönderiliyor, cevabı bekleyin."
+    static let cameraSendingWithPassage = "İnternet geldi. Soru, ortak paragrafın görüntüleriyle birlikte Gemini'ye gönderiliyor, cevabı bekleyin."
+    static let questionSentWithPassage = "Soru, ortak paragrafın görüntüleriyle birlikte Gemini'ye gönderildi, cevap bekleniyor."
     static let cameraEntryText = "Kamera ile çekilen soru"
     static let cameraSavedOffline = "Soru çekildi ama internet gelmedi. Telefonda saklandı; bağlantı onarılıyor, düzelince gönderilecek."
     static let recoveredPendingShot = "Bağlantı yeniden onarıldı."
     static let cameraPendingGivenUp = "Önceki çekilen soru yine gönderilemedi ve atıldı; cevabı yok. Gerekirse o soruyu yeniden çekin ya da okuyun."
     static let cameraPendingSending = "Önceki çekilen soru telefonda bekliyordu, şimdi gönderiyorum."
+
+    // MARK: Sürüm 4: kamerayla ortak paragraf
+    static let askPassageCamera = "Ortak paragraf. Paragrafı kamera ile çekmek ister misiniz? Evet ya da hayır deyin."
+    static let askPassageCameraAgain = "Anlayamadım. Ortak paragrafı kamera ile çekmek ister misiniz? Evet ya da hayır deyin."
+    static let askPassageCameraAfterRecovery = "Bağlantı yeniden onarıldı. Ortak paragrafı kamera ile çekmek ister misiniz? Evet ya da hayır deyin."
+    /// "Hayır": paragraf V3'teki gibi sesle okunur
+    static let passageCameraDeclined = "Tamam. Lütfen ortak paragrafı okuyun, bitince Tamam deyin."
+    static let passageCameraDefaultVoice = "Cevap alamadım. Ortak paragrafı okuyarak devam ediyoruz. Lütfen paragrafı okuyun, bitince Tamam deyin."
+    static let passageShortcutsMissing = "Kamera için kestirme adları yazılmamış. Ayarlardan yazın. Şimdilik ortak paragrafı okuyun, bitince Tamam deyin."
+    static let passageCameraConnecting = "Ortak paragraf için kameraya geçiliyor. Birkaç saniye bekleyin."
+    static let passageCaptured = "Paragraf için video ve fotoğraf çekimi başarıyla yapıldı. Kamera kapatıldı, internete geçiliyor."
+    /// İnternet geldi, paragraf alındı: hangi sorulara ait olduğu sorulur (V3'teki paragraf adımı)
+    static let passageTakenCamera = "İnternet geldi. Paragrafın video ve fotoğrafı alındı. Bu paragraf hangi sorular için? Soru numaralarını söyleyip Tamam deyin."
+    static let passageSavedOffline = "Paragraf çekildi ama internet gelmedi. Görüntüler telefonda saklandı; bağlantı onarılıyor, düzelince hangi sorulara ait olduğunu soracağım."
+    static let recoveredAskTargetsCamera = "Bağlantı yeniden onarıldı. Paragrafın video ve fotoğrafı alındı. Hangi sorulara ait olduğunu söyleyip Tamam deyin."
+    /// Kamera paragrafı çekemedi: neden ve sesle devam yolu (V3'teki gibi okunur)
+    static func passageCameraFailed(_ failure: CameraFailure) -> String {
+        return "\(failure.message) Şimdilik ortak paragrafı okuyun, bitince Tamam deyin."
+    }
 
     /// Kamera çekimi olmadı (internet geldi): neden ve sesle devam yolu
     static func cameraFailed(_ failure: CameraFailure) -> String {

@@ -7,6 +7,10 @@ import Foundation
 /// kadar beklenir; (4) fotoğraf + video Gemini'ye gider, cevap okunur ve kaydedilir (V3'ün cevap akışı aynen); (5) sıradaki soru için yine sorulur.
 /// Hayır denince V3 gibi: kullanıcı soruyu okur, "Cevapla" der. Kamera akışı herhangi bir adımda başarısız olursa program nedenini söyler
 /// ve soruyu sesle okumaya döner; kullanıcı hiçbir adımda sessizlikte bırakılmaz.
+///
+/// Ortak paragraf da aynı düzendedir (V3'teki sesle okuma gibi): kullanıcı "Ortak paragraf" der, program "kamera ile çekmek ister misiniz?"
+/// diye sorar; evet denirse paragraf okunmaz, video + fotoğraf olarak çekilir (soruyla aynı kamera akışı), ardından "hangi sorular için?"
+/// sorulur ve numaralar söylenir. Görüntüler o numaralı her soruyla birlikte Gemini'ye gider.
 extension SessionViewModel {
     // MARK: Hazır mı
 
@@ -43,6 +47,11 @@ extension SessionViewModel {
     func armCameraOffer() {
         offerCamera = cameraOfferAvailable
         cameraOfferSuppressed = false
+    }
+
+    /// Ortak paragraf kaydedildikten sonra sıradaki adım kamera sorusu olacak mı (bu soru için "hayır" denmediyse ve kamera hazırsa)
+    var cameraNextAfterPassage: Bool {
+        return cameraOfferAvailable && !cameraOfferSuppressed
     }
 
     /// Bir sonraki `beginListening(mode: .question)` kamera sorusunu soracak mı: sorulacaksa cümleler "soruyu okuyun" demez
@@ -92,30 +101,98 @@ extension SessionViewModel {
         }
     }
 
+    // MARK: Ortak paragraf: sesle mi, kamerayla mı
+
+    /// "Ortak paragrafı kamera ile çekmek ister misiniz?" sorusuna cevap: evet kamerayla çeker, hayır V3'teki gibi sesle okutur
+    func firePassageCameraChoice() {
+        guard let reply = interpret(SpokenReply.cameraChoice) else { return }
+        clearWarning("duyulan")
+        closeListening()
+        // Seçim yapıldı: bundan sonraki bir onarım "evet / hayır"ı yeniden sormaz. Evet: çekim sürerken kip önemsizdir; hayır: paragraf kipi korunur
+        listenMode = reply == .yes ? .question : .passage
+        phase = .speaking
+        cameraReminders = 0
+        tlog("[paragraf] ortak paragraf için kamera sorusuna \(reply == .yes ? "evet" : "hayır") denildi")
+        work = Task { [weak self] in
+            guard let self = self else { return }
+            if reply == .yes {
+                await self.runCameraCapture(subject: .passage)
+            } else {
+                guard await self.speakNotice(Say.passageCameraDeclined) else { return }
+                self.beginListening(mode: .passage)
+            }
+        }
+    }
+
+    /// Cevap gelmedi ya da anlaşılmadı: bir kez daha sorulur; yine olmazsa güvenli varsayılan (paragrafı sesle okutma, ağ değiştirmeden)
+    func passageCameraChoiceSilence() async {
+        cameraReminders += 1
+        if cameraReminders <= Timing.choiceReminderLimit {
+            guard await speakNotice(Say.askPassageCameraAgain) else { return }
+            beginListening(mode: .passageCameraChoice)
+        } else {
+            cameraReminders = 0
+            tlog("[paragraf] kamera sorusu cevapsız kaldı; paragraf sesle okutuluyor")
+            listenMode = .passage
+            guard await speakNotice(Say.passageCameraDefaultVoice) else { return }
+            beginListening(mode: .passage)
+        }
+    }
+
+    /// Paragraf çekimi olmadı: neden söylenir ve paragraf V3'teki gibi sesle okutulur
+    func fallBackToVoicePassage(_ text: String) async {
+        listenMode = .passage
+        guard await speakNotice(text) else { return }
+        beginListening(mode: .passage)
+    }
+
+    /// Paragrafın görüntüleri alındı ve internet geldi: hangi sorulara ait olduğu sorulur (V3'teki paragraf adımı aynen)
+    func askPassageTargetsAfterCamera() async {
+        statusNote = ""
+        listenMode = .passageTargets
+        guard await speakNotice(Say.passageTakenCamera) else { return }   // kesildi: taslak durur, onarımdan sonra yeniden sorulur
+        beginListening(mode: .passageTargets)
+    }
+
+    /// Paragrafın video dosyası, artık ne taslakta ne kayıtlı paragrafta tutulmuyorsa silinir (paragraf değişti, bitti ya da vazgeçildi)
+    func releasePassageShot(_ old: CapturedQuestion?) {
+        guard let old = old else { return }
+        if passage?.shot?.id == old.id || passageDraft?.shot?.id == old.id { return }
+        old.discard()
+    }
+
     // MARK: Çekim akışı
 
-    func runCameraCapture() async {
+    /// Kamera çekimi. `subject == .passage`: çekilen ortak paragraftır; soru gibi Gemini'ye gönderilmez, "hangi sorulara ait" sorulana kadar
+    /// taslak olarak tutulur. Her adımda kullanıcıya kısa bilgi verilir (kameraya geçiliyor, çekim başarılı, internet geldi…).
+    func runCameraCapture(subject: CaptureSubject = .question) async {
         guard !cameraBusy else { return }
         cameraBusy = true
         defer { cameraBusy = false }
+        let isPassage = subject == .passage
         let cameraName = cameraSettings.cameraShortcutName.trimmed
         let internetName = settings.internetShortcut.trimmed
         guard cameraConfigured else {
-            await fallBackToVoice(Say.cameraShortcutsMissing)
+            if isPassage {
+                await fallBackToVoicePassage(Say.passageShortcutsMissing)
+            } else {
+                await fallBackToVoice(Say.cameraShortcutsMissing)
+            }
             return
         }
-        guard await speakNotice(Say.cameraConnecting) else {
+        guard await speakNotice(isPassage ? Say.passageCameraConnecting : Say.cameraConnecting) else {
             offerCamera = true   // kesildi (kulaklık, arama, onarım): onarımdan sonra kamera sorusu yeniden sorulur
             return
         }
         phase = .answering
         networkMayBeOnCamera = true   // kestirme çalışınca hücresel kapanır; internete dönüş doğrulanana kadar bayrak durur
         statusNote = "Kameraya geçiliyor (hücresel kesiliyor)"
-        tlog("[kamera] hücresel kesilip kameranın Wi-Fi ağına geçiliyor: kestirme “\(cameraName)”")
+        tlog("[kamera] hücresel kesilip kameranın Wi-Fi ağına geçiliyor: kestirme “\(cameraName)”\(isPassage ? " (ortak paragraf)" : "")")
+        deps.camera.subject = subject
         var result = await captureWithRepair(cameraName: cameraName)
         // Çekim telefonda saklanır: internete dönüş sürerken kesinti olsa ya da gönderim başarısız olsa da kaybolmaz
         if case .success(var shot) = result {
-            shot.extraInstruction = cameraSettings.videoQuestion.trimmed
+            if !isPassage { shot.extraInstruction = cameraSettings.videoQuestion.trimmed }   // ek talimat soruya yöneliktir, paragrafa değil
             shot.highResolution = cameraSettings.videoHighRes
             if !cameraSettings.videoToGemini {
                 shot.discard()
@@ -123,20 +200,29 @@ extension SessionViewModel {
                 shot.videoBytes = 0
             }
             result = .success(shot)
-            keepPending(shot)
+            if isPassage {
+                // Paragraf bir soru değildir: tek başına gönderilmez; hangi sorulara ait olduğu söylenene kadar taslak olarak tutulur
+                // (kesinti olursa onarımdan sonra numaralar yeniden sorulur, bkz. `continuation`)
+                passageDraft = PassageDraft(text: "", english: "", audio: nil, shot: shot)
+                targetReminders = 0
+                targetDoneReminders = 0
+            } else {
+                keepPending(shot)
+            }
         }
         guard !Task.isCancelled, phase == .answering else {
-            offerCamera = true
+            if !isPassage || passageDraft == nil { offerCamera = true }
             return
         }
-        if case .success = result { sayGuidance(Say.cameraCaptured) }
+        if case .success = result { sayGuidance(isPassage ? Say.passageCaptured : Say.cameraCaptured) }
         // Kamera kapandı: Wi-Fi bırakılır, hücresel açılır
         statusNote = "İnternete geçiliyor (Wi-Fi bırakılıyor)"
         let online = await returnToInternet(shortcut: internetName)
         if online { networkMayBeOnCamera = false }
         await waitForGuidanceSpeech()
         guard !Task.isCancelled, phase == .answering else {
-            if pendingShots.isEmpty { offerCamera = true }   // çekim telefonda bekliyorsa önce o gönderilir (bkz. beginListening)
+            // Çekim telefonda bekliyorsa önce o gönderilir (bkz. beginListening); paragraf taslağı varsa numaraları sorulur (bkz. continuation)
+            if (isPassage ? passageDraft == nil : pendingShots.isEmpty) { offerCamera = true }
             return
         }
         switch result {
@@ -144,13 +230,25 @@ extension SessionViewModel {
             tlog("[kamera] çekim olmadı: \(failure.message)")
             clearWarning("kamera")
             if online {
-                await fallBackToVoice(Say.cameraFailed(failure))
+                if isPassage {
+                    await fallBackToVoicePassage(Say.passageCameraFailed(failure))
+                } else {
+                    await fallBackToVoice(Say.cameraFailed(failure))
+                }
             } else {
                 await repairInternetAfterCamera(Say.cameraFailedOffline(failure))
             }
         case .success(let shot):
-            tlog("[kamera] çekildi: fotoğraf \(shot.photo.count / 1024) KB, video \(shot.video == nil ? "yok" : "\(shot.videoBytes / 1024) KB, \(Int(shot.videoSeconds.rounded())) sn"); internet \(online ? "geldi" : "gelmedi")")
-            if online {
+            tlog("[kamera] çekildi\(isPassage ? " (ortak paragraf)" : ""): fotoğraf \(shot.photo.count / 1024) KB, video \(shot.video == nil ? "yok" : "\(shot.videoBytes / 1024) KB, \(Int(shot.videoSeconds.rounded())) sn"); internet \(online ? "geldi" : "gelmedi")")
+            if isPassage {
+                if online {
+                    clearWarning("kamera")
+                    await askPassageTargetsAfterCamera()
+                } else {
+                    warn("kamera", "Çekilen paragraf telefonda bekliyor: internet gelmedi.")
+                    await repairInternetAfterCamera(Say.passageSavedOffline)
+                }
+            } else if online {
                 await sendShot(shot)
             } else {
                 warn("kamera", "Çekilen soru telefonda bekliyor: internet gelmedi.")
@@ -163,7 +261,11 @@ extension SessionViewModel {
     func sendShot(_ original: CapturedQuestion) async {
         // Sesle kaydedilmiş ortak paragraf varsa çekilen soruyla birlikte gider (numara görüntüden okunur; paragraf listedeki numaralar için geçerlidir)
         var prepared = original
-        if let context = passage { prepared.passageNote = QuestionComposer.cameraNote(passage: context) }
+        if let context = passage {
+            prepared.passageNote = QuestionComposer.cameraNote(passage: context)
+            // Paragraf kamerayla çekilmişse görüntüleri de gider (soruinkinden önce; metindeki not sırayı söyler)
+            if let media = context.shot, !context.remaining.isEmpty { prepared.passageMedia = PassageMedia(media) }
+        }
         let shot = prepared
         sendingShotID = shot.id
         defer { sendingShotID = nil }
@@ -172,7 +274,7 @@ extension SessionViewModel {
         let expected = nextNumber
         beginEntry(text: Say.cameraEntryText, withAudio: false, number: expected)
         deps.journal.savePending(nil)
-        if settings.spokenProgress { speakProgress(Say.cameraSending) }
+        if settings.spokenProgress { speakProgress(shot.passageMedia == nil ? Say.cameraSending : Say.cameraSendingWithPassage) }
         startAnswerWait()
         answerWaitElapsed = -Timing.cameraExtraWait   // fotoğraf + video hücresel veriyle yüklenir: V3'ün 180 sn sınırına bu kadar eklenir
         let fetch: () async throws -> GeminiReply = { [weak self] in

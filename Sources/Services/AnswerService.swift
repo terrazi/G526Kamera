@@ -21,12 +21,17 @@ protocol Answering: AnyObject {
     /// Dikte edilen soruyu Gemini'ye sorar. `expectedNumber`: soru numarası okunmamışsa kullanılacak sıradaki numara.
     /// `audio`: soruyu okuyanın ses kaydı (WAV); verilirse asıl kaynak odur, `question` dikte metni ipucu olur.
     /// `english`: aynı sesin İngilizce tanıyıcıdan geçmiş hâli (boş olabilir); İngilizce cümlelerde Türkçe metinden daha doğrudur.
-    func answer(question: String, english: String, expectedNumber: Int, audio: Data?) async throws -> GeminiReply
+    /// `passage`: kamerayla çekilmiş ortak paragraf varsa görüntüleri (soru metni paragrafa göndermeyi söyler); yoksa nil
+    func answer(question: String, english: String, expectedNumber: Int, audio: Data?, passage: PassageMedia?) async throws -> GeminiReply
     /// Sürüm 4: kamera ile çekilmiş soru (sayfa fotoğrafı + kısa video). Cevap biçimi ve profil zinciri sesle gelen soruyla aynıdır.
     func answer(capture: CapturedQuestion, expectedNumber: Int) async throws -> GeminiReply
 }
 
 extension Answering {
+    func answer(question: String, english: String, expectedNumber: Int, audio: Data?) async throws -> GeminiReply {
+        return try await answer(question: question, english: english, expectedNumber: expectedNumber, audio: audio, passage: nil)
+    }
+
     func answer(question: String, expectedNumber: Int, audio: Data?) async throws -> GeminiReply {
         return try await answer(question: question, english: "", expectedNumber: expectedNumber, audio: audio)
     }
@@ -66,8 +71,8 @@ final class GeminiAnswerService: Answering {
 
     Kullanıcı soruları sırayla okumak zorunda değildir (önce Soru 7, sonra Soru 3 okunabilir): numarayı sıradan ya da ipucundan \
     çıkarma, okunan numarayı aynen yaz. Soru numarası hiç okunmadıysa ya da anlaşılmadıysa kullanıcı mesajındaki ipucunu kullan. \
-    Bazen mesaj "Ortak paragraf (… numaralı sorular için ortaktır …)" diye başlar; ardından paragraf metni ve "Şimdi sorulan soru:" \
-    bölümü gelir. Paragraf birden çok sorunun ortak metnidir: yalnız "Şimdi sorulan soru" bölümündeki soruyu, paragrafa dayanarak \
+    Bazen mesaj "Ortak paragraf (… numaralı sorular için ortaktır …)" diye başlar; ardından paragraf metni (ya da paragraf yazı olarak \
+    değil, mesaja eklenen fotoğraf ve videoda görüntü olarak verildiği notu) ve "Şimdi sorulan soru:" bölümü gelir. Paragraf birden çok sorunun ortak metnidir: yalnız "Şimdi sorulan soru" bölümündeki soruyu, paragrafa dayanarak \
     yanıtla ve cevabı o sorunun numarasıyla ver; paragraftaki diğer numaraları cevaplama. Soru metni "Soru 7." diye başlıyorsa bu \
     numarayı kullanıcı söylemiştir (numara okumadan sonra sorulup öğrenildi): aynen kullan. \
     Cevap metnini şıktan kısaca yaz. \
@@ -91,6 +96,8 @@ final class GeminiAnswerService: Answering {
     Fotoğraf ve video aynı sayfayı gösterir. Fotoğrafta okunmayan, bulanık ya da parlama yüzünden görünmeyen bir yer varsa videodan \
     tamamla; ikisi çelişirse net olana güven. Soru numarasını soru metninin başından oku ve aynen yaz; numara okunamıyorsa kullanıcı \
     mesajındaki ipucunu kullan. Sayfada birkaç soruya ortak bir paragraf varsa onu oku ve ortada görünen soruyu o paragrafa dayanarak yanıtla. \
+    Mesajda ayrıca kullanıcının daha önce çektiği ORTAK PARAGRAFIN fotoğrafı ve videosu da olabilir (mesajdaki not hangi görüntünün paragrafa, hangisinin \
+    soruya ait olduğunu söyler): çekilen soru o paragrafın sorularından biriyse paragrafı oradan oku ve soruyu ona dayanarak yanıtla. \
     Cevap metnini şıktan kısaca yaz. Giriş, açıklama, markdown, tırnak ve ek cümle yazma. Emin değilsen en olası şıkkı yaz.
     """
 
@@ -106,11 +113,26 @@ final class GeminiAnswerService: Answering {
         return text
     }
 
+    /// Kamerayla çekilmiş ortak paragrafın istek parçaları: fotoğraf, sığarsa video. Video okunamazsa (dosya yok) yalnız fotoğraf gider.
+    static func passageParts(_ media: PassageMedia, withVideo: Bool, fps: Double?) -> [[String: Any]] {
+        var parts: [[String: Any]] = [["inlineData": ["mimeType": "image/jpeg", "data": media.photo.base64EncodedString()]]]
+        if withVideo, let url = media.video, let data = try? Data(contentsOf: url) {
+            var part: [String: Any] = ["inlineData": ["mimeType": "video/mp4", "data": data.base64EncodedString()]]
+            if let fps = fps { part["videoMetadata"] = ["fps": fps] }
+            parts.append(part)
+        }
+        return parts
+    }
+
     /// Çekilen soru için istek gövdesi. Video satır içi gider (≤ 14 MB; büyükse yalnız fotoğraf gider); `fps`: kaydın kare hızı (nil: ayarsız)
     static func captureBody(_ shot: CapturedQuestion, expectedNumber: Int, fps: Double? = VideoRecorder.fps) throws -> Data {
         var video: Data?
         if shot.canSendVideo, let url = shot.video { video = try? Data(contentsOf: url) }
         var parts: [[String: Any]] = [["text": captureText(expectedNumber: expectedNumber, hasVideo: video != nil, extra: shot.extraInstruction, passage: shot.passageNote)]]
+        // Kamerayla çekilmiş ortak paragraf varsa görüntüleri soruninkinden ÖNCE gelir (mesajdaki not sırayı söyler)
+        if let media = shot.passageMedia {
+            parts.append(contentsOf: passageParts(media, withVideo: shot.canSendPassageVideo, fps: fps))
+        }
         parts.append(["inlineData": ["mimeType": "image/jpeg", "data": shot.photo.base64EncodedString()]])
         if let video = video {
             var part: [String: Any] = ["inlineData": ["mimeType": "video/mp4", "data": video.base64EncodedString()]]
@@ -162,10 +184,16 @@ final class GeminiAnswerService: Answering {
         return text
     }
 
-    static func requestBody(question: String, english: String = "", expectedNumber: Int, audio: Data? = nil) throws -> Data {
+    static func requestBody(question: String, english: String = "", expectedNumber: Int, audio: Data? = nil, passage: PassageMedia? = nil) throws -> Data {
         var parts: [[String: Any]] = [["text": userText(question: question, english: english, expectedNumber: expectedNumber, hasAudio: audio != nil)]]
         if let audio = audio {
             parts.append(["inlineData": ["mimeType": "audio/wav", "data": audio.base64EncodedString()]])
+        }
+        if let media = passage {
+            // Ses kaydı + paragraf fotoğrafı + paragraf videosu 14 MB'ı (base64 ile ~18,7 MB) aşmasın: sığmazsa yalnız fotoğraf gider
+            let used = (audio?.count ?? 0) + media.photo.count
+            let fits = media.canHaveVideo && used + media.videoBytes <= CapturedQuestion.maxInlineVideoBytes
+            parts.append(contentsOf: passageParts(media, withVideo: fits, fps: VideoRecorder.fps))
         }
         let object: [String: Any] = [
             "systemInstruction": ["parts": [["text": systemPrompt]]],
@@ -239,10 +267,11 @@ final class GeminiAnswerService: Answering {
         restingUntil[profile.slot] = now().addingTimeInterval(seconds)
     }
 
-    func answer(question: String, english: String, expectedNumber: Int, audio: Data?) async throws -> GeminiReply {
+    func answer(question: String, english: String, expectedNumber: Int, audio: Data?, passage: PassageMedia?) async throws -> GeminiReply {
         guard !GeminiProfiles.usable(profilesProvider()).isEmpty else { throw GeminiError(Say.noKeyShort, .key) }
-        let body = try GeminiAnswerService.requestBody(question: question, english: english, expectedNumber: expectedNumber, audio: audio)
-        return try await run(body: body, limit: limit)
+        let body = try GeminiAnswerService.requestBody(question: question, english: english, expectedNumber: expectedNumber, audio: audio, passage: passage)
+        // Paragraf görüntüsü de gidiyorsa istek, yüklemesi daha uzun süren çekilmiş soru gibi bekler
+        return try await run(body: body, limit: passage == nil ? limit : captureLimit)
     }
 
     /// Kamera ile çekilen soru: kare hızı ayarı bu modelde reddedilirse (400) ayarsız bir kez daha denenir

@@ -185,8 +185,9 @@ final class SessionViewModel: ObservableObject {
     @Published var passage: PassageContext? {
         didSet {
             guard passage != oldValue else { return }
-            // Uygulama beklenmedik kapanırsa paragraf (yalnız metin) defterde durur ve yeniden açılışta geri yüklenir
-            deps.journal.savePassage(passage.map { SavedPassage(text: $0.text, english: $0.english, all: $0.all, remaining: $0.remaining) })
+            // Uygulama beklenmedik kapanırsa paragraf (yazı olarak; kamerayla çekildiyse fotoğraf olarak) defterde durur ve yeniden açılışta geri yüklenir
+            deps.journal.savePassage(passage.map { SavedPassage(text: $0.text, english: $0.english, all: $0.all, remaining: $0.remaining, photo: $0.shot?.photo) })
+            releasePassageShot(oldValue?.shot)
         }
     }
 
@@ -288,7 +289,9 @@ final class SessionViewModel: ObservableObject {
     var heartbeatTicks = 0
     /// Numarası okunmadığı için numara beklenen soru; "Tamamlandı" denmiş ama soru numaraları beklenen paragraf; numara hatırlatma sayısı
     var heldQuestion: HeldQuestion?
-    var passageDraft: PassageDraft?
+    var passageDraft: PassageDraft? {
+        didSet { releasePassageShot(oldValue?.shot) }
+    }
     var numberReminders = 0
     var targetReminders = 0
     var targetDoneReminders = 0
@@ -398,10 +401,11 @@ final class SessionViewModel: ObservableObject {
     func start() {
         guard phase.isAtRest else { return }
         resetSession()
-        // Beklenmedik kapanmadan sonra ortak paragraf yalnız metin olarak geri gelir (ses kaydı bellekteydi, kayboldu)
+        // Beklenmedik kapanmadan sonra ortak paragraf yazı olarak (kamerayla çekildiyse fotoğraf olarak) geri gelir: ses kaydı ve video bellekteydi, kayboldu
         if let saved = resume?.passage, !saved.remaining.isEmpty {
-            passage = PassageContext(text: saved.text, english: saved.english, audio: nil, all: saved.all, remaining: saved.remaining)
-            tlog("[paragraf] kapanmadan önceki ortak paragraf yazı olarak geri yüklendi (\(QuestionComposer.listText(saved.remaining)) numaralı sorular)")
+            let photoShot = saved.photo.map { CapturedQuestion(photo: $0) }
+            passage = PassageContext(text: saved.text, english: saved.english, audio: nil, all: saved.all, remaining: saved.remaining, shot: photoShot)
+            tlog("[paragraf] kapanmadan önceki ortak paragraf \(photoShot == nil ? "yazı" : "fotoğraf") olarak geri yüklendi (\(QuestionComposer.listText(saved.remaining)) numaralı sorular)")
         }
         phase = .checking
         deps.screen.keepAwake(true)
@@ -723,8 +727,14 @@ final class SessionViewModel: ObservableObject {
                 listenMode = .question
                 deps.listener.hints = ListenHints.hints(for: .question)
             }
-            if listenMode == .question, PassageCommand.startsWith(accumulator.text) {
-                listenMode = .passage   // "ortak paragraf": paragraf okunuyor, "Tamam" ile biter
+            if listenMode == .question || listenMode == .cameraChoice, PassageCommand.startsWith(accumulator.text) {
+                // "ortak paragraf": paragraf okunuyor ya da (kamera varsa, yalnız "ortak paragraf" denip duraklanırsa) kamera sorulur;
+                // kamera sorusuna da bu sözle cevap verilebilir
+                if listenMode == .cameraChoice {
+                    cameraReminders = 0
+                    deps.listener.hints = ListenHints.hints(for: .passage)
+                }
+                listenMode = .passage
                 tlog("[paragraf] ortak paragraf kipi açıldı")
             }
             reevaluateTrigger()
@@ -834,6 +844,9 @@ final class SessionViewModel: ObservableObject {
         case .reviewMenu:
             guard interpret(SpokenReply.review) != nil else { scheduleChoiceUnclear(); return }
             delay = Timing.numberConfirm
+        case .passageCameraChoice:
+            guard interpret(SpokenReply.cameraChoice) != nil else { scheduleChoiceUnclear(); return }
+            delay = Timing.numberConfirm
         case .cameraChoice:
             if interpret(SpokenReply.cameraChoice) != nil {
                 delay = Timing.numberConfirm
@@ -862,6 +875,7 @@ final class SessionViewModel: ObservableObject {
         case .startChoice: fireStartChoice()
         case .reviewMenu: fireReview()
         case .cameraChoice: fireCameraChoice()
+        case .passageCameraChoice: firePassageCameraChoice()
         }
     }
 
@@ -971,12 +985,13 @@ final class SessionViewModel: ObservableObject {
 
     func choiceUnclear() {
         confirmTask = nil
-        guard phase == .listening, listenMode == .confirmEnd || listenMode == .startChoice || listenMode == .reviewMenu || listenMode == .cameraChoice else { return }
+        guard phase == .listening, [ListenMode.confirmEnd, .startChoice, .reviewMenu, .cameraChoice, .passageCameraChoice].contains(listenMode) else { return }
         let heard = accumulator.text
         if listenMode == .confirmEnd, interpret(SpokenReply.yesNo) != nil { return }
         if listenMode == .startChoice, interpret(SpokenReply.start) != nil { return }
         if listenMode == .reviewMenu, interpret(SpokenReply.review) != nil { return }
         if listenMode == .cameraChoice, interpret(SpokenReply.cameraChoice) != nil || spokenCommand() != nil { return }
+        if listenMode == .passageCameraChoice, interpret(SpokenReply.cameraChoice) != nil { return }
         tlog("[komut] cevap anlaşılamadı; duyulan: \"\(heard)\"")
         warn("duyulan", "Duyulan: “\(heard)”. Cevap anlaşılamadı.")
         work = Task { [weak self] in await self?.choiceSilence() }
@@ -1011,6 +1026,8 @@ final class SessionViewModel: ObservableObject {
             await reviewSilence()
         case .cameraChoice:
             await cameraChoiceSilence()
+        case .passageCameraChoice:
+            await passageCameraChoiceSilence()
         default:
             beginListening(mode: .question)
         }
@@ -1183,7 +1200,14 @@ final class SessionViewModel: ObservableObject {
         phase = .speaking
         tlog("[paragraf] ortak paragraf komutu duyuldu; paragrafı okuması isteniyor")
         work = Task { [weak self] in
-            guard let self = self, await self.speakNotice(Say.passagePrompt) else { return }
+            guard let self = self else { return }
+            // Sürüm 4: kamera hazırsa paragraf sesle mi okunacak, kamerayla mı çekilecek önce sorulur
+            if self.cameraOfferAvailable {
+                guard await self.speakNotice(Say.askPassageCamera) else { return }
+                self.beginListening(mode: .passageCameraChoice)
+                return
+            }
+            guard await self.speakNotice(Say.passagePrompt) else { return }
             self.beginListening(mode: .passage)
         }
     }
@@ -1249,18 +1273,21 @@ final class SessionViewModel: ObservableObject {
             }
             // Üst üste anlaşılamadı: sonsuz tekrar yerine paragraf sıradaki soruya bağlanır ve bu açıkça söylenir
             numbers = [nextNumber]
-            notice = Say.passageFallback(nextNumber)
+            notice = Say.passageFallback(nextNumber, cameraNext: cameraNextAfterPassage)
             tlog("[paragraf] numaralar anlaşılamadı; paragraf sıradaki soruya (\(nextNumber)) bağlandı")
         }
         targetReminders = 0
         targetDoneReminders = 0
         clearWarning("numara")
+        // Önce paragraf kurulur, sonra taslak boşaltılır: kamerayla çekilen görüntülerin video dosyası taslaktan paragrafa geçer, silinmez
         passage = PassageContext(text: draft.text, english: draft.english, audio: draft.audio, all: numbers, remaining: numbers,
-                                 audioTruncated: draft.audioTruncated)
+                                 audioTruncated: draft.audioTruncated, shot: draft.shot)
         passageDraft = nil
         listenMode = .question
-        tlog("[paragraf] ortak paragraf \(QuestionComposer.listText(numbers)) numaralı sorular için kaydedildi")
-        let spokenNotice = notice ?? Say.passageReady(numbers)
+        tlog("[paragraf] ortak paragraf \(QuestionComposer.listText(numbers)) numaralı sorular için kaydedildi\(draft.shot == nil ? "" : " (kamerayla, görüntü olarak)")")
+        // Paragraf sorusu kamera sorusunun yerine geçmişti: bu soru için ("hayır" denmediyse) kamera yeniden sorulur
+        if !cameraOfferSuppressed { offerCamera = cameraOfferAvailable }
+        let spokenNotice = notice ?? Say.passageReady(numbers, cameraNext: cameraNextAfterPassage)
         work = Task { [weak self] in
             guard let self = self, await self.speakNotice(spokenNotice) else { return }
             self.beginListening(mode: .question)
@@ -1274,25 +1301,36 @@ final class SessionViewModel: ObservableObject {
         var englishOut = english
         var audioOut = audio
         let effective = number ?? nextNumber
+        var passageMedia: PassageMedia?
         if let context = passage, context.remaining.contains(effective) {
-            let joined = AudioJoin.join(passage: context.audio, question: audio)
-            text = QuestionComposer.withPassage(question: text, passage: context, audioCombined: joined.combined)
-            englishOut = QuestionComposer.english(passage: context, question: english)
-            if joined.data != nil { audioOut = joined.data }
-            tlog("[paragraf] soru \(effective) ortak paragrafla birlikte gönderiliyor")
+            if let shot = context.shot {
+                // Paragraf kamerayla çekilmişti: yazı yerine görüntüleri (fotoğraf + video) soruyla birlikte gider
+                text = QuestionComposer.withCameraPassage(question: text, passage: context)
+                passageMedia = PassageMedia(shot)
+                tlog("[paragraf] soru \(effective) ortak paragrafın görüntüleriyle birlikte gönderiliyor")
+            } else {
+                let joined = AudioJoin.join(passage: context.audio, question: audio)
+                text = QuestionComposer.withPassage(question: text, passage: context, audioCombined: joined.combined)
+                englishOut = QuestionComposer.english(passage: context, question: english)
+                if joined.data != nil { audioOut = joined.data }
+                tlog("[paragraf] soru \(effective) ortak paragrafla birlikte gönderiliyor")
+            }
         }
-        dispatchQuestion(text, english: englishOut, audio: audioOut, spokenNumber: number, display: question, ack: ack)
+        dispatchQuestion(text, english: englishOut, audio: audioOut, spokenNumber: number, display: question, ack: ack, passage: passageMedia)
     }
 
     /// Soruyu listeye işler, "yarım kalan iş" olarak deftere yazar (uygulama bu arada kapanırsa yeniden sorulur) ve Gemini'ye gönderir.
     /// `display`: listede görünen metin (ortak paragraf eklenmiş hâli değil). `ack`: "soru gönderildi" anonsu yapılır mı.
-    func dispatchQuestion(_ question: String, english: String, audio: Data?, spokenNumber: Int?, display: String? = nil, ack: Bool = false) {
+    func dispatchQuestion(_ question: String, english: String, audio: Data?, spokenNumber: Int?, display: String? = nil, ack: Bool = false,
+                          passage passageMedia: PassageMedia? = nil) {
         let announced = spokenNumber ?? nextNumber
         beginEntry(text: display ?? question, withAudio: audio != nil, number: announced)
-        deps.journal.savePending(PendingWork(question: question, english: english, spokenNumber: spokenNumber, number: nil, spoken: nil))
-        tlog("[soru \(announced)] Gemini'ye gönderildi (\(audio != nil ? "ses kaydıyla" : "yalnız metin"), \(question.count) karakter; numara \(spokenNumber != nil ? "okundu" : "okunmadı, sıradaki"))")
-        work = Task { [weak self] in await self?.answer(question: question, english: english, audio: audio, spokenNumber: spokenNumber) }
-        if ack, settings.spokenProgress { speakProgress(Say.questionSent) }
+        deps.journal.savePending(PendingWork(question: question, english: english, spokenNumber: spokenNumber, number: nil, spoken: nil,
+                                             withPassagePhoto: passageMedia == nil ? nil : true))
+        let withPassageImages = passageMedia == nil ? "" : "; paragraf görüntüsüyle"
+        tlog("[soru \(announced)] Gemini'ye gönderildi (\(audio != nil ? "ses kaydıyla" : "yalnız metin"), \(question.count) karakter; numara \(spokenNumber != nil ? "okundu" : "okunmadı, sıradaki")\(withPassageImages))")
+        work = Task { [weak self] in await self?.answer(question: question, english: english, audio: audio, spokenNumber: spokenNumber, passageMedia: passageMedia) }
+        if ack, settings.spokenProgress { speakProgress(passageMedia == nil ? Say.questionSent : Say.questionSentWithPassage) }
         startAnswerWait()
     }
 
@@ -1310,19 +1348,22 @@ final class SessionViewModel: ObservableObject {
         statusNote = ""
         liveText = pending.question
         tlog("[soru] kapanmadan önce gönderilen soru yeniden soruluyor (yalnız metin)")
-        dispatchQuestion(pending.question, english: pending.english, audio: nil, spokenNumber: pending.spokenNumber)
+        // Soru kamerayla çekilmiş paragrafın görüntüleriyle gitmişse, geri yüklenen paragraf fotoğrafı yine eklenir (video kapanmada kayboldu)
+        let media = pending.withPassagePhoto == true ? passage?.shot.map { PassageMedia($0) } : nil
+        dispatchQuestion(pending.question, english: pending.english, audio: nil, spokenNumber: pending.spokenNumber, passage: media)
     }
 
     // MARK: Cevaplama ve seslendirme (Modül 5)
 
     func answer(question: String, english: String = "", audio: Data?, spokenNumber: Int? = nil,
-                fetch: (() async throws -> GeminiReply)? = nil) async {
+                passageMedia: PassageMedia? = nil, fetch: (() async throws -> GeminiReply)? = nil) async {
         do {
             let reply: GeminiReply
             if let fetch = fetch {
                 reply = try await fetch()   // Sürüm 4: kamera ile çekilen soru (görüntü + video) kendi isteğini yapar
             } else {
-                reply = try await deps.answering.answer(question: question, english: english, expectedNumber: spokenNumber ?? nextNumber, audio: audio)
+                reply = try await deps.answering.answer(question: question, english: english, expectedNumber: spokenNumber ?? nextNumber, audio: audio,
+                                                        passage: passageMedia)
             }
             guard !Task.isCancelled, phase == .answering else { return }
             // Numara önceliği: kullanıcının okuduğu (dikte metninden) > Gemini'nin metinden/sesten okuduğu > sıradaki

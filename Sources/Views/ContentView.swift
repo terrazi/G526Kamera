@@ -142,7 +142,8 @@ struct ContentView: View {
         case .passageTargets: return "Paragraf alındı: hangi sorulara ait olduğunu söyleyip “Tamam” deyin"
         case .missingNumber: return "Soru numarası bekleniyor: numarayı söyleyin (ör. “yedi”)"
         case .confirmEnd: return "Testi bitirmek için “evet”, devam etmek için “hayır” deyin"
-        case .cameraChoice: return "Kamera ile çekmek için “evet”, sesle okumak için “hayır” deyin"
+        case .cameraChoice: return "Kamera ile çekmek için “evet”, sesle okumak için “hayır” deyin (ortak paragraf için “ortak paragraf” deyin)"
+        case .passageCameraChoice: return "Ortak paragrafı kamera ile çekmek için “evet”, sesle okumak için “hayır” deyin"
         case .startChoice: return "Önceki kayıttan devam için “devam”, yeni sınav için “yeni” deyin"
         case .reviewMenu: return "Cevaplar okundu: teste “Devam”, yeniden dinlemek için “Tekrar”, testi tamamlamak için “Bitir” deyin"
         }
@@ -150,7 +151,7 @@ struct ContentView: View {
 
     private var passageNote: String? {
         guard let context = session.passage else { return nil }
-        return "Ortak paragraf kayıtlı: \(QuestionComposer.listText(context.remaining)) numaralı sorular için"
+        return "Ortak paragraf kayıtlı\(context.viaCamera ? " (kamera görüntüsü)" : ""): \(QuestionComposer.listText(context.remaining)) numaralı sorular için"
     }
 
     /// Tek liste: yüklenen sorular, her birinin yanında Gemini'ye gidiş işareti. Yeni soru en üstte; durum canlı güncellenir.

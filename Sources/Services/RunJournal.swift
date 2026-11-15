@@ -11,14 +11,42 @@ struct PendingWork: Codable, Equatable {
     var number: Int?
     /// Cevap geldiyse ve kaydedildiyse okunacak cümle (nil: cevap henüz gelmemişti, soru yeniden sorulur)
     var spoken: String?
+    /// Soru, kamerayla çekilmiş ortak paragrafın görüntüleriyle birlikte gönderilmişti: yeniden sorulurken kayıtlı paragraf fotoğrafı yine eklenir
+    var withPassagePhoto: Bool?
 }
 
-/// Kayıtlı ortak paragrafın kalıcı hâli (ses kaydı kalıcı tutulmaz: yalnız metin). Uygulama beklenmedik kapanırsa sonraki sorular yine paragrafla gider.
-struct SavedPassage: Codable, Equatable {
+/// Kayıtlı ortak paragrafın kalıcı hâli (ses kaydı kalıcı tutulmaz: yalnız metin; kamerayla çekilmişse fotoğrafı, videosu değil).
+/// Uygulama beklenmedik kapanırsa sonraki sorular yine paragrafla gider.
+struct SavedPassage: Equatable {
     var text: String
     var english: String
     var all: [Int]
     var remaining: [Int]
+    /// Kamerayla çekilen paragrafın fotoğrafı (JPEG). Büyük olduğu için ayarlarda değil ayrı bir dosyada durur (bkz. `RunJournal`)
+    var photo: Data?
+}
+
+extension SavedPassage: Codable {
+    /// Fotoğraf JSON'a girmez; `RunJournal` onu ayrı dosyada saklar ve `hasPhoto` ile yeniden bağlar
+    private enum CodingKeys: String, CodingKey { case text, english, all, remaining, hasPhoto }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        text = try c.decode(String.self, forKey: .text)
+        english = try c.decode(String.self, forKey: .english)
+        all = try c.decode([Int].self, forKey: .all)
+        remaining = try c.decode([Int].self, forKey: .remaining)
+        photo = nil
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(text, forKey: .text)
+        try c.encode(english, forKey: .english)
+        try c.encode(all, forKey: .all)
+        try c.encode(remaining, forKey: .remaining)
+        try c.encode(photo != nil, forKey: .hasPhoto)
+    }
 }
 
 /// Önceki çalışmanın nasıl bittiği
@@ -284,7 +312,12 @@ final class RunJournal: RunJournaling {
         var pending: PendingWork?
         if let data = defaults.data(forKey: Key.pending) { pending = try? JSONDecoder().decode(PendingWork.self, from: data) }
         var passage: SavedPassage?
-        if let data = defaults.data(forKey: Key.passage) { passage = try? JSONDecoder().decode(SavedPassage.self, from: data) }
+        if let data = defaults.data(forKey: Key.passage) {
+            passage = try? JSONDecoder().decode(SavedPassage.self, from: data)
+            if passage != nil, let had = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["hasPhoto"] as? Bool, had {
+                passage?.photo = try? Data(contentsOf: RunJournal.passagePhotoURL)
+            }
+        }
         let next = max(1, defaults.integer(forKey: Key.next))
         return RunStart(exit: exit,
                         pending: pending,
@@ -328,9 +361,22 @@ final class RunJournal: RunJournaling {
     func savePassage(_ passage: SavedPassage?) {
         if let passage = passage, let data = try? JSONEncoder().encode(passage) {
             defaults.set(data, forKey: Key.passage)
+            if let photo = passage.photo {
+                try? FileManager.default.createDirectory(at: RunJournal.passagePhotoURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try? photo.write(to: RunJournal.passagePhotoURL, options: .atomic)
+            } else {
+                try? FileManager.default.removeItem(at: RunJournal.passagePhotoURL)
+            }
         } else {
             defaults.removeObject(forKey: Key.passage)
+            try? FileManager.default.removeItem(at: RunJournal.passagePhotoURL)
         }
+    }
+
+    /// Kamerayla çekilen ortak paragrafın fotoğrafı (kalıcı klasör: önbellek gibi sistem tarafından silinmez, uygulama açılışında da silinmez)
+    static var passagePhotoURL: URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        return base.appendingPathComponent("paragraf", isDirectory: true).appendingPathComponent("paragraf.jpg")
     }
 
     func saveNextNumber(_ number: Int) {

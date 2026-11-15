@@ -269,6 +269,8 @@ final class FakeAnswering: Answering {
         let english: String
         let expectedNumber: Int
         let audio: Data?
+        /// Sesle okunan soruyla birlikte gönderilen, kamerayla çekilmiş ortak paragraf görüntüleri (varsa)
+        var passage: PassageMedia?
     }
 
     private(set) var calls: [Call] = []
@@ -300,8 +302,8 @@ final class FakeAnswering: Answering {
         return try results.removeFirst().get()
     }
 
-    func answer(question: String, english: String, expectedNumber: Int, audio: Data?) async throws -> GeminiReply {
-        calls.append(Call(question: question, english: english, expectedNumber: expectedNumber, audio: audio))
+    func answer(question: String, english: String, expectedNumber: Int, audio: Data?, passage: PassageMedia?) async throws -> GeminiReply {
+        calls.append(Call(question: question, english: english, expectedNumber: expectedNumber, audio: audio, passage: passage))
         if hold { await withCheckedContinuation { gates.append($0) } }
         guard !results.isEmpty else { throw GeminiError("Cevap hazırlanmadı.", .error) }
         return try results.removeFirst().get()
@@ -313,6 +315,9 @@ final class FakeAnswering: Answering {
 final class FakeCamera: CameraCapturing {
     var onSay: ((String) -> Void)?
     var onStatus: ((String) -> Void)?
+    /// Her çekimde çekilen şey (soru ya da ortak paragraf) kaydedilir
+    var subject: CaptureSubject = .question
+    private(set) var subjects: [CaptureSubject] = []
     /// Sırayla verilecek çekim sonuçları (boşsa kamera yok)
     var results: [Result<CapturedQuestion, CameraFailure>] = []
     private(set) var captures = 0
@@ -338,6 +343,7 @@ final class FakeCamera: CameraCapturing {
 
     func capture() async -> Result<CapturedQuestion, CameraFailure> {
         captures += 1
+        subjects.append(subject)
         onCapture?()
         if let text = guidance { onSay?(text) }
         if hold { await withCheckedContinuation { gate = $0 } }
