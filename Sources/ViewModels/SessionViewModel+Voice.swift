@@ -24,6 +24,8 @@ extension SessionViewModel {
             cameraOfferSuppressed = false
             return true
         }
+        // Telefonda bekleyen çekim varsa önce o gönderilir (beginListening yapar; "önceki çekilen soru gönderiliyor" denir): "okuyun" denmez
+        if resendablePending != nil { return true }
         guard settings.askNextQuestion else { return true }
         return await speakNotice(Say.nextQuestion)
     }

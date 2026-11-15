@@ -198,17 +198,10 @@ extension SessionViewModel {
         deps.camera.subject = subject
         var result = await captureWithRepair(cameraName: cameraName)
         // Çekim telefonda saklanır: internete dönüş sürerken kesinti olsa ya da gönderim başarısız olsa da kaybolmaz
-        if case .success(var shot) = result {
-            if !isPassage { shot.extraInstruction = cameraSettings.videoQuestion.trimmed }   // ek talimat soruya yöneliktir, paragrafa değil
-            shot.highResolution = cameraSettings.videoHighRes
-            if !cameraSettings.videoToGemini {
-                shot.discard()
-                shot.video = nil
-                shot.videoBytes = 0
-            }
+        if case .success(let taken) = result {
             // Çekim telefondaki kalıcı klasöre yazılır (video da oraya taşınır): internet gelene kadar, uygulama kapansa da kaybolmaz ve
             // gönderildikten sonra da kullanıcı silene kadar orada durur
-            shot = deps.captureStore.keep(shot, kind: isPassage ? .passage : .question)
+            let shot = deps.captureStore.keep(shapedShot(taken, isPassage: isPassage), kind: isPassage ? .passage : .question)
             result = .success(shot)
             if isPassage {
                 // Paragraf bir soru değildir: tek başına gönderilmez; hangi sorulara ait olduğu söylenene kadar taslak olarak tutulur
@@ -327,7 +320,11 @@ extension SessionViewModel {
             shelvePending(shot, reason: failure.message)   // aynı çekim yeniden denense de aynı sonucu verir: gönderilmez, ama silinmez ("Gönderilemeyen" klasörü)
             offerCamera = cameraOfferAvailable   // hata söylendikten sonra bu soru için kamera yeniden sorulur
         default:
-            if retriedShots.contains(shot.id) {
+            if noteSendFailure(shot.id) {
+                // İnternet çalıştığı hâlde defalarca gönderilemedi: bu test için beklemeye alınır, silinmez
+                offerCamera = cameraOfferAvailable
+                warn("kamera", Say.cameraPendingParked)
+            } else if retriedShots.contains(shot.id) {
                 // Bekleyen çekimin tek yeniden gönderimi de başarısız oldu: sınav akışı her soruda yeniden denemekle yavaşlamasın diye bir sonraki
                 // başarılı cevaba kadar beklenir. Çekim ATILMAZ: telefondaki klasörde durur ve internet / Gemini düzelince sırayla gönderilir.
                 offerCamera = cameraOfferAvailable   // sınav akışı sesle okumaya kaymaz: söylendikten sonra kamera yeniden sorulur
@@ -342,7 +339,15 @@ extension SessionViewModel {
     /// Gönderilmemiş çekimlerden henüz yeniden denenmemiş ilki. Her çekim bir kez kendiliğinden yeniden denenir; yine başarısızsa
     /// bir sonraki başarılı gönderime kadar beklenir (yoksa hata sonsuz "yeniden dene" döngüsüne girerdi).
     var resendablePending: CapturedQuestion? {
-        return pendingShots.first { !retriedShots.contains($0.id) }
+        return pendingShots.first { !retriedShots.contains($0.id) && (sendFailures[$0.id] ?? 0) < Timing.pendingSendAttempts }
+    }
+
+    /// Bekleyen çekimin gönderimi başarısız oldu. Sınıra ulaşıldıysa çekim bu test için beklemeye alınır (klasörde durur, silinmez): true döner.
+    func noteSendFailure(_ id: UUID) -> Bool {
+        guard pendingShots.contains(where: { $0.id == id }) else { return false }
+        let count = (sendFailures[id] ?? 0) + 1
+        sendFailures[id] = count
+        return count >= Timing.pendingSendAttempts
     }
 
     /// Önceki çekimden kalan soru (internet gelmediği için gönderilememişti) gönderilir. Gönderim başladıysa true (devamını `answer` yürütür);
@@ -394,7 +399,8 @@ extension SessionViewModel {
                 result = .failure(.notConnected)
             }
             guard !Task.isCancelled, phase == .answering else {
-                if case .success(let shot) = result { shot.discard() }   // kesilirken çekilmiş olabilir: video dosyası sahipsiz kalmasın
+                // Çekim tam kesinti anında (kulaklık, arama, onarım) bitmiş olabilir: kaybolmasın diye klasöre yazılır
+                if case .success(let shot) = result { saveInterruptedShot(shot) }
                 return .failure(.cancelled)
             }
             if case .failure(let failure) = result, failure == .notConnected || failure == .noFrames { continue }
@@ -411,6 +417,32 @@ extension SessionViewModel {
     }
 
     // MARK: Bekleyen çekimler
+
+    /// Çekime Ayarlar'daki talimat ve kalite eklenir; video gönderilmeyecekse dosyası hemen silinir
+    func shapedShot(_ taken: CapturedQuestion, isPassage: Bool) -> CapturedQuestion {
+        var shot = taken
+        if !isPassage { shot.extraInstruction = cameraSettings.videoQuestion.trimmed }   // ek talimat soruya yöneliktir, paragrafa değil
+        shot.highResolution = cameraSettings.videoHighRes
+        if !cameraSettings.videoToGemini {
+            shot.discard()
+            shot.video = nil
+            shot.videoBytes = 0
+        }
+        return shot
+    }
+
+    /// Çekim, kesinti (kulaklık, arama, onarım) anında bitti: klasöre yazılır. Soru çekimi bekleyenlere eklenir ve onarımdan sonra gönderilir;
+    /// paragraf çekimi Paragraf klasöründe durur (taslağı yoktur: kullanıcı paragrafı yeniden çeker). Klasöre yazılamazsa eskisi gibi silinir.
+    func saveInterruptedShot(_ taken: CapturedQuestion) {
+        let isPassage = deps.camera.subject == .passage
+        let shot = deps.captureStore.keep(shapedShot(taken, isPassage: isPassage), kind: isPassage ? .passage : .question)
+        guard shot.archived else {
+            shot.discard()
+            return
+        }
+        if !isPassage { keepPending(shot) }
+        tlog("[kamera] kesinti anında biten çekim klasöre yazıldı\(isPassage ? " (ortak paragraf)" : "; onarımdan sonra gönderilecek")")
+    }
 
     /// Çekim gönderilene kadar bekleyenler listesinde tutulur (dosyaları kalıcı klasörde durur). Sayı sınırı YOK: hiçbir çekim, yenisi için
     /// yer açılsın diye silinmez.
@@ -433,6 +465,7 @@ extension SessionViewModel {
     /// bir sonraki açılışta silinir ve çekim yeniden yüklenemez; bu da söylenir.
     func noteUnsentShots() {
         retriedShots.removeAll()
+        sendFailures.removeAll()
         let unsaved = pendingShots.filter { !$0.archived }
         for shot in unsaved { shot.discard() }
         pendingShots.removeAll { !$0.archived }
@@ -449,6 +482,7 @@ extension SessionViewModel {
     /// Çekim Gemini'ye gitti ve cevap geldi: bekleyenlerden çıkar, klasörde "Gönderilen"e taşınır (silinmez; cevap yanına yazılır)
     func completePending(_ shot: CapturedQuestion, answer: String) {
         pendingShots.removeAll { $0 == shot }
+        sendFailures[shot.id] = nil
         deps.captureStore.markSent(shot, answer: answer)
         shot.discard()   // yalnız kalıcı klasöre yazılamamış (geçici) çekimin videosunu siler
     }
@@ -457,6 +491,7 @@ extension SessionViewModel {
     func shelvePending(_ shot: CapturedQuestion, reason: String) {
         pendingShots.removeAll { $0 == shot }
         retriedShots.remove(shot.id)
+        sendFailures[shot.id] = nil
         deps.captureStore.markUnsendable(shot, reason: reason)
         shot.discard()
     }

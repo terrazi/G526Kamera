@@ -296,6 +296,8 @@ enum Say {
     static let cameraEntryText = "Kamera ile çekilen soru"
     static let cameraSavedOffline = "Soru çekildi ama internet gelmedi. Telefonda saklandı; bağlantı onarılıyor, düzelince gönderilecek."
     static let recoveredPendingShot = "Bağlantı yeniden onarıldı."
+    static let cameraSlowParked = "Gemini çekilen soruya birkaç kez cevap vermedi. Soru telefondaki klasörde duruyor; bu testte artık denenmeyecek, sonraki testte yeniden gönderilecek."
+    static let cameraPendingParked = "Önceki çekilen soru birkaç kez gönderilemedi. Telefondaki klasörde duruyor; bu testte artık denenmeyecek, sonraki testte yeniden gönderilecek."
     static let cameraPendingKept = "Önceki çekilen soru yine gönderilemedi. Telefonda duruyor; internet düzelince sırayla gönderilecek."
     static let cameraPendingSending = "Önceki çekilen soru telefonda bekliyordu, şimdi gönderiyorum."
 

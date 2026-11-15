@@ -163,6 +163,17 @@ final class CaptureStoreTests: XCTestCase {
         XCTAssertTrue(fm.fileExists(atPath: original.video!.path))
     }
 
+    func testAFailedWriteLeavesNoHalfWrittenFolderBehind() throws {
+        let original = shot()
+        // foto.jpg yerinde bir klasör var: fotoğraf yazılamaz
+        let dir = store.url(of: .pending).appendingPathComponent(FileCaptureStore.folderName(for: original), isDirectory: true)
+        try fm.createDirectory(at: dir.appendingPathComponent("foto.jpg"), withIntermediateDirectories: true)
+        let result = store.keep(original, kind: .question)
+        XCTAssertFalse(result.archived)
+        XCTAssertTrue(folders(.pending).isEmpty, "Yarım kalan klasör silinir")
+        XCTAssertTrue(fm.fileExists(atPath: original.video!.path), "Çekimin videosu yerinde kalır")
+    }
+
     func testSummaryReportsCountsAndSize() {
         var big = shot()
         big.photo = Data(count: 2_500_000)
@@ -374,5 +385,85 @@ final class CaptureOutboxFlowTests: XCTestCase {
         XCTAssertEqual(h.fileStore?.summary().pending, 0, "Paragraf çekimi bekleyen soru değildir")
         XCTAssertTrue(h.answering.captureCalls.isEmpty, "Paragraf tek başına gönderilmez")
         XCTAssertTrue(h.vm.pendingShots.isEmpty)
+    }
+
+    func testAShotThatFailedThreeTimesIsParkedForTheRestOfTheTestButNotDeleted() async {
+        let down = Result<GeminiReply, Error>.failure(GeminiError("koptu", .network))
+        let h = harness(shots: [], replies: [down, down])
+        let a = stored(h, at: 1_800_000_100)
+        h.vm.sendFailures[a.id] = 2   // iki gönderim daha önce başarısız oldu
+        h.vm.start()
+        let parked = await waitUntil(60) { h.speaker.spoken.contains(Say.cameraPendingParked) }
+        XCTAssertTrue(parked, "Üçüncü başarısızlıkta söylenir")
+        XCTAssertNil(h.vm.resendablePending, "Bu test için artık denenmez")
+        XCTAssertEqual(h.vm.pendingShots.count, 1, "Silinmez")
+        XCTAssertEqual(h.fileStore?.summary().pending, 1, "Klasörde durur")
+        let asked = await waitUntil(60) { h.vm.listenMode == .cameraChoice && h.vm.phase == .listening }
+        XCTAssertTrue(asked, "Sınav akışı sürer: kamera sorusu yeniden sorulur")
+        await settle()
+        XCTAssertEqual(h.answering.captureCalls.count, 2, "Yeniden deneme döngüsü yok")
+        // Test bitti, sonraki testte yeniden denenir
+        h.vm.endTest()
+        XCTAssertTrue(h.vm.sendFailures.isEmpty)
+        XCTAssertNotNil(h.vm.resendablePending)
+    }
+
+    func testASuccessfulSendClearsTheFailureCount() async {
+        let h = harness(shots: [], replies: [.success(FakeAnswering.reply(1))])
+        let a = stored(h, at: 1_800_000_100)
+        h.vm.sendFailures[a.id] = 2
+        h.vm.start()
+        let sent = await waitUntil(60) { h.vm.answers.count == 1 }
+        XCTAssertTrue(sent)
+        XCTAssertNil(h.vm.sendFailures[a.id])
+        XCTAssertEqual(h.fileStore?.summary().sent, 1)
+    }
+
+    func testResendablePendingHonoursTheAttemptLimit() async {
+        let h = harness(shots: [], replies: [])
+        _ = await h.startListening()
+        let a = stored(h, at: 1_800_000_100)
+        h.vm.keepPending(a)
+        XCTAssertNotNil(h.vm.resendablePending)
+        h.vm.sendFailures[a.id] = T.pendingSendAttempts - 1
+        XCTAssertNotNil(h.vm.resendablePending)
+        XCTAssertTrue(h.vm.noteSendFailure(a.id), "Sınıra ulaşıldı")
+        XCTAssertNil(h.vm.resendablePending)
+        XCTAssertFalse(h.vm.noteSendFailure(UUID()), "Bekleyen olmayan çekim sayılmaz")
+    }
+
+    func testNoReadTheNextQuestionPromptWhileAPendingShotWillBeSent() async {
+        let h = harness(shots: [], replies: [], cameraFlow: false)
+        _ = await h.startListening()
+        h.settings.askNextQuestion = true
+        let ok = await h.vm.promptNextQuestion()
+        XCTAssertTrue(ok)
+        XCTAssertTrue(h.speaker.spoken.contains(Say.nextQuestion), "Bekleyen çekim yokken sıradaki soru istenir")
+        let before = h.speaker.spoken.count
+        let a = stored(h, at: 1_800_000_100)
+        h.vm.keepPending(a)
+        let ok2 = await h.vm.promptNextQuestion()
+        XCTAssertTrue(ok2)
+        XCTAssertEqual(h.speaker.spoken.count, before, "Bekleyen çekim gönderilecekken 'sonraki soruyu okuyun' denmez")
+    }
+
+    func testAShotFinishedAtTheMomentOfAnInterruptionIsSavedAndSentAfterwards() async {
+        let h = harness()
+        _ = await h.startListening()
+        h.camera.hold = true
+        reply(h, "evet")
+        let capturing = await waitUntil(45) { h.camera.captures == 1 && h.vm.phase == .answering }
+        XCTAssertTrue(capturing)
+        h.route.interrupt(began: true)   // iş iptal edilir, kamera kapanırken çekim biter
+        let closed = await waitUntil(45) { h.camera.cancels >= 1 && !h.vm.cameraBusy }
+        XCTAssertTrue(closed)
+        XCTAssertEqual(h.vm.pendingShots.count, 1, "Kesinti anında biten çekim kaybolmaz")
+        XCTAssertEqual(h.fileStore?.summary().pending, 1, "Klasöre yazılır")
+        h.route.interrupt(began: false)
+        h.scheduler.advance(by: T.routeStable + 0.1)
+        let sent = await waitUntil(60) { h.vm.answers.count == 1 }
+        XCTAssertTrue(sent, "Kesinti bitince bekleyen çekim gönderilir")
+        XCTAssertEqual(h.fileStore?.summary().sent, 1)
+        XCTAssertEqual(h.fileStore?.summary().pending, 0)
     }
 }

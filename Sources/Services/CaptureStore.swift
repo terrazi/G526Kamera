@@ -128,6 +128,7 @@ final class FileCaptureStore: CaptureStoring {
             try fm.createDirectory(at: dir, withIntermediateDirectories: true)
             try shot.photo.write(to: dir.appendingPathComponent("foto.jpg"), options: .atomic)
         } catch {
+            try? fm.removeItem(at: dir)   // yarım kalmış boş klasör bırakılmaz
             tlog("[çekim klasörü] çekim yazılamadı, bellekte tutuluyor: \(error.localizedDescription)")
             return shot
         }

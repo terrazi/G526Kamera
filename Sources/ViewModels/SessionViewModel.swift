@@ -122,6 +122,9 @@ final class SessionViewModel: ObservableObject {
         static let cameraRepairs = 2
         /// Kamera çekimi gönderilirken cevap beklemeye eklenen süre (sn). Telefonda bekleyen çekim sayısına SINIR YOK: çekimler silinmez.
         static let cameraExtraWait: TimeInterval = 180
+        /// Bekleyen bir çekim, internet çalışırken bile bu kadar kez gönderilemezse (hep hata ya da zaman aşımı) o test için beklemeye alınır:
+        /// her soru sınırında yeniden denemek sınavı yavaşlatırdı. Çekim SİLİNMEZ; klasörde durur ve sonraki testte yeniden denenir.
+        static let pendingSendAttempts = 3
         /// "Programı kapat" düğmesi: basılı tutma süresi (sn) ve günlüğün/panonun yazılması için kapanıştan önceki kısa bekleme
         static let closeHold: TimeInterval = 3
         static let closeDelay: TimeInterval = 0.4
@@ -359,6 +362,8 @@ final class SessionViewModel: ObservableObject {
     var pendingShots: [CapturedQuestion] = []
     /// Kamera sorusu kapalıyken bekleyen çekimler gönderilemedi: sıradaki dinleme bekleyenleri yeniden denemeden soruyu bekler (döngü olmasın)
     var pendingDrainSkipped = false
+    /// Bekleyen çekimlerin bu testteki başarısız gönderim sayısı (bkz. `Timing.pendingSendAttempts`)
+    var sendFailures: [UUID: Int] = [:]
     /// Kendiliğinden yeniden gönderilmesi denenmiş bekleyen çekimler (bkz. `resendablePending`)
     var retriedShots = Set<UUID>()
     var answerWaitElapsed: TimeInterval = 0

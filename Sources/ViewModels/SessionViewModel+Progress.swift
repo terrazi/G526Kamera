@@ -48,7 +48,10 @@ extension SessionViewModel {
             // Sürüm 4: çekilen soru. İlk kez zaman aşımına uğradıysa telefonda kalır ve bir kez yeniden gönderilir (beginListening yapar);
             // bekleyen çekimin yeniden gönderimi de zaman aşımına uğradıysa ATILMAZ: telefondaki klasörde durur, bir sonraki başarılı
             // cevaptan sonra sırayla yeniden gönderilir; kamera bu soru için yeniden sorulur
-            if retriedShots.contains(id), pendingShots.contains(where: { $0.id == id }) {
+            if noteSendFailure(id) {
+                armCameraOffer()
+                notice = Say.cameraSlowParked   // defalarca cevap vermedi: bu test için beklemeye alınır, silinmez
+            } else if retriedShots.contains(id), pendingShots.contains(where: { $0.id == id }) {
                 armCameraOffer()
                 notice = Say.cameraSlowKept
             } else {
