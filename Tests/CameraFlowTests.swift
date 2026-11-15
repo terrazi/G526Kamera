@@ -212,6 +212,22 @@ final class CameraFlowTests: XCTestCase {
         XCTAssertEqual(h.vm.pendingShots.count, 1, "Çekim telefonda bekler")
     }
 
+    /// Test bitince gönderilemeyen çekim bir sonraki oturuma sızmaz; kaç sorunun cevapsız kaldığı yazılır
+    func testEndingTheTestDropsUnsentShotsAndSaysSo() async {
+        let shot = FakeCamera.shot()
+        let errors: [Result<GeminiReply, Error>] = (0..<4).map { _ in .failure(GeminiError("koptu", .network)) }
+        let h = harness(shots: [.success(shot)], replies: errors)
+        _ = await h.startListening()
+        reply(h, "evet")
+        let settled = await waitUntil(8) { h.answering.captureCalls.count == 4 && h.vm.phase == .listening }
+        XCTAssertTrue(settled)
+        XCTAssertEqual(h.vm.pendingShots.count, 1)
+        h.vm.endTest()
+        XCTAssertTrue(h.vm.pendingShots.isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: shot.video!.path), "Gönderilmeyecek çekimin videosu telefonda bırakılmaz")
+        XCTAssertTrue(h.vm.statusNote.contains("1 soru Gemini'ye gönderilemedi"))
+    }
+
     func testBlockedShotIsNotKeptOnThePhone() async {
         let shot = FakeCamera.shot()
         let h = harness(shots: [.success(shot)], replies: [.failure(GeminiError("engellendi", .blocked))])

@@ -424,6 +424,7 @@ final class SessionViewModel: ObservableObject {
         passageDraft = nil
         listenMode = .question
         statusNote = "Test bitti. \(answers.count) cevap kaydedildi."
+        dropUnsentShots()
         refreshReplayAvailability()
     }
 

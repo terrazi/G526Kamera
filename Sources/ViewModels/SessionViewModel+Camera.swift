@@ -265,6 +265,18 @@ extension SessionViewModel {
         }
     }
 
+    /// Test bitti: gönderilemeyen çekimler artık gönderilmez (sonraki bir oturumda eski testin sorusu yeniden gönderilmesin); video dosyaları
+    /// silinir ve ekranda kaç sorunun cevapsız kaldığı yazılır
+    func dropUnsentShots() {
+        guard !pendingShots.isEmpty else { return }
+        let count = pendingShots.count
+        pendingShots.forEach { $0.discard() }
+        pendingShots.removeAll()
+        retriedShots.removeAll()
+        statusNote += " Uyarı: çekilen \(count) soru Gemini'ye gönderilemedi, cevabı yok."
+        tlog("[kamera] test bitti; gönderilemeyen \(count) çekilmiş soru atıldı")
+    }
+
     func dropPending(_ shot: CapturedQuestion) {
         pendingShots.removeAll { $0 == shot }
         shot.discard()
