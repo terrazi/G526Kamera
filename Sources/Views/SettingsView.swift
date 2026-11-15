@@ -3,6 +3,7 @@ import SwiftUI
 /// Ayarlar: Modül 1 (başlama saati, 4 Gemini profili ve anahtarı, kayıt klasörü, 4 kestirme adı) ve Modül 6 (tekrar boşluğu kaydırıcısı)
 struct SettingsView: View {
     @EnvironmentObject private var settings: AppSettings
+    @EnvironmentObject private var camera: CameraSettings
     @EnvironmentObject private var model: SettingsViewModel
     @Environment(\.dismiss) private var dismiss
 
@@ -12,6 +13,7 @@ struct SettingsView: View {
                 startSection
                 geminiSection
                 geminiProfilesSection
+                CameraSettingsSections()
                 folderSection
                 voiceScreenSection
                 readingSection

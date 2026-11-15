@@ -35,6 +35,7 @@ targets:
           - UIInterfaceOrientationLandscapeRight
         NSMicrophoneUsageDescription: "Sorunuzu yaka mikrofonundan dinlemek için mikrofon erişimi gerekir."
         NSSpeechRecognitionUsageDescription: "Okuduğunuz soruyu telefonun içinde (çevrimdışı) yazıya çevirmek için konuşma tanıma gerekir."
+        NSLocalNetworkUsageDescription: "G526 kameraya kameranın kendi Wi-Fi ağı üzerinden bağlanmak için yerel ağ erişimi gerekir."
         UIBackgroundModes:
           - audio
         UIFileSharingEnabled: true

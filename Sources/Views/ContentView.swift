@@ -5,6 +5,7 @@ struct ContentView: View {
     @EnvironmentObject private var session: SessionViewModel
     @EnvironmentObject private var settings: AppSettings
     @EnvironmentObject private var settingsModel: SettingsViewModel
+    @EnvironmentObject private var camera: CameraSettings
     @State private var showSettings = false
     @State private var confirmEnd = false
 
@@ -45,6 +46,7 @@ struct ContentView: View {
             .sheet(isPresented: $showSettings) {
                 SettingsView()
                     .environmentObject(settings)
+                    .environmentObject(camera)
                     .environmentObject(settingsModel)
             }
         }

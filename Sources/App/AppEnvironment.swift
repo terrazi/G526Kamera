@@ -6,6 +6,8 @@ import UserNotifications
 @MainActor
 final class AppEnvironment: ObservableObject {
     let settings: AppSettings
+    /// Kamera ayarları (V1'deki kamera bölümleri)
+    let camera = CameraSettings()
     let session: SessionViewModel
     let settingsModel: SettingsViewModel
     private let folderStore: FolderStore
