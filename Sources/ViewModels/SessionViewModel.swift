@@ -410,6 +410,7 @@ final class SessionViewModel: ObservableObject {
     /// "Testi bitir": her şeyi durdurur; cevaplar klasörde kalır, "Cevapları Tekrarla" açılır
     func endTest() {
         guard phase.isRunning else { return }
+        let onCameraNetwork = cameraBusy   // kamera akışı sürerken bitirilirse telefon kameranın Wi-Fi'sinde, hücresel kapalı kalmış olabilir
         cancelWork()
         replay.stop()
         deps.speaker.stop()
@@ -428,6 +429,7 @@ final class SessionViewModel: ObservableObject {
         statusNote = "Test bitti. \(answers.count) cevap kaydedildi."
         dropUnsentShots()
         refreshReplayAvailability()
+        if onCameraNetwork { restoreInternetAfterCamera() }
     }
 
     /// seslikontrol://basla (zamanlı başlatma), seslikontrol://yeniden (Kestirmeler "uygulama kapanınca aç" otomasyonu) ve Kestirmeler dönüşleri

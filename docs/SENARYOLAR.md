@@ -126,7 +126,8 @@ yol bildirimi ve onarım sınırı aynı anda üst üste gelince tetikleniyordu.
 | Boş yer az | 1500 MB altı uyarı; 400 MB altı çekim yapılmaz, sesle okumaya dönülür | ✅ |
 | Çekimden sonra internet gelmez | V3 internet onarımı (hücresel, sıfırlama); çekim telefonda saklanır, gelince gönderilir | ✅ |
 | Gönderim ağ hatası verir | İnternet kestirmesi yeniden çalışır, bir kez daha denenir; olmazsa çekim telefonda bekler (en çok 3). Bir sonraki soru sınırında bir kez daha gönderilir; yine olmazsa atılır, söylenir ve kamera sorusu yeniden sorulur. Arama / kulaklık kesintisi bu hakkı tüketmez | ✅ |
-| Kestirmeler Wi-Fi / hücreseli değiştirmez ya da onay sorar | Cihazda denenmedi: Ayarlar'da **Dene** ile sınanmalı | ⚠️ 📱 |
+| Kamera akışı sürerken test bitirilir | Kamera kapanır, `Hücresele Geç` kestirmesi çalışır (telefon kameranın Wi-Fi'sinde, hücresel kapalı kalmaz) | ✅ |
+| Kestirmeler Wi-Fi / hücreseli değiştirmez ya da onay sorar | Cihazda denenmedi: Ayarlar > Kamera > **Kamerayı dene** ile sınanmalı | ⚠️ 📱 |
 | Komşu sorular kadrajda yarım görünür | Gemini'ye yok sayması söylenir; numara görüntüden okunur, okunamazsa sıra numarası | ✅ (cihazda denenmedi) |
 
 ## 7. Bekleyen kararlar ve öneriler

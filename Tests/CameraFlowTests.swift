@@ -246,6 +246,30 @@ final class CameraFlowTests: XCTestCase {
         XCTAssertTrue(h.vm.pendingShots.isEmpty)
     }
 
+    /// Kamera akışı sürerken test bitirilirse telefon kameranın Wi-Fi'sinde kalmaz: internet kestirmesi çalışır
+    func testEndingTheTestDuringTheCameraFlowBringsTheInternetBack() async {
+        let h = harness()
+        _ = await h.startListening()
+        h.camera.hold = true
+        reply(h, "evet")
+        let capturing = await waitUntil { h.camera.captures == 1 && h.vm.phase == .answering }
+        XCTAssertTrue(capturing)
+        h.vm.endTest()
+        let back = await waitUntil { h.shortcuts.runs.filter { $0 == "Hücresele_Gec" }.count == 1 }
+        XCTAssertTrue(back, "İnternet kestirmesi çalışır")
+        XCTAssertEqual(h.vm.phase, .finished)
+        XCTAssertTrue(h.vm.pendingShots.isEmpty)
+        XCTAssertFalse(h.vm.cameraBusy)
+    }
+
+    func testEndingTheTestOutsideTheCameraFlowRunsNoShortcut() async {
+        let h = harness()
+        _ = await h.startListening()
+        h.vm.endTest()
+        await settle()
+        XCTAssertTrue(h.shortcuts.runs.isEmpty)
+    }
+
     func testEndingTheTestDropsUnsentShotsAndSaysSo() async {
         let shot = FakeCamera.shot()
         let h = harness()

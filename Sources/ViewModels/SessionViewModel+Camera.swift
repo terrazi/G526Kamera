@@ -320,6 +320,17 @@ extension SessionViewModel {
         return false
     }
 
+    /// Test kamera akışı sürerken bitti: telefonun interneti kestirmeyle geri getirilir (yoksa kameranın Wi-Fi'sinde, hücresel kapalı kalırdı)
+    func restoreInternetAfterCamera() {
+        let name = settings.internetShortcut.trimmed
+        guard !name.isEmpty else { return }
+        tlog("[kamera] test kamera akışı sürerken bitti; internet kestirmesi çalıştırılıyor: “\(name)”")
+        work = Task { [weak self] in
+            guard let self = self else { return }
+            _ = await self.deps.shortcuts.run(name: name)
+        }
+    }
+
     func waitForInternet(seconds: TimeInterval) async -> Bool {
         var waited: TimeInterval = 0
         while !Task.isCancelled {
