@@ -54,6 +54,10 @@ Bu belge, programın sesle nasıl işlemesi gerektiğini adım adım yazar; her 
    bulanık eşleşme yalnız HAYIR yönünde sayılır. Çünkü Türkçede olumsuzluk eki tek harf farkıdır ("çekiyorum" / "çekmiyorum", "bitirme" / "bitirmek") ve
    yanlış evet kamerayı açar (hücreseli keser) ya da testi bitirir; yanlış hayır zararsızdır. Olumsuz biçimler listede açıkça yazılıdır ve testle
    denetlenir (her olumlu/olumsuz ikiz için). "Bitirmek istiyorum" onay sorusunda evet, menüde "bitirme, devam" devam sayılır.
+   **Olumsuzlama kuralı:** "Devam / Tekrar / Bitir" menüsünde ve "önceki kayıt mı, yeni mi" sorusunda seçeneği olumsuzlayan söz ("devam etmeyelim",
+   "bitirmek istemiyorum", "yeni başlamayalım", "yeni değil") hiçbir seçeneği seçmez; cevap anlaşılmamış sayılır ve yeniden sorulur (böylece
+   "bitirmek istemiyorum" testi bitirmez). Aynı olumsuz sözler komut da değildir: "testi bitirme", "cevapları tekrarlamayın", "son cevabı okuma" komut
+   sayılmaz, metin olduğu gibi kalır.
 5. **Cevapları okuma ve menü.** Cevaplar numara sırasıyla, aralarında Tekrar boşluğu (varsayılan 3 sn) okunur. Bitince: "N sorunun cevabı okundu. Ne yapmak
    istersiniz? Teste kaldığınız yerden devam etmek için **Devam**, cevapları yeniden dinlemek için **Tekrar**, testi tamamlamak için **Bitir** deyin."
    Devam → kalınan yere dönülür (soru / eksik numara / paragraf numaraları); Tekrar → yeniden okunur ve yine sorulur; Bitir → "Test tamamlandı. N cevap

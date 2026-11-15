@@ -85,6 +85,71 @@ final class VoiceReplyHazardTests: XCTestCase {
         }
     }
 
+    /// Seçeneği olumsuzlayan söz hiçbir seçeneği seçmez: "bitirmek istemiyorum" testi bitirmemeli, "devam etmeyelim" devam ettirmemeli
+    func testReviewMenuNegatedChoicesAreNeverSelected() {
+        for text in ["bitirmek istemiyorum", "testi bitirmek istemiyorum", "devam etmeyelim", "devam etmek istemiyorum", "devam etmiyorum", "tekrar etme",
+                     "tekrar etmeyelim", "tekrar dinlemek istemiyorum", "tekrar okuma", "tekrar istemiyorum", "cevapları tekrar dinlemeyelim"] {
+            XCTAssertNil(SpokenReply.review(text), text)
+        }
+        // Olumlu söyleyişler aynen çalışır
+        XCTAssertEqual(SpokenReply.review("devam edelim"), .continueTest)
+        XCTAssertEqual(SpokenReply.review("kaldığım yerden devam"), .continueTest)
+        XCTAssertEqual(SpokenReply.review("tekrar dinle"), .repeatAnswers)
+        XCTAssertEqual(SpokenReply.review("cevapları tekrarla"), .repeatAnswers)
+        XCTAssertEqual(SpokenReply.review("bitirelim"), .finishTest)
+        XCTAssertEqual(SpokenReply.review("testi tamamla"), .finishTest)
+    }
+
+    func testStartChoiceNegatedChoicesAreNeverSelected() {
+        for text in ["devam etmeyelim", "devam etmek istemiyorum", "önceki kayıttan devam etmeyelim", "devam etmiyorum", "yeni başlamayalım",
+                     "yeni sınav istemiyorum", "yeni değil", "önceki değil"] {
+            XCTAssertNil(SpokenReply.start(text), text)
+        }
+        XCTAssertEqual(SpokenReply.start("devam edelim"), .continuePrevious)
+        XCTAssertEqual(SpokenReply.start("önceki kayıttan devam"), .continuePrevious)
+        XCTAssertEqual(SpokenReply.start("baştan başlayalım"), .startNew)
+        XCTAssertEqual(SpokenReply.start("sıfırdan"), .startNew)
+        XCTAssertEqual(SpokenReply.start("hayır yeni"), .startNew, "'Hayır' tek başına seçeneği olumsuzlamaz: sorunun iki seçeneği vardır")
+    }
+
+    /// Genel kural: olumsuzluk sözü + herhangi bir seçenek sözü = anlaşılmadı (yeniden sorulur)
+    func testAnyChoiceNegationMakesTheAnswerUnclear() {
+        for negation in SpokenReply.choiceNegations {
+            for option in ["devam", "tekrar", "bitirmek", "yeni", "önceki", "baştan"] {
+                XCTAssertNil(SpokenReply.review("\(option) \(negation)"), "\(option) \(negation)")
+                XCTAssertNil(SpokenReply.start("\(option) \(negation)"), "\(option) \(negation)")
+            }
+        }
+        for negation in SpokenReply.choiceNegations {
+            XCTAssertTrue(SpokenReply.finishNegations.isDisjoint(with: [negation]), "'\(negation)' iki listede: bitirme olumsuzlukları ayrı ele alınır")
+        }
+    }
+
+    // MARK: Olumsuz söz komut değildir
+
+    /// "Testi bitirme" yakın sesli eşleşmeyle ("bitirme" ≈ "bitirmek") testi bitirme komutu sayılırdı; "cevapları tekrarlamayın" cevapları okuturdu
+    func testNegatedCommandsAreNeverCommands() {
+        for text in ["testi bitirme", "sınavı bitirmem", "testi tamamlama", "testi sonlandırma", "cevapları tekrarlama", "cevapları tekrarlamayın", "cevapları okuma",
+                     "cevapları tekrar okuma", "son cevabı tekrarlama", "son cevabı okuma", "beşinci sorunun cevabını tekrarlama", "beşinci sorunun cevabını okuma",
+                     "testi bitirmek istemiyorum", "testi bitirmeyelim", "cevapları dinlemek istemiyorum", "soruyu iptal etme"] {
+            XCTAssertNil(VoiceCommand.parse(text), text)
+        }
+        for negation in SpokenReply.finishNegations.union(SpokenReply.choiceNegations) {
+            for prefix in ["testi", "sınavı", "cevapları", "son cevabı", "cevapları tekrar", "soruyu", "paragrafı"] {
+                XCTAssertNil(VoiceCommand.parse("\(prefix) \(negation)"), "\(prefix) \(negation)")
+            }
+        }
+        // Olumlu komutlar aynen çalışır
+        XCTAssertEqual(VoiceCommand.parse("testi bitir"), .endTest)
+        XCTAssertEqual(VoiceCommand.parse("sınavı bitirelim"), .endTest)
+        XCTAssertEqual(VoiceCommand.parse("testi bitirmek istiyorum"), .endTest)
+        XCTAssertEqual(VoiceCommand.parse("cevapları tekrarla"), .replayAnswers)
+        XCTAssertEqual(VoiceCommand.parse("son cevabı tekrarla"), .repeatLast)
+        XCTAssertEqual(VoiceCommand.parse("beşinci sorunun cevabını tekrarla"), .repeatNumber(5))
+        XCTAssertEqual(VoiceCommand.parse("soruyu iptal et"), .cancelQuestion)
+        XCTAssertEqual(VoiceCommand.parse("paragrafı iptal et"), .cancelPassage)
+    }
+
     // MARK: Soru metni komut sayılmaz
 
     /// Soru ve paragraf metninde geçebilecek kısa parçalar (komut sözcüklerine benzeyen sözcüklerle): hiçbiri komut olmamalı, yoksa soru sessizce yutulur
@@ -149,5 +214,29 @@ final class VoiceReplyHazardTests: XCTestCase {
         say(h, "bitirmek istiyorum")
         let finished = await waitUntil(45) { h.vm.phase == .finished }
         XCTAssertTrue(finished, "'Bitirmek istiyorum' hayır sayılmamalı: \(h.speaker.spoken)")
+    }
+
+    func testSayingIDoNotWantToFinishAtTheReviewMenuDoesNotEndTheTest() async {
+        let h = SessionHarness()
+        h.settings.askMissingNumber = false
+        _ = await h.startListening()
+        h.answering.results.append(.success(FakeAnswering.reply(1)))
+        h.ask("Soru 1. A seçeneği Adana")
+        _ = await waitUntil { h.vm.answers.count == 1 && h.vm.phase == .listening }
+        say(h, "Cevapları tekrarla")
+        let reading = await waitUntil { h.vm.reviewing }
+        XCTAssertTrue(reading)
+        h.player.finish()
+        let asked = await waitUntil { h.vm.listenMode == .reviewMenu && h.vm.phase == .listening }
+        XCTAssertTrue(asked, "\(h.speaker.spoken)")
+        h.listener.say("bitirmek istemiyorum")
+        h.scheduler.advance(by: SessionViewModel.Timing.triggerConfirm + 0.1)
+        h.scheduler.advance(by: SessionViewModel.Timing.numberUnclear)
+        let again = await waitUntil { h.speaker.spoken.last == Say.reviewMenuAgain && h.vm.listenMode == .reviewMenu && h.vm.phase == .listening }
+        XCTAssertTrue(again, "Test bitmemeli, menü yeniden sorulmalı: \(h.speaker.spoken)")
+        XCTAssertNotEqual(h.vm.phase, .finished)
+        say(h, "devam")
+        let back = await waitUntil { h.vm.listenMode == .question && h.vm.phase == .listening }
+        XCTAssertTrue(back, "\(h.speaker.spoken)")
     }
 }

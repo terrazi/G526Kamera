@@ -286,10 +286,17 @@ enum VoiceCommand: Equatable {
         return .repeatNumber(number)
     }
 
+    /// Komutu OLUMSUZLAYAN söz var mı ("testi bitirme", "cevapları tekrarlama", "sınavı bitirmem"): yakın sesli eşleşme ("bitirme" ≈ "bitirmek")
+    /// bunları komut sayardı. Olumsuz söz komut değildir; metin olduğu gibi soru/paragraf metni olarak kalır.
+    private static func isNegated(_ words: [String]) -> Bool {
+        return words.contains { SpokenWords.exactly($0, SpokenReply.finishNegations) || SpokenWords.exactly($0, SpokenReply.choiceNegations) }
+    }
+
     static func parse(_ text: String) -> VoiceCommand? {
+        let all = SpokenWords.of(text)
+        if isNegated(all) { return nil }
         if let cancel = parseCancel(text) { return cancel }
         if let numbered = parseNumbered(text) { return numbered }
-        let all = SpokenWords.of(text)
         guard !all.isEmpty, all.count <= 7 else { return nil }
         let words = all.filter { !SpokenWords.matches($0, fillers) }
         guard !words.isEmpty else { return nil }
@@ -422,6 +429,17 @@ enum SpokenReply {
                                         "cekmeyiz", "kullanma", "kullanmayin", "kullanmayalim", "kullanmam", "kullanmiyorum", "kamerasiz"]
     /// "Çekmek", "çekmeyi" gibi mastar biçimleri hayır sözü ("çekme") gibi duyulabilir ama anlamı belirsizdir ("çekmek istiyorum" evettir): bulanık eşleşmeden çıkarılır
     static let cameraNeutral: Set<String> = ["cekmek", "cekmeyi", "cekmeye", "cekmesi", "cekip", "gondermek", "gondermeyi", "gonderip", "gonderelim"]
+    /// "Devam / Tekrar / Bitir" menüsünde ve "önceki kayıt mı, yeni mi" sorusunda seçeneği OLUMSUZLAYAN sözler: "devam etmeyelim", "bitirmek
+    /// istemiyorum", "yeni başlamayalım", "yeni değil". Seçenek sözcüğü ("devam", "bitirmek", "yeni") tek başına olumlu sayıldığı için
+    /// bunlar yanlışlıkla seçilirdi (testi bitirmek istemeyen kişinin testi bitmesi gibi); olumsuzluk varsa cevap anlaşılmamış sayılır, yeniden sorulur.
+    /// "Bitirme" biçimleri ayrıca `finishNegations` ile ele alınır ("bitirme, devam" → devam).
+    static let choiceNegations: Set<String> = [
+        "etme", "etmeyelim", "etmeyin", "etmem", "etmiyorum", "etmiyoruz", "etmesin", "etmeyiz", "etmesek",
+        "istemiyorum", "istemiyoruz", "istemem", "istemeyiz", "degil", "olmasin", "olmaz", "gerekmez", "gerekmiyor",
+        "baslama", "baslamayalim", "baslamayin", "baslamam", "baslamiyorum", "baslamiyoruz", "baslamasin",
+        "okuma", "okumayin", "okumayalim", "okumam", "okumuyorum", "dinleme", "dinlemeyelim", "dinlemeyin", "dinlemem", "dinlemiyorum",
+        "tekrarlama", "tekrarlamayin", "tekrarlamayalim", "tekrarlamam", "tekrarlamiyorum"
+    ]
     static let continueWords: Set<String> = ["devam", "onceki", "eski", "kaldigi", "kaldigim", "kaldigimiz", "aynen", "surdur", "surdurelim", "surdurun"]
     static let newWords: Set<String> = ["yeni", "sifirdan", "bastan", "temiz"]
     static let reviewFinish: Set<String> = [
@@ -479,9 +497,14 @@ enum SpokenReply {
         return nil
     }
 
+    /// Söz, seçeneklerden birini olumsuzluyor mu ("devam etmeyelim")
+    private static func negatesChoice(_ words: [String]) -> Bool {
+        return words.contains { SpokenWords.exactly($0, choiceNegations) }
+    }
+
     static func start(_ text: String) -> Start? {
         let w = words(text, max: 8)
-        guard !w.isEmpty else { return nil }
+        guard !w.isEmpty, !negatesChoice(w) else { return nil }
         let cont = w.contains(where: { SpokenWords.matches($0, continueWords) })
         let new = w.contains(where: { SpokenWords.matches($0, newWords) })
         if cont && !new { return .continuePrevious }
@@ -493,7 +516,7 @@ enum SpokenReply {
     /// hangisi olduğu belli olmayan söz de nil: yeniden sorulur).
     static func review(_ text: String) -> Review? {
         let w = words(text, max: 8)
-        guard !w.isEmpty else { return nil }
+        guard !w.isEmpty, !negatesChoice(w) else { return nil }
         let finish = w.contains(where: { !SpokenWords.exactly($0, finishNegations) && SpokenWords.matches($0, reviewFinish) })
         let again = w.contains(where: { SpokenWords.matches($0, VoiceCommand.repeatVerbs) || SpokenWords.startsLike($0, "tekrar") })
         let proceed = w.contains(where: { SpokenWords.matches($0, reviewContinue) })

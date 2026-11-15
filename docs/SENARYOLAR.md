@@ -150,6 +150,8 @@ yol bildirimi ve onarım sınırı aynı anda üst üste gelince tetikleniyordu.
 | Kamera sorusuna "çekmek istiyorum", "çekmeyi isterim", "kamerayı kullan" | EVET sayılır (eskiden "çekmek" hayır sözüne benzediği için anlaşılmıyordu) | ✅ |
 | Testi bitirme onayına "bitirmek istiyorum" / "sonlandırmak istiyorum" | EVET (eskiden "bitirme"ye benzediği için HAYIR sayılıyordu); "bitirmiyorum", "bitirmeyelim", "bitirmek istemiyorum" hayır | ✅ |
 | Menüde "bitirme, devam edelim" | Devam sayılır (olumsuz "bitirme" bitirme isteği değildir) | ✅ |
+| Menüde "bitirmek istemiyorum", "devam etmeyelim", "tekrar etme"; başlangıçta "devam etmeyelim", "yeni başlamayalım" | Hiçbir seçenek seçilmez: "Anlayamadım" denip yeniden sorulur (eskiden "bitirmek istemiyorum" testi bitirirdi) | ✅ |
+| Komut gibi duyulan olumsuz söz: "testi bitirme", "sınavı bitirmem", "cevapları tekrarlamayın", "son cevabı okuma" | Komut sayılmaz (eskiden yakın sesli eşleşmeyle "testi bitirme" bitirme komutu sayılırdı) | ✅ |
 | Numara beklenirken (söylenmediği için) "soruyu iptal et" | Bekleyen soru bırakılır, "Okunan soru silindi" denir, boşuna sıradaki numarayla Gemini'ye gitmez | ✅ |
 | "Soruyu iptal et" bozuk okunur ("soruyu iptalet") | Soru metnine karışıp sessizce birikmez: "Komutu anlayamadım, lütfen bir kez daha söyleyin" denir, söz atılır (yalnız iptal fiili + soru/paragraf sözcüğü birlikteyse; tek başına "iptal et" soru metni olabilir) | ✅ |
 | Her aşamada bilgi | Soru ve paragraf için: "Kameraya geçiliyor", "Kamera hazır… kadraja alın", "Çekim başarıyla yapıldı, internete geçiliyor", "İnternet geldi, Gemini'ye gönderiliyor", cevap okunur | ✅ |
