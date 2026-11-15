@@ -123,7 +123,10 @@ final class SessionViewModel: ObservableObject {
         static let cameraInternetTries = 2
         static let cameraSendTries = 2
         /// Kameraya bağlanılamazsa kamera bağlantısı onarımının (Wi-Fi adımı) en çok kaç kez çalışıp çekimin yeniden deneneceği
-        static let cameraRepairs = 2
+        static let cameraRepairs = 4   // ilk deneme + 4 onarım = 5 deneme; sonra sesle devam edilir ve kamera yoklanır
+        /// Kameraya ulaşılamıyorken yoklama aralığı (sn) ve yoklama için uygun an yoksa yeniden bakma aralığı
+        static let cameraProbeEvery: TimeInterval = 300
+        static let cameraProbeRetry: TimeInterval = 20
         /// Kestirmeler uygulamasının geçici ret hatasında ("Çalma Hedefi aygıt bulunamadı") aynı kestirmenin en çok kaç kez, kaç sn arayla yeniden çalıştırılacağı
         static let shortcutTransientRetries = 2
         /// "Bu soruyu kamera ile çekmek ister misiniz?" en çok bu kadar sorulur; cevap gelmezse (ya da anlaşılmazsa) sonuncudan sonra kameraya kendiliğinden geçilir
@@ -239,6 +242,10 @@ final class SessionViewModel: ObservableObject {
     /// "Yeni bölüm mü, testi tamamlama mı?" sorusunun hatırlatma sayısı
     var sectionReminders = 0
     var nextNumber = 1
+    /// Cevapların kaydedilme sırası (son kaydedilen sonda); "son soruyu sil" en son kaydedilen soruyu bulur. Önceki kayıttan devam edilince düz yazıdaki sıradır.
+    var answerOrder: [Int] = []
+    /// "Son soruyu sil" onayı bekleniyor: silinecek sorunun numarası (onay "testi bitir" onayıyla aynı kipte sorulur; bitince nil olur)
+    var pendingDelete: Int?
     /// Önceki oturumdan hatırlanan klasör ve sıradaki numara: uygulama açılırken defterden, "Testi bitir"de bellekten. Yeni başlatmada
     /// içinde cevap varsa "önceki kayıttan devam mı, yeni sınav mı?" diye sorulur.
     struct Carry: Equatable {
@@ -370,6 +377,10 @@ final class SessionViewModel: ObservableObject {
     var offerCamera = false
     /// Kamera akışı (kestirme + çekim + internete dönüş + gönderim) sürüyor
     var cameraBusy = false
+    /// Kameraya 5 denemede de ulaşılamadı: ne zamandan beri (nil: kamera kullanılabilir). Bu süre içinde kamera sorusu sorulmaz, soru sesle okunur;
+    /// kamera 5 dakikada bir sorular arasında yoklanır, dönünce kullanıcıya haber verilir ve kamera yeniden sisteme girer.
+    var cameraDownSince: Date?
+    var cameraProbeTask: ScheduledTask?
     /// Kamera akışı başladı ama internete dönüş doğrulanmadı: telefon kameranın Wi-Fi'sinde, hücresel kapalı kalmış olabilir
     var networkMayBeOnCamera = false
     /// Çekilen bir soru (fotoğraf + video) Gemini'ye gönderiliyor: bekleme sınırı V3'ün sesli sorusundan daha geniştir (bkz. `Timing.cameraExtraWait`)
@@ -561,6 +572,11 @@ final class SessionViewModel: ObservableObject {
         liveText = ""
         liveEnglish = ""
         answers = []
+        answerOrder = []
+        pendingDelete = nil
+        cameraProbeTask?.cancel()
+        cameraProbeTask = nil
+        cameraDownSince = nil
         questions = []
         currentEntry = nil
         entrySeq = 0
@@ -710,6 +726,7 @@ final class SessionViewModel: ObservableObject {
     /// Mikrofonu açar ve yeni soruyu bekler. Eldeki yarım metin ve ses silinir; yalnız `keepPartial` ise (kesinti sonrası, okunan soru ya da
     /// paragraf yarıda kalmışsa) korunur ve devam edilen okuma ona eklenir. `mode`: mikrofonun ne için açıldığı.
     func beginListening(mode: ListenMode = .question, keepPartial: Bool = false) {
+        if mode != .confirmEnd { pendingDelete = nil }   // "son soruyu sil" onayı yalnız onay kipinde geçerlidir; başka kipe geçilince bayat kalmaz
         // Sürüm 4: yeni bir soru sınırında önce "kamera ile çekmek ister misiniz?" sorulur (evet / hayır dinlemesi buradan açılır)
         // Telefonda bekleyen çekim, kamera sorusu kapalı olsa da yeni bir soru sınırında önce gönderilir (askCameraChoice yönlendirir)
         let drainPending = resendablePending != nil && !pendingDrainSkipped
@@ -859,7 +876,8 @@ final class SessionViewModel: ObservableObject {
         }
         // "Beşinci sorunun cevabını tekrarla": soru numarası ya da paragraf numaraları beklenirken de söylenebilir (kısa numara cevabı sanılmasın);
         // cevap okunur ve aynı soru yeniden sorulur
-        if [ListenMode.missingNumber, .passageTargets].contains(listenMode), let waiting = spokenCommand(), waiting.isRepeatNumber || waiting.isEnding {
+        if [ListenMode.missingNumber, .passageTargets].contains(listenMode), let waiting = spokenCommand(),
+           waiting.isRepeatNumber || waiting.isEnding || (listenMode == .missingNumber && waiting == .deleteLastQuestion) {
             confirmTask = deps.scheduler.after(Timing.numberConfirm) { [weak self] in self?.fireVoiceCommand() }
             return
         }
@@ -879,7 +897,7 @@ final class SessionViewModel: ObservableObject {
             return
         }
         // "Soruyu iptal et": numarası söylenmediği için numara beklenen soru da vazgeçilebilir (yanlış okunan soru boşuna Gemini'ye gitmesin)
-        if listenMode == .missingNumber, spokenCommand() == .cancelQuestion {
+        if listenMode == .missingNumber, spokenCommand()?.isCancelQuestion == true {
             confirmTask = deps.scheduler.after(Timing.numberConfirm) { [weak self] in self?.fireVoiceCommand() }
             return
         }
@@ -1011,7 +1029,7 @@ final class SessionViewModel: ObservableObject {
         case .passageTargets:
             guard command == .replayAnswers || command == .cancelPassage || command.isRepeatNumber || command.isEnding else { return }
         case .missingNumber:
-            guard command == .replayAnswers || command == .cancelQuestion || command.isRepeatNumber || command.isEnding else { return }
+            guard command == .replayAnswers || command.isCancelQuestion || command == .deleteLastQuestion || command.isRepeatNumber || command.isEnding else { return }
         case .confirmEnd:
             guard command == .replayAnswers else { return }
         default:
@@ -1108,19 +1126,53 @@ final class SessionViewModel: ObservableObject {
                 guard await self.speakNotice(target == .missingNumber ? Say.reviewBackToNumber : Say.reviewBackToTargets) else { return }
                 self.beginListening(mode: target)
             }
-        case .cancelQuestion:
-            // Okunan soru (metin ve ses kaydı yukarıda temizlendi) vazgeçilir; kamera sorusundayken silinecek bir şey yoktur
-            tlog("[komut] sesli komut: soruyu iptal et")
+        case .cancelQuestion, .skipQuestion:
+            // Okunan soru (metin ve ses kaydı yukarıda temizlendi) vazgeçilir; kamera sorusundayken silinecek bir şey yoktur.
+            // "Soruyu atla" aynı işi yapar (yarım kalan ya da yanlış anlaşılan soru bırakılır, sıradaki okunur); yalnız söylenen cümle farklıdır.
+            let skipping = command == .skipQuestion
+            tlog(skipping ? "[komut] sesli komut: soruyu atla" : "[komut] sesli komut: soruyu iptal et")
             let choice = from == .cameraChoice || from == .passageCameraChoice || from == .captureKindChoice
             if from == .missingNumber {
                 heldQuestion = nil   // numarası beklenen soru da bırakılır
                 numberReminders = 0
             }
             let nothingToCancel = choice || !(from == .missingNumber || hadQuestionText)
-            let notice = nothingToCancel ? Say.nothingToCancelQuestion : (cameraQuestionWillBeAsked ? Say.questionCancelledCamera : Say.questionCancelled)
+            let notice: String
+            if nothingToCancel {
+                notice = skipping ? Say.nothingToSkipQuestion : Say.nothingToCancelQuestion
+            } else if skipping {
+                notice = cameraQuestionWillBeAsked ? Say.questionSkippedCamera : Say.questionSkipped
+            } else {
+                notice = cameraQuestionWillBeAsked ? Say.questionCancelledCamera : Say.questionCancelled
+            }
             work = Task { [weak self] in
                 guard let self = self, await self.speakNotice(notice) else { return }
                 self.beginListening(mode: .question)
+            }
+        case .deleteLastQuestion:
+            guard let target = lastRecordedAnswer else {
+                tlog("[komut] sesli komut: son soruyu sil; silinecek kayıtlı soru yok")
+                let waiting: ListenMode? = from == .missingNumber ? from : nil
+                let returnMode = back
+                work = Task { [weak self] in
+                    guard let self = self, await self.speakNotice(Say.nothingToDeleteLast) else { return }
+                    if let waiting = waiting {
+                        guard await self.speakNotice(Say.reviewBackToNumber) else { return }
+                        self.beginListening(mode: waiting)
+                    } else {
+                        self.beginListening(mode: returnMode)
+                    }
+                }
+                return
+            }
+            // Geri alınamaz bir iş: önce onay istenir. "Evet" silmeyi tamamlar; "hayır", cevapsızlık ve anlaşılmayan söz silmez.
+            tlog("[komut] sesli komut: son soruyu sil (soru \(target.number)); onay isteniyor")
+            pendingDelete = target.number
+            endReminders = 0
+            endReturn = from == .missingNumber ? from : .question
+            work = Task { [weak self] in
+                guard let self = self, await self.speakNotice(Say.confirmDeleteLast(target.number)) else { return }
+                self.beginListening(mode: .confirmEnd)
             }
         case .repeatSpeech, .help, .whatHeard, .deleteLast, .status, .missingAnswers, .report, .volume, .camera:
             break   // yukarıda ele alındı
@@ -1169,6 +1221,10 @@ final class SessionViewModel: ObservableObject {
         liveEnglish = ""
         deps.recorder.reset()
         phase = .speaking
+        if let number = pendingDelete {
+            confirmDeleteLast(number, reply: reply)
+            return
+        }
         switch reply {
         case .yes:
             let count = answers.count
@@ -1191,6 +1247,67 @@ final class SessionViewModel: ObservableObject {
                 self.beginListening(mode: self.endReturn)
             }
         }
+    }
+
+    /// En son kaydedilen soru ("son soruyu sil" bunu siler). Önce kaydedilme sırasına, yoksa en büyük numaraya bakılır.
+    var lastRecordedAnswer: AnswerRecord? {
+        for number in answerOrder.reversed() {
+            if let record = answers.first(where: { $0.number == number }) { return record }
+        }
+        return answers.last
+    }
+
+    /// "Son soruyu silmek istiyor musunuz?" sorusuna cevap: evet kaydı siler, hayır (ya da cevapsızlık) hiçbir şeyi silmez
+    private func confirmDeleteLast(_ number: Int, reply: SpokenReply.YesNo) {
+        pendingDelete = nil
+        switch reply {
+        case .yes:
+            tlog("[komut] son soruyu silme onaylandı (soru \(number))")
+            deleteRecordedQuestion(number)
+            if endReturn != .missingNumber { armCameraOffer() }   // silinen soru yeniden okunacak: kamera açıksa o soru için yeniden sorulur
+            let notice = endReturn == .missingNumber ? Say.lastQuestionDeleted(number, cameraNext: true) + " " + Say.reviewBackToNumber
+                : Say.lastQuestionDeleted(number, cameraNext: cameraQuestionWillBeAsked)
+            work = Task { [weak self] in
+                guard let self = self, await self.speakNotice(notice) else { return }
+                self.beginListening(mode: self.endReturn)
+            }
+        case .no:
+            tlog("[komut] son soruyu silmekten vazgeçildi (soru \(number)); hiçbir şey silinmedi")
+            work = Task { [weak self] in
+                guard let self = self, await self.speakNotice(self.deleteCancelledNotice) else { return }
+                self.beginListening(mode: self.endReturn)
+            }
+        }
+    }
+
+    /// Silme vazgeçilince ya da onay cevapsız kalınca söylenen cümle
+    private var deleteCancelledNotice: String {
+        if endReturn == .missingNumber { return Say.deleteCancelledCamera + " " + Say.reviewBackToNumber }
+        return cameraQuestionWillBeAsked ? Say.deleteCancelledCamera : Say.deleteCancelled
+    }
+
+    /// Soru kaydını siler: cevap satırı, düz yazı satırı, ses dosyası ve ana ekrandaki satır. Sıradaki numara silinen soruya geri döner (soru yeniden okunur).
+    func deleteRecordedQuestion(_ number: Int) {
+        answers.removeAll { $0.number == number }
+        answerOrder.removeAll { $0 == number }
+        if let folder = sessionFolder {
+            deps.library.removeExisting(question: number, in: folder)
+            if !deps.library.removeTranscript(number: number, in: folder) { warn("yazi", Say.transcriptFailed) }
+        }
+        questions.removeAll { entry in
+            guard entry.number == number else { return false }
+            if case .answered = entry.state { return true }
+            return false
+        }
+        if unheard?.number == number { unheard = nil }
+        deps.journal.savePending(nil)
+        if nextNumber == number + 1 {
+            nextNumber = number
+            deps.journal.saveNextNumber(number)
+            carry?.nextNumber = number
+        }
+        refreshReplayAvailability()
+        tlog("[kayıt] soru \(number) silindi (cevap, düz yazı satırı ve ses dosyası)")
     }
 
     /// "Testi bitir" onayından vazgeçilince (ya da onay cevapsız kalınca) söylenen cümle: bekleyen numara / paragraf numarası varsa ona dönüldüğü söylenir
@@ -1235,6 +1352,19 @@ final class SessionViewModel: ObservableObject {
         switch listenMode {
         case .confirmEnd:
             endReminders += 1
+            if let number = pendingDelete {
+                if endReminders <= Timing.choiceReminderLimit {
+                    guard await speakNotice(Say.reask(Say.confirmDeleteLastAgain(number), attempt: endReminders + 1)) else { return }
+                    beginListening(mode: .confirmEnd)
+                } else {
+                    tlog("[komut] son soruyu silme sorusu cevapsız kaldı; hiçbir şey silinmedi")
+                    clearWarning("duyulan")
+                    pendingDelete = nil
+                    guard await speakNotice(deleteCancelledNotice) else { return }
+                    beginListening(mode: endReturn)
+                }
+                return
+            }
             if endReminders <= Timing.choiceReminderLimit {
                 let again = endScope == .section ? Say.confirmSectionEndAgain : Say.confirmEndAgain
                 guard await speakNotice(Say.reask(again, attempt: endReminders + 1)) else { return }
@@ -1291,6 +1421,7 @@ final class SessionViewModel: ObservableObject {
                 try place(exam: exam, section: sectionPlan.isEmpty ? 0 : 1)
                 nextNumber = 1
                 answers = []
+                answerOrder = []
                 deps.journal.saveNextNumber(1)
                 saveLocation()
                 carry = nil
@@ -1301,7 +1432,10 @@ final class SessionViewModel: ObservableObject {
             }
         }
         if goOn {
-            if let folder = sessionFolder { answers = deps.library.transcriptRecords(in: folder) }
+            if let folder = sessionFolder {
+                answers = deps.library.transcriptRecords(in: folder)
+                answerOrder = answers.map { $0.number }
+            }
             deps.journal.saveNextNumber(nextNumber)
             tlog("[açılış] önceki kayıttan devam: \(offer?.answers ?? answers.count) cevap, sıradaki soru \(nextNumber)")
         }
@@ -1728,6 +1862,8 @@ final class SessionViewModel: ObservableObject {
             answers.append(record)
             answers.sort { $0.number < $1.number }
         }
+        answerOrder.removeAll { $0 == record.number }
+        answerOrder.append(record.number)
         if let folder = sessionFolder, !deps.library.upsertTranscript(record.spoken, number: record.number, in: folder) {
             warn("yazi", Say.transcriptFailed)
         }

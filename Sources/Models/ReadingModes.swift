@@ -198,6 +198,10 @@ enum VoiceCommand: Equatable {
     case cancelQuestion
     /// "Paragrafı iptal et": okunmakta ya da numaraları beklenen paragraf vazgeçilir; yoksa kayıtlı ortak paragraf silinir
     case cancelPassage
+    /// "Soruyu atla", "yeni soru": yarım kalan ya da yanlış anlaşılan soru (metin, ses kaydı, numarası beklenen soru) bırakılır; sıradaki soru okunur
+    case skipQuestion
+    /// "Son soruyu sil", "son cevabı sil": en son kaydedilen sorunun kaydı (cevap satırı ve ses dosyası) silinir; önce "emin misiniz?" diye onay istenir
+    case deleteLastQuestion
     /// "5. sorunun cevabını tekrarla": yalnız o sorunun cevabı yeniden okunur
     case repeatNumber(Int)
     /// "Anlamadım", "duyamadım", "bir daha söyle", "yeniden söyle", "tekrar söyle", "ne dedin": programın son sözü (soru, menü, cevap) yeniden söylenir
@@ -221,6 +225,9 @@ enum VoiceCommand: Equatable {
 
     /// Testi ya da bölümü bitirme isteği (ikisi de önce onay ister)
     var isEnding: Bool { return self == .endTest || self == .endSection }
+
+    /// Okunan soruyu bırakan komutlar: "soruyu iptal et" ve "soruyu atla"
+    var isCancelQuestion: Bool { return self == .cancelQuestion || self == .skipQuestion }
 
     /// Bilgi ve düzeltme komutları: her kipte söylenebilir, soru metnini korur ve yaptığını ya da yapamadığını kısaca söyler
     var isInfo: Bool {
@@ -264,6 +271,10 @@ enum VoiceCommand: Equatable {
         "iptal", "sil", "silin", "silelim", "silsene", "temizle", "temizleyin", "temizleyelim", "unut", "unutun",
         "vazgec", "vazgectim", "vazgecelim"
     ]
+    /// Atlama fiilleri: "soruyu atla", "bu soruyu geç", "soruyu bırak". Anlamı iptalle aynıdır (yarım kalan soru bırakılır); söylenen cümle "atlandı" olur
+    static let skipVerbs: Set<String> = ["atla", "atlayin", "atlayalim", "atlasana", "gec", "gecin", "gecelim", "birak", "birakin", "birakalim"]
+    /// "Yeni soru": tek başına "soruyu atla" demekle aynıdır; "yeni" yalnız soru konusuyla ve okuma fiili olmadan sayılır ("yeni soruyu okuyacağım" komut değildir)
+    static let freshWords: Set<String> = ["yeni"]
     static let restartWords: Set<String> = ["bastan", "yeniden"]
     static let restartVerbs: Set<String> = [
         "oku", "okuyacagim", "okuyayim", "okuyorum", "okuyalim", "basla", "baslayacagim", "baslayayim", "baslayalim", "alalim"
@@ -281,11 +292,15 @@ enum VoiceCommand: Equatable {
     static func parseCancel(_ text: String) -> VoiceCommand? {
         let all = SpokenWords.of(text)
         guard all.count >= 2, all.count <= 6 else { return nil }
-        var strong = false, restart = false, restartVerb = false, question = false, passage = false
+        var strong = false, skip = false, fresh = false, restart = false, restartVerb = false, question = false, passage = false
         for word in all {
             if SpokenWords.matches(word, fillers) || SpokenWords.matches(word, cancelFillers) { continue }
             if SpokenWords.matches(word, cancelVerbs) {
                 strong = true
+            } else if SpokenWords.matches(word, skipVerbs) {
+                skip = true
+            } else if SpokenWords.exactly(word, freshWords) {
+                fresh = true
             } else if SpokenWords.matches(word, restartWords) {
                 restart = true
             } else if SpokenWords.matches(word, restartVerbs) {
@@ -298,8 +313,44 @@ enum VoiceCommand: Equatable {
                 return nil   // tanınmayan sözcük: komut değil, soru ya da paragraf metni olabilir
             }
         }
-        guard passage != question, strong || (restart && restartVerb) else { return nil }
-        return passage ? .cancelPassage : .cancelQuestion
+        guard passage != question else { return nil }
+        let cancelling = strong || (restart && restartVerb)
+        if passage {
+            // "paragrafı atla" iptal gibidir; "yeni paragraf" komut değildir
+            if cancelling || skip { return VoiceCommand.cancelPassage }
+            return nil
+        }
+        if cancelling { return VoiceCommand.cancelQuestion }
+        if fresh && restartVerb { return nil }   // "yeni soruyu okuyacağım": komut değil
+        if skip || fresh { return VoiceCommand.skipQuestion }
+        return nil
+    }
+
+    /// "Son soruyu sil", "son cevabı sil", "son sorunun kaydını sil", "en son soruyu iptal et": en son kaydedilen soru silinsin isteniyor.
+    /// "Son" sözcüğü ve silme fiili ile soru/cevap/kayıt sözcüğü birlikte gerekir; metin TAMAMEN komut olmalı. "Soruyu sil" (son yok) okunan soruyu iptal eder.
+    static let deleteVerbs: Set<String> = ["sil", "silin", "silelim", "silsene", "iptal", "kaldir", "kaldirin", "kaldiralim", "temizle", "temizleyin"]
+    static let recordNouns: Set<String> = [
+        "soru", "soruyu", "sorunun", "sorusunu", "sorumu", "cevap", "cevabi", "cevabini", "cevabimi", "kayit", "kaydi", "kaydini", "kaydimi"
+    ]
+    static let deleteFillers: Set<String> = ["en", "kaydedilen", "kaydettigim", "cevapladigim"]
+
+    static func parseDeleteLastQuestion(_ all: [String]) -> VoiceCommand? {
+        guard all.count >= 3, all.count <= 7 else { return nil }
+        var verb = false, last = false, noun = false
+        for word in all {
+            if SpokenWords.matches(word, fillers) || SpokenWords.matches(word, deleteFillers) { continue }
+            if SpokenWords.matches(word, deleteVerbs) || SpokenWords.startsLike(word, "iptal") {
+                verb = true
+            } else if SpokenWords.matches(word, lastPart) {
+                last = true
+            } else if SpokenWords.matches(word, recordNouns) {
+                noun = true
+            } else {
+                return nil   // tanınmayan sözcük: komut değil, soru metni olabilir
+            }
+        }
+        if verb && last && noun { return VoiceCommand.deleteLastQuestion }
+        return nil
     }
 
     /// "5. sorunun cevabını tekrarla", "beşinci sorunun cevabını oku", "soru yedinin cevabını söyle": tek bir sorunun cevabı. Numara bulunamazsa nil
@@ -470,6 +521,7 @@ enum VoiceCommand: Equatable {
         if let askOff = parseCameraAskOff(all) { return askOff }   // "kamera sorusu olmasın" (olumsuzlamadan önce: "olmasın" olumsuz söz sayılır)
         if isNegated(all) { return nil }
         if let cancel = parseCancel(text) { return cancel }
+        if let delete = parseDeleteLastQuestion(all) { return delete }
         if let numbered = parseNumbered(text) { return numbered }
         if isRepeatSpeech(all) { return .repeatSpeech }
         if let info = parseInfo(all) { return info }
@@ -571,7 +623,7 @@ enum CommandAttempt {
         var verb = false, subject = false
         for word in words {
             if SpokenWords.matches(word, VoiceCommand.fillers) || SpokenWords.matches(word, VoiceCommand.cancelFillers) { continue }
-            if SpokenWords.matches(word, VoiceCommand.cancelVerbs) || SpokenWords.startsLike(word, "iptal") {
+            if SpokenWords.matches(word, VoiceCommand.cancelVerbs) || SpokenWords.matches(word, VoiceCommand.skipVerbs) || SpokenWords.startsLike(word, "iptal") {
                 verb = true
             } else if SpokenWords.matches(word, VoiceCommand.questionSubjects) || SpokenWords.matches(word, VoiceCommand.passageSubjects)
                         || SpokenWords.startsLike(word, "paragraf") {

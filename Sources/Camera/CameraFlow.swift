@@ -123,12 +123,15 @@ protocol CameraCapturing: AnyObject {
     func capture() async -> Result<CapturedQuestion, CameraFailure>
     /// Süren çekimi iptal eder (kamera kapanır)
     func cancel()
+    /// Kameraya ulaşılabiliyor mu: bağlanır, görüntü gelirse doğru döner. Konumlandırma söylenmez, hiçbir şey çekilmez; kamera hemen kapanır.
+    func probe() async -> Bool
     /// Kameranın son görüntü karelerinden okunan pil durumu (kamera kapandıktan sonra da son bilinen değer kalır); hiç okunmadıysa nil
     var lastBattery: CameraBatteryLevel? { get }
 }
 
 extension CameraCapturing {
     var lastBattery: CameraBatteryLevel? { return nil }
+    func probe() async -> Bool { return false }
 }
 
 /// Kamera yapılandırılmamış oturumlar (ve eski testler) için

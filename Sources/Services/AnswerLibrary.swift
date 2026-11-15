@@ -283,6 +283,25 @@ struct AnswerLibrary {
         }
     }
 
+    /// "Son soruyu sil": numaranın düz yazıdaki satırı (varsa) silinir. Dosya yoksa ya da satır yoksa bir şey yapılmaz (true). Dosya okunamaz ya da
+    /// yazılamazsa false (üzerine yazılmaz; önceki cevaplar kaybolmasın).
+    @discardableResult
+    func removeTranscript(number: Int, in folder: URL) -> Bool {
+        let url = folder.appendingPathComponent(AnswerLibrary.transcriptName)
+        guard fileManager.fileExists(atPath: url.path) else { return true }
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return false }
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
+        let prefix = "Soru \(number),"
+        let kept = lines.filter { !$0.hasPrefix(prefix) }
+        guard kept.count != lines.count else { return true }
+        do {
+            try (kept.isEmpty ? "" : kept.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
+            return true
+        } catch {
+            return false
+        }
+    }
+
     /// Cevapları düz yazı olarak da tutar: sesler silinse de cevaplar okunabilir kalır. Yazılamadıysa (yer doldu, klasör erişimi gitti) false.
     /// Dosya varsa yalnız sonuna eklenir; açılamazsa üzerine yazılmaz (önceki cevapların satırları kaybolmasın).
     @discardableResult

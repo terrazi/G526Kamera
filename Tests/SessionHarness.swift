@@ -24,6 +24,8 @@ final class SessionHarness {
     let volume = FakeVolume()
     let journal = FakeJournal()
     let exits = ExitCounter()
+    /// Sahte saat: varsayılan donuk; kamera yoklaması gibi süre ölçen testler `clock.offset` ile ilerletir
+    let clock = TestClock()
     let scheduler = ManualScheduler()
     let root: URL
     let settings: AppSettings
@@ -70,6 +72,7 @@ final class SessionHarness {
             settings.wifiShortcut = "Kamera_Onar"   // Sürüm 4: Wi-Fi adımı kamera bağlantısını onarır
         }
         let exitCounter = exits
+        let clockRef = clock
         let deps = SessionDependencies(route: route,
                                        listener: listener,
                                        recorder: recorder,
@@ -83,7 +86,7 @@ final class SessionHarness {
                                        screen: screen,
                                        scheduler: scheduler,
                                        library: library ?? AnswerLibrary(root: root),
-                                       now: { Date(timeIntervalSince1970: 1_800_000_000) },
+                                       now: { Date(timeIntervalSince1970: 1_800_000_000 + clockRef.offset) },
                                        sleep: { _ in },
                                        recoveryConfig: RecoveryCoordinator.Config(settle: 0, verifyWindow: 0, verifyInterval: 1,
                                                                                   cycleGap: 0, maxCycles: 1),
@@ -134,4 +137,9 @@ final class SessionHarness {
         if case .paused(.noConnection) = vm.phase { return true }
         return false
     }
+}
+
+/// Testlerde ViewModel'in "şimdi"sini ilerletmek için (varsayılan 0: saat donuktur, başka testler etkilenmez)
+final class TestClock {
+    var offset: TimeInterval = 0
 }

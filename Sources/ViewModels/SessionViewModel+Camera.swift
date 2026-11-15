@@ -16,7 +16,7 @@ extension SessionViewModel {
 
     /// Kamera sorusu sorulabilir mi: ayar açık, kamera adı geçerli ve iki kestirme adı yazılı
     var cameraOfferAvailable: Bool {
-        guard settings.askCamera else { return false }
+        guard settings.askCamera, cameraDownSince == nil else { return false }   // kameraya ulaşılamıyorsa soru sesle okunur (bkz. SessionViewModel+CameraWatch)
         return cameraConfigured
     }
 
@@ -255,6 +255,7 @@ extension SessionViewModel {
             offerCamera = true   // kesildi (kulaklık, arama, onarım): onarımdan sonra kamera sorusu yeniden sorulur
             return
         }
+        let attemptStart = deps.now()
         phase = .answering
         networkMayBeOnCamera = true   // kestirme çalışınca hücresel kapanır; internete dönüş doğrulanana kadar bayrak durur
         statusNote = "Kameraya geçiliyor (hücresel kesiliyor)"
@@ -277,6 +278,12 @@ extension SessionViewModel {
                 keepPending(shot)
             }
         }
+        // 5 denemede de kameraya ulaşılamadı (kapalı, şarjı bitti, menzil dışı): kamera sistemden çıkarılır, sesle devam edilir, 5 dakikada bir yoklanır
+        var cameraGaveUp = false
+        if case .failure(let failure) = result, failure == .notConnected || failure == .noFrames, !Task.isCancelled, phase == .answering {
+            cameraGaveUp = true
+            markCameraDown(since: attemptStart)
+        }
         guard !Task.isCancelled, phase == .answering else {
             if !isPassage || passageDraft == nil { offerCamera = true }
             return
@@ -298,9 +305,9 @@ extension SessionViewModel {
             clearWarning("kamera")
             if online {
                 if isPassage {
-                    await fallBackToVoicePassage(Say.passageCameraFailed(failure))
+                    await fallBackToVoicePassage(Say.passageCameraFailed(failure, down: cameraGaveUp))
                 } else {
-                    await fallBackToVoice(Say.cameraFailed(failure))
+                    await fallBackToVoice(Say.cameraFailed(failure, down: cameraGaveUp))
                 }
             } else {
                 await repairInternetAfterCamera(Say.cameraFailedOffline(failure))

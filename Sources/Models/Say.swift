@@ -81,7 +81,7 @@ enum Say {
     }
     /// Duyulan söz komuta benziyor ama anlaşılamadı: program anladığını sanıp susmaz, açıkça söyler ve tekrar ister
     static let commandNotUnderstood = "Komutu anlayamadım. Lütfen komutu bir kez daha söyleyin."
-    static let commandHelp = "Yine anlayamadım. Cevapları tekrarla, son cevabı tekrarla, soruyu iptal et ya da testi bitir diyebilirsiniz."
+    static let commandHelp = "Yine anlayamadım. Cevapları tekrarla, son cevabı tekrarla, soruyu iptal et, soruyu atla, son soruyu sil ya da testi bitir diyebilirsiniz."
     /// Soru metni geldi, uzun süre konuşulmadı ve "Cevapla" duyulmadı: kullanıcı söylediyse tanıyıcı kaçırmıştır
     static let noTriggerHeard = "Cevapla komutunu duyamadım. Soru bittiyse lütfen Cevapla deyin."
     /// Paragraf numaraları söylendi ama "Tamam" duyulmadı
@@ -217,6 +217,23 @@ enum Say {
     static let questionCancelled = "Okunan soru silindi. Lütfen soruyu baştan okuyun."
     static let questionCancelledCamera = "Okunan soru silindi."
     static let nothingToCancelQuestion = "Silinecek soru yok."
+    /// "Soruyu atla" / "yeni soru": yarım kalan ya da yanlış anlaşılan soru bırakıldı; sıradaki soru okunur (kamera sorusu geliyorsa "okuyun" denmez)
+    static let questionSkipped = "Soru atlandı. Sıradaki soruyu okuyabilirsiniz."
+    static let questionSkippedCamera = "Soru atlandı."
+    static let nothingToSkipQuestion = "Atlanacak soru yok. Sıradaki soruyu okuyabilirsiniz."
+    /// "Son soruyu sil": silmeden önce onay istenir; silinen numara söylenir. Cevap gelmezse ya da anlaşılmazsa üçüncü soruşta vazgeçilir (hiçbir şey silinmez)
+    static let nothingToDeleteLast = "Silinecek kayıtlı soru yok."
+    static func confirmDeleteLast(_ number: Int) -> String {
+        return "Soru \(number) kaydı silinecek: cevabı ve ses kaydı kalmayacak. Emin misiniz? Silmek için evet, vazgeçmek için hayır deyin."
+    }
+    static func confirmDeleteLastAgain(_ number: Int) -> String {
+        return "Cevap alamadım, ikinci defa soruyorum. Soru \(number) kaydı silinsin mi? Evet ya da hayır deyin."
+    }
+    static func lastQuestionDeleted(_ number: Int, cameraNext: Bool) -> String {
+        return "Soru \(number) kaydı silindi." + (cameraNext ? "" : " Soruyu yeniden okuyabilirsiniz.")
+    }
+    static let deleteCancelled = "Tamam, kayıt silinmedi. Soruyu okuyabilirsiniz."
+    static let deleteCancelledCamera = "Tamam, kayıt silinmedi."
     /// "Paragrafı iptal et": okunan ya da numaraları beklenen paragraf vazgeçildi / kayıtlı ortak paragraf silindi / silinecek paragraf yok.
     /// `cameraNext`: bu soru için kamera yeniden sorulacak ("soruyu okuyun" denmez)
     static func passageCancelled(cameraNext: Bool) -> String {
@@ -232,7 +249,7 @@ enum Say {
 
     // MARK: Bilgi ve düzeltme komutları ("yardım", "ne duydun", "son cümleyi sil", "durum", "cevapsız soruları söyle")
     /// Her komut yaptığını ya da yapamadığını kısaca söyler
-    static let helpCommands = "Komutlar: Cevapla ya da Gönder, soruyu gönderir. Testi bitir. Cevapları tekrarla. Son cevabı tekrarla. Soruyu iptal et. Paragrafı iptal et. Ortak paragraf. Son cümleyi sil. Ne duydun. Durum. Cevapsız soruları söyle. Raporlar için internet, mikrofon, kulaklık, ses, kamera, şarj, ısı ya da ram durumu deyin; hepsi için genel rapor deyin. Sesi aç ya da sesi kıs deyin. Kamera ayarları için kamera sorusunu kapat, görüntü kalitesini yüksek yap ya da kadrajı dikey yap deyin. Duyamadığınız her şeyi bir daha söyle diyerek tekrarlatabilirsiniz."
+    static let helpCommands = "Komutlar: Cevapla ya da Gönder, soruyu gönderir. Testi bitir. Cevapları tekrarla. Son cevabı tekrarla. Soruyu iptal et. Soruyu atla. Son soruyu sil. Paragrafı iptal et. Ortak paragraf. Son cümleyi sil. Ne duydun. Durum. Cevapsız soruları söyle. Raporlar için internet, mikrofon, kulaklık, ses, kamera, şarj, ısı ya da ram durumu deyin; hepsi için genel rapor deyin. Sesi aç ya da sesi kıs deyin. Kamera ayarları için kamera sorusunu kapat, görüntü kalitesini yüksek yap ya da kadrajı dikey yap deyin. Duyamadığınız her şeyi bir daha söyle diyerek tekrarlatabilirsiniz."
     /// "Ne duydun": soru metni yoksa
     static let nothingHeard = "Henüz bir şey duymadım."
     /// "Ne duydun" soru dinlenmediği bir anda söylendi (evet/hayır, numara, menü…)
@@ -339,13 +356,28 @@ enum Say {
     static let passageSavedOffline = "Paragraf çekildi ama internet gelmedi. Görüntüler telefonda saklandı; bağlantı onarılıyor, düzelince hangi sorulara ait olduğunu soracağım."
     static let recoveredAskTargetsCamera = "Bağlantı yeniden onarıldı. Paragrafın video ve fotoğrafı alındı. Hangi sorulara ait olduğunu söyleyip Tamam deyin."
     /// Kamera paragrafı çekemedi: neden ve sesle devam yolu (V3'teki gibi okunur)
-    static func passageCameraFailed(_ failure: CameraFailure) -> String {
-        return "\(failure.message) Şimdilik ortak paragrafı okuyun, bitince Tamam deyin."
+    static func passageCameraFailed(_ failure: CameraFailure, down: Bool = false) -> String {
+        return "\(failure.message)" + (down ? " " + cameraWatching : "") + " Şimdilik ortak paragrafı okuyun, bitince Tamam deyin."
     }
 
     /// Kamera çekimi olmadı (internet geldi): neden ve sesle devam yolu
-    static func cameraFailed(_ failure: CameraFailure) -> String {
-        return "\(failure.message) Şimdilik soruyu okuyun, bitince Cevapla deyin."
+    static func cameraFailed(_ failure: CameraFailure, down: Bool = false) -> String {
+        return "\(failure.message)" + (down ? " " + cameraWatching : "") + " Şimdilik soruyu okuyun, bitince Cevapla deyin."
+    }
+
+    // MARK: Kameraya ulaşılamıyor: sesle devam, 5 dakikada bir yoklama
+    /// Kameraya 5 denemede de ulaşılamadı: kamera sistemden çıkar, sesle devam edilir
+    static let cameraWatching = "Kameraya beş denemede ulaşılamadı; sesle devam ediyoruz. Kamerayı beş dakikada bir kontrol edeceğim, düzelirse haber vereceğim."
+    static let cameraChecking = "Kamera kontrol ediliyor, lütfen bekleyin."
+    static let cameraStillDown = "Kamera hâlâ kapalı, sesle devam ediyoruz."
+    /// Kamera döndü: ne kadar süre ulaşılamadığı söylenir ("7 dakika 12 saniye"); sonraki sorudan başlayarak kamera sorusu yeniden sorulur
+    static func cameraBack(seconds: Int) -> String {
+        let minutes = seconds / 60
+        let rest = seconds % 60
+        var parts: [String] = []
+        if minutes > 0 { parts.append("\(minutes) dakika") }
+        if rest > 0 || minutes == 0 { parts.append("\(rest) saniye") }
+        return "Kameraya \(parts.joined(separator: " ")) boyunca ulaşılamıyordu. Şu an itibarıyla düzeldi ve kamera kullanılabiliyor."
     }
 
     /// Kamera çekimi olmadı ve internet de gelmedi: neden; bağlantı onarılır

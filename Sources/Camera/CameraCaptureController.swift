@@ -250,6 +250,41 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         return await shoot(reason: trigger == .positioned ? "Sesli konumlandırma" : (trigger == .manual ? "Elle" : "Süre doldu"))
     }
 
+    /// Kameraya ulaşılabiliyor mu: bağlanıp görüntü gelirse true. Kamerası kapalı ya da şarjı bitmiş bir sınavda kamera dönene kadar 5 dakikada bir
+    /// yoklanır; konumlandırma söylenmez, hiçbir şey çekilmez, kamera hemen kapanır.
+    static let probeSeconds: TimeInterval = 25
+
+    func probe() async -> Bool {
+        guard !running, CameraUID(settings.uid) != nil else { return false }
+        running = true
+        cancelled = false
+        shooting = false
+        active = true
+        defer {
+            teardown()
+            running = false
+            active = false
+        }
+        pipeline.saving = true
+        status("Kamera kontrol ediliyor")
+        decoder.reset()
+        pipeline.reset()
+        decodeClock.clear()
+        batteryMonitor.reset()
+        let quality = settings.streamQuality == 2 ? (state: 2, stream: 2) : (state: 1, stream: 1)
+        guard let uid = CameraUID(settings.uid) else { return false }
+        client.start(config: CameraSession.Config(uid: uid,
+                                                  password: settings.cameraPassword,
+                                                  manualIP: settings.cameraIP.trimmed,
+                                                  videoState: quality.state,
+                                                  videoStream: quality.stream,
+                                                  tzHours: TimeZone.current.secondsFromGMT() / 3600,
+                                                  probe: false))
+        cameraState = .connecting("Kameraya bağlanılıyor…")
+        let live = await waitUntil(seconds: CameraCaptureController.probeSeconds) { self.isLive }
+        return live && !cancelled
+    }
+
     /// Ekrandaki "Şimdi çek" düğmesi (yardım eden biri için yedek): konumlandırma beklenmeden çeker
     func captureNow() {
         resolve(.manual)

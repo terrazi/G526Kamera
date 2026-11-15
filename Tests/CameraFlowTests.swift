@@ -203,14 +203,18 @@ final class CameraFlowTests: XCTestCase {
                        "Bağlanılamayınca Wi-Fi adımı (kamera bağlantısı onarımı) çalışır ve çekim yeniden denenir")
     }
 
-    func testRepairIsGivenUpAfterTwoRepairsAndTheUserReadsTheQuestion() async {
-        let h = harness(shots: [.failure(.notConnected), .failure(.notConnected), .failure(.noFrames)])
+    /// Kamera 5 denemede (ilk deneme + 4 onarım) açılmazsa vazgeçilir, sesle devam edilir
+    func testRepairIsGivenUpAfterFiveAttemptsAndTheUserReadsTheQuestion() async {
+        let h = harness(shots: [.failure(.notConnected), .failure(.notConnected), .failure(.notConnected), .failure(.notConnected), .failure(.noFrames)])
         _ = await h.startListening()
         reply(h, "evet")
-        let voice = await waitUntil(45) { h.speaker.spoken.last == Say.cameraFailed(.noFrames) && h.vm.listenMode == .question && h.vm.phase == .listening }
-        XCTAssertTrue(voice)
+        let voice = await waitUntil(45) { h.speaker.spoken.last == Say.cameraFailed(.noFrames, down: true) && h.vm.listenMode == .question && h.vm.phase == .listening }
+        XCTAssertTrue(voice, "\(h.speaker.spoken)")
         XCTAssertEqual(h.events, ["kestirme:Kameraya_Gec", "çekim", "kestirme:Kamera_Onar", "çekim", "kestirme:Kamera_Onar", "çekim",
-                                  "kestirme:Hücresele_Gec"])
+                                  "kestirme:Kamera_Onar", "çekim", "kestirme:Kamera_Onar", "çekim", "kestirme:Hücresele_Gec"])
+        XCTAssertEqual(SessionViewModel.Timing.cameraRepairs + 1, 5)
+        XCTAssertNotNil(h.vm.cameraDownSince, "Kameraya ulaşılamıyor diye işaretlenir; kamera sistemden çıkar")
+        XCTAssertFalse(h.vm.cameraOfferAvailable)
     }
 
     func testRepairStepFallsBackToTheCameraShortcutWhenItsNameIsEmpty() async {

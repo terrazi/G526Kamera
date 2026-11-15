@@ -127,6 +127,7 @@ extension SessionViewModel {
         endScope = .test
         nextNumber = 1
         answers = []
+        answerOrder = []
         passage = nil
         passageDraft = nil
         heldQuestion = nil

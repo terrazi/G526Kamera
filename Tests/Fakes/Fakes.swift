@@ -347,6 +347,14 @@ final class FakeCamera: CameraCapturing {
         return s
     }
 
+    /// Sırayla verilecek yoklama sonuçları (boşsa kamera yok); kamera kapalıyken dönüp dönmediğini yoklayan akış için
+    var probeResults: [Bool] = []
+    private(set) var probes = 0
+    func probe() async -> Bool {
+        probes += 1
+        return probeResults.isEmpty ? false : probeResults.removeFirst()
+    }
+
     func capture() async -> Result<CapturedQuestion, CameraFailure> {
         captures += 1
         subjects.append(subject)
