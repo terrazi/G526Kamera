@@ -1490,6 +1490,8 @@ final class SessionViewModel: ObservableObject {
             }
             if let task = voiceTask { await task.value }   // çalan bir uyarı varsa bitsin, üst üste konuşulmasın
             guard !Task.isCancelled, phase == .speaking else { return }
+            speechSealed = true   // cevap yeni bir "son söz" grubu başlatır: "gönderildi, bekleniyor" gibi ara anonslar "bir daha söyle" ile tekrarlanmaz
+            rememberSpeech(record.spoken)
             try await deps.speaker.speak(record.spoken, saveAs: base)
             // Okuma durdurulduysa (duraklatma, kulaklık kopması) cevap duyulmamış sayılır; devam edince yeniden okunur
             guard !Task.isCancelled else { return }

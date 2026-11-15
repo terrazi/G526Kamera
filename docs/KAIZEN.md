@@ -38,11 +38,19 @@ Yöntem (PUKÖ): **Planla** (bölümü seç, ne bozulabilir) → **Uygula** (kan
 İncelenip değişiklik gerekmeyenler (kanıtla): tetikleyici "Cevapla/Gönder" yalnız son sözcük ve aynı sesle eşleşir ("cevaplayınız" tetiklemez);
 paragraf numarası çözümleme ve kesinti/kurtarma akışı (tur 1 ve 2 incelemesi).
 
+## Tur 4: CI'nin yakaladığı eksik, kaos testleri ve belgeler
+
+| Bulgu | Düzeltme | Önlem |
+|---|---|---|
+| CI (788a2b7): 1021 testten 3'ü düştü. "Anlamadım" denince son CEVAP değil, açılış anonsu ("Ben hazırım…") ya da "Kameraya geçiliyor…" tekrarlanıyordu | Cevap `speakNotice` ile değil doğrudan okunduğu için "son söz" grubuna girmiyordu. Cevap okunurken yeni grup başlatılıp cevap hatırlanır (ara anonslar "gönderildi, bekleniyor" tekrarlanmaz) | Aynı üç test (`testEveryPhrase…`, `testPartlyReadQuestion…`, `testRepeatAfterAnAnswerAndTheCameraQuestion…`) |
+| Kaos testleri tekrar isteğini hiç denemiyordu | `ChaosTests` (olay 42, 43) ve `CameraChaosTests` (olay 37, 38) havuza değiştirilerek eklendi (havuz boyutu ve eski tohumların sırası korunur): rastgele kesintiler, kamera ve Gemini gecikmeleri arasında "anlamadım" / "bir daha söyle" | Mevcut değişmezler (takılma, sızıntı, anons yağmuru) |
+| `KURULUM.md` hâlâ "Sürüm 3, kamera yok" diyordu; yeni komutlar eksikti | V4 girişi, `surum-4` dalı, iptal / N. cevap / "anlamadım" komutları ve evet-hayır güvenli kuralı yazıldı | — |
+
 ## Kurallar (bundan sonrası için)
 
 1. Evet/hayır sorularında "evet" bulanık eşleşmeyle kabul edilmez; yeni bir "evet" sözü eklenirse olumsuz ikizi de listeye yazılır (test yakalar).
 2. Yeni komut sözcüğü eklenirse: gerçekçi soru parçalarıyla "komut sayılmaz" testi genişletilir.
 3. Her yeni komut: tanıyıcı ipucu + yardım cümlesi + uygulama içi yardım + `docs/PROSEDUR.md` satırı.
 4. Olumsuz söz hiçbir seçeneği seçmez ve komut sayılmaz; yeni bir komut/seçenek sözü eklenirse olumsuz biçimi `choiceNegations`/`finishNegations`'a da yazılır.
-5. Programın söylediği her şey "bir daha söyle" ile tekrarlatılabilmeli; yeni bir anons türü eklenirse `speakNotice` kullanılır (otomatik hatırlanır).
+5. Programın söylediği her şey "bir daha söyle" ile tekrarlatılabilmeli; yeni bir anons türü eklenirse `speakNotice` kullanılır (otomatik hatırlanır). `speakNotice` kullanmayan okuma (örn. cevap) `rememberSpeech` çağırmalıdır.
 6. Cihazda doğrulanmamış hiçbir davranış "çalışıyor" diye yazılmaz (gerçek dikte çıktısı, kestirmelerin Wi-Fi/hücreseli gerçekten değiştirmesi).

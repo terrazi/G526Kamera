@@ -34,7 +34,7 @@ final class CameraChaosTests: XCTestCase {
     private static let pool: [Int] = [
         0, 0, 0, 0, 1, 1, 2, 2, 2, 3, 3, 4, 4, 5, 5, 6, 7, 8, 9, 10,
         11, 11, 11, 12, 13, 14, 14, 15, 16, 16,
-        17, 18, 18, 19, 20, 20, 21, 22, 22, 23, 24, 25, 25, 25, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36
+        17, 18, 18, 19, 20, 20, 21, 22, 22, 23, 24, 25, 25, 37, 38, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36
     ]
 
     private func pass(_ h: SessionHarness, _ seconds: TimeInterval, burst: Bool) async {
@@ -116,6 +116,8 @@ final class CameraChaosTests: XCTestCase {
         case 35:
             h.answering.results.append(.failure(GeminiError("ağ koptu", .network)))
             return "sıradaki Gemini isteği ağ hatası verecek"
+        case 37: say(h, "anlamadım", after: T.numberConfirm); return "anlamadım"
+        case 38: say(h, "bir daha söyle", after: T.numberConfirm); return "bir daha söyle"
         default:
             h.listener.say("Soru 3 Ali eve gitti. Sonra okula yürüdü ve arkadaşlarıyla buluştu")
             return "yarım okuma"

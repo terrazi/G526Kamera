@@ -1,16 +1,19 @@
-# Sesli Kontrol (Sürüm 3) — Kurulum (iPhone 12 mini, Mac gerekmez)
+# Sesli Kontrol (Sürüm 4) — Kurulum (iPhone 12 mini, Mac gerekmez)
 
-Kamera yok. Sistem yalnız ses ile çalışır: **giriş** Lightning'e takılı kablosuz yaka mikrofonu, **çıkış** yalnız Bluetooth kulaklık.
+Sistem sesle çalışır: **giriş** Lightning'e takılı kablosuz yaka mikrofonu, **çıkış** yalnız Bluetooth kulaklık.
 Soruyu yüksek sesle okursunuz, bitince "Cevapla" ya da "Gönder" dersiniz; uygulama soruyu Gemini'ye sorar, cevabı kulaklıktan okur
 ve cihazda kaydeder. Test bitince "Cevapları Tekrarla" kayıtları internetsiz, aralarında bekleyerek çalar.
-Ayrıntılı işleyiş: `docs/SURUM3.md`.
+Sürüm 4'te kamera da vardır (isteğe bağlı): her soruda "Bu soruyu kamera ile çekip göndermek ister misiniz?" diye sorulur; **evet** denirse
+program kameraya geçer, video ve fotoğraf çeker, internete döner, soruyu Gemini'ye gönderir ve cevabı okur; **hayır** denirse Sürüm 3'teki gibi
+soruyu sesle okursunuz. Kamera kullanılmayacaksa Ayarlar'dan kamera sorusu kapatılır.
+Ayrıntılı işleyiş: `docs/PROSEDUR.md` (adım adım), `docs/SENARYOLAR.md` (olay olay), `docs/SURUM3.md` (V3 tabanı).
 
 > Hiçbir özellik telefonda denenmedi; yalnız GitHub Actions'ta derlendi ve birim testlerden geçti.
 
 ## 1) Derleme (GitHub Actions)
 
-1. Depoda `surum-3` dalına gönderilen her değişiklik kendiliğinden derlenir.
-2. **Releases** sayfasında `surum-3` sürümünün altından `G526CameraDrive-unsigned.ipa` dosyasını indirin.
+1. Depoda `surum-4` dalına gönderilen her değişiklik kendiliğinden derlenir.
+2. **Releases** sayfasında `surum-4` sürümünün altından `G526CameraDrive-unsigned.ipa` dosyasını indirin.
 3. Derleme hata verirse aynı çalışmadaki `G526CameraDrive-Build-Log` dosyasına bakın.
 
 ## 2) iPhone'a yükleme (Sideloadly, Windows)
@@ -74,9 +77,15 @@ Mikrofon açıkken, soruyu okumadan **tek başına** söylenen komutlar tanını
 |---|---|
 | "Testi bitir" / "Sınavı bitir" / "sınav bitti" / "sınavı sonlandır" | Program "Testi bitirmek istiyor musunuz?" diye sorar. **Evet** (ya da komutu yeniden söylemek) kaydedilen cevapları numara sırasıyla baştan sona okutur, sonra "N sorunun cevabı okundu" der ve sorar: **Devam** (teste devam), **Tekrar** (cevapları yeniden oku), **Bitir** (testi tamamla). Söz gelmezse bitirme isteğiyle gelindiği için test tamamlanır. Ayarlar > "Testi bitirince cevapları oku" kapatılırsa onaydan sonra test doğrudan tamamlanır. **Hayır / vazgeç** ya da hiç cevap vermemek testi sürdürür. Yanlış tanımada test kapanmaz. |
 | "Cevapları tekrarla" / "Tüm cevapları oku" | Test sürerken (soru beklerken, bitirme onayında, eksik numara ve paragraf numaraları beklenirken) bütün cevaplar baştan okunur; sonra "N sorunun cevabı okundu" der ve **Devam / Tekrar / Bitir** diye sorar. Söz gelmezse teste devam edilir. |
-| "Son cevabı tekrarla" / "Tekrarla" | Son cevap yeniden okunur, Gemini'ye gitmez. |
+| "Son cevabı tekrarla" / "Tekrarla" | Son cevap yeniden okunur, Gemini'ye gitmez. (Bitirme onayında, numara ve paragraf numarası beklerken, başlangıç sorusunda "Tekrarla" programın son sözünü tekrarlar.) |
+| "Beşinci sorunun cevabını tekrarla" / "5. sorunun cevabını oku" | Yalnız o sorunun cevabı okunur; cevap yoksa "… için cevap yok" denir. |
+| "Soruyu iptal et" | Okunmakta olan soru (metin ve ses kaydı) silinir, Gemini'ye gitmez; baştan okursunuz. Numara beklenirken söylenirse bekleyen soru da bırakılır. Kamera sorusu açıkken silinecek bir şey yoktur. |
+| "Paragrafı iptal et" | Okunmakta ya da hangi sorulara ait olduğu beklenen ortak paragraf bırakılır; hiçbiri yoksa kayıtlı ortak paragraf silinir. |
+| **"Anlamadım" / "Duyamadım" / "Bir daha söyle" / "Yeniden söyle" / "Tekrar söyle" / "Ne dedin"** (ve benzerleri) | Programın söylediğini duymadıysanız ya da anlamadıysanız her aşamada (soru, onay, menü, numara, paragraf, başlangıç, kamera sorusu) söylenir: program **son sözünü** (en çok son iki anons; örneğin cevap + kamera sorusu) aynen yeniden söyler ve aynı yerde dinlemeye devam eder. Cevap sayılmaz, hiçbir şey değişmez. Program sizi anlamazsa o da "Anlayamadım…" der ve sorusunu yeniden sorar. |
 | "Cevapla" / "Gönder" | Okuduğunuz soruyu Gemini'ye gönderir (komutlarla birlikte söylenirse komut soru olarak gitmez). |
 | "Ortak paragraf" (duraklayın) … "Tamam" | Program kulaklıktan "Lütfen ortak paragrafı okuyun, bitince Tamam deyin" der; paragrafı okuyup "Tamam" dersiniz. Sonra hangi sorulara ait olduğunu söyleyip yine "Tamam" dersiniz. |
+
+**Evet / hayır sorularında güvenli kural:** "evet" yalnız açık söylenirse ("evet", "olur", "çekelim", "çekmek istiyorum", "bitirmek istiyorum"…) anlaşılır. Olumsuz söz ("çekmiyorum", "çekmem", "kamera olmasın", "bitirmeyelim", "bitirmek istemiyorum", "devam etmeyelim") hiçbir zaman evet sayılmaz, kamerayı açmaz, testi bitirmez; anlaşılmayan cevap yeniden sorulur. "Testi bitirme", "cevapları tekrarlama" gibi olumsuz sözler komut da değildir.
 
 Ekrandaki "Okunuyor: sorunuz bitince Cevapla deyin" notu, okunan metin varken görünür; program bir şey beklemiyor, yalnız dinliyor demektir.
 
