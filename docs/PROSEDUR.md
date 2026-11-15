@@ -9,6 +9,14 @@ Bu belge, programın sesle nasıl işlemesi gerektiğini adım adım yazar; her 
    sıradaki soru M. Devam mı, yeni sınav mı?" (devam / yeni; cevapsızsa bir hatırlatma, sonra 12 saatten yeniyse devam). Sonra "Hazır".
 2. **Tek soru.** Soru numarasıyla okunur → "Cevapla" ya da "Gönder" → numara okunmadıysa "Lütfen okuduğunuz sorunun numarasını söyleyin" →
    "Soru gönderildi, cevap bekleniyor" → cevap kulaklıktan okunur ve `soru_N` + `cevaplar.txt` olarak kaydedilir → "Lütfen sonraki soruyu okuyun".
+2a. **Sürüm 4: kamera ile tek soru.** "Lütfen sonraki soruyu okuyun" yerine her soru sınırında: "Bu soruyu kamera ile çekip göndermek ister misiniz?"
+   (evet / hayır; anlaşılmazsa "Anlayamadım…", yine olmazsa güvenli varsayılan: sesle okuma). **Hayır** → 2. adımdaki gibi sesle. **Evet** →
+   "Kameraya geçiliyor" → `Kameraya Geç` kestirmesi (hücresel kapanır, kameranın Wi-Fi'si) → kameraya bağlanma (olmazsa `Kamera Bağlantısını Onar`,
+   en çok 2 kez) → sesle konumlandırma (ortadaki soru; 30 sn'de yine de çeker) → fotoğraf + kısa video → kamera kapanır → `Hücresele Geç` kestirmesi
+   (Wi-Fi kapanır) → internet gelince fotoğraf + video Gemini'ye gider → cevap 2. adımdaki gibi okunur ve kaydedilir → sıradaki soru için yine sorulur.
+   Çekim olmazsa nedeni söylenir ve soru sesle okunur; internet gelmezse V3'ün internet onarımı çalışır ve çekim telefonda bekler (gelince bir kez
+   yeniden gönderilir; test bitince atılır ve cevapsız kalan soru sayısı yazılır). Arama / kulaklık kesintisi kamerayı kapatır, onarımdan sonra kamera
+   sorusu yeniden sorulur. İlk kullanımdan önce Ayarlar > Kamera > "Kamerayı dene" ile iOS yerel ağ izni alınır.
 3. **Ortak paragraf.** "Ortak paragraf" (duraklayın) → "Lütfen ortak paragrafı okuyun, bitince Tamam deyin" → paragraf + "Tamam" → "Paragraf metnini
    aldım, hangi sorular için? Numaraları söyleyip Tamam deyin" → "5, 6, 7" → "Ortak paragraf 5, 6 ve 7 için kaydedildi. Şimdi soruları okuyabilirsiniz" →
    her soru (numarası listede ise) paragrafla birlikte gider; hepsi cevaplanınca paragraf bırakılır.
