@@ -97,6 +97,8 @@ final class SessionViewModel: ObservableObject {
         static let tickLateLog: TimeInterval = 3
         /// Uygulamanın yaşadığı her bu kadar nabızda bir deftere işlenir (5 sn)
         static let heartbeatEveryTicks = 10
+        /// Kamera akışı sürerken "cevap hazırlanıyor" aşamasının takılma sınırına eklenen süre (sn)
+        static let cameraStuckExtra: TimeInterval = 600
         /// Beklenmedik kapanma: bu süre (sn) içinde bu kadar kez olursa otomatik başlatma durdurulur (açılış döngüsü)
         static let loopWindow: TimeInterval = 120
         static let loopLimit = 3
@@ -119,10 +121,12 @@ final class SessionViewModel: ObservableObject {
 
         /// Bir aşama bu süreden (sn) uzun hiç değişmezse takıldığı varsayılır (nil: o aşama sınırsız bekleyebilir, örn. dinleme ve duraklatmalar).
         /// Sınırlar, aşamanın kendi en uzun meşru süresinin üstündedir (örn. Gemini zincirinin en kötü sessiz bekleyişi ~10 dk).
-        static func stuckLimit(for phase: SessionPhase) -> TimeInterval? {
+        /// `camera`: Sürüm 4 kamera akışı sürüyor. Akış "cevap hazırlanıyor" aşamasında geçer: kestirmeler (30 sn ×2 ×3 deneme), kameraya bağlanma
+        /// (40 sn) ve konumlandırma (30 sn) Gemini bekleyişinin önüne eklenir; bu süre ayrıca tanınır (en kötü durum ~450 sn).
+        static func stuckLimit(for phase: SessionPhase, camera: Bool = false) -> TimeInterval? {
             switch phase {
             case .checking: return 240
-            case .answering: return 660
+            case .answering: return 660 + (camera ? cameraStuckExtra : 0)
             case .speaking: return 180
             case .recovering: return 360
             default: return nil

@@ -317,6 +317,9 @@ final class FakeCamera: CameraCapturing {
     var onCapture: (() -> Void)?
     /// Konumlandırma sırasında söylenmiş gibi yapılacak cümle
     var guidance: String?
+    /// Doğruysa çekim `release()` çağrılana (ya da iptal edilene) kadar sürer: uzun süren çekim sınamaları için
+    var hold = false
+    private var gate: CheckedContinuation<Void, Never>?
 
     static func shot(video: Bool = true, bytes: Int = 200_000) -> CapturedQuestion {
         var s = CapturedQuestion(photo: Data([1, 2, 3]))
@@ -333,11 +336,21 @@ final class FakeCamera: CameraCapturing {
         captures += 1
         onCapture?()
         if let text = guidance { onSay?(text) }
+        if hold { await withCheckedContinuation { gate = $0 } }
         guard !results.isEmpty else { return .failure(.unavailable) }
         return results.removeFirst()
     }
 
-    func cancel() { cancels += 1 }
+    func release() {
+        hold = false
+        gate?.resume()
+        gate = nil
+    }
+
+    func cancel() {
+        cancels += 1
+        release()
+    }
 }
 
 @MainActor

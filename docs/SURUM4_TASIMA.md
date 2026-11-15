@@ -98,7 +98,7 @@ V1'e göre bilerek değişen varsayılanlar:
 | `dimScreen` | V3'te aynı işi `AppSettings.dimScreen` (v3.dimScreen) yapıyor |
 | `speechVoiceID` | Okuma sesini V3'ün `phoneVoiceID` ayarı belirler |
 | `speechRate` | Okuma hızını V3 konuşma çıkışı yönetir |
-| `videoMaxSeconds` | Elle video çekimi V4 akışında yok; soru videosunun sınırı `examVideoMaxSeconds` |
+| `videoMaxSeconds` | Elle video çekimi V4 akışında yok; soru videosunun süresini `pageVideoSeconds` belirler |
 | `examPageVideo` | V4'te soru her zaman sayfa videosuyla çekilir; kapatılacak bir eski yöntem yok |
 | `videoSendMode` | V4 her soruyu tek tek, hemen gönderir; sıra bekletme kipi anlamsız |
 | `finishWord` | Fotoğrafları toplu PDF yapma komutu: V4'te toplu gönderim yok |
@@ -159,9 +159,14 @@ Anahtarlar ve varsayılanlar V1'le birebir korunur (V1'e dönülürse aynı değ
 
 - Görüntü değişince çek (hareket tetiği) ve duyarlılık: kamera yalnız "evet" denince açılıp tek soru çeker.
 - Sesli komutla çek, tetikleme sözcüğü, çekimler arası bekleme: kamera açıkken mikrofon soru okumaya ayrılmıştır; yardım eden biri için ekranda "Şimdi çek" düğmesi vardır.
+- Uzun video sınırı (`examVideoMaxSeconds`): V1'in sürekli kaydı içindir; V4'te soru videosunun süresi `pageVideoSeconds`'tır.
 - Konum uygunsa kendiliğinden çek, tam sığan bölümü kendiliğinden seç, video sırasında konum tarifi: çekim her zaman kendiliğinden yapılır, bölüm sorulmaz (kadrajın ortasındaki bölüm hedeflenir), video sırasında tarif verilmez.
 
 "Sesle konumlandır" kapalıysa konumlandırma atlanır ve kamera bağlanır bağlanmaz çeker.
+
+## Kamerayı dene
+
+Ayarlar > Kamera > "Kamerayı dene" (`CameraTester`): sınavın adımlarını (Kameraya Geç kestirmesi, kameraya bağlanıp çekim, Hücresele Geç kestirmesi, internetin gelmesi) sınavdan önce yürütür; deneme çekimi gönderilmez ve silinir. iOS'un yerel ağ izni ilk kamera kullanımında sorulduğundan, kutunun sınavda çıkmaması için bir kez denenmelidir. Sınav sürerken çalışmaz.
 
 ## V4 akışı
 

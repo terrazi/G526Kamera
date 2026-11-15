@@ -37,6 +37,7 @@ extension SessionViewModel {
         guard let reply = interpret(SpokenReply.yesNo) else { return }
         clearWarning("duyulan")
         closeListening()
+        listenMode = .question   // seçim yapıldı: bundan sonraki bir onarım "evet / hayır"ı yeniden sormaz, bekleyen çekimi gönderir
         phase = .speaking
         cameraReminders = 0
         work = Task { [weak self] in
@@ -295,6 +296,7 @@ extension SessionViewModel {
     func waitForGuidanceSpeech() async {
         var waited = 0
         while cameraGuidanceSpeaking, waited < 50, !Task.isCancelled {
+            await Task.yield()   // söylenmekte olan cümlenin görevine sıra verilir (uyku hiç beklemese de ilerlesin)
             await deps.sleep(0.2)
             waited += 1
         }

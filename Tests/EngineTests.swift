@@ -90,7 +90,7 @@ final class RecoveryCoordinatorTests: XCTestCase {
         let result = await make(shortcuts, maxCycles: 2)
             .recover(reason: .network, verify: { _ in false }, update: { updates.append($0) })
         XCTAssertEqual(result, .gaveUp)
-        XCTAssertEqual(shortcuts.runs.count, 6)
+        XCTAssertEqual(shortcuts.runs.count, 4, "Sürüm 4: internet için iki adım (hücresel, sıfırlama) × 2 tur; Wi-Fi artık internet adımı değil")
         XCTAssertTrue(updates.contains(.waiting(cycle: 1)))
         XCTAssertEqual(updates.first, .checking)
     }

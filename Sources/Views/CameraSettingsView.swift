@@ -4,6 +4,7 @@ import SwiftUI
 /// `CameraSettings.Group.keys` listesindedir ve testle denetlenir.
 struct CameraSettingsSections: View {
     @EnvironmentObject private var camera: CameraSettings
+    @EnvironmentObject private var tester: CameraTester
 
     var body: some View {
         Group {
@@ -15,6 +16,7 @@ struct CameraSettingsSections: View {
             guidanceSection
             powerSection
             shortcutSection
+            testSection
         }
     }
 
@@ -55,12 +57,13 @@ struct CameraSettingsSections: View {
                 Text("Soru videosu: sayfa başına \(camera.pageVideoSeconds) sn")
             }
             Stepper(value: $camera.examVideoMaxSeconds, in: VideoRecorder.examSecondsRange, step: VideoRecorder.secondsStep) {
-                Text("Soru videosu: en çok \(camera.examVideoMaxSeconds) sn")
+                Text("Uzun video sınırı (Sürüm 4'te kullanılmaz): \(camera.examVideoMaxSeconds) sn")
             }
+            .disabled(true)
             Toggle("Videoyu da Gemini'ye gönder", isOn: $camera.videoToGemini)
             Toggle("Videoyu yüksek çözünürlükle oku", isOn: $camera.videoHighRes)
             TextField("Gemini'ye ek talimat (isteğe bağlı)", text: $camera.videoQuestion)
-            HelpRow("Program soruyu sesle konumlandırır; konum uygun olunca soruyu ayardaki süre kadar (varsayılan 5 sn, 2–15) videoya yazar ve bir fotoğraf çeker. Süre sınırı yalnız kaydedilen saniyeleri sayar (10–300 sn, 10'ar sn adımla). Video saniyede 2 kare yazılır; tahmini boyut: 30 sn ≈ 4,5–8 MB, 90 sn ≈ 14–24 MB. 14 MB'ı aşan video Gemini'ye yüklenerek gönderilir. “Videoyu da gönder” kapalıyken yalnız fotoğraf gider. “Yüksek çözünürlük” küçük yazı için önerilir. Ek talimat, programın kendi talimatının sonuna eklenir (programın talimatı kadrajdaki yarım görünen komşu soruların yok sayılmasını da içerir). Değişiklik bir sonraki çekimden itibaren geçerlidir.")
+            HelpRow("Program soruyu sesle konumlandırır; konum uygun olunca soruyu ayardaki süre kadar (varsayılan 5 sn, 2–15) videoya yazar ve bir fotoğraf çeker. Uzun video sınırı Sürüm 1'in sürekli kaydı içindir; Sürüm 4'te kullanılmaz (soru başına video süresi yukarıdaki “sayfa başına” süredir). Video saniyede 2 kare yazılır; tahmini boyut: 30 sn ≈ 4,5–8 MB, 90 sn ≈ 14–24 MB. 14 MB'ı aşan video Gemini'ye yüklenerek gönderilir. “Videoyu da gönder” kapalıyken yalnız fotoğraf gider. “Yüksek çözünürlük” küçük yazı için önerilir. Ek talimat, programın kendi talimatının sonuna eklenir (programın talimatı kadrajdaki yarım görünen komşu soruların yok sayılmasını da içerir). Değişiklik bir sonraki çekimden itibaren geçerlidir.")
         }
     }
 
@@ -181,6 +184,24 @@ struct CameraSettingsSections: View {
                 .textInputAutocapitalization(.never)
                 .disableAutocorrection(true)
             HelpRow("Kestirmeler uygulamasındaki kestirmenin adı: hücresel veriyi keser ve telefonu kameranın Wi-Fi ağına bağlar. Program, “Bu soruyu kamera ile çekmek ister misiniz?” sorusuna evet denince çekimden önce çalıştırır. Çekim bitince Wi-Fi'yi bırakıp hücresele geçiren kestirme “Kestirmeler (kendi kendini onarma)” bölümündeki “Hücresele geç”tir. İkisinden biri boşsa kamera sorusu sorulmaz, program sesli okumayla (Sürüm 3 gibi) çalışır.")
+        }
+    }
+
+    // MARK: Kamerayı dene
+
+    private var testSection: some View {
+        Section(header: Text("Kamerayı dene (sınavdan önce)")) {
+            Button(tester.running ? "Durdur" : "Kamerayı dene") {
+                if tester.running {
+                    tester.stop()
+                } else {
+                    Task { await tester.run() }
+                }
+            }
+            ForEach(Array(tester.lines.enumerated()), id: \.offset) { _, line in
+                Text(line).font(.footnote).fixedSize(horizontal: false, vertical: true)
+            }
+            HelpRow("Sınavdaki adımları sırayla yürütür: “Kameraya geç” kestirmesi, kameraya bağlanıp bir çekim (hiçbir yere gönderilmez, silinir), “Hücresele geç” kestirmesi ve internetin gelmesi. Kamera ilk kez açılırken iOS “yerel ağ” izni sorar: sınavda bu kutuyla uğraşmamak için sınavdan önce bir kez deneyip “İzin ver”e basın. Kestirmelerin Wi-Fi ile hücreseli gerçekten değiştirip değiştirmediği ve kameranın ağına kendiliğinden bağlanıp bağlanmadığı da burada görülür. Kamerayı çalıştırın ve bir sayfayı kadraja tutun; sınama en çok bir buçuk dakika sürer.")
         }
     }
 }

@@ -92,6 +92,8 @@ extension SessionViewModel {
         if choiceOffer != nil { return Continuation(text: Say.askChoiceAgain, mode: .startChoice, keep: false) }
         // Cevaplar okunurken ya da okuma sonrası menü beklenirken kesinti oldu: menü yeniden sorulur
         if listenMode == .reviewMenu { return Continuation(text: Say.reviewResume, mode: .reviewMenu, keep: false) }
+        // Telefonda gönderilmemiş bir çekim varsa önce o gönderilir (beginListening bunu yapar); evet / hayır sonra yine sorulur
+        if resendablePending != nil { return Continuation(text: Say.recoveredPendingShot, mode: .question, keep: false) }
         if listenMode == .cameraChoice { return Continuation(text: Say.askCameraAgain, mode: .cameraChoice, keep: false) }
         if heldQuestion != nil { return Continuation(text: Say.recoveredAskNumber, mode: .missingNumber, keep: false) }
         if passageDraft != nil { return Continuation(text: Say.recoveredAskTargets, mode: .passageTargets, keep: false) }

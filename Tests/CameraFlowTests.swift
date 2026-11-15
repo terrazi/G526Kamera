@@ -60,6 +60,27 @@ final class CameraFlowTests: XCTestCase {
         XCTAssertEqual(h.vm.questions.last?.number, 1)
     }
 
+    /// Kestirmeler (30 sn'lik beklemeler), kameraya bağlanma ve konumlandırma Gemini bekleyişinin önüne eklenir: V3'ün takılma gözcüsü
+    /// sağlıklı çalışan kamera akışını "takıldı" sayıp iptal etmemeli
+    func testTheStuckSupervisorGivesTheCameraFlowExtraTime() async {
+        let h = harness()
+        _ = await h.startListening()
+        h.camera.hold = true
+        reply(h, "evet")
+        let capturing = await waitUntil { h.camera.captures == 1 && h.vm.phase == .answering }
+        XCTAssertTrue(capturing)
+        let plain = T.stuckLimit(for: .answering) ?? 0
+        XCTAssertGreaterThan(T.stuckLimit(for: .answering, camera: true) ?? 0, plain)
+        h.scheduler.advance(by: plain + 60)
+        XCTAssertEqual(h.vm.stuckTrips, 0, "Kamera akışı sürerken V3'ün sade sınırı uygulanmaz")
+        XCTAssertEqual(h.vm.phase, .answering)
+        XCTAssertEqual(h.camera.cancels, 0)
+        h.camera.release()
+        let done = await waitUntil { h.vm.answers.count == 1 }
+        XCTAssertTrue(done)
+        XCTAssertEqual(h.vm.stuckTrips, 0)
+    }
+
     func testNoLetsTheUserReadTheQuestionAsInVersionThree() async {
         let h = harness(shots: [], replies: [.success(FakeAnswering.reply(1)), .success(FakeAnswering.reply(2))])
         _ = await h.startListening()
@@ -360,5 +381,106 @@ final class CameraSupportTests: XCTestCase {
     func testCameraFailureMessagesAreNeverEmpty() {
         let all: [CameraFailure] = [.notConnected, .noFrames, .noPosition, .lowDisk, .captureFailed("x"), .captureFailed(""), .cancelled, .unavailable]
         all.forEach { XCTAssertFalse($0.message.isEmpty) }
+    }
+}
+
+/// Ayarlar > Kamera > "Kamerayı dene": sınavın adımlarını (kestirme, çekim, internete dönüş) sınavdan önce yürütür
+@MainActor
+final class CameraTesterTests: XCTestCase {
+    private struct Rig {
+        let tester: CameraTester
+        let camera: FakeCamera
+        let shortcuts: FakeShortcuts
+        let health: FakeHealth
+        let cameraSettings: CameraSettings
+    }
+
+    private func rig(sessionActive: Bool = false, cameraShortcut: String = "Kameraya_Gec") -> Rig {
+        let defaults = UserDefaults(suiteName: "g526.testler.\(UUID().uuidString)")!
+        let settings = AppSettings(defaults: defaults)
+        let cameraSettings = CameraSettings(defaults: defaults)
+        cameraSettings.cameraShortcutName = cameraShortcut
+        settings.internetShortcut = "Hücresele_Gec"
+        let camera = FakeCamera()
+        let shortcuts = FakeShortcuts()
+        let health = FakeHealth()
+        let tester = CameraTester(camera: camera, shortcuts: shortcuts, health: health, settings: settings, cameraSettings: cameraSettings,
+                                  sessionActive: { sessionActive }, sleep: { _ in })
+        return Rig(tester: tester, camera: camera, shortcuts: shortcuts, health: health, cameraSettings: cameraSettings)
+    }
+
+    func testRunsTheExamStepsInOrderAndDeletesTheTestShot() async {
+        let r = rig()
+        let shot = FakeCamera.shot()
+        r.camera.results = [.success(shot)]
+        await r.tester.run()
+        XCTAssertEqual(r.shortcuts.runs, ["Kameraya_Gec", "Hücresele_Gec"], "Önce kameraya geçilir, çekimden sonra internete dönülür")
+        XCTAssertEqual(r.camera.captures, 1)
+        XCTAssertTrue(r.tester.lines.contains { $0.hasPrefix("✓ Kamera çalıştı") })
+        XCTAssertEqual(r.tester.lines.last, "✓ İnternet geldi. Sınama tamam.")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: shot.video!.path), "Deneme çekimi telefonda bırakılmaz")
+        XCTAssertFalse(r.tester.running)
+    }
+
+    func testACameraFailureIsReportedAndThePhoneStillReturnsToTheInternet() async {
+        let r = rig()
+        r.camera.results = [.failure(.notConnected)]
+        await r.tester.run()
+        XCTAssertTrue(r.tester.lines.contains { $0.hasPrefix("✗ Kameraya bağlanılamadı.") && $0.contains("Yerel Ağ") },
+                      "Bağlanılamayınca olası neden (yerel ağ izni, kamera ağı) yazılır")
+        XCTAssertEqual(r.shortcuts.runs.last, "Hücresele_Gec", "Telefon kameranın ağında kalmaz")
+        XCTAssertEqual(r.tester.lines.last, "✓ İnternet geldi. Sınama tamam.")
+    }
+
+    func testReportsWhenTheInternetNeverComesBack() async {
+        let r = rig()
+        r.camera.results = [.success(FakeCamera.shot(video: false))]
+        r.health.internet = false
+        await r.tester.run()
+        XCTAssertEqual(r.health.internetCalls, CameraTester.internetPolls)
+        XCTAssertTrue(r.tester.lines.last?.hasPrefix("✗ İnternet gelmedi") ?? false)
+    }
+
+    func testRefusesWhileAnExamIsRunning() async {
+        let r = rig(sessionActive: true)
+        await r.tester.run()
+        XCTAssertTrue(r.shortcuts.runs.isEmpty)
+        XCTAssertEqual(r.camera.captures, 0)
+        XCTAssertTrue(r.tester.lines.first?.contains("Sınav sürerken") ?? false)
+    }
+
+    func testAsksForTheMissingShortcutNameFirst() async {
+        let r = rig(cameraShortcut: "")
+        await r.tester.run()
+        XCTAssertTrue(r.shortcuts.runs.isEmpty)
+        XCTAssertTrue(r.tester.lines.first?.contains("“Kameraya geç” kestirmesinin adı") ?? false)
+    }
+
+    func testStopCancelsTheCameraButStillReturnsToTheInternet() async {
+        let r = rig()
+        r.camera.hold = true
+        let task = Task { await r.tester.run() }
+        let capturing = await waitUntil { r.camera.captures == 1 }
+        XCTAssertTrue(capturing)
+        XCTAssertTrue(r.tester.running)
+        r.tester.stop()
+        await task.value
+        XCTAssertEqual(r.camera.cancels, 1)
+        XCTAssertEqual(r.shortcuts.runs.last, "Hücresele_Gec", "Durdurulunca da telefon kameranın ağında bırakılmaz")
+        XCTAssertFalse(r.tester.running)
+    }
+}
+
+@MainActor
+final class LeftoverVideoTests: XCTestCase {
+    func testLeftoverVideosAreRemovedAtLaunchAndOtherFilesAreKept() throws {
+        let url = CameraCaptureController.newVideoURL()
+        try Data([1]).write(to: url)
+        let other = CameraCaptureController.videoFolder.appendingPathComponent("baska-dosya.txt")
+        try Data([1]).write(to: other)
+        CameraCaptureController.purgeLeftoverVideos()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path), "Önceki çalışmadan kalan video silinir")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: other.path), "Video olmayan dosyaya dokunulmaz")
+        try? FileManager.default.removeItem(at: other)
     }
 }

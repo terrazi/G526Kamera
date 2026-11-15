@@ -10,6 +10,8 @@ final class AppEnvironment: ObservableObject {
     let camera: CameraSettings
     /// Sürüm 4: soruyu kamera ile çeken bileşen (çekim sürerken ana ekranda canlı görüntü gösterir)
     let cameraController: CameraCaptureController
+    /// Sürüm 4: sınavdan önce kamera yolunu uçtan uca sınar (Ayarlar > Kamera > "Kamerayı dene")
+    let cameraTester: CameraTester
     let session: SessionViewModel
     let settingsModel: SettingsViewModel
     private let folderStore: FolderStore
@@ -21,6 +23,7 @@ final class AppEnvironment: ObservableObject {
     init() {
         let settings = AppSettings()
         let camera = CameraSettings()
+        CameraCaptureController.purgeLeftoverVideos()
         let cameraController = CameraCaptureController(settings: camera)
         settings.applyShortcutPresetOnce()
         settings.applyCameraPresetOnce(camera: camera)
@@ -37,6 +40,7 @@ final class AppEnvironment: ObservableObject {
             engines: { saving in saving && settings.geminiVoice ? [geminiVoice, phoneVoice] : [phoneVoice] },
             voice: { SpeechVoiceChooser.voice(preferredID: settings.phoneVoiceID) })
         let shortcuts = ShortcutRunner()
+        let health = NetworkHealth()
         let journal = RunJournal()
         shortcuts.onLeaving = { journal.setAway(true) }
         shortcuts.onReturned = { journal.setAway(false) }
@@ -45,7 +49,7 @@ final class AppEnvironment: ObservableObject {
                                        recorder: recorder,
                                        speaker: speaker,
                                        network: NetworkWatcher(),
-                                       health: NetworkHealth(),
+                                       health: health,
                                        shortcuts: shortcuts,
                                        answering: GeminiAnswerService(profiles: { settings.geminiProfileInfos() }),
                                        permissions: SystemPermissions(),
@@ -61,6 +65,8 @@ final class AppEnvironment: ObservableObject {
         self.settings = settings
         self.camera = camera
         self.cameraController = cameraController
+        self.cameraTester = CameraTester(camera: cameraController, shortcuts: shortcuts, health: health, settings: settings,
+                                         cameraSettings: camera, sessionActive: { [weak session] in session?.phase.isRunning ?? false })
         self.session = session
         self.folderStore = folderStore
         self.settingsModel = SettingsViewModel(settings: settings, shortcuts: shortcuts, folder: folderStore,

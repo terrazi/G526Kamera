@@ -336,10 +336,21 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
                               documentOnly: s.documentOnly)
     }
 
+    /// Çekilen soru videolarının geçici klasörü (telefonun önbelleği: iOS gerekirse kendisi temizler)
+    static var videoFolder: URL {
+        return FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("sorular", isDirectory: true)
+    }
+
     static func newVideoURL() -> URL {
-        let folder = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("sorular", isDirectory: true)
+        let folder = videoFolder
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         return folder.appendingPathComponent("soru-\(Int(Date().timeIntervalSince1970))-\(UUID().uuidString.prefix(6)).mp4")
+    }
+
+    /// Uygulama açılırken önceki çalışmadan kalan videolar silinir: bekleyen çekim listesi bellekte durur, uygulama kapanınca dosyalar sahipsiz kalırdı
+    static func purgeLeftoverVideos() {
+        let files = (try? FileManager.default.contentsOfDirectory(at: videoFolder, includingPropertiesForKeys: nil)) ?? []
+        for file in files where file.pathExtension == "mp4" { try? FileManager.default.removeItem(at: file) }
     }
 
     /// Fotoğraf ve video AYNI ANDA alınır (kareler aynı akıştan): video `pageVideoSeconds` sn sürer, fotoğraf bu sırada çekilir

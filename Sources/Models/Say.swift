@@ -201,6 +201,7 @@ enum Say {
     static let cameraSending = "Soru gönderiliyor."
     static let cameraEntryText = "Kamera ile çekilen soru"
     static let cameraSavedOffline = "Soru çekildi ama internet gelmedi. Telefonda saklandı; bağlantı onarılıyor, düzelince gönderilecek."
+    static let recoveredPendingShot = "Bağlantı yeniden onarıldı."
     static let cameraPendingSending = "Önceki çekilen soru telefonda bekliyordu, şimdi gönderiyorum."
 
     /// Kamera çekimi olmadı (internet geldi): neden ve sesle devam yolu
