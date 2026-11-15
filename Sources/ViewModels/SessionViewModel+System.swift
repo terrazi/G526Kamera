@@ -116,7 +116,7 @@ extension SessionViewModel {
             return
         }
         watchedTicks += 1
-        guard let limit = Timing.stuckLimit(for: phase, camera: cameraBusy), Double(watchedTicks) * Timing.sentinelTick >= limit else { return }
+        guard let limit = Timing.stuckLimit(for: phase, camera: cameraBusy || sendingShot), Double(watchedTicks) * Timing.sentinelTick >= limit else { return }
         unstick(limit)
     }
 

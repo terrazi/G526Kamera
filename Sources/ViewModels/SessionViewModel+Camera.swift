@@ -142,6 +142,8 @@ extension SessionViewModel {
 
     /// Çekim bitti, internet geldi: fotoğraf + video Gemini'ye gider, cevap V3'ün akışıyla okunur ve kaydedilir
     func sendShot(_ shot: CapturedQuestion) async {
+        sendingShot = true
+        defer { sendingShot = false }
         phase = .answering
         statusNote = ""
         let expected = nextNumber

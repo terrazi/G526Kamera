@@ -324,6 +324,8 @@ final class SessionViewModel: ObservableObject {
     var offerCamera = false
     /// Kamera akışı (kestirme + çekim + internete dönüş + gönderim) sürüyor
     var cameraBusy = false
+    /// Çekilen bir soru (fotoğraf + video) Gemini'ye gönderiliyor: bekleme sınırı V3'ün sesli sorusundan daha geniştir (bkz. `Timing.cameraExtraWait`)
+    var sendingShot = false
     var cameraReminders = 0
     var cameraGuidanceSpeaking = false
     /// Kullanıcı "hayır" dedi ya da kamera akışı olmadı: bu soru sesle okunur, aynı soru için kamera yeniden sorulmaz
