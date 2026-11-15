@@ -120,6 +120,9 @@ final class SessionViewModel: ObservableObject {
         static let cameraSendTries = 2
         /// Kameraya bağlanılamazsa kamera bağlantısı onarımının (Wi-Fi adımı) en çok kaç kez çalışıp çekimin yeniden deneneceği
         static let cameraRepairs = 2
+        /// Kestirmeler uygulamasının geçici ret hatasında ("Çalma Hedefi aygıt bulunamadı") aynı kestirmenin en çok kaç kez, kaç sn arayla yeniden çalıştırılacağı
+        static let shortcutTransientRetries = 2
+        static let shortcutTransientPause: TimeInterval = 2.5
         /// Kamera çekimi gönderilirken cevap beklemeye eklenen süre (sn). Telefonda bekleyen çekim sayısına SINIR YOK: çekimler silinmez.
         static let cameraExtraWait: TimeInterval = 180
         /// Bekleyen bir çekim, internet çalışırken bile bu kadar kez gönderilemezse (hep hata ya da zaman aşımı) o test için beklemeye alınır:

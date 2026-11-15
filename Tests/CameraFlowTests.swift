@@ -234,6 +234,24 @@ final class CameraFlowTests: XCTestCase {
         XCTAssertEqual(Array(h.shortcuts.runs.prefix(3)), ["Kameraya_Gec", "Kamera_Onar", "Kamera_Onar"])
     }
 
+    /// Cihaz günlüğü (21:12): sınavda "Kameraya Geç" Kestirmeler tarafından "Çalma Hedefi aygıt bulunamadı" diye geri çevrildi
+    func testTransientShortcutRefusalIsRetriedAndThenTheCameraOpens() async {
+        let h = harness(shots: [.success(FakeCamera.shot())])
+        h.shortcuts.script = [.failed("Çalma Hedefi aygıt bulunamadığı için iş ayarlanamadı.")]
+        _ = await h.startListening()
+        reply(h, "evet")
+        let done = await waitUntil(45) { h.vm.answers.count == 1 }
+        XCTAssertTrue(done)
+        XCTAssertEqual(Array(h.shortcuts.runs.prefix(2)), ["Kameraya_Gec", "Kameraya_Gec"], "Aynı kestirme yeniden çalışır; onarım kestirmesine geçilmez")
+        XCTAssertEqual(h.camera.captures, 1)
+    }
+
+    func testOnlyTheKestirmelerPlaybackDestinationRefusalCountsAsTransient() {
+        XCTAssertTrue(SessionViewModel.isTransientShortcutError("Çalma Hedefi aygıt bulunamadığı için iş ayarlanamadı."))
+        XCTAssertFalse(SessionViewModel.isTransientShortcutError("“Hücresele Geç” kestirmesi bulunamadı."))
+        XCTAssertFalse(SessionViewModel.isTransientShortcutError("yok"))
+    }
+
     func testInternetNotBackKeepsTheShotRunsRecoveryThenSendsIt() async {
         let shot = FakeCamera.shot()
         let h = harness(shots: [.success(shot)], internetBack: false)

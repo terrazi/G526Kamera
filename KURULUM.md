@@ -147,6 +147,8 @@ Kamera ile çekim için Kestirmeler'de üç kestirme daha yapın; adları Ayarla
 2. `Hücresele Geç` — Wi-Fi'yi kapat, hücresel veriyi aç.
 3. `Kamera Bağlantısını Onar` — Wi-Fi'yi kapat, 2 sn bekle, aç (telefon kameranın ağına yeniden bağlanır; kamera bağlanamayınca çalışır).
 
+Günlükte `“…” kestirmesi bulunamadı` görürseniz o ad telefonunuzdaki bir kestirmeyle birebir uyuşmuyor ya da kestirme yok: Ayarlar'daki adı Kestirmeler'deki gerçek adla aynı yapın. `Çalma Hedefi aygıt bulunamadığı için iş ayarlanamadı` ise Kestirmeler'in kestirmeyi kendisinin geri çevirdiği geçici bir durumdur (sınavda ses açıkken görüldü); program aynı kestirmeyi 2,5 sn arayla en çok 2 kez yeniden çalıştırır, günlükte `[kestirme] … geri çevrildi` satırı görünür.
+
 **Sınavdan önce bir kez Ayarlar > Kamera > “Kamerayı dene” düğmesine basın:** kamera ilk kez açılırken iOS “yerel ağ” izni sorar (“İzin ver”e basın); sınavda bu kutu çıkarsa kulaklıktan yönetilen akış kilitlenir. Deneme, sınavın adımlarını sırayla yürütür ve her adımın sonucunu yazar.
 
 Bu sürümde Wi-Fi artık internet onarımı için kullanılmaz (internet yalnız hücreseldir): internet kopunca sırayla hücresel ve sistem sıfırlama çalışır. Kestirmelerin Wi-Fi ve hücreseli sorunsuz (onay sormadan) değiştirip değiştirmediği ve kameranın ağına kendiliğinden bağlanıp bağlanmadığı cihazda denenmedi: Ayarlar'daki **Dene** düğmesiyle üçünü de sınayın.

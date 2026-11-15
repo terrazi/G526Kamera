@@ -247,12 +247,15 @@ final class FakeShortcuts: ShortcutRunning {
     private(set) var runs: [String] = []
     private(set) var callbacks: [URL] = []
     var outcome: ShortcutOutcome = .success
+    /// Doluysa sıradaki çalıştırmalar sırayla bu sonuçları verir; bitince `outcome` döner
+    var script: [ShortcutOutcome] = []
     /// Kestirme "çalışınca" dünyada olacak değişiklik (ör. interneti geri getirmek)
     var onRun: ((String) -> Void)?
 
     func run(name: String) async -> ShortcutOutcome {
         runs.append(name)
         onRun?(name)
+        if !script.isEmpty { return script.removeFirst() }
         return outcome
     }
 

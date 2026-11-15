@@ -384,7 +384,7 @@ extension SessionViewModel {
                 sayGuidance(Say.cameraRepairing)
             }
             tlog("[kamera] kestirme çalıştırılıyor: “\(name)”")
-            let outcome = await deps.shortcuts.run(name: name)
+            let outcome = await runShortcutRetryingTransient(name: name)
             tlog("[kamera] kestirme sonucu: \(outcome)")
             guard !Task.isCancelled, phase == .answering else {
                 tlog("[kamera] kestirmeden dönüşte iş iptal edilmiş ya da durum değişmiş (\(phase)); çekim yapılmadı")
@@ -417,6 +417,28 @@ extension SessionViewModel {
             break
         }
         return result
+    }
+
+    /// Kestirmeler uygulaması kestirmeyi bazen kendisi geri çevirir: "Çalma Hedefi aygıt bulunamadığı için iş ayarlanamadı". Sınav
+    /// sırasında kulaklık sesi açıkken, ses yolu o anda değişirken görüldü; kestirmenin kendisi yanlış değildir. Bu geçici hatada
+    /// birkaç saniye sonra aynı kestirme yeniden çalıştırılır. Başka sonuçlar (kestirme yok, iptal, zaman aşımı) beklemeden döner.
+    func runShortcutRetryingTransient(name: String) async -> ShortcutOutcome {
+        var outcome = await deps.shortcuts.run(name: name)
+        var retries = 0
+        while retries < Timing.shortcutTransientRetries, !Task.isCancelled,
+              case .failed(let message) = outcome, SessionViewModel.isTransientShortcutError(message) {
+            retries += 1
+            tlog("[kestirme] “\(name)” Kestirmeler tarafından geri çevrildi (\(message)); \(retries). yeniden deneme")
+            try? await Task.sleep(nanoseconds: UInt64(Timing.shortcutTransientPause * 1_000_000_000))
+            guard !Task.isCancelled else { break }
+            outcome = await deps.shortcuts.run(name: name)
+        }
+        return outcome
+    }
+
+    /// Kestirmeler'in ses yolu değişirken verdiği geçici ret mesajı mı ("Çalma Hedefi aygıt bulunamadığı için iş ayarlanamadı")
+    static func isTransientShortcutError(_ message: String) -> Bool {
+        return message.lowercased().contains("çalma hedefi")
     }
 
     /// Kamera akışından sonra internet iki denemede de gelmedi: durum söylenir ve V3'ün internet onarımı (hücresel → sıfırlama) çalışır.
@@ -511,7 +533,7 @@ extension SessionViewModel {
     /// Kestirme: Wi-Fi bırakılır, hücresel açılır; internet gelene kadar beklenir. İkinci kez denenir. İnternet geldi mi.
     func returnToInternet(shortcut: String) async -> Bool {
         for attempt in 1...Timing.cameraInternetTries {
-            let outcome = await deps.shortcuts.run(name: shortcut)
+            let outcome = await runShortcutRetryingTransient(name: shortcut)
             guard !Task.isCancelled else { return false }
             // Zaman aşımı: kestirme çalışmış ama dönüş haberi gelmemiş olabilir; internet yoklaması karar verir
             if outcome == .success || outcome == .timedOut {

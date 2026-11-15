@@ -123,6 +123,7 @@ yol bildirimi ve onarım sınırı aynı anda üst üste gelince tetikleniyordu.
 | Ne olabilir | Önlem | Durum |
 |---|---|---|
 | Kullanıcı "hayır" der ya da cevap vermez | Hayır: V3 gibi sesle okuma; cevap gelmezse bir kez daha sorulur, yine gelmezse güvenli varsayılan (sesle okuma) | ✅ |
+| Kestirmeler kestirmeyi geri çevirir ("Çalma Hedefi aygıt bulunamadı", cihaz günlüğü 21:12) | Aynı kestirme 2,5 sn arayla en çok 2 kez yeniden çalışır; "kestirme bulunamadı" gibi kalıcı hatalarda beklenmez. Cihazda yeniden deneme sonucu denenmedi | 🛠 |
 | Kameraya bağlanılamaz / görüntü gelmez | `Kamera Bağlantısını Onar` ile en çok iki yeniden deneme; olmazsa nedeni söylenir ve sesle okumaya dönülür | ✅ |
 | Çekim sırasında görüntü kesilir | 8 sn görüntü gelmezse "Kamera görüntüsü kesildi" denir, onarım ve yeniden deneme | ✅ |
 | Soru 30 sn içinde konumlanmaz | Yine de çekilir (odak kipi: ortadaki soru hedeflenir); yardım eden için "Şimdi çek" düğmesi | ✅ |
