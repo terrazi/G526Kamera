@@ -393,7 +393,7 @@ final class CaptureOutboxFlowTests: XCTestCase {
         let a = stored(h, at: 1_800_000_100)
         h.vm.sendFailures[a.id] = 2   // iki gönderim daha önce başarısız oldu
         h.vm.start()
-        let parked = await waitUntil(60) { h.speaker.spoken.contains(Say.cameraPendingParked) }
+        let parked = await waitUntil(60) { h.vm.warnings.contains { $0.id == "kamera" && $0.text == Say.cameraPendingParked } }
         XCTAssertTrue(parked, "Üçüncü başarısızlıkta söylenir")
         XCTAssertNil(h.vm.resendablePending, "Bu test için artık denenmez")
         XCTAssertEqual(h.vm.pendingShots.count, 1, "Silinmez")
