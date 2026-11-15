@@ -131,32 +131,11 @@ final class ImageOrientationTests: XCTestCase {
                 XCTAssertLessThan(m.columns[0].x1, 0.5)
                 XCTAssertGreaterThan(m.columns[1].x0, 0.5)
             }
-            // Soru "sol mu, sağ mı" olur ("üst/alt" değil)
-            let e = GuidanceEngine()
-            XCTAssertTrue(e.questionText(options: GuidanceAdvisor.options(forColumnCount: 2), first: false).contains("Sol mu, sağ mı"))
         }
     }
 
-    func testClockBandIsOnlyAdvisedOnUprightFrames() {
+    func testClockBandMarginIsOnlyForUprightFrames() {
         XCTAssertEqual(GuidanceConfig().topBand, GuidanceAnalyzer.skipTop, "normal yönde saat bandı payı")
-        var turned = GuidanceConfig()
-        turned.topBand = 0
-        // yazı çevrilmiş karenin üst kenarına yakın: bant payı yok, kenar payı 0,02
-        var m = PageMetrics()
-        m.hasPage = true
-        m.hasText = true
-        m.x0 = 0.2
-        m.x1 = 0.8
-        m.y0 = 0.01
-        m.y1 = 0.8
-        m.cells = 600
-        m.sharp = 1
-        XCTAssertEqual(GuidanceAdvisor.decide(m, choice: nil, config: turned, sharpFloor: 0.45).advice, .moveUp)
-        m.y0 = 0.03
-        XCTAssertEqual(GuidanceAdvisor.decide(m, choice: nil, config: turned, sharpFloor: 0.45).advice, .ok,
-                       "çevrilmişte bant payı yok: 0,03 yeterli")
-        XCTAssertEqual(GuidanceAdvisor.decide(m, choice: nil, sharpFloor: 0.45).advice, .moveUp,
-                       "normal yönde 0,075 saat bandı payı gerekir")
     }
 
     // MARK: Ayar

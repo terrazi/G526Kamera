@@ -54,6 +54,8 @@ final class SessionHarness {
         // "Lütfen sonraki soruyu okuyun" anonsu varsayılan olarak açıktır; eski testlerin konuşma dizileri bozulmasın diye burada kapalı, ona ait testler açar
         settings.askNextQuestion = false
         settings.spokenProgress = false
+        // Boşluk bilgisi ("sistem kontrol ediliyor", "Dinliyorum") varsayılan olarak açıktır; eski testlerin konuşma dizileri bozulmasın diye burada kapalı, ona ait testler açar
+        settings.gapNarration = false
         settings.smartResume = false
         // Sürüm 4: her soruda "kamera ile çekmek ister misiniz?" varsayılan olarak açıktır; V3 testlerinin akışı bozulmasın diye burada kapalı
         settings.askCamera = cameraFlow

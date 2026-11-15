@@ -15,6 +15,13 @@ enum Say {
     static let questionSent = "Soru başarıyla alınıp Gemini'ye gönderildi, cevap bekleniyor."
     /// Cevap uzun süre gelmezse arada
     static let stillWaiting = "Cevap bekleniyor."
+    // Boşluk bilgisi: sessiz işler sürerken kullanıcı bağlantının koptuğunu sanmasın
+    static let gapChecking = "Sistem kontrol ediliyor, lütfen bekleyin."
+    static let gapRepairing = "Bağlantı onarılıyor, lütfen bekleyin."
+    static let gapCameraSwitch = "Kameraya geçiliyor, lütfen bekleyin."
+    static let gapInternetSwitch = "İnternete dönülüyor, lütfen bekleyin."
+    static let gapCameraRepair = "Kamera bağlantısı onarılıyor, lütfen bekleyin."
+    static let listeningNow = "Dinliyorum."
     static let geminiSlow = "Gemini üç dakikada cevap vermedi. Soruyu tekrar okuyun."
     /// Çekilen soru için: kamera sorusu ya da telefonda bekleyen çekimin yeniden gönderimi hemen ardından gelir
     static let geminiSlowCamera = "Gemini üç dakikada cevap vermedi."

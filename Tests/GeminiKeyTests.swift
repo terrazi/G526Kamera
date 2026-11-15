@@ -4,13 +4,6 @@ import XCTest
 final class GeminiKeyTests: XCTestCase {
     private let good = "AIza" + String(repeating: "x", count: 31) + "Q7dZ"   // 39 karakter
 
-    func testHintShowsOnlyEndsAndLength() {
-        XCTAssertEqual(GeminiKey.keyHint(good), "AIza…Q7dZ, 39 karakter")
-        XCTAssertEqual(GeminiKey.keyHint("  "), "anahtar boş")
-        XCTAssertEqual(GeminiKey.keyHint("abc"), "3 karakter")
-        XCTAssertFalse(GeminiKey.keyHint(good).contains("xxxx"))
-    }
-
     func testWellFormedKeyHasNoProblem() {
         XCTAssertNil(GeminiKey.keyShapeProblem(good))
         XCTAssertNil(GeminiKey.keyShapeProblem(""))

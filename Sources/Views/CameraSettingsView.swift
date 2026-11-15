@@ -1,7 +1,6 @@
 import SwiftUI
 
-/// Kamera ayarları (V1'deki kamera bölümleri). Her bölüm `CameraSettings.Group` ile birebir eşleşir; hangi ayar hangi bölümde olduğu
-/// `CameraSettings.Group.keys` listesindedir ve testle denetlenir.
+/// Kamera ayarları: her bölüm Ayarlar'da akordiyon başlığıdır (bkz. `AccordionSection`).
 struct CameraSettingsSections: View {
     @EnvironmentObject private var camera: CameraSettings
     @EnvironmentObject private var tester: CameraTester
@@ -11,11 +10,8 @@ struct CameraSettingsSections: View {
             cameraSection
             videoSection
             photoSection
-            motionSection
-            voiceSection
             guidanceSection
             powerSection
-            shortcutSection
             testSection
             CaptureFolderSection()
         }
@@ -24,7 +20,7 @@ struct CameraSettingsSections: View {
     // MARK: Kamera
 
     private var cameraSection: some View {
-        Section(header: Text(CameraSettings.Group.camera.title)) {
+        AccordionSection(id: "kamera", title: "Kamera") {
             TextField("Kamera adı (UID)", text: $camera.uid)
                 .textInputAutocapitalization(.characters)
                 .disableAutocorrection(true)
@@ -53,25 +49,21 @@ struct CameraSettingsSections: View {
     // MARK: Video
 
     private var videoSection: some View {
-        Section(header: Text(CameraSettings.Group.video.title)) {
+        AccordionSection(id: "video", title: "Video kaydı") {
             Stepper(value: $camera.pageVideoSeconds, in: VideoRecorder.pageSecondsRange) {
                 Text("Soru videosu: sayfa başına \(camera.pageVideoSeconds) sn")
             }
-            Stepper(value: $camera.examVideoMaxSeconds, in: VideoRecorder.examSecondsRange, step: VideoRecorder.secondsStep) {
-                Text("Uzun video sınırı (Sürüm 4'te kullanılmaz): \(camera.examVideoMaxSeconds) sn")
-            }
-            .disabled(true)
             Toggle("Videoyu da Gemini'ye gönder", isOn: $camera.videoToGemini)
             Toggle("Videoyu yüksek çözünürlükle oku", isOn: $camera.videoHighRes)
             TextField("Gemini'ye ek talimat (isteğe bağlı)", text: $camera.videoQuestion)
-            HelpRow("Program soruyu sesle konumlandırır; konum uygun olunca soruyu ayardaki süre kadar (varsayılan 5 sn, 2–15) videoya yazar ve bir fotoğraf çeker. Uzun video sınırı Sürüm 1'in sürekli kaydı içindir; Sürüm 4'te kullanılmaz (soru başına video süresi yukarıdaki “sayfa başına” süredir). Video saniyede 2 kare yazılır; tahmini boyut: 30 sn ≈ 4,5–8 MB, 90 sn ≈ 14–24 MB. Sürüm 4'te fotoğraf ve video birlikte satır içi gider; toplamı 14 MB'ı aşarsa (soru başına 15 sn'lik video bile genellikle 3 MB'ın altındadır) yalnız fotoğraf gönderilir, yükleme yöntemi kullanılmaz. “Videoyu da gönder” kapalıyken yalnız fotoğraf gider. “Yüksek çözünürlük” küçük yazı için önerilir. Ek talimat, programın kendi talimatının sonuna eklenir (programın talimatı kadrajdaki yarım görünen komşu soruların yok sayılmasını da içerir). Değişiklik bir sonraki çekimden itibaren geçerlidir.")
+            HelpRow("Program soruyu sesle konumlandırır; konum uygun olunca soruyu ayardaki süre kadar (varsayılan 5 sn, 2–15) videoya yazar ve bir fotoğraf çeker. Video saniyede 2 kare yazılır; tahmini boyut: 30 sn ≈ 4,5–8 MB, 90 sn ≈ 14–24 MB. Fotoğraf ve video birlikte satır içi gider; toplamı 14 MB'ı aşarsa (soru başına 15 sn'lik video bile genellikle 3 MB'ın altındadır) yalnız fotoğraf gönderilir. “Videoyu da gönder” kapalıyken yalnız fotoğraf gider. “Yüksek çözünürlük” küçük yazı için önerilir. Ek talimat, programın kendi talimatının sonuna eklenir (programın talimatı kadrajdaki yarım görünen komşu soruların yok sayılmasını da içerir). Değişiklik bir sonraki çekimden itibaren geçerlidir.")
         }
     }
 
     // MARK: Fotoğraf
 
     private var photoSection: some View {
-        Section(header: Text(CameraSettings.Group.photo.title)) {
+        AccordionSection(id: "foto", title: "Fotoğraf") {
             Picker("İyileştirme", selection: $camera.enhancement) {
                 Text("Kapalı").tag(0)
                 Text("Hafif").tag(1)
@@ -106,52 +98,13 @@ struct CameraSettingsSections: View {
         }
     }
 
-    // MARK: Otomatik çekim
-
-    private var motionSection: some View {
-        Section(header: Text(CameraSettings.Group.motion.title)) {
-            Toggle("Görüntü değişince çek", isOn: $camera.motionEnabled)
-                .disabled(true)
-            Picker("Duyarlılık", selection: $camera.motionSensitivity) {
-                Text("Düşük").tag(0)
-                Text("Orta").tag(1)
-                Text("Yüksek").tag(2)
-            }
-            .pickerStyle(.segmented)
-            .disabled(true)
-            HelpRow("Sürüm 4'te kullanılmaz: kamera yalnız “kamera ile çekmek ister misiniz?” sorusuna evet denince açılır ve tek bir soru çeker; çekim, soru kadraja alınınca kendiliğinden yapılır (Sesli konumlandırma bölümü). Ayarlar V1'den birebir korunur; Sürüm 1'e dönülürse o sürümde çalışır.")
-        }
-    }
-
-    // MARK: Sesle çekim
-
-    private var voiceSection: some View {
-        Section(header: Text(CameraSettings.Group.voice.title),
-                footer: Text("Birden fazla sözcüğü virgülle ayırabilirsiniz.")) {
-            Toggle("Sesli komutla çek", isOn: $camera.voiceEnabled)
-                .disabled(true)
-            TextField("Tetikleme sözcüğü", text: $camera.triggerWord)
-                .disableAutocorrection(true)
-                .disabled(true)
-            Stepper(value: $camera.cooldown, in: 2...20, step: 1) {
-                Text("İki çekim arası bekleme: \(Int(camera.cooldown)) sn")
-            }
-            .disabled(true)
-            HelpRow("Sürüm 4'te kullanılmaz: kamera açıkken sesli komut dinlenmez (mikrofon ve kulaklık yolu soru okumaya ayrılmıştır). Çekim kendiliğinden yapılır; yardım eden biri için ana ekranda çekim sırasında “Şimdi çek” düğmesi vardır. Konumlandırma 30 saniyede tamamlanmazsa program yine de çeker.")
-        }
-    }
-
     // MARK: Sesli konumlandırma
 
     private var guidanceSection: some View {
-        Section(header: Text(CameraSettings.Group.guidance.title)) {
+        AccordionSection(id: "konumlandirma", title: "Sesli konumlandırma") {
             Toggle("Sesle konumlandır", isOn: $camera.guidanceEnabled)
             Toggle("Uyarıları sesli söyle", isOn: $camera.guidanceVoice)
-            Toggle("Video çekerken de konum tarifi ver", isOn: $camera.videoGuidance)
-                .disabled(true)
             Toggle("Kamera ve gönderim durumunu da söyle", isOn: $camera.statusNotices)
-            Toggle("Konum uygunsa kendiliğinden çek", isOn: $camera.guidanceAutoCapture)
-                .disabled(true)
             Picker("Netlik isteği", selection: $camera.guidanceSharpness) {
                 Text("Gevşek").tag(0)
                 Text("Normal").tag(1)
@@ -161,9 +114,7 @@ struct CameraSettingsSections: View {
             Toggle("Kadrajı tarif et", isOn: $camera.guidanceDescribe)
             Toggle("Sayfa kenarını da algıla", isOn: $camera.guidancePageEdges)
                 .disabled(!camera.guidanceDescribe)
-            Toggle("Tam sığan bölümü kendiliğinden seç", isOn: $camera.guidanceAutoPick)
-                .disabled(true)
-            HelpRow("Sürüm 4'te sönük görünen üç ayar kullanılmaz: çekim her zaman kendiliğinden yapılır, video sırasında tarif verilmez (video, sayfa durulduktan sonra kısa süre kaydedilir) ve bölüm hiç sorulmaz: kadrajın ortasındaki bölüm hedeflenir. “Sesle konumlandır” kapalıysa program konumlandırma yapmadan bağlanır bağlanmaz çeker.")
+            HelpRow("Çekim her zaman kendiliğinden yapılır; bölüm sorulmaz, kadrajın ortasındaki bölüm hedeflenir. Video sırasında tarif verilmez (video, sayfa durulduktan sonra kısa süre kaydedilir). “Sesle konumlandır” kapalıysa program konumlandırma yapmadan bağlanır bağlanmaz çeker.")
             HelpRow("Program sayfayı ölçer ve “biraz sağa”, “yukarı”, “uzaklaş”, “yaklaş” gibi sesli yönlendirir; konum uygun olunca birkaç kareyi seri çekip en netini alır. Konumlandırma kısa tutulur: sorulan soru kadraja sığıyorsa hemen çekilir; kenarlarda yarım görünen komşu sorular sorun sayılmaz ve “soru bölünüyor” gibi uyarı verilmez (Gemini'ye de bu yarım soruların yok sayılması bildirilir). “Kadrajı tarif et” açıkken program kadrajda ne olduğunu da söyler (varsayılan kapalı). Yönlendirme sağa / sola / yukarı / aşağı için “azıcık, biraz, epey” der, doğru yöne gidip gitmediğinizi söyler ve konum düzelince “Tamam” der. Sayfada parlama (doymuş beyaz leke) görürse en çok iki kez uyarır, sonra yine de çeker. “Kamera ve gönderim durumunu da söyle” açıkken kamera koptu / geri geldi, gönderim başladı / bitti gibi haberler kısaca söylenir. Telefonda denenmemiş özellikler: sayfa kenarı algılama ve parlama kontrolü; rahatsız ederse kapatın.")
         }
     }
@@ -171,7 +122,7 @@ struct CameraSettingsSections: View {
     // MARK: Pil ve ısınma
 
     private var powerSection: some View {
-        Section(header: Text(CameraSettings.Group.power.title)) {
+        AccordionSection(id: "pil", title: "Pil ve ısınma") {
             Toggle("Canlı önizlemeyi kapat", isOn: $camera.previewOff)
             Toggle("Son fotoğrafı ana ekranda gösterme", isOn: $camera.lastShotOff)
             HelpRow("Açıkken ana ekranda “Son fotoğraf” kartı çıkmaz ve son çekimin küçük resmi bellekte tutulmaz (başkası ekrana bakıyorsa sınav sorusu görünmesin diye). Çekim ve gönderim aynen çalışır; “Kamerayı dene” küçük resmi bundan etkilenmez.")
@@ -179,21 +130,10 @@ struct CameraSettingsSections: View {
         }
     }
 
-    // MARK: Kestirme
-
-    private var shortcutSection: some View {
-        Section(header: Text(CameraSettings.Group.shortcuts.title)) {
-            TextField("Kameraya geç (kestirme adı)", text: $camera.cameraShortcutName)
-                .textInputAutocapitalization(.never)
-                .disableAutocorrection(true)
-            HelpRow("Kestirmeler uygulamasındaki kestirmenin adı: hücresel veriyi keser ve telefonu kameranın Wi-Fi ağına bağlar. Program, “Bu soruyu kamera ile çekmek ister misiniz?” sorusuna evet denince çekimden önce çalıştırır. Çekim bitince Wi-Fi'yi bırakıp hücresele geçiren kestirme “Kestirmeler (kendi kendini onarma)” bölümündeki “Hücresele geç”tir. İkisinden biri boşsa kamera sorusu sorulmaz, program sesli okumayla (Sürüm 3 gibi) çalışır.")
-        }
-    }
-
     // MARK: Kamerayı dene
 
     private var testSection: some View {
-        Section(header: Text("Kamerayı dene (sınavdan önce)")) {
+        AccordionSection(id: "deneme", title: "Kamerayı dene (sınavdan önce)") {
             Button(tester.running ? "Durdur" : "Kamerayı dene") {
                 if tester.running {
                     tester.stop()

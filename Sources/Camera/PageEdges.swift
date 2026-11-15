@@ -119,16 +119,6 @@ struct PageEdges: Equatable {
         return points.count == 4 && confidence >= PageEdges.minConfidence && area >= PageEdges.minArea
     }
 
-    /// Yazı kutusu (kare oranı) dörtgenin sınırlayıcı kutusunun içinde mi (`tolerance` kadar payla)? Dışındaysa Vision sayfanın
-    /// bir parçasını (tablo, resim) bulmuş olabilir; böyle bir sonuç sayfa tarifinde kullanılmaz.
-    func encloses(x0: Double, x1: Double, y0: Double, y1: Double, tolerance t: Double) -> Bool {
-        guard !points.isEmpty else { return false }
-        let xs = points.map { $0.x }
-        let ys = points.map { $0.y }
-        return x0 >= (xs.min() ?? 0) - t && x1 <= (xs.max() ?? 1) + t
-            && y0 >= (ys.min() ?? 0) - t && y1 <= (ys.max() ?? 1) + t
-    }
-
     /// Yazı kutusunu (ölçüm düzlemi oranı) kare oranına çevirir. Görüntü çevrilmişse kameranın saat bandı ölçüm düzleminden
     /// atılmıştır (`GuidanceAnalyzer.reorient`), kare oranında ise yerinde durur; bu yüzden bandın olduğu eksende ölçek / kayma gerekir.
     func inFrame(x0: Double, x1: Double, y0: Double, y1: Double) -> (x0: Double, x1: Double, y0: Double, y1: Double) {

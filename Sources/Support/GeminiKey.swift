@@ -1,15 +1,7 @@
 import Foundation
 
-/// Gemini API anahtarı yardımcıları: ipucu, biçim denetimi, panodan ayıklama, "Anahtarı dene" sonucu
+/// Gemini API anahtarı yardımcıları: biçim denetimi, panodan ayıklama, "Anahtarı dene" sonucu
 enum GeminiKey {
-    /// Hata iletilerinde anahtarın kendisini göstermeden hangi anahtarın kullanıldığını tanıtır: "AIza…x7Qd, 39 karakter"
-    static func keyHint(_ key: String) -> String {
-        let k = key.trimmed
-        if k.isEmpty { return "anahtar boş" }
-        if k.count <= 8 { return "\(k.count) karakter" }
-        return "\(k.prefix(4))…\(k.suffix(4)), \(k.count) karakter"
-    }
-
     /// Yapıştırılan anahtarda bilinen hatalar (boşluk, tırnak, kırpılmış ya da başka bir şey yapıştırılmış); sorun yoksa nil.
     /// Eski AI Studio anahtarları "AIza" ile başlar ve 39 karakterdir; yenileri "AQ." ile başlar.
     static func keyShapeProblem(_ key: String) -> String? {

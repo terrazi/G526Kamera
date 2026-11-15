@@ -35,13 +35,6 @@ final class CameraClient {
     private var generation = 0
     private var currentSession: CameraSession?
 
-    var sessionStatistics: String {
-        lock.lock()
-        let s = currentSession
-        lock.unlock()
-        return s?.statistics ?? ""
-    }
-
     func start(config: CameraSession.Config) {
         stop()
         lock.lock()

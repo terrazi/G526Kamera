@@ -2,12 +2,11 @@ import Foundation
 import CoreVideo
 
 /// Çözülen karelerin gittiği yer: ekrana gönderir, netlik/imza hesaplar, ring tampona koyar,
-/// görüntü değişimini izler. Arka plan iş parçacıklarında çalışır (ana iş parçacığına bağlı değildir).
+/// kameranın durgunluğunu izler. Arka plan iş parçacıklarında çalışır (ana iş parçacığına bağlı değildir).
 final class FramePipeline {
     let renderer = VideoRenderer()
     let store = FrameStore(capacity: 20)
     let engine: CaptureEngine
-    private let motion = MotionDetector()
     private let queue = DispatchQueue(label: "g526.analysis", qos: .utility)
     private let lock = NSLock()
     private var backlog = 0
@@ -20,9 +19,6 @@ final class FramePipeline {
         set { lock.lock(); _saving = newValue; lock.unlock() }
     }
 
-    /// Görüntü değişti ve sahne durulduysa çağrılır (analiz kuyruğundan).
-    var onMotionTrigger: (() -> Void)?
-
     /// Her analiz edilen kare için (kare, zaman, netlik puanı) çağrılır (analiz kuyruğundan). Video kaydı en net kareyi seçmek için kullanır.
     var onAnalyzed: ((CVPixelBuffer, TimeInterval, Double) -> Void)?
 
@@ -32,8 +28,6 @@ final class FramePipeline {
         var time: TimeInterval
         /// Kare imzası bu süredir önemli ölçüde değişmedi
         var stillFor: TimeInterval
-        /// Son çekimin imzasına göre sahne farkı (sayfa çevrildi mi / bölüm değişti mi)
-        var diffToCapture: Double
     }
     var onGuidance: ((GuidanceSample) -> Void)?
     /// Ölçümler en sık bu aralıkla (saniye) yapılır
@@ -44,8 +38,6 @@ final class FramePipeline {
     private var _guidance = false
     // Aşağıdakiler yalnızca analiz kuyruğunda değişir
     private var prevSignature: [UInt8]?
-    private var latestSignature: [UInt8]?
-    private var captureSignature: [UInt8]?
     private var lastMoveTime: TimeInterval = 0
     private var lastGuidanceTime: TimeInterval = -100
 
@@ -73,11 +65,6 @@ final class FramePipeline {
     private var edgeTracker = PageEdgeTracker()
     private var edgeOrientation = ImageOrientation.normal
 
-    /// Çekim yapıldı: sahne farkı bu ana göre ölçülür (sayfa çevrilince yeniden hazırlanmak için).
-    func markCaptured() {
-        queue.async { self.captureSignature = self.latestSignature }
-    }
-
     init() {
         engine = CaptureEngine(store: store)
     }
@@ -103,9 +90,6 @@ final class FramePipeline {
                 self.store.add(buffer: pixelBuffer, time: time,
                                sharpness: result.sharpness, signature: result.signature)
                 self.onAnalyzed?(pixelBuffer, time, result.sharpness)
-                if self.motion.process(signature: result.signature, time: time, busy: self.engine.isBusy) {
-                    self.onMotionTrigger?()
-                }
                 if self.guidanceOn { self.guidanceStep(pixelBuffer, signature: result.signature, time: time) }
             }
             self.lock.lock()
@@ -121,7 +105,6 @@ final class FramePipeline {
             lastMoveTime = time
         }
         prevSignature = sig
-        latestSignature = sig
         // Kamera hareket ederken ağır ölçüm yapılmaz; durgunlaşınca ve aralık dolunca ölçülür
         if time - lastGuidanceTime < FramePipeline.guidanceInterval { return }
         lastGuidanceTime = time
@@ -129,8 +112,7 @@ final class FramePipeline {
         var metrics = PageMetrics()
         if still >= 0.2, let m = GuidanceAnalyzer.analyze(pixelBuffer, orientation: guidanceOrientation) { metrics = m }
         metrics.edges = pageEdges(for: pixelBuffer, still: still, time: time, hasText: metrics.hasText)
-        let diff = captureSignature.map { FrameAnalysis.difference($0, sig) } ?? 100
-        onGuidance?(GuidanceSample(metrics: metrics, time: time, stillFor: still, diffToCapture: diff))
+        onGuidance?(GuidanceSample(metrics: metrics, time: time, stillFor: still))
     }
 
     /// Kâğıdın kenarları (Vision): yalnız ayar açıkken, pil tasarrufunda değilken, kamera durgunken ve kadrajda yazı varken; seyrek çalışır.
@@ -151,24 +133,11 @@ final class FramePipeline {
         return edgeTracker.current
     }
 
-    func configureMotion(enabled: Bool, sensitivity: Int) {
-        queue.async {
-            if self.motion.enabled != enabled || self.motion.sensitivity != sensitivity {
-                self.motion.enabled = enabled
-                self.motion.sensitivity = sensitivity
-                self.motion.reset()
-            }
-        }
-    }
-
-    /// Bağlantı yenilenince eski kareleri ve değişim referansını temizler.
+    /// Bağlantı yenilenince eski kareleri temizler.
     func reset() {
         store.clear()
         queue.async {
-            self.motion.reset()
             self.prevSignature = nil
-            self.latestSignature = nil
-            self.captureSignature = nil
             self.lastMoveTime = 0
             self.edgeTracker.reset()
         }

@@ -72,13 +72,6 @@ final class GeminiSupportTests: XCTestCase {
         XCTAssertFalse(text.contains("Google:"), text)
     }
 
-    func testOnlyBusyMessagesOn503CountAsOverload() {
-        XCTAssertTrue(GeminiSupport.isOverload(GeminiError("Sunucunun mesajı: This model is currently experiencing high demand.", .http, status: 503)))
-        XCTAssertTrue(GeminiSupport.isOverload(GeminiError("The model is overloaded.", .http, status: 503)))
-        XCTAssertFalse(GeminiSupport.isOverload(GeminiError("Backend Error", .http, status: 503)))
-        XCTAssertFalse(GeminiSupport.isOverload(GeminiError("high demand", .http, status: 500)))
-    }
-
     // MARK: Küçük yardımcılar
 
     func testModelListKeepsOnlyGenerateContentModels() {
@@ -92,13 +85,6 @@ final class GeminiSupportTests: XCTestCase {
         XCTAssertEqual(GeminiSupport.parseModelList([:]), [])
     }
 
-    func testOptionCodesParse() {
-        let codes = GeminiSupport.parseOptionCodes("A=ADANA, B-BURSA; c:CEYHAN, x, D=, A=ANKARA")
-        XCTAssertEqual(codes.map { $0.letter }, ["A", "B", "C"])
-        XCTAssertEqual(codes.map { $0.word }, ["ADANA", "BURSA", "CEYHAN"])
-        XCTAssertEqual(GeminiSupport.parseOptionCodes(GeminiConfig.defaultOptionCodes).count, 5)
-    }
-
     func testThinkingLevelOnlyForGemmaOrExplicitSetting() {
         XCTAssertEqual(GeminiSupport.thinkingLevel(model: "gemma-3-27b-it", setting: "auto"), "high")
         XCTAssertNil(GeminiSupport.thinkingLevel(model: "gemini-3.6-flash", setting: "auto"))
@@ -110,10 +96,6 @@ final class GeminiSupportTests: XCTestCase {
         XCTAssertEqual(config?["temperature"] as? Double, 0.2)
     }
 
-    func testStripFence() {
-        XCTAssertEqual(GeminiSupport.stripFence("```json\n{\"a\":1}\n```"), "{\"a\":1}")
-        XCTAssertEqual(GeminiSupport.stripFence("{\"a\":1}"), "{\"a\":1}")
-    }
 }
 
 // MARK: - Ağ istemcisi (sahte URLProtocol)

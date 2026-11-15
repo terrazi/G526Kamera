@@ -218,18 +218,22 @@ final class ScreenshotTests: XCTestCase {
                               controller: CameraCaptureController(settings: cameraSettings),
                               tester: CameraTester(camera: FakeCamera(), shortcuts: FakeShortcuts(), health: FakeHealth(), settings: settings,
                                                    cameraSettings: cameraSettings, sessionActive: { false }, sleep: { _ in }))
-        let settingsView = SettingsView()
-            .environmentObject(idle.h.vm)
-            .environmentObject(settings)
-            .environmentObject(cameraSettings)
-            .environmentObject(settingsRig.controller)
-            .environmentObject(settingsRig.tester)
-            .environmentObject(settingsRig.model)
-        await render(settingsView, "06-ayarlar-ust", height: 812)
-        // Uzun liste: tek 15000 pt'lik pencere kurulur, 5000 pt'lik üç dilim olarak yazılır
-        await render(settingsView, "07a-ayarlar-bolum-1", height: 15000, captureY: 0, captureHeight: 5000)
-        await render(settingsView, "07b-ayarlar-bolum-2", height: 15000, captureY: 5000, captureHeight: 5000)
-        await render(settingsView, "07c-ayarlar-bolum-3", height: 15000, captureY: 10000, captureHeight: 5000)
+        func settingsView(open: String? = nil) -> some View {
+            return SettingsView(initiallyOpen: open)
+                .environmentObject(idle.h.vm)
+                .environmentObject(settings)
+                .environmentObject(cameraSettings)
+                .environmentObject(settingsRig.controller)
+                .environmentObject(settingsRig.tester)
+                .environmentObject(settingsRig.model)
+        }
+        // Bölümler akordiyon: açılışta hepsi kapalı başlıklar; biri açılınca yalnız o bölümün içeriği görünür
+        await render(settingsView(), "06-ayarlar-kapali", height: 812)
+        await render(settingsView(open: "okuma"), "07a-ayarlar-okuma-acik", height: 2600)
+        await render(settingsView(open: "ses"), "07b-ayarlar-ses-ekran-acik", height: 1600)
+        await render(settingsView(open: "kamera"), "07c-ayarlar-kamera-acik", height: 1800)
+        await render(settingsView(open: "konumlandirma"), "07d-ayarlar-konumlandirma-acik", height: 2400)
+        await render(settingsView(open: "kestirmeler"), "07e-ayarlar-kestirmeler-acik", height: 2000)
 
         let written = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
         try? diagnostics.joined(separator: "\n").write(to: dir.appendingPathComponent("tani.txt"), atomically: true, encoding: .utf8)

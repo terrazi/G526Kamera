@@ -1,11 +1,17 @@
 import SwiftUI
 
-/// Ayarlar: Modül 1 (başlama saati, 4 Gemini profili ve anahtarı, kayıt klasörü, 4 kestirme adı) ve Modül 6 (tekrar boşluğu kaydırıcısı)
+/// Ayarlar: bölümler akordiyon gibidir; başlığa dokununca içeriği açılır, aynı anda tek bölüm açık kalır.
 struct SettingsView: View {
     @EnvironmentObject private var settings: AppSettings
     @EnvironmentObject private var camera: CameraSettings
     @EnvironmentObject private var model: SettingsViewModel
     @Environment(\.dismiss) private var dismiss
+    @StateObject private var accordion: AccordionState
+
+    /// `initiallyOpen`: hangi bölümün açık başlayacağı (ekran görüntüleri için); normalde hepsi kapalı açılır
+    init(initiallyOpen: String? = nil) {
+        _accordion = StateObject(wrappedValue: AccordionState(open: initiallyOpen))
+    }
 
     var body: some View {
         NavigationView {
@@ -13,18 +19,21 @@ struct SettingsView: View {
                 startSection
                 geminiSection
                 geminiProfilesSection
-                CameraSettingsSections()
-                folderSection
                 sectionsSection
-                voiceScreenSection
+                folderSection
                 readingSection
-                shortcutsSection
                 replaySection
-                Section {
-                    NavigationLink(destination: DiagnosticsView()) { Text("Tanı ve günlük") }
-                    Text(BuildInfo.version).font(.footnote).foregroundColor(.secondary)
+                voiceScreenSection
+                shortcutsSection
+                Group {
+                    CameraSettingsSections()
+                    Section {
+                        NavigationLink(destination: DiagnosticsView()) { Text("Tanı ve günlük") }
+                        Text(BuildInfo.version).font(.footnote).foregroundColor(.secondary)
+                    }
                 }
             }
+            .environmentObject(accordion)
             .navigationTitle("Ayarlar")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -39,7 +48,7 @@ struct SettingsView: View {
     // MARK: Başlama saati
 
     private var startSection: some View {
-        Section(header: Text("Başlama saati")) {
+        AccordionSection(id: "baslama", title: "Başlama saati") {
             Toggle("Zamanlı başlatma", isOn: $settings.startEnabled)
             DatePicker("Saat", selection: $settings.startTime, displayedComponents: .hourAndMinute)
                 .disabled(!settings.startEnabled)
@@ -51,7 +60,7 @@ struct SettingsView: View {
     // MARK: Gemini
 
     private var geminiSection: some View {
-        Section(header: Text("Gemini")) {
+        AccordionSection(id: "gemini", title: "Gemini") {
             Toggle("Soruyu ses olarak da gönder", isOn: $settings.sendAudio)
             Toggle("İngilizce dikteyi de çalıştır", isOn: $settings.englishDictation)
             Toggle("Cevabı Gemini sesiyle oku", isOn: $settings.geminiVoice)
@@ -76,7 +85,7 @@ struct SettingsView: View {
     }
 
     private var geminiProfilesSection: some View {
-        Section(header: Text("Gemini modelleri ve API anahtarları (4 yedekli profil)")) {
+        AccordionSection(id: "profiller", title: "Gemini modelleri ve API anahtarları") {
             ForEach(0..<GeminiProfiles.slotCount, id: \.self) { i in
                 VStack(alignment: .leading, spacing: 6) {
                     Text("\(i + 1). profil").font(.footnote).foregroundColor(.secondary)
@@ -135,7 +144,7 @@ struct SettingsView: View {
     // MARK: Ses ve ekran
 
     private var voiceScreenSection: some View {
-        Section(header: Text("Telefon sesi ve ekran")) {
+        AccordionSection(id: "ses", title: "Telefon sesi ve ekran") {
             Picker("Telefon sesi", selection: $settings.phoneVoiceID) {
                 Text("Otomatik").tag("")
                 ForEach(SpeechVoiceChooser.sortedTurkish(SpeechVoiceChooser.installed()), id: \.id) { voice in
@@ -148,29 +157,35 @@ struct SettingsView: View {
             Toggle("Uyarıları sesli söyle", isOn: $settings.spokenWarnings)
             Toggle("Anında tespit (mikrofon ve internet nabzı)", isOn: $settings.instantDetection)
             HelpRow("Anında tespit: dinlerken mikrofonun ses verip vermediğine yarım saniyede bir, internete 5 saniyede bir (ağ yolu değişince hemen) bakılır. Mikrofon bir saniyeden uzun ses vermezse, ses servisi çökerse ya da internet iki nabızdır yoksa, bildirim beklenmeden onarım başlar; yazdığınız yarım soru korunur. Ana ekranda “Canlı” satırı kulaklık, mikrofon ve interneti gösterir. Sorun çıkarsa kapatabilirsiniz; eski davranışa (yalnız iOS bildirimleri) döner. Kapatırsanız takılma gözcüsü, sistem (bellek, ısı, disk) denetimi ve “yaşıyorum” nabzı da durur.")
-            Toggle("Test sürerken ekranı kıs", isOn: $settings.dimScreen)
+            Toggle("Ekranı kıs", isOn: $settings.dimScreen)
             if settings.dimScreen, !model.dimStatus.isEmpty {
                 Text(model.dimStatus)
                     .font(.footnote)
                     .foregroundColor(.secondary)
             }
-            HelpRow("Uyarıları sesli söyle: ekrana yazılan her uyarı (internet koptu, mikrofon yok, Kestirmeler sorunu gideremedi, şarj azaldı, ücretli modelden cevaplandı…) kulaklıktan da kısaca söylenir. Yalnız Bluetooth kulaklıktan çalar; kulaklık yoksa hiçbir şey çalınmaz. Soru okunurken ya da cevap verilirken araya girmez, sıradaki sessiz ana kalır. “Otomatik”, telefonda kurulu en kaliteli Türkçe sesi seçer. Daha doğal bir ses için iPhone Ayarlar > Erişilebilirlik > Konuşulan İçerik > Sesler > Türkçe bölümünden “Gelişmiş” ya da “Premium” bir ses indirin, sonra bu ekrana dönün. Bu ses kısa anonslarda (“Ben hazırım…”), Gemini sesi kapalıyken ve Gemini sesi çalışmazken cevaplarda kullanılır; seçtiğiniz sesi ana ekrandaki “Sesi dene” ile kulaklıktan dinleyebilirsiniz (ses telefon hoparlöründen çıkmaz). Ekranı kıs: test sürerken ekran parlaklığı en aza iner ve pil daha yavaş biter; ekran açık kalır (Kestirmeler için gerekir). iOS parlaklık atamasını bazen yok saydığı ya da otomatik parlaklık geri yükselttiği için ekranın üstüne dokunuşları geçiren koyu bir örtü de konur ve parlaklık birkaç saniyede bir denetlenir. Kırmızı bir uyarı çıkınca, ekrana bakıp görebilmeniz için parlaklık kullanıcı ayarına geri verilir (kırmızı uyarı sürdükçe ekran kısılmaz; neden kısılmadığı bu ayarın altında yazar); uygulamadan çıkınca ya da test bitince de geri verilir.")
+            HelpRow("Uyarıları sesli söyle: ekrana yazılan her uyarı (internet koptu, mikrofon yok, Kestirmeler sorunu gideremedi, şarj azaldı, ücretli modelden cevaplandı…) kulaklıktan da kısaca söylenir. Yalnız Bluetooth kulaklıktan çalar; kulaklık yoksa hiçbir şey çalınmaz. Soru okunurken ya da cevap verilirken araya girmez, sıradaki sessiz ana kalır. “Otomatik”, telefonda kurulu en kaliteli Türkçe sesi seçer. Daha doğal bir ses için iPhone Ayarlar > Erişilebilirlik > Konuşulan İçerik > Sesler > Türkçe bölümünden “Gelişmiş” ya da “Premium” bir ses indirin, sonra bu ekrana dönün. Bu ses kısa anonslarda (“Ben hazırım…”), Gemini sesi kapalıyken ve Gemini sesi çalışmazken cevaplarda kullanılır; seçtiğiniz sesi ana ekrandaki “Sesi dene” ile kulaklıktan dinleyebilirsiniz (ses telefon hoparlöründen çıkmaz). Ekranı kıs: ayar açıkken test başlasın başlamasın ekran kısılır; kısma hafiftir, ekran tamamen kararmaz, yazılar seçilebilir kalır. Pil daha yavaş biter; ekran açık kalır (Kestirmeler için gerekir). iOS parlaklık atamasını bazen yok saydığı ya da otomatik parlaklık geri yükselttiği için ekranın üstüne dokunuşları geçiren hafif bir örtü de konur ve parlaklık birkaç saniyede bir denetlenir. Kırmızı bir uyarı çıkınca, ekrana bakıp görebilmeniz için parlaklık kullanıcı ayarına geri verilir (kırmızı uyarı sürdükçe ekran kısılmaz; neden kısılmadığı bu ayarın altında yazar); uygulamadan çıkınca da geri verilir.")
         }
     }
 
     // MARK: Okuma komutları ve kesinti
 
     private var readingSection: some View {
-        Section(header: Text("Okuma komutları ve kesinti")) {
+        AccordionSection(id: "okuma", title: "Okuma komutları ve kesinti") {
             Toggle("Cevaptan sonra sonraki soruyu iste", isOn: $settings.askNextQuestion)
             Toggle("Testi bitirince cevapları oku", isOn: $settings.readAnswersAtEnd)
             Toggle("Soru numarası okunmadıysa sor", isOn: $settings.askMissingNumber)
             Toggle("Gemini beklerken bilgi ver", isOn: $settings.spokenProgress)
+            Toggle("Boşluklarda kısa bilgi ver", isOn: $settings.gapNarration)
+            if settings.gapNarration {
+                Stepper("Meşgulken bilgi aralığı: \(settings.gapNarrationSeconds) sn", value: $settings.gapNarrationSeconds,
+                        in: AppSettings.gapNarrationRange)
+            }
             Toggle("Kesintiden sonra akıllı devam", isOn: $settings.smartResume)
             HelpRow("Testi bitirince cevapları oku: “Testi bitir” deyip “evet” dediğinizde program kaydedilen cevapları numara sırasıyla, aralarında Tekrar boşluğu kadar bekleyerek kulaklıktan okur; sonunda kaç sorunun cevabının okunduğunu söyler ve “Devam, Tekrar ya da Bitir” diye sorar. Test sürerken “Cevapları tekrarla” demek de aynı işi yapar. Kapalıysa onaydan sonra test doğrudan biter, cevapları ana ekrandaki tekrar düğmesiyle dinlersiniz.")
             HelpRow("Cevaptan sonra sonraki soruyu iste: cevap kulaklıktan okunup bitince program “Lütfen sonraki soruyu okuyun” der ve ondan sonra dinlemeye geçer; ne zaman okuyacağınızı bilirsiniz. Kapalıyken cevaptan sonra sessizce dinlemeye geçer.")
             HelpRow("Soru numarası okunmadıysa sor: soruyu okuyup “Cevapla” dediniz ama “soru yedi” gibi bir numara söylemediyseniz program “Lütfen okuduğunuz sorunun numarasını söyleyin” der. “Yedi” ya da “soru yedi” demeniz yeter; numara sorunun başına yazılıp Gemini'ye öyle gider. Numarayı bilmiyorsanız “sıradaki” deyin, sıradaki numara verilir. Hiç söylemezseniz iki kez hatırlatılır, sonra sıradaki numarayla gönderilir; soru kaybolmaz. Kapalıyken numara sorulmaz, sıradaki numara verilir.")
-            HelpRow("Gemini beklerken bilgi ver: “Cevapla” deyince kulaklıktan “Soru başarıyla alınıp Gemini'ye gönderildi, cevap bekleniyor” denir; cevap uzarsa 30 saniyede bir “Cevap bekleniyor” denir. Gemini 3 dakikada cevap vermezse bekleme bırakılır, durum söylenir ve soruyu yeniden okumanız istenir. Kapalıyken bu anonslar ve 3 dakikalık sınır yoktur.")
+            HelpRow("Gemini beklerken bilgi ver: “Cevapla” deyince kulaklıktan “Soru başarıyla alınıp Gemini'ye gönderildi, cevap bekleniyor” denir; cevap uzarsa 15 saniyede bir “Cevap bekleniyor” denir. Gemini 3 dakikada cevap vermezse bekleme bırakılır, durum söylenir ve soruyu yeniden okumanız istenir. Kapalıyken bu anonslar ve 3 dakikalık sınır yoktur.")
+            HelpRow("Boşluklarda kısa bilgi ver: program sessiz bir işle meşgulken (sistem kontrolü, kameraya ya da internete geçiş, bağlantı onarımı) ayardaki aralıkla “Kameraya geçiliyor, lütfen bekleyin” gibi kısa bir cümle söyler; bağlantı koptu mu diye tedirgin olmazsınız. Soru okumadan uzun süre bekleyince de (aralığın üç katı, bir soruda en çok üç kez) “Dinliyorum” der. Kapalıyken bu cümleler söylenmez.")
             HelpRow("Kesintiden sonra akıllı devam: soru Gemini'ye gittikten sonra bağlantı kopup onarılırsa “Bağlantı yeniden onarıldı. Sorunuz yarım kaldıysa son soruyu tekrar okuyunuz” denir. Okurken kesilirse program soru numarasını ve en son okuduğunuz cümleyi söyler (“En son üçüncü soruda şu cümleyi okudunuz: … Buradan devam edebilirsiniz”); devam ettiğiniz metin öncekiyle birleştirilir. Uygulama tümüyle kapanıp yeniden açılırsa yarım metin korunamaz, soru baştan okunur.")
             HelpRow("Ortak paragraf: birkaç soru aynı paragrafa dayanıyorsa önce “Ortak paragraf” deyip paragrafı okuyun, bitirince “Tamam” deyin. Program “Paragraf metnini aldım, hangi sorular için?” diye sorar; “beş altı yedi” ya da “beşten yediye kadar” deyip “Tamam” deyin. Sonra soruları sırayla okuyun: paragraf, ait olduğu her soruyla birlikte Gemini'ye gider; hepsi cevaplanınca paragraf bırakılır. Paragraf okurken kesinti olursa program son cümleyi söyler, oradan devam edersiniz.")
             HelpRow("Sesli komutlar (tek başına söylenir, “Cevapla” demek gerekmez): “Soruyu iptal et” okunan soruyu siler, baştan okursunuz. “Paragrafı iptal et” okunan ya da numaraları beklenen ortak paragrafı bırakır. “Beşinci sorunun cevabını tekrarla” yalnız o cevabı okur. “Cevapları tekrarla” hepsini okur, “Son cevabı tekrarla” sonuncuyu. “Testi bitir” önce onay ister: “bitirmek istiyorum” ya da “evet” deyin. Programın söylediğini duymadıysanız ya da anlamadıysanız her an “anlamadım”, “duyamadım”, “bir daha söyle”, “yeniden söyle” ya da “tekrar söyle” deyin: program son sözünü (soru, menü, cevap) aynen yeniden söyler. Program sizi anlamazsa da aynı şekilde “anlayamadım” der ve tekrarınızı ister. Bilgi ve düzeltme komutları (her biri yaptığını ya da yapamadığını kısaca söyler): “Yardım” komutları sayar, “Ne duydun” o ana kadar anlaşılan soru metnini okur, “Son cümleyi sil” soru metninin son sözünü siler (ses kaydı silinmez), “Durum” cevap sayısı, sıradaki numara, kulaklık, internet ve pili söyler, “Cevapsız soruları söyle” atlanan numaraları sayar. Raporlar (hepsi her kipte söylenebilir, internet raporu internete gerçekten çıkıldığını yoklar): “İnternet raporu”, “Mikrofon durumu”, “Kulaklık durumu”, “Ses durumu” (ses seviyesi ve sesin gittiği yer), “Kamera durumu” (kamera ve görüntü ayarları), “Şarj durumu”, “Isınma durumu”, “Ram durumu” (kalan bellek ve boş depolama) ve hepsi için “Genel rapor”. Ses ve kamera ayarları: “Sesi aç”, “Sesi kıs”, “Sesi yüzde elli yap” (en az yüzde 15; iOS sesi uygulamaya bırakmazsa program “değiştirilemedi” der ve ses tuşlarını söyler), “Kamera sorusunu kapat / aç”, “Görüntü kalitesini yüksek / düşük yap”, “Videoyu gönder / gönderme”, “Video süresini beş saniye yap”, “Kadrajı dikey / yatay yap”, “Görüntüyü sağa / sola / ters çevir”, “Sesle konumlandırmayı aç / kapat”, “İyileştirmeyi kapat / hafif yap / güçlü yap”, “Önizlemeyi aç / kapat”. Kamera çekim yaparken ayar değişmez.")
@@ -195,7 +210,7 @@ struct SettingsView: View {
     }
 
     private var sectionsSection: some View {
-        Section(header: Text("Sınav bölümleri")) {
+        AccordionSection(id: "bolumler", title: "Sınav bölümleri") {
             ForEach(0..<AppSettings.sectionSlots, id: \.self) { index in
                 HStack {
                     Toggle("\(index + 1). bölüm", isOn: sectionOn(index))
@@ -215,7 +230,7 @@ struct SettingsView: View {
     // MARK: Kayıt klasörü
 
     private var folderSection: some View {
-        Section(header: Text("Kayıt klasörü")) {
+        AccordionSection(id: "klasor", title: "Kayıt klasörü") {
             HStack {
                 Text("Durum")
                 Spacer()
@@ -237,7 +252,7 @@ struct SettingsView: View {
     // MARK: Kestirmeler
 
     private var shortcutsSection: some View {
-        Section(header: Text("Kestirmeler (kendi kendini onarma)")) {
+        AccordionSection(id: "kestirmeler", title: "Kestirmeler (kendi kendini onarma)") {
             Toggle("Her soruda kamera ile çekmeyi sor", isOn: $settings.askCamera)
             Toggle("Kamera açılırken soru mu paragraf mı diye sor", isOn: $settings.askCaptureKind)
             Stepper("Kamera kapalıysa kontrol aralığı: \(settings.cameraCheckMinutes) dakika", value: $settings.cameraCheckMinutes, in: AppSettings.cameraCheckMinutesRange)
@@ -245,7 +260,7 @@ struct SettingsView: View {
             namedShortcutRow("Hücresele geç", placeholder: "Hücresel Veri", id: "internet", text: $settings.internetShortcut)
             namedShortcutRow("Kameraya geç", placeholder: "Kameraya Geç", id: "camera", text: $camera.cameraShortcutName)
             shortcutRow("Kamera bağlantısını onar", placeholder: "Kamera Bağlantısını Onar", step: .wifi, text: $settings.wifiShortcut)
-            HelpRow("Kamera ile çekimde program sırayla şunları yapar: “Kameraya geç” kestirmesi hücresel veriyi keser ve kameranın Wi-Fi ağına bağlar; çekim bitince kamera kapanır ve “Hücresele geç” kestirmesi Wi-Fi'yi bırakıp hücresel veriyi açar. Kameraya bağlanılamazsa “Kamera bağlantısını onar” kestirmesi çalışır ve çekim bir kez daha denenir (yazılmamışsa “Kameraya geç” yeniden çalışır). İnternet onarımı (hücresel aç, sistemi sıfırla) Wi-Fi'ye dokunmaz.")
+            HelpRow("Kamera ile çekimde program sırayla şunları yapar: “Kameraya geç” kestirmesi hücresel veriyi keser ve kameranın Wi-Fi ağına bağlar; çekim bitince kamera kapanır ve “Hücresele geç” kestirmesi Wi-Fi'yi bırakıp hücresel veriyi açar. Kameraya bağlanılamazsa “Kamera bağlantısını onar” kestirmesi çalışır ve çekim bir kez daha denenir (yazılmamışsa “Kameraya geç” yeniden çalışır). İnternet onarımı (hücresel aç, sistemi sıfırla) Wi-Fi'ye dokunmaz. “Kameraya geç” ya da “Hücresele geç” boşsa kamera sorusu sorulmaz, program sorularla sesli okuma kipinde çalışır.")
             shortcutRow("Hücresel aç", placeholder: "Hücresel_Ac", step: .cellular, text: $settings.cellularShortcut)
             shortcutRow("Bluetooth yenile", placeholder: "Bluetooth_Yenile", step: .bluetooth, text: $settings.bluetoothShortcut)
             shortcutRow("Sistemi sıfırla", placeholder: "Sistemi_Sifirla", step: .reset, text: $settings.resetShortcut)
@@ -265,7 +280,7 @@ struct SettingsView: View {
                 }
             }
             HelpRow("“Çıkışı kulaklığa al” isteğe bağlıdır: Kestirmeler'de tek eylemli bir kestirme yapın, “Oynatma Hedefini Ayarla” eylemini ekleyip hedef olarak Bluetooth kulaklığınızı (listede “Bluetooth music” gibi görünür) seçin. Açılışta kulaklık yolda değilse ya da test sürerken kulaklık yoldan çıkarsa uygulama birkaç saniye içinde önce bunu çalıştırır; Bluetooth'u kapatıp açmaz, kulaklığı koparmaz. Çözmezse eskisi gibi “Bluetooth yenile” ve “Sistemi sıfırla” devreye girer. iOS bir uygulamanın Bluetooth ayarlarına girip bağlantıyı kesmesine ya da yeniden bağlamasına izin vermez; bunu yalnız Kestirmeler yapabilir.")
-            HelpRow("Kestirmeler uygulamasında yaptığınız kestirmelerin adları. İnternet koparsa sırayla Wi-Fi, hücresel, sıfırlama; Bluetooth kulaklık yoldan çıkarsa önce Bluetooth yenileme, olmazsa sıfırlama çalışır. Yalnız mikrofon sorunluysa (yaka mikrofonu çıktı, alıcı yola girmedi, mikrofon sustu) hiçbir Kestirme çalışmaz: program bekler, nedenini yazar ve mikrofon dönünce devam eder. Ad boşsa o adım atlanır.")
+            HelpRow("Kestirmeler uygulamasında yaptığınız kestirmelerin adları. İnternet koparsa sırayla hücresel, sıfırlama; Bluetooth kulaklık yoldan çıkarsa önce Bluetooth yenileme, olmazsa sıfırlama çalışır. Yalnız mikrofon sorunluysa (yaka mikrofonu çıktı, alıcı yola girmedi, mikrofon sustu) hiçbir Kestirme çalışmaz: program bekler, nedenini yazar ve mikrofon dönünce devam eder. Ad boşsa o adım atlanır.")
         }
     }
 
@@ -309,7 +324,7 @@ struct SettingsView: View {
     // MARK: Tekrar
 
     private var replaySection: some View {
-        Section(header: Text("Cevapları tekrarla")) {
+        AccordionSection(id: "tekrar", title: "Cevapları tekrarla") {
             HStack {
                 Text("Cevaplar arası boşluk")
                 Spacer()

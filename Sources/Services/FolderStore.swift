@@ -29,19 +29,12 @@ final class FolderStore {
 
     deinit { stopAccess() }
 
-    var hasChoice: Bool { return defaults.data(forKey: key) != nil }
-
     /// Seçici ekranından gelen klasörü hatırlar
     func choose(_ url: URL) throws {
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         let data = try url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil)
         defaults.set(data, forKey: key)
-        refresh()
-    }
-
-    func forget() {
-        defaults.removeObject(forKey: key)
         refresh()
     }
 

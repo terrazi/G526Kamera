@@ -4,10 +4,6 @@ import Foundation
 enum GeminiConfig {
     static let baseURL = "https://generativelanguage.googleapis.com/v1beta"
     static let defaultModel = "gemini-3.6-flash"
-    /// Bir istekte inline gönderilecek en çok PDF baytı: base64 ile ~18,7 MB olur, istek sınırı (20 MB) aşılmaz
-    static let inlineBudget = 14 * 1024 * 1024
-    /// Şık harfleri yerine sesli okunan kod sözcükleri
-    static let defaultOptionCodes = "A=ADANA, B=BURSA, C=CEYHAN, D=DENİZLİ, E=ERZURUM"
 }
 
 enum GeminiErrorKind: String {
@@ -94,13 +90,6 @@ enum GeminiSupport {
         return text
     }
 
-    /// 503 ve sunucunun mesajı yoğunluk / geçici sorun diyorsa true: sorun istekte ya da önbellekte değil, modelin kendisinde.
-    static func isOverload(_ e: GeminiError) -> Bool {
-        guard e.status == 503 else { return false }
-        return e.message.range(of: "high demand|overload|temporarily|try again later|unavailable|yoğun",
-                               options: [.regularExpression, .caseInsensitive]) != nil
-    }
-
     static func describeError(status: Int, json: [String: Any], model: String) -> (GeminiErrorKind, String) {
         var message = ""
         var reason = ""
@@ -146,25 +135,6 @@ enum GeminiSupport {
         return (.http, "Gemini hatası (\(status)): " + String(message.prefix(200)))
     }
 
-    /// "A=ADANA, B-BURSA; c:CEYHAN" → [("A","ADANA"), ("B","BURSA"), ("C","CEYHAN")]. Bozuk girdiler atlanır; aynı harf ilk tanımıyla kalır.
-    static func parseOptionCodes(_ text: String) -> [(letter: String, word: String)] {
-        var out: [(letter: String, word: String)] = []
-        var seen = Set<String>()
-        for part in text.components(separatedBy: CharacterSet(charactersIn: ",;\n")) {
-            let trimmed = part.trimmed
-            guard let first = trimmed.first, first.isLetter else { continue }
-            var rest = Substring(trimmed.dropFirst())
-            rest = rest.drop(while: { $0 == " " || $0 == "\t" })
-            guard let separator = rest.first, "-=:–".contains(separator) else { continue }
-            let word = String(rest.dropFirst()).trimmed
-            let letter = String(first).uppercased()
-            if word.isEmpty || seen.contains(letter) { continue }
-            seen.insert(letter)
-            out.append((letter: letter, word: word))
-        }
-        return out
-    }
-
     /// İsteğe konacak thinkingLevel ya da nil. "auto": Gemma modellerinde "high" (Gemma düşünmeyi yalnız bu ayarla açar; ALES/YDS gibi
     /// soru çözümünde doğruluk için gerekir), Gemini modellerinde modelin kendi varsayılanı. Gemini 2.x thinkingLevel tanımaz
     /// (thinkingBudget kullanır) → ona hiç gönderilmez.
@@ -198,13 +168,6 @@ enum GeminiSupport {
             if !short.isEmpty && !names.contains(short) { names.append(short) }
         }
         return names.sorted()
-    }
-
-    /// ```json ... ``` çitlerini atar
-    static func stripFence(_ text: String) -> String {
-        guard let regex = try? NSRegularExpression(pattern: "^\\s*```(?:json)?\\s*|\\s*```\\s*$",
-                                                   options: [.caseInsensitive]) else { return text }
-        return regex.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "")
     }
 }
 
@@ -242,8 +205,6 @@ final class GeminiClient {
         let m = modelProvider().trimmed
         return m.isEmpty ? GeminiConfig.defaultModel : m
     }
-
-    var hasKey: Bool { return !keyProvider().trimmed.isEmpty }
 
     static let pathAllowed: CharacterSet = {
         var set = CharacterSet.alphanumerics

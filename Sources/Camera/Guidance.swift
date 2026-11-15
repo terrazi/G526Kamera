@@ -650,185 +650,10 @@ enum GuidanceAnalyzer {
     }
 }
 
-// MARK: - Bölüm seçimi
-
-/// Kadrajda birden fazla bölüm (sütun ya da yan yana sayfa) varken kullanıcının sesle seçtiği hedef.
-enum ColumnChoice: String, CaseIterable {
-    case left, right, middle, all
-
-    var title: String {
-        switch self {
-        case .left: return "Sol"
-        case .right: return "Sağ"
-        case .middle: return "Orta"
-        case .all: return "Hepsi"
-        }
-    }
-
-    /// Konuşmada bu seçimi belirten sözcükler. Biçim: SpeechMatcher.words çıktısı (küçük harf, aksansız, ı→i).
-    /// "taraf / sütun / sayfa / bölüm" gibi ad sözcükleri gerekmez: "sol taraftaki sütun" içindeki "sol" yeter.
-    var tokens: [String] {
-        switch self {
-        case .left:
-            return ["sol", "sola", "solda", "soldan", "soldaki", "soldakini", "solu", "solun", "solunda", "solundaki",
-                    "soluna", "solumdaki", "solumuzdaki"]
-        case .right:
-            return ["sag", "saga", "sagda", "sagdan", "sagdaki", "sagdakini", "sagi", "sagin", "sagindaki",
-                    "saginda", "sagina", "sagimdaki", "sagimizdaki"]
-        case .middle:
-            return ["orta", "ortada", "ortadan", "ortadaki", "ortadakini", "ortaya", "ortayi", "ortanin", "ortasi",
-                    "ortasindaki", "ortadakiler"]
-        case .all:
-            return ["ikisi", "ikisini", "ikisinide", "ikiside", "ucu", "ucunu", "ucude", "tamami", "tamamini",
-                    "butun", "butunu", "tumu", "tumunu", "hepsini", "hepsinide"]
-        }
-    }
-
-    /// Yalnızca soru beklenirken: "so", "sor", "sa", "sak" gibi kısa/bozuk duyumlar da kabul edilir
-    var looseTokens: [String] {
-        switch self {
-        case .left: return ["sol"]
-        case .right: return ["sag"]
-        default: return []
-        }
-    }
-}
-
-/// Sıra sözcükleriyle seçim ("birinci", "ikinci", "son") ve diğer sesli komutların söylenişleri.
-enum GuidanceVocabulary {
-    static let first = ["birinci", "birincisi", "birinciyi", "ilk", "ilki", "ilkini"]
-    static let second = ["ikinci", "ikincisi", "ikinciyi"]
-    static let last = ["ucuncu", "ucuncusu", "ucuncuyu", "son", "sonuncu", "sonuncusu", "sonuncuyu"]
-
-    private static func forms(_ stem: String, _ suffixes: [String]) -> [String] {
-        return suffixes.map { stem + $0 }
-    }
-
-    private static let sendVerb = ["", "in", "iniz", "elim", "ebilirsin", "ebilir", "ir", "irmisin", "sene", "iver", "eyim"]
-
-    /// Dosyaları gönder anlamına gelen çok sayıda söyleniş: "hepsini gönder", "tümünü gönder", "hepsi tamamlandı",
-    /// "gönderebilirsin", "pdf yap", "çekimler tamam", "bitirdim"… Edilgen biçimler ("gönderildi") bilerek yok:
-    /// "kaç sayfa gönderildi" bir rapor sorusudur, gönder emri değil.
-    /// Günlük konuşmada geçen sözcükler ("tamam", "bitti", "çevir", "kaydet") tek başına yetmez; yanlarında "hepsi / tüm / pdf /
-    /// çekimler" gibi KAPSAM sözcüğü gerekir. Tek sayfa/fotoğraf adları ("sayfayı çevir", "fotoğrafı kaydet", "bu sayfa bitti")
-    /// kapsam sayılmaz: sayfa çevirirken konuşmak PDF göndermemeli.
-    static let finishIntent: SpeechIntent = {
-        var strong: [String] = []
-        strong += forms("gonder", sendVerb)
-        strong += forms("yolla", ["", "yin", "yalim", "r", "rmisin", "sana"])
-        strong += forms("yukle", ["", "yin", "yelim", "r", "rmisin", "sene"])
-        strong += forms("bitir", ["", "dim", "elim", "in", "ebilirsin"])
-        strong += ["bitirdik", "tamamlandi", "tamamla", "tamamladim", "tamamladik"]
-        strong += ["tamamlayalim", "tamamlayin", "tamamlanmistir", "tamamlanmis"]
-        var scope: [String] = ["hepsi", "hepsini", "hepsinin", "tum", "tumu", "tumunu", "butun", "butunu"]
-        scope += ["tamami", "tamamini", "islem", "islemler", "pdf", "drive", "goruntuler"]
-        scope += forms("sayfa", ["lar", "lari", "larin"])
-        scope += forms("fotograf", ["lar", "lari"])
-        scope += forms("cekim", ["", "ler", "leri", "lerim"])
-        scope += forms("belge", ["ler", "leri"])
-        scope += forms("dosya", ["lar", "lari"])
-        scope += forms("resim", ["ler", "leri"])
-        var weak: [String] = ["tamam", "tamamdir", "hazir", "kaydet", "kaydedin", "bitti", "bittim", "bitmis"]
-        weak += forms("aktar", ["", "in", "abilirsin"])
-        weak += forms("yap", ["", "in", "alim", "ar", "abilirsin", "sana"])
-        weak += forms("olustur", ["", "un", "alim", "abilirsin"])
-        weak += forms("cevir", ["", "in", "elim", "ebilirsin", "sene"])
-        weak += forms("donustur", ["", "un", "elim", "ebilirsin"])
-        return SpeechIntent(strong: Set(strong), scope: Set(scope), weak: Set(weak))
-    }()
-
-    /// "Rapor ver", "özet", "durum ne", "kaç sayfa çekildi / gönderildi"
-    static let reportIntent: SpeechIntent = {
-        let strong: [String] = ["rapor", "raporu", "raporla", "ozet", "ozeti", "durum", "durumu"]
-        var weak: [String] = ["tane", "cekildi", "cekilmis", "gonderildi", "gonderilmis", "oldu", "fotograf"]
-        weak += ["fotograflar", "resim", "belge", "pdf"]
-        weak += forms("sayfa", ["", "lar", "lari"])
-        return SpeechIntent(strong: Set(strong), scope: Set(["kac"]), weak: Set(weak))
-    }()
-
-    /// "Batarya kontrol", "şarj durumu nedir", "pil ne kadar": telefon ve kamera şarjını söyler (yalnız okuma; yanlış tetiklense zararsız)
-    static let batteryIntent: SpeechIntent = {
-        let strong: [String] = ["batarya", "bataryayi", "bataryasi", "bataryam", "bataryanin", "bataryalar", "bateri",
-                                "sarj", "sarji", "sarjim", "sarjin", "sarjlar", "sarjda", "pil", "pili", "pilim", "pilin"]
-        let none: [String] = []
-        return SpeechIntent(strong: Set(strong), scope: Set(none), weak: Set(none))
-    }()
-
-    private static let photoScope: [String] = {
-        var scope: [String] = ["son", "sonuncu", "sonuncuyu", "sonuncusu", "onceki", "bunu", "yanlis", "hatali"]
-        scope += forms("fotograf", ["", "i", "lari"])
-        scope += forms("cekim", ["", "i", "leri"])
-        scope += forms("sayfa", ["", "yi", "lari"])
-        scope += forms("resim", ["", "i", "leri"])
-        scope += ["resmi", "belge", "belgeyi"]
-        return scope
-    }()
-
-    /// "Son fotoğrafı sil", "sonuncuyu sil", "bunu kaldır", "geri al", "yanlış çektim". "Fotoğrafı al" gibi çekim emirleri
-    /// silme sayılmaz: "al" yalnız "geri al" kalıbında geçerlidir.
-    static let deleteLastIntent: SpeechIntent = {
-        var strong: [String] = []
-        strong += forms("sil", ["", "in", "elim", "ebilirsin", "ermisin", "sene", "ersen", "dir"])
-        var weak: [String] = ["iptal", "at", "atin", "cope"]
-        weak += forms("kaldir", ["", "in", "alim", "abilirsin", "sana", "ayim"])
-        return SpeechIntent(strong: Set(strong), scope: Set(photoScope), weak: Set(weak))
-    }()
-
-    /// "Yeniden çek", "tekrar çek", "bir daha çek", "baştan çek", "çekimi tekrarla": son fotoğrafı silip aynı yeri yeniden çektirir
-    static let retakeIntent: SpeechIntent = {
-        let strong: [String] = ["tekrarla", "tekrarlayin", "tekrarlayalim", "tekrarlasana"]
-        let scope: [String] = ["yeniden", "tekrar", "bastan", "yine"]
-        var weak: [String] = []
-        weak += forms("cek", ["", "in", "elim", "ebilirsin", "ersin", "ermisin", "sene"])
-        return SpeechIntent(strong: Set(strong), scope: Set(scope), weak: Set(weak))
-    }()
-
-    /// "Yeniden seç", "başka sütun", "seçimi değiştir", "vazgeç"
-    static let rechooseIntent: SpeechIntent = {
-        let strong: [String] = ["degistir", "degistirin", "degistirelim", "vazgec", "vazgectim", "iptal", "iptale"]
-        let scope: [String] = ["yeniden", "tekrar", "baska", "farkli", "diger", "obur"]
-        var weak: [String] = ["sec", "secin", "secelim", "secim", "secimi", "sor", "sorun", "sorsana", "bolum"]
-        weak += ["bolumu", "sutun", "sutunu", "sayfa", "sayfayi", "taraf", "tarafi", "dene", "deneyelim"]
-        return SpeechIntent(strong: Set(strong), scope: Set(scope), weak: Set(weak))
-    }()
-
-    /// "Hepsi tamamlandı": bekleyen bütün fotoğrafları tek PDF olarak gönder
-    static let finish = "hepsi tamamlandı, hepsi tamam, hepsi bitti, hepsi bitti gönder, hepsini gönder, tamamlandı, "
-        + "işlem tamamlandı, çekimler tamamlandı, çekim bitti, bitirdim, tamamını gönder, pdf gönder"
-    /// "Rapor ver": kaç sayfa çekildi, kaçı PDF olarak gönderildi, kaçı bekliyor
-    static let report = "rapor ver, rapor, durum raporu, durum ver, durumu söyle, durum nedir, kaç sayfa çekildi, kaç sayfa oldu, özet ver"
-    /// Telefonun ve kameranın şarjını söyle
-    static let battery = "batarya kontrol, batarya durumu, batarya nedir, batarya ne kadar, şarj durumu, şarj durumu nedir, "
-        + "şarj ne kadar, şarj kaç, şarjım ne kadar, pil durumu, pil kontrol, pil ne kadar, telefonun şarjı, kameranın şarjı"
-    /// "Durum bilgisi ver": programın o an ne yaptığını ve telefonun durumunu söyle. "Durum nedir / durum ver / rapor ver" sayfa
-    /// raporudur (kaç sayfa çekildi); "bilgi" sözcüğü ya da "sistem / telefon / performans" bu komuta aittir.
-    static let status = "durum bilgisi, durum bilgisini, durum bilgi, sistem durumu, sistem durumunu, sistemin durumu, sistemin durumunu, "
-        + "telefon durumu, telefon durumunu, telefonun durumu, telefonun durumunu, performans durumu, performans bilgisi"
-    static let statusIntent: SpeechIntent = {
-        let strong: [String] = ["performans", "performansi", "performansim", "performansini"]
-        let none: [String] = []
-        return SpeechIntent(strong: Set(strong), scope: Set(none), weak: Set(none))
-    }()
-    /// "Duraklat": o an yapılan her şeyi "devam et" gelene kadar tutar
-    static let pause = "duraklat, duraklatın, duraklatalım, duraklatır mısın, duraklatsana, her şeyi duraklat, işlemleri duraklat, "
-        + "tüm işlemleri duraklat, mola ver"
-    /// "Devam et": duraklatılmışsa kaldığı yerden sürer (duraklatılmamışken yok sayılır)
-    static let resume = "devam et, devam edin, devam edelim, devam edebilirsin, devam edebiliriz, devam, "
-        + "kaldığımız yerden devam, kaldığın yerden devam, kaldığımız yerden devam et"
-    /// Son fotoğrafı sil (kalıplar; "al" tek başına silme sayılmasın diye "geri al" burada)
-    static let deleteLast = "son fotoğrafı sil, sonuncuyu sil, son çekimi sil, son sayfayı sil, bunu sil, geri al, "
-        + "son fotoğrafı geri al, sonuncuyu geri al, son çekimi geri al, yanlış çektim, yanlış oldu, hatalı çekim, çekimi iptal et"
-    /// Son fotoğrafı silip aynı yeri yeniden çek
-    static let retake = "yeniden çek, tekrar çek, bir daha çek, baştan çek, yine çek, tekrar çekelim, yeniden çekelim, "
-        + "son fotoğrafı yeniden çek, sonuncuyu tekrar çek"
-    /// Seçimi silip bölümü yeniden sordur
-    static let rechoose = "yeniden seç, tekrar seç, yeniden sor, tekrar sor, başka seç, seçimi değiştir, seçimi iptal, değiştir"
-}
-
 // MARK: - Karar
 
 enum GuidanceAdvice: String, Equatable {
-    case noText, chooseColumn, moveLeft, moveRight, moveUp, moveDown, farther, closer, blurry, glare, ok
+    case noText, moveLeft, moveRight, moveUp, moveDown, farther, closer, blurry, glare, ok
 
     /// Kamerayı sola / sağa / yukarı / aşağı kaydırma önerisi mi
     var isMove: Bool {
@@ -1108,13 +933,8 @@ struct GuidanceConfig {
     var speakGap: TimeInterval = 2.5
     var repeatGap: TimeInterval = 6
     var maxRepeats = 4
-    /// Bölüm sorusu: tekrar aralığı ve en çok kaç kez sorulacağı
-    var questionGap: TimeInterval = 9
-    var maxQuestions = 3
     /// Kamera bu kadar süre durgunsa değerlendirilir
     var stillNeeded: TimeInterval = 0.45
-    /// Çekimden sonra sahne bu kadar değişince (sayfa çevrilince) yeniden hazırlanır
-    var changeToRearm = 4.0
     /// Yazı kutusunun bu oranından büyük parlama lekesi varsa uyarılır (1'den büyük: parlama denetimi kapalı)
     var glareLimit = 0.04
     /// Parlama için en çok kaç kez uyarılır; sonra yine de çekilir (parlama her zaman giderilemez)
@@ -1141,20 +961,10 @@ struct GuidanceConfig {
     var trendWindow: TimeInterval = 15
     /// Karşılaştırma noktası bu kadar saniyede bir yenilenir (yavaş kayma birikebilsin, ama nokta eskimesin)
     var trendRebase: TimeInterval = 4
-    /// Kadrajda tam olarak bir bölüm dört kenardan da içerideyse "Sol mu, sağ mı?" diye sormadan o bölüm seçilir (ayardan gelir)
-    var autoPick = false
-    /// Otomatik seçilecek bölümün en az yazı hücresi ve eni (kadraj oranı): küçük bir yazı parçası (sayfa numarası, başlık) seçilmesin
-    var autoPickMinCells = 150
-    var autoPickMinWidth = 0.15
-    /// Sürüm 4 "odak" kipi: üzerinde çalışılan soru kadrajın ortasındaki bölümdür. Bölüm sorusu sorulmaz; hedef kadrajın ortasına en yakın
-    /// bölümdür; üst ve alt kenardan taşma sayılmaz (komşu sorular yukarı ve aşağı doğru devam eder, sayfa zaten kadrajdan büyüktür);
-    /// yan kenardan taşma yalnız hedef bölüm için aranır (yandaki yarım sütun ya da sayfa parçası sorun değildir).
-    var focusQuestion = false
 }
 
 struct GuidanceDecision: Equatable {
     var advice: GuidanceAdvice
-    var options: [ColumnChoice] = []
     /// Yazı bloğunun doluluğu (en büyük boyutu, kadraj oranı; birden çok bölümde bölüm payına göre). 0: bilinmiyor.
     var fill = 0.0
     /// "Yaklaşın" kararında gereken büyütme oranı (1: yok)
@@ -1164,87 +974,24 @@ struct GuidanceDecision: Equatable {
     /// Yazı iki kenara birden dayalıysa (köşe) ikinci yön ve kaydırması: "sola ve yukarı"
     var also: GuidanceAdvice?
     var alsoShift = 0.0
-    /// Soru sorulmadan kendiliğinden seçilen bölüm (kadrajda biri tam sığıyor, diğerleri kesik); sorulmuş/seçilmişse nil
-    var picked: ColumnChoice?
 }
 
 /// Ölçülerden öneri çıkarır (saf fonksiyon; birim testle denenir).
 enum GuidanceAdvisor {
-    static func options(forColumnCount n: Int) -> [ColumnChoice] {
-        return n >= 3 ? [.left, .middle, .right, .all] : [.left, .right, .all]
-    }
-
-    /// Dört kenardan da içeride (kadraj payı ve saat bandı payıyla) belirgin boyutta TEK bölüm varsa onun seçimi; yoksa nil.
-    /// Bölümler soldan sağadır; en soldaki `.left`, en sağdaki `.right`, üç bölümde ortadaki `.middle` (dört ve üstünde ortadakiler seçilemez).
-    static func fittingChoice(_ cols: [ColumnBox], config c: GuidanceConfig) -> ColumnChoice? {
-        guard cols.count >= 2 else { return nil }
-        var fitting: [Int] = []
-        for (i, b) in cols.enumerated() {
-            let inside = b.x0 >= c.edgeMargin && b.x1 <= 1 - c.edgeMargin
-                && b.y0 - c.topBand >= c.edgeMargin && b.y1 <= 1 - c.edgeMargin
-            if inside && b.cells >= c.autoPickMinCells && b.x1 - b.x0 >= c.autoPickMinWidth { fitting.append(i) }
-        }
-        guard fitting.count == 1, let i = fitting.first else { return nil }
-        if i == 0 { return .left }
-        if i == cols.count - 1 { return .right }
-        return cols.count == 3 ? .middle : nil
-    }
-
-    /// `skipping`: en son çekilen bölüm; kendiliğinden seçimde tekrar seçilmez (aynı bölümü ikinci kez çekmemek için soru sorulur).
-    static func decide(_ m: PageMetrics, choice: ColumnChoice?, config c: GuidanceConfig = GuidanceConfig(),
-                       sharpFloor: Double, skipping: ColumnChoice? = nil) -> GuidanceDecision {
+    /// Üzerinde çalışılan soru kadrajın ortasındaki bölümdür: bölüm sorulmaz, hedef kadrajın ortasına en yakın bölümdür; üst ve alt kenardan
+    /// taşma sayılmaz (komşu sorular yukarı ve aşağı doğru devam eder, sayfa zaten kadrajdan büyüktür); yan kenardan taşma yalnız hedef
+    /// bölüm için aranır (yandaki yarım sütun ya da sayfa parçası sorun değildir).
+    static func decide(_ m: PageMetrics, config c: GuidanceConfig = GuidanceConfig(), sharpFloor: Double) -> GuidanceDecision {
         if !m.hasText { return GuidanceDecision(advice: m.hasPage ? .blurry : .noText) }
         // Yazıya benzemeyen desen (çizgili kumaş, tablo çizgisi…) belge sayılmaz
         if DocumentGate.verdict(m) != .document { return GuidanceDecision(advice: .noText) }
-        if c.focusQuestion { return decideFocused(m, config: c, sharpFloor: sharpFloor) }
-        let cols = m.columns
-        if cols.count >= 2 {
-            let allFit = cols.allSatisfy { $0.x0 >= c.edgeMargin && $0.x1 <= 1 - c.edgeMargin }
-            var chosen = choice
-            var picked: ColumnChoice?
-            if !allFit && choice == nil {
-                guard c.autoPick, let p = fittingChoice(cols, config: c), p != skipping else {
-                    return GuidanceDecision(advice: .chooseColumn, options: options(forColumnCount: cols.count))
-                }
-                chosen = p
-                picked = p
-            }
-            var targets = cols
-            switch chosen {
-            case .some(.left):
-                if let t = cols.min(by: { $0.x0 < $1.x0 }) { targets = [t] }
-            case .some(.right):
-                if let t = cols.max(by: { $0.x1 < $1.x1 }) { targets = [t] }
-            case .some(.middle):
-                if let t = cols.min(by: { abs($0.center - 0.5) < abs($1.center - 0.5) }) { targets = [t] }
-            default:
-                break
-            }
-            let frac = Double(targets.count) / Double(cols.count)
-            let sharp = targets.count == 1 ? targets[0].sharp : m.sharp
-            var r = evaluateDetailed(x0: targets.map { $0.x0 }.min() ?? 0,
-                                     x1: targets.map { $0.x1 }.max() ?? 1,
-                                     y0: targets.map { $0.y0 }.min() ?? 0,
-                                     y1: targets.map { $0.y1 }.max() ?? 1,
-                                     cells: targets.reduce(0) { $0 + $1.cells },
-                                     sharp: sharp, frac: frac, glare: m.glare, config: c, sharpFloor: sharpFloor)
-            r.picked = picked
-            return r
-        }
-        // Tek bölüm (ya da bölünemedi): bütün yazı bloğu
-        return evaluateDetailed(x0: m.x0, x1: m.x1, y0: m.y0, y1: m.y1, cells: m.cells,
-                                sharp: m.sharp, frac: 1, glare: m.glare, config: c, sharpFloor: sharpFloor)
-    }
-
-    /// Sürüm 4 odak kipi (bkz. `GuidanceConfig.focusQuestion`): kadrajın ortasındaki bölüm hedeflenir, dikey taşma yok sayılır, bölüm sorulmaz.
-    static func decideFocused(_ m: PageMetrics, config c: GuidanceConfig, sharpFloor: Double) -> GuidanceDecision {
         if let target = m.columns.count >= 2 ? m.columns.min(by: { abs($0.center - 0.5) < abs($1.center - 0.5) }) : nil {
-            return evaluateDetailed(x0: target.x0, x1: target.x1, y0: target.y0, y1: target.y1, cells: target.cells,
-                                    sharp: target.sharp, frac: 1.0 / Double(m.columns.count), glare: m.glare, config: c,
-                                    sharpFloor: sharpFloor, ignoreVertical: true)
+            return evaluate(x0: target.x0, x1: target.x1, y0: target.y0, y1: target.y1, cells: target.cells,
+                            sharp: target.sharp, frac: 1.0 / Double(m.columns.count), glare: m.glare, config: c,
+                            sharpFloor: sharpFloor)
         }
-        return evaluateDetailed(x0: m.x0, x1: m.x1, y0: m.y0, y1: m.y1, cells: m.cells, sharp: m.sharp, frac: 1, glare: m.glare,
-                                config: c, sharpFloor: sharpFloor, ignoreVertical: true)
+        return evaluate(x0: m.x0, x1: m.x1, y0: m.y0, y1: m.y1, cells: m.cells, sharp: m.sharp, frac: 1, glare: m.glare,
+                        config: c, sharpFloor: sharpFloor)
     }
 
     /// Kaydırma miktarının sözcüğü: "azıcık" / "biraz" / "epey"
@@ -1252,12 +999,6 @@ enum GuidanceAdvisor {
         if shift < c.slightShift { return "azıcık" }
         if shift < c.bigShift { return "biraz" }
         return "epey"
-    }
-
-    static func evaluate(x0: Double, x1: Double, y0: Double, y1: Double, cells: Int, sharp: Double, frac: Double,
-                         glare: Double = 0, config c: GuidanceConfig, sharpFloor: Double) -> GuidanceAdvice {
-        return evaluateDetailed(x0: x0, x1: x1, y0: y0, y1: y1, cells: cells, sharp: sharp, frac: frac,
-                                glare: glare, config: c, sharpFloor: sharpFloor).advice
     }
 
     /// "Yaklaşın" demeden önce: yakınlaşınca yazı kadrajdan taşacaksa (blok merkezden uzaktaysa) önce yazıyı ortaya almak gerekir.
@@ -1278,9 +1019,9 @@ enum GuidanceAdvisor {
         return (worst.0, max(0, (need - worst.1) / max(s, 1)))
     }
 
-    static func evaluateDetailed(x0: Double, x1: Double, y0: Double, y1: Double, cells: Int, sharp: Double, frac: Double,
-                                 glare: Double = 0, config c: GuidanceConfig,
-                                 sharpFloor: Double, ignoreVertical: Bool = false) -> GuidanceDecision {
+    /// Dikey taşma yok sayılır (bkz. `decide`): yalnız sağ / sol kenar, uzaklaşma, yaklaşma, netlik ve parlama değerlendirilir.
+    static func evaluate(x0: Double, x1: Double, y0: Double, y1: Double, cells: Int, sharp: Double, frac: Double,
+                         glare: Double = 0, config c: GuidanceConfig, sharpFloor: Double) -> GuidanceDecision {
         let fill = max((x1 - x0) / max(frac, 0.01), y1 - y0)
         // (öneri, o kenardaki boşluk, karşı kenardaki boşluk)
         let margins: [(GuidanceAdvice, Double, Double)] = [
@@ -1289,25 +1030,17 @@ enum GuidanceAdvisor {
             (.moveUp, y0 - c.topBand, 1 - y1),
             (.moveDown, 1 - y1, y0 - c.topBand),
         ]
-        let cut = margins.filter { $0.1 < c.edgeMargin && !(ignoreVertical && !$0.0.isHorizontal) }
+        let cut = margins.filter { $0.1 < c.edgeMargin && $0.0.isHorizontal }
         let leftRight = cut.contains { $0.0 == .moveLeft } && cut.contains { $0.0 == .moveRight }
-        let topBottom = cut.contains { $0.0 == .moveUp } && cut.contains { $0.0 == .moveDown }
-        if leftRight || topBottom { return GuidanceDecision(advice: .farther, fill: fill) }
+        if leftRight { return GuidanceDecision(advice: .farther, fill: fill) }
         if let worst = cut.min(by: { $0.1 < $1.1 }) {
             if worst.2 < c.oppositeMargin { return GuidanceDecision(advice: .farther, fill: fill) }
             // Gereken kaydırma: yazı bloğunu iki kenar arasında ortalamak (kesik kalan kısım bilinmediği için alt sınırdır)
-            var d = GuidanceDecision(advice: worst.0, fill: fill, shift: max(0, (worst.2 - worst.1) / 2))
-            // Köşeye dayalı yazı: dik eksende de taşan, kaydırmaya yeri olan bir kenar varsa ikinci yön ("sola ve yukarı")
-            let others = cut.filter { $0.0.isHorizontal != worst.0.isHorizontal && $0.2 >= c.oppositeMargin }
-            if let other = others.min(by: { $0.1 < $1.1 }) {
-                d.also = other.0
-                d.alsoShift = max(0, (other.2 - other.1) / 2)
-            }
-            return d
+            return GuidanceDecision(advice: worst.0, fill: fill, shift: max(0, (worst.2 - worst.1) / 2))
         }
         if x1 - x0 < c.minFill * frac && y1 - y0 < c.minFill && Double(cells) >= Double(c.minCellsForCloser) * frac {
             let scale = min(c.closerMaxScale, c.closerTarget / max(fill, 0.01))
-            if let side = recentre(x0: x0, x1: x1, y0: y0, y1: y1, scale: scale, config: c), !(ignoreVertical && !side.advice.isHorizontal) {
+            if let side = recentre(x0: x0, x1: x1, y0: y0, y1: y1, scale: scale, config: c), side.advice.isHorizontal {
                 return GuidanceDecision(advice: side.advice, fill: fill, scale: scale, shift: side.shift)
             }
             return GuidanceDecision(advice: .closer, fill: fill, scale: scale)
@@ -1316,43 +1049,26 @@ enum GuidanceAdvisor {
         if glare >= c.glareLimit { return GuidanceDecision(advice: .glare, fill: fill) }
         return GuidanceDecision(advice: .ok, fill: fill)
     }
-
-    /// Eski imza: bütün yazıyı tek bölüm sayar.
-    static func advice(for m: PageMetrics, config c: GuidanceConfig = GuidanceConfig(), sharpFloor: Double) -> GuidanceAdvice {
-        var single = m
-        single.columns = []
-        return decide(single, choice: nil, config: c, sharpFloor: sharpFloor).advice
-    }
 }
 
 // MARK: - Durum makinesi
 
+/// Sesli konumlandırma: kamera durgunlaşınca ölçüyü değerlendirir, gerekirse yön söyler, konum uygun olunca bir kez çekilmesini ister.
 final class GuidanceEngine {
     struct Output {
         var advice: GuidanceAdvice?
         var speak: String?
         var capture = false
         var status = ""
-        var awaitingChoice = false
-        var options: [ColumnChoice] = []
     }
 
     var config = GuidanceConfig()
     var sharpFloor = 0.45
-    var autoCapture = true
-    var triggerWord = "okey"
+    /// Kadrajı sesli tarif et (kaç sayfa görünüyor, hangisi sığıyor…): ayardan gelir; kapalıyken cümleler yalnız yönlendirir
+    var describeScene = false
 
+    /// Çekim istendikten sonra kapanır; motor sıfırlanana (`reset`) kadar yeni çekim istemez
     private(set) var armed = true
-    /// Verilirse bölüm sorusu sorulmaz, hep bu seçim kullanılır (sayfa sayfa videoda `.all`: sayfanın hepsi hedeflenir)
-    var forcedChoice: ColumnChoice?
-    /// Kullanıcının sesle seçtiği bölüm (kullanıcının gözünden sol/sağ)
-    private(set) var choice: ColumnChoice?
-    /// Soru ekranda bekliyor mu (sesle ya da dokunarak yanıt verilebilir)
-    private(set) var awaitingChoice = false
-    /// Son çekilen bölüm: bir sonraki soruda "Sol bölüm çekildi" diye hatırlatılır
-    private(set) var lastCaptured: ColumnChoice?
-    /// Son çekimden önceki `lastCaptured`: çekim başarısız olursa ya da fotoğraf silinirse (`rearm`) geri yüklenir
-    private var capturedBefore: ColumnChoice?
     private var last: GuidanceAdvice?
     private var consecutive = 0
     private var lastSpoken: GuidanceAdvice?
@@ -1361,9 +1077,6 @@ final class GuidanceEngine {
     private var muted: GuidanceAdvice?
     private var blurSpeaks = 0
     private var glareSpoken = 0
-    private var questionsAsked = 0
-    private var lastQuestionTime: TimeInterval = -1000
-    private var lastOptions: [ColumnChoice] = []
     /// Son kararın yazı doluluğu ve gereken büyütme: bulanıklık ve "yaklaşın" cümlelerini seçmek için
     private var lastFill = 0.0
     private var lastScale = 1.0
@@ -1371,36 +1084,14 @@ final class GuidanceEngine {
     private var lastShift = 0.0
     private var lastAlso: GuidanceAdvice?
     private var lastAlsoShift = 0.0
-    /// Düzeltmenin gidişi (doğru yöne mi gidiliyor): fotoğraf ve video tarifi ayrı izlenir
+    /// Düzeltmenin gidişi (doğru yöne mi gidiliyor)
     private var trendTracker = GuidanceTrendTracker()
-    private var vTrend = GuidanceTrendTracker()
-    /// Kadrajı sesli tarif et (kaç sayfa görünüyor, hangisi sığıyor…): ayardan gelir; kapalıyken cümleler yalnız yönlendirir
-    var describeScene = false
-    /// Son ölçümün tarifi ve bu sayfa için söylenen son tarif (aynı tarif tekrar söylenmez, değişince yeniden söylenir)
+    /// Son ölçümün tarifi ve bu çekim için söylenen son tarif (aynı tarif tekrar söylenmez, değişince yeniden söylenir)
     private var lastScene: String?
     private var toldScene: String?
-    private var vToldScene: String?
-    /// Soru sorulmadan kendiliğinden seçilen bölüm (son kararda) ve bu sayfa için söylenen seçim (bir kez söylenir)
-    private var lastPick: ColumnChoice?
-    private var toldPick: ColumnChoice?
-    /// Son değerlendirilen kadrajdaki bölüm sayısı (elle çekimde "çekilen bölüm" kaydı için)
-    private var lastColumns = 0
-    /// Kendiliğinden seçilmiş bölüm şu an çekilmeyi bekliyor (kullanıcı "sağ" / "ikisi birden" diyerek değiştirebilir)
-    var pendingPick: ColumnChoice? { return armed ? lastPick : nil }
-    /// Son sorulan / sorulabilecek seçenekler (bölüm sayısına göre sol-sağ ya da sol-orta-sağ)
-    var currentOptions: [ColumnChoice] { return lastOptions.isEmpty ? [.left, .right, .all] : lastOptions }
 
     func reset() {
         armed = true
-        choice = nil
-        awaitingChoice = false
-        lastCaptured = nil
-        capturedBefore = nil
-        lastColumns = 0
-        clearSpeech()
-    }
-
-    private func clearSpeech() {
         last = nil
         consecutive = 0
         lastSpoken = nil
@@ -1409,78 +1100,8 @@ final class GuidanceEngine {
         muted = nil
         blurSpeaks = 0
         glareSpoken = 0
-        questionsAsked = 0
-        lastQuestionTime = -1000
         trendTracker.reset()
         toldScene = nil
-        toldPick = nil
-        lastPick = nil
-    }
-
-    /// Çekim başarısız oldu / yapılamadı / fotoğraf silindi: yeniden denenebilsin. Çekilmeyen bölüm "çekildi" sayılmaz
-    /// (yoksa kendiliğinden seçim aynı bölümü yeniden seçmez ve soru yanlış "Sol bölüm çekildi" der).
-    func rearm() {
-        armed = true
-        consecutive = 0
-        last = nil
-        lastCaptured = capturedBefore
-    }
-
-    /// Kullanıcı motoru beklemeden çekti ("okey" sesli komutu ya da "Fotoğraf Çek" düğmesi): kendiliğinden çekimdeki gibi bu sayfa
-    /// bitmiş sayılır. Motor sayfa değişene kadar susar (aynı sayfa ikinci kez çekilmez; sayfa çevrilince söylenenler sıfırlanır),
-    /// çekilen bölüm kaydedilir ve bekleyen soru kapanır. Çekim başarısız olursa `rearm()` geri alır.
-    /// Motor kendisi çekmişse (`armed` zaten kapalı) yapılacak bir şey yoktur.
-    func manualCaptured() {
-        guard armed else { return }
-        armed = false
-        consecutive = 0
-        last = nil
-        capturedBefore = lastCaptured
-        lastCaptured = (lastColumns >= 2) ? (choice ?? lastPick) : nil
-        choice = nil
-        awaitingChoice = false
-    }
-
-    /// Sesle ya da düğmeyle yapılan bölüm seçimi. Döndürülen cümle hemen söylenir.
-    @discardableResult
-    func setChoice(_ c: ColumnChoice) -> String {
-        choice = c
-        awaitingChoice = false
-        let q = questionsAsked
-        clearSpeech()
-        questionsAsked = q
-        switch c {
-        case .all: return "Tamam, hepsini kadraja alalım."
-        default: return "Tamam, \(c.title.lowercased(with: Locale(identifier: "tr_TR"))) bölüm."
-        }
-    }
-
-    /// "Yeniden seç": seçim silinir, kadrajda birden çok bölüm varsa yeniden sorulur.
-    @discardableResult
-    func clearChoice() -> String {
-        choice = nil
-        lastCaptured = nil
-        capturedBefore = nil
-        awaitingChoice = false
-        clearSpeech()
-        return "Tamam, yeniden seçelim."
-    }
-
-    func questionText(options: [ColumnChoice], first: Bool) -> String {
-        var s = ""
-        let scene = describeScene ? lastScene : nil
-        if let l = lastCaptured {
-            s += "\(l.title) bölüm çekildi. "
-            if let sc = scene { s += sc + " " }
-        } else if first {
-            s += (scene ?? "Kadrajda ayrı bölümler var ve biri yarım kalıyor.") + " "
-        }
-        if options.contains(.middle) {
-            s += "Hangisini çekeyim? Sol mu, orta mı, sağ mı, yoksa tamamı mı?"
-        } else {
-            s += "Hangisini çekeyim? Sol mu, sağ mı, yoksa ikisi birden mi?"
-        }
-        return s
     }
 
     /// "azıcık" → "Azıcık" (Türkçe büyük harfle)
@@ -1526,7 +1147,6 @@ final class GuidanceEngine {
             if again { return "Biraz daha yaklaşın." }
             return lastScale >= config.closerBigScale ? "Yaklaşın, yazı küçük kalıyor." : "Biraz yaklaşın."
         case .noText: return "Yazı görünmüyor. Kamerayı belgeye çevirin."
-        case .chooseColumn: return questionText(options: lastOptions, first: questionsAsked == 0)
         case .blurry:
             // Yazı kadrajı dolduruyorsa büyük olasılıkla fazla yakındır: önce uzaklaşmak; küçükse önce sabit tutup beklemek
             let options: [String]
@@ -1549,127 +1169,13 @@ final class GuidanceEngine {
         }
     }
 
-    /// Kendiliğinden seçilen bölümün duyurusu: "Soldaki bölüm tam sığıyor, onu çekiyorum." Kadraj tarifi açıksa tarif başa gelir.
-    func pickAnnouncement(_ pick: ColumnChoice) -> String {
-        let names: (adjective: String, accusative: String)
-        switch pick {
-        case .left: names = ("Soldaki", "Soldakini")
-        case .right: names = ("Sağdaki", "Sağdakini")
-        case .middle: names = ("Ortadaki", "Ortadakini")
-        case .all: names = ("Hepsi", "Hepsini")
-        }
-        let act = autoCapture ? "çekiyorum" : "çekmek için \(triggerWord) deyin"
-        if describeScene, let sc = lastScene { return "\(sc) \(names.accusative) \(act)." }
-        return "\(names.adjective) bölüm tam sığıyor, onu \(act)."
-    }
-
     func statusText(for advice: GuidanceAdvice) -> String {
-        let prefix = choice.map { "\($0.title): " } ?? ""
         switch advice {
-        case .ok: return prefix + (autoCapture ? "Konum uygun — sabit tutun" : "Konum uygun — “\(triggerWord)” deyin")
-        case .blurry: return prefix + "Görüntü net değil"
-        case .glare: return prefix + "Parlama var — açıyı ya da ışığı değiştirin"
-        case .chooseColumn: return "Hangisini çekeyim? “Sol” ya da “sağ” deyin"
-        default: return prefix + String(phrase(for: advice).dropLast())
+        case .ok: return "Konum uygun — sabit tutun"
+        case .blurry: return "Görüntü net değil"
+        case .glare: return "Parlama var — açıyı ya da ışığı değiştirin"
+        default: return String(phrase(for: advice).dropLast())
         }
-    }
-
-    // MARK: Video kaydı sırasında yalnız konum tarifi
-
-    private var vLast: GuidanceAdvice?
-    private var vConsecutive = 0
-    private var vLastSpoken: GuidanceAdvice?
-    private var vLastSpokenTime: TimeInterval = -1000
-    private var vRepeats = 0
-    private var vMuted: GuidanceAdvice?
-    /// Bir düzeltme söylenmişti ve kadraj uygun oldu: "Tamam, böyle." denmesi bekleniyor
-    private var vTellOK = false
-
-    /// Video başlarken / biterken: video tarifinin sayaçları sıfırlanır (fotoğraf durumuna dokunulmaz)
-    func resetVideo() {
-        vLast = nil
-        vConsecutive = 0
-        vLastSpoken = nil
-        vLastSpokenTime = -1000
-        vRepeats = 0
-        vMuted = nil
-        vTellOK = false
-        vTrend.reset()
-        vToldScene = nil
-    }
-
-    func videoStatus(for advice: GuidanceAdvice) -> String {
-        if advice == .ok { return "Video: kadraj uygun" }
-        return "Video: " + String(phrase(for: advice).dropLast())
-    }
-
-    /// Video kaydı sırasında: yalnız konum tarifi (kamerayı sola/sağa/yukarı/aşağı kaydır, yaklaş, uzaklaş, yazı görünmüyor).
-    /// Çekim, bölüm sorusu, netlik ve parlama uyarısı YOKTUR (video akarken sayfa çevrilir, kamera oynar). Kadrajda birden çok bölüm
-    /// (yan yana sayfa) varsa hepsi hedeflenir. Kamera hareket ederken susar; durgunlaşınca ölçülür.
-    func videoStep(_ metrics: PageMetrics, time: TimeInterval, stillFor: TimeInterval) -> Output {
-        guard stillFor >= config.stillNeeded else {
-            vLast = nil
-            vConsecutive = 0
-            return Output(status: "Video: kamera hareket ediyor…")
-        }
-        var c = config
-        c.glareLimit = 2
-        let d = GuidanceAdvisor.decide(metrics, choice: .all, config: c, sharpFloor: 0)
-        lastFill = d.fill
-        lastScale = d.scale
-        lastShift = d.shift
-        lastAlso = d.also
-        lastAlsoShift = d.alsoShift
-        lastScene = describeScene && d.advice != .noText
-            ? GuidanceScene.describe(GuidanceScene.parts(metrics, config: config), edges: GuidanceScene.usableEdges(metrics)) : nil
-        var a = d.advice
-        if a == .blurry || a == .glare || a == .chooseColumn { a = .ok }
-        vTrend.observe(a, need: trendNeed(d, a), time: time, config: config)
-        if a == vLast {
-            vConsecutive += 1
-        } else {
-            vLast = a
-            vConsecutive = 1
-            if a != vMuted { vMuted = nil }
-        }
-        var out = Output(advice: a, status: videoStatus(for: a))
-        if a == .ok {
-            // Bir düzeltme söylenmişse kadraj iki ölçüm üst üste uygun kalınca bir kez "Tamam" denir (tek ölçümlük titreme sayılmaz)
-            if vLastSpoken != nil { vTellOK = true }
-            vRepeats = 0
-            vLastSpoken = nil
-            vMuted = nil
-            if vTellOK && vConsecutive >= 2 {
-                vTellOK = false
-                out.speak = "Tamam, böyle."
-                if let sc = lastScene { out.speak = "Tamam, böyle. " + sc }
-            }
-            vToldScene = nil
-            return out
-        }
-        vTellOK = false
-        // "Yazı görünmüyor" sayfa çevrilirken de olur: daha uzun sürerse söylenir
-        let needed = a == .noText ? 4 : 2
-        guard vConsecutive >= needed, a != vMuted, time - vLastSpokenTime >= config.speakGap else { return out }
-        // Kamera hareket edip durduysa (gidiş belli) aynı öneri tekrar aralığını beklemeden söylenir
-        let moved = a.isCorrection && vTrend.peek(at: time, config: config) != .steady
-        if a != vLastSpoken || time - vLastSpokenTime >= config.repeatGap || moved {
-            let trend = a.isCorrection ? vTrend.take(at: time, config: config) : .steady
-            if trend != .steady || a != vLastSpoken { vRepeats = 0 } else { vRepeats += 1 }
-            if vRepeats >= config.maxRepeats {
-                vMuted = a   // yeter: değişene kadar susar
-            } else {
-                var text = phrase(for: a, again: vRepeats > 0, trend: trend, stuck: vRepeats >= 2)
-                if let sc = lastScene, sc != vToldScene {
-                    text = sc + " " + text
-                    vToldScene = sc
-                }
-                out.speak = text
-            }
-            vLastSpoken = a
-            vLastSpokenTime = time
-        }
-        return out
     }
 
     /// Gidişin izlenmesi için düzeltmeden kalan miktar: kaydırmada kadraj oranı, yaklaşmada gereken büyütme − 1; ölçülemiyorsa nil
@@ -1679,29 +1185,15 @@ final class GuidanceEngine {
         return nil
     }
 
-    func step(_ metrics: PageMetrics, time: TimeInterval, stillFor: TimeInterval, diffToCapture: Double) -> Output {
-        if !armed {
-            if diffToCapture > config.changeToRearm && stillFor >= config.stillNeeded {
-                armed = true
-                let keep = lastCaptured
-                clearSpeech()
-                lastCaptured = keep
-                lastColumns = 0
-            } else {
-                return Output(status: "Sayfayı çevirin ya da diğer bölüme geçin")
-            }
-        }
+    func step(_ metrics: PageMetrics, time: TimeInterval, stillFor: TimeInterval) -> Output {
+        if !armed { return Output(status: "Çekiliyor…") }
         if stillFor < config.stillNeeded {
             consecutive = 0
             last = nil
-            return Output(status: choice == nil ? "Kamera hareket ediyor…" : "\(choice?.title ?? "") — kamera hareket ediyor…",
-                          awaitingChoice: awaitingChoice, options: lastOptions)
+            return Output(status: "Kamera hareket ediyor…")
         }
 
-        let d = GuidanceAdvisor.decide(metrics, choice: forcedChoice ?? choice, config: config, sharpFloor: sharpFloor,
-                                       skipping: lastCaptured)
-        lastPick = d.picked
-        lastColumns = metrics.columns.count
+        let d = GuidanceAdvisor.decide(metrics, config: config, sharpFloor: sharpFloor)
         lastFill = d.fill
         lastScale = d.scale
         lastShift = d.shift
@@ -1720,42 +1212,20 @@ final class GuidanceEngine {
             consecutive = 1
             if a != muted { muted = nil }
         }
-        awaitingChoice = (a == .chooseColumn)
-        if awaitingChoice { lastOptions = d.options }
-        var out = Output(advice: a, status: statusText(for: a), awaitingChoice: awaitingChoice, options: d.options)
-
-        if a == .chooseColumn {
-            guard consecutive >= 2 else { return out }
-            if questionsAsked < config.maxQuestions && time - lastQuestionTime >= (questionsAsked == 0 ? 0 : config.questionGap) {
-                out.speak = questionText(options: d.options, first: questionsAsked == 0)
-                toldScene = lastScene
-                questionsAsked += 1
-                lastQuestionTime = time
-            } else if questionsAsked == config.maxQuestions && time - lastQuestionTime >= config.questionGap {
-                out.speak = "Sesli yanıt alamadım. “Sol” ya da “sağ” deyin, ya da ekrandaki düğmeye dokunun."
-                questionsAsked += 1
-                lastQuestionTime = time
-            }
-            return out
-        }
+        var out = Output(advice: a, status: statusText(for: a))
 
         if a == .ok {
             // Bir düzeltme söylenmişti ve konum şimdi gerçekten uygun: kullanıcı hemen öğrenir ve kımıldamaz.
             // Tarif açıksa ve bu sayfa için henüz söylenmediyse, düzeltme gerekmese de kadrajda ne olduğu bir kez söylenir.
             if d.advice == .ok && consecutive == 1 {
-                let hold = autoCapture ? "" : " " + capitalised("\(triggerWord) deyin.")
-                if let pick = d.picked, pick != toldPick {
-                    // Soru sorulmadı: tam sığan bölüm seçildi, hangisinin çekildiği söylenir
-                    out.speak = (lastSpoken != nil ? "Tamam. " : "") + pickAnnouncement(pick)
-                    toldPick = pick
-                } else if lastSpoken != nil {
+                if lastSpoken != nil {
                     if let sc = lastScene, describeScene {
-                        out.speak = "Tamam. " + sc + hold
+                        out.speak = "Tamam. " + sc
                     } else {
-                        out.speak = autoCapture ? "Tamam, sabit tutun." : "Tamam, \(triggerWord) deyin."
+                        out.speak = "Tamam, sabit tutun."
                     }
                 } else if describeScene, let sc = lastScene, sc != toldScene {
-                    out.speak = sc + hold
+                    out.speak = sc
                 }
                 if out.speak != nil {
                     toldScene = lastScene
@@ -1765,14 +1235,11 @@ final class GuidanceEngine {
                     lastSpokenTime = time
                 }
             }
-            if consecutive >= config.stableEvaluations && autoCapture {
+            if consecutive >= config.stableEvaluations {
                 out.capture = true
                 armed = false
                 consecutive = 0
                 last = nil
-                capturedBefore = lastCaptured
-                lastCaptured = (metrics.columns.count >= 2) ? (choice ?? d.picked) : nil
-                choice = nil
             }
             return out
         }
@@ -1784,7 +1251,7 @@ final class GuidanceEngine {
             let trend = a.isCorrection ? trendTracker.take(at: time, config: config) : .steady
             if trend != .steady || a != lastSpoken { repeats = 0 } else { repeats += 1 }
             if repeats >= config.maxRepeats {
-                out.speak = config.focusQuestion ? "Hâlâ uygun değil. Birazdan yine de çekeceğim." : "Hâlâ uygun değil. \(triggerWord) diyerek yine de çekebilirsiniz."
+                out.speak = "Hâlâ uygun değil. Birazdan yine de çekeceğim."
                 muted = a
             } else {
                 var text = phrase(for: a, again: repeats > 0, trend: trend, stuck: repeats >= 2)

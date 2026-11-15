@@ -8,18 +8,6 @@ enum CameraBatteryLevel: Equatable {
     /// Şarjda / dış güçte
     case charging
 
-    /// Şarj düşük mü (kademe 0 ya da 1)
-    var isLow: Bool {
-        if case .level(let n) = self { return n <= 1 }
-        return false
-    }
-
-    /// Tahmini yüzde aralığı (alt, üst). 5 kademe eşit beşe bölünmüş varsayılır; kamera gerçek yüzdeyi vermez, bu yalnız tahmindir.
-    var estimatedRange: (low: Int, high: Int)? {
-        if case .level(let n) = self { return (n * 20, n * 20 + 20) }
-        return nil
-    }
-
     /// Ekranda kısa gösterim
     var shortText: String {
         switch self {

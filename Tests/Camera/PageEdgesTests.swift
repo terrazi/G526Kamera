@@ -100,14 +100,6 @@ final class PageEdgesTests: XCTestCase {
         XCTAssertFalse(PageEdges(points: [], confidence: 1).isReliable)
     }
 
-    func testEnclosesChecksTheTextBox() {
-        let e = rect(0.1, 0.15, 0.9, 0.95)
-        XCTAssertTrue(e.encloses(x0: 0.2, x1: 0.8, y0: 0.25, y1: 0.75, tolerance: 0.08))
-        XCTAssertTrue(e.encloses(x0: 0.03, x1: 0.97, y0: 0.10, y1: 0.99, tolerance: 0.08), "pay içinde")
-        XCTAssertFalse(e.encloses(x0: 0.0, x1: 0.8, y0: 0.25, y1: 0.75, tolerance: 0.08))
-        XCTAssertFalse(PageEdges(points: [], confidence: 1).encloses(x0: 0, x1: 1, y0: 0, y1: 1, tolerance: 1))
-    }
-
     func testSummaryNamesTheCutSides() {
         XCTAssertEqual(rect(0.1, 0.15, 0.9, 0.95).summary, "dört kenarı görünüyor")
         XCTAssertEqual(rect(0.0, 0.15, 0.9, 1.0).summary, "kesik kenar: sol, alt")
@@ -222,7 +214,7 @@ final class PageEdgesTests: XCTestCase {
         var spoken: [String] = []
         var captured = false
         for t in [0, 0.3, 0.6] {
-            let o = e.step(m, time: t, stillFor: 1.0, diffToCapture: 100)
+            let o = e.step(m, time: t, stillFor: 1.0)
             if let s = o.speak { spoken.append(s) }
             if o.capture { captured = true }
         }
@@ -234,31 +226,13 @@ final class PageEdgesTests: XCTestCase {
         let plain = GuidanceEngine()
         let withEdges = GuidanceEngine()
         var m = text(x0: 0.4, x1: 0.995)
-        let a = plain.step(m, time: 0, stillFor: 1.0, diffToCapture: 100)
+        let a = plain.step(m, time: 0, stillFor: 1.0)
         m.edges = rect(0.3, 0.15, 1.0, 0.95)
-        let b = withEdges.step(m, time: 0, stillFor: 1.0, diffToCapture: 100)
+        let b = withEdges.step(m, time: 0, stillFor: 1.0)
         XCTAssertEqual(a.advice, b.advice)
         XCTAssertEqual(a.capture, b.capture)
-        XCTAssertEqual(GuidanceAdvisor.decide(m, choice: nil, sharpFloor: 0.45),
-                       GuidanceAdvisor.decide(text(x0: 0.4, x1: 0.995), choice: nil, sharpFloor: 0.45))
-    }
-
-    func testVideoConfirmationCarriesThePageEdgeDescription() {
-        let e = GuidanceEngine()
-        e.describeScene = true
-        var bad = text(x0: 0.4, x1: 0.995)
-        bad.edges = rect(0.3, 0.15, 1.0, 0.95)
-        var spoken: [String] = []
-        for t in [0.0, 0.3] {
-            if let s = e.videoStep(bad, time: t, stillFor: 1.0).speak { spoken.append(s) }
-        }
-        var good = text()
-        good.edges = rect(0.1, 0.15, 0.9, 1.0)
-        for t in [0.6, 0.9, 1.2] {
-            if let s = e.videoStep(good, time: t, stillFor: 1.0).speak { spoken.append(s) }
-        }
-        XCTAssertEqual(spoken.count, 2)
-        XCTAssertEqual(spoken.last, "Tamam, böyle. Tek sayfa görünüyor, yazı tam sığıyor. Sayfanın alt kenarı kadrajın dışında kalıyor.")
+        XCTAssertEqual(GuidanceAdvisor.decide(m, sharpFloor: 0.45),
+                       GuidanceAdvisor.decide(text(x0: 0.4, x1: 0.995), sharpFloor: 0.45))
     }
 
     // MARK: - Çalışma sıklığı

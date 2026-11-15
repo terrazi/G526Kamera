@@ -9,7 +9,7 @@ struct CaptureFolderSection: View {
     @State private var confirmAll = false
 
     var body: some View {
-        Section(header: Text("Çekim klasörü")) {
+        AccordionSection(id: "cekimler", title: "Çekim klasörü") {
             HStack {
                 Text("Durum")
                 Spacer()

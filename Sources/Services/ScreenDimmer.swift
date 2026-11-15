@@ -4,15 +4,13 @@ import UIKit
 enum DimDecision: Equatable {
     case dim
     case settingOff
-    case notRunning
     case inactive
     /// İlk kırmızı uyarının metni ve toplam uyarı sayısı
     case warning(String, Int)
 
-    /// Karar sırası: ayar kapalı → test sürmüyor → uygulama önde değil → kırmızı uyarı var → kıs
-    static func decide(enabled: Bool, running: Bool, active: Bool, warnings: [String]) -> DimDecision {
+    /// Karar sırası: ayar kapalı → uygulama önde değil → kırmızı uyarı var → kıs. Test sürsün sürmesin ayar açıksa ekran kısılır.
+    static func decide(enabled: Bool, active: Bool, warnings: [String]) -> DimDecision {
         if !enabled { return .settingOff }
-        if !running { return .notRunning }
         if !active { return .inactive }
         if let first = warnings.first { return .warning(first, warnings.count) }
         return .dim
@@ -25,7 +23,6 @@ enum DimDecision: Equatable {
         switch self {
         case .dim: return "Ekran şu an kısık."
         case .settingOff: return ""
-        case .notRunning: return "Test sürmüyor; test başlayınca ekran kısılır."
         case .inactive: return "Uygulama önde değil; öne gelince ekran kısılır."
         case let .warning(text, count):
             let short = text.count > 90 ? String(text.prefix(90)) + "…" : text
@@ -72,16 +69,16 @@ final class SystemDimHardware: DimHardware {
     }
 }
 
-/// Test sürerken (ayar açıksa) ve kırmızı uyarı yokken ekranı kısar, pil tasarrufu için; uygulama arka plana/pasife geçince kullanıcının
-/// parlaklığını geri verir. iOS `UIScreen.brightness` atamasını sessizce yok sayabilir ya da otomatik parlaklık değeri geri yükseltebilir;
+/// Ayar açıkken (test sürsün sürmesin) ve kırmızı uyarı yokken ekranı kısar, pil tasarrufu için; uygulama arka plana/pasife geçince
+/// kullanıcının parlaklığını geri verir. Kısma hafiftir: ekran tamamen kararmaz, yazılar seçilebilir kalır. iOS `UIScreen.brightness` atamasını sessizce yok sayabilir ya da otomatik parlaklık değeri geri yükseltebilir;
 /// bu yüzden (1) parlaklık düşürülür, (2) ekranın üstüne yarı saydam siyah örtü konur (OLED'de siyah piksel yanmaz: parlaklık atanmasa
 /// bile ekran kararır) ve (3) kısık kaldığı sürece birkaç saniyede bir parlaklık denetlenip gerekirse yeniden düşürülür.
 @MainActor
 final class ScreenDimmer {
     static let shared = ScreenDimmer()
-    static let dimLevel: CGFloat = 0.05
-    /// Örtünün koyuluğu (0 saydam, 1 tam siyah). Ekran kısıkken de görülebilsin, dokunuşlar yine geçsin diye tam siyah değil.
-    static let overlayAlpha: CGFloat = 0.8
+    static let dimLevel: CGFloat = 0.18
+    /// Örtünün koyuluğu (0 saydam, 1 tam siyah). Ekran kısıkken de az da olsa görülebilsin, dokunuşlar yine geçsin diye tam siyah değil.
+    static let overlayAlpha: CGFloat = 0.3
     /// Parlaklık bu kadardan fazla yükselmişse sistem geri yükseltmiş sayılır
     static let tolerance: CGFloat = 0.03
 

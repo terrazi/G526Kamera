@@ -43,7 +43,7 @@ Durum: ✅ önlem var ve testli · 🛠 bu incelemede bulundu ve düzeltildi · 
 | Soru giderken bağlantı düştü | Soru "gitmedi" işaretlenir, bağlantı onarılır, "Bağlantı yeniden onarıldı. Sorunuz yarım kaldıysa son soruyu tekrar okuyunuz" denir (akıllı devam kapalıysa eski cümle) | ✅ (otomatik yeniden gönderim bekliyor, bkz. §7) |
 | Kota / anahtar reddi / sunucu hatası / boş yanıt | 4 profil sırayla; arızalı profil dinlenir, cevap yedekten gelirse sebebi kırmızı kutuda | ✅ |
 | İçerik engeli, harcama sınırı, çok büyük istek | Başka modele geçilmez; ne olduğu söylenir, dinlemeye dönülür | ✅ |
-| **Gemini takıldı** (bağlantı var, cevap gelmiyor) | "Cevapla"dan sonra "soru gönderildi, cevap bekleniyor"; 30 sn'de bir "Cevap bekleniyor"; **180 sn'de bekleme bırakılır** (istek iptal, soru "gitmedi", "soruyu tekrar okuyun", dinlemeye dönülür; onarım başlatmaz). Ayar kapalıysa eski davranış (en kötü ~8–10 dk sessizlik) | ✅ |
+| **Gemini takıldı** (bağlantı var, cevap gelmiyor) | "Cevapla"dan sonra "soru gönderildi, cevap bekleniyor"; 15 sn'de bir "Cevap bekleniyor"; **180 sn'de bekleme bırakılır** (istek iptal, soru "gitmedi", "soruyu tekrar okuyun", dinlemeye dönülür; onarım başlatmaz). Ayar kapalıysa eski davranış (en kötü ~8–10 dk sessizlik) | ✅ |
 | Yavaş hatta büyük ses kaydı zaman aşımına uğrar | Zaman aşımı → sıradaki profil (aynı büyük kayıtla) → hepsi dolarsa "soruyu yeniden oku" | ⚠️ açık |
 | Gemini beklenirken arama gelir / elle duraklatılır / ikinci "Cevapla" | Soru "gitmedi" olur ya da yok sayılır; geç gelen cevap duraklatılmış oturumu bozmaz | ✅ |
 
@@ -187,12 +187,12 @@ yol bildirimi ve onarım sınırı aynı anda üst üste gelince tetikleniyordu.
 | "Soruyu iptal et" ama okunmuş soru yok | "Silinecek soru yok" denir ("Okunan soru silindi" yanlış olurdu) | ✅ |
 | Her aşamada bilgi | Soru ve paragraf için: "Kameraya geçiliyor", "Kamera hazır… kadraja alın", "Çekim başarıyla yapıldı, internete geçiliyor", "İnternet geldi, Gemini'ye gönderiliyor", cevap okunur | ✅ |
 | Program kapanıp açıldı (kamera sorusu açıkken) | Önceki cevap yeniden okunmaz (yarım iş kaydı kamera sorusundan önce silinir); "Sistem hazır" denip kamera sorulur | ✅ |
-| Kestirmeler Wi-Fi / hücreseli değiştirmez ya da onay sorar | Cihazda denenmedi: Ayarlar > Kamera > **Kamerayı dene** ile sınanmalı | ⚠️ 📱 |
+| Kestirmeler Wi-Fi / hücreseli değiştirmez ya da onay sorar | Cihazda denenmedi: Ayarlar > **Kamerayı dene (sınavdan önce)** ile sınanmalı | ⚠️ 📱 |
 | Komşu sorular kadrajda yarım görünür | Gemini'ye yok sayması söylenir; numara görüntüden okunur, okunamazsa sıra numarası | ✅ (cihazda denenmedi) |
 
 ## 7. Bekleyen kararlar ve öneriler
 
-1. ~~Gemini'nin takılması~~ **Yapıldı:** 180 sn sınır, 30 sn'de bir "cevap bekleniyor", "soru gönderildi" anonsu. Ayrıntı: §2.
+1. ~~Gemini'nin takılması~~ **Yapıldı:** 180 sn sınır, 15 sn'de bir "cevap bekleniyor", "soru gönderildi" anonsu. Ayrıntı: §2.
 2. **Zaman aşımında ses kaydı:** ilk profil zaman aşımına uğrarsa sıradaki profile yalnız metinle (kayıtsız) gitmek; doğruluğu biraz düşürür, ama yavaş hatta cevabı kurtarır. Karar sizin.
 3. **Kestirmeler "Kapatıldı" otomasyonu:** gerçek telefonda denenmeli (kaydırıp kapatınca açılıyor mu, kilitliyken ne oluyor; Testi Bitir sonrası kaydırıp kapatınca da açılıyor mu; Kestirmeler'e bilerek geçerken pano işareti sayesinde geri çekmiyor mu).
 4. **Cihaz günlüğü:** ilk beklenmedik kapanmadan sonra "Tanı ve günlük"ten günlük istenmeli; neden tahmini günlüğün ipucuna dayanır, kesin değildir.

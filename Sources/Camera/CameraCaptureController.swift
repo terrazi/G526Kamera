@@ -3,7 +3,7 @@ import Combine
 import AVFoundation
 import UIKit
 
-/// Son çözülen karenin zamanı (çözücü başka iş parçacığında çalıştığı için kilitli). V1 AppModel'deki ile aynı.
+/// Son çözülen karenin zamanı (çözücü başka iş parçacığında çalıştığı için kilitli).
 final class DecodeClock {
     private let lock = NSLock()
     private var last: TimeInterval = 0
@@ -28,7 +28,7 @@ final class DecodeClock {
     }
 }
 
-/// Telefonun boş yer koruması (V1 Health.swift'ten): çok azalınca çekim başlamaz (dolu disk video yazamaz, telefonu da yavaşlatır)
+/// Telefonun boş yer koruması: çok azalınca çekim başlamaz (dolu disk video yazamaz, telefonu da yavaşlatır)
 enum DiskGuard {
     static let lowMB = 1500
     static let criticalMB = 400
@@ -64,8 +64,8 @@ enum CameraSay {
     static let manual = "Çekiyorum, kamerayı sabit tutun."
 }
 
-/// Sürüm 4'ün kamera çekimi. V1'in kamera altyapısıyla (CameraClient, H264Decoder, FramePipeline, GuidanceEngine, CaptureEngine,
-/// VideoRecorder) çalışır; V1'den farkı: çekim tek bir sorudur ve bittiğinde kamera KAPATILIR.
+/// Kamera çekimi (CameraClient, H264Decoder, FramePipeline, GuidanceEngine, CaptureEngine, VideoRecorder). Çekim tek bir sorudur ve
+/// bittiğinde kamera KAPATILIR.
 ///
 /// Akış: kameraya bağlan → görüntü gelince sesle konumlandır (odak kipi: kadrajın ortasındaki soru; kenarlardan yarım görünen diğer
 /// sorular sorun sayılmaz) → konum uygun olunca (ya da `positionSeconds` sonunda yine de) aynı anda fotoğraf çek ve `pageVideoSeconds` sn
@@ -88,7 +88,7 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
     static let positionSeconds: TimeInterval = 30
     /// Kameraya bağlanıp görüntü gelmesi için en çok beklenecek süre (sn)
     static let connectSeconds: TimeInterval = 40
-    /// Konumlandırma sürerken görüntü bu kadar saniye kesilirse beklenmeden vazgeçilir (V1'deki bağlantı duyurusunun karşılığı)
+    /// Konumlandırma sürerken görüntü bu kadar saniye kesilirse beklenmeden vazgeçilir
     static let lostSeconds = 8
 
     let settings: CameraSettings
@@ -301,28 +301,22 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
 
     // MARK: Konumlandırma
 
-    /// V1 AppModel.updateGuidance'ın V4 karşılığı: odak kipi (kadrajın ortasındaki soru), bölüm sorulmaz, kendiliğinden çekim
+    /// Konumlandırma: kadrajın ortasındaki soru hedeflenir, bölüm sorulmaz, konum uygun olunca kendiliğinden çekilir
     private func configureGuidance() {
         guidance.reset()
         pipeline.guidanceOrientation = settings.imageOrientation
         guidance.config.topBand = settings.imageOrientation == .normal ? GuidanceAnalyzer.skipTop : 0
-        guidance.config.focusQuestion = true
-        guidance.autoCapture = true
-        guidance.forcedChoice = nil
         let floors = [0.30, 0.45, 0.60]
         guidance.sharpFloor = floors[min(max(settings.guidanceSharpness, 0), 2)]
         guidance.config.glareLimit = settings.guidanceGlare ? 0.04 : 2
         guidance.describeScene = settings.guidanceDescribe
-        guidance.config.autoPick = settings.guidanceAutoPick
-        guidance.triggerWord = settings.triggerWord
         pipeline.pageEdgesOn = settings.guidanceDescribe && settings.guidancePageEdges
-        pipeline.configureMotion(enabled: false, sensitivity: settings.motionSensitivity)
         pipeline.guidanceOn = true
     }
 
     private func guidanceSample(_ sample: FramePipeline.GuidanceSample) {
         guard running, !shooting, !cancelled, isLive, waiter != nil else { return }
-        let out = guidance.step(sample.metrics, time: sample.time, stillFor: sample.stillFor, diffToCapture: sample.diffToCapture)
+        let out = guidance.step(sample.metrics, time: sample.time, stillFor: sample.stillFor)
         if out.status != statusText { status(out.status) }
         if let text = out.speak { say(text) }
         if out.capture { resolve(.positioned) }

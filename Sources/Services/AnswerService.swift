@@ -45,7 +45,6 @@ final class GeminiAnswerService: Answering {
     static let perModelLimit: TimeInterval = 40
     /// Kamera ile çekilen soruda (fotoğraf + video yüklenir, hücresel veriyle) son profil dışındakilerde beklenecek süre: yükleme de buna girer
     static let capturePerModelLimit: TimeInterval = 100
-    static let optionCodes = "A=Adana, B=Bursa, C=Ceyhan, D=Denizli, E=Erzurum"
 
     /// Sistem komutu: kullanıcının verdiği çerçeve + (1) şık sözcükleri (2) dikte hatalarına ve zayıf İngilizce telaffuzuna karşı empati
     static let systemPrompt = """

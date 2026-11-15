@@ -101,7 +101,6 @@ final class FolderStoreTests: XCTestCase {
         let (store, _) = makeStore()
         store.refresh()
         XCTAssertEqual(store.state, .notChosen)
-        XCTAssertFalse(store.hasChoice)
         let fallback = makeTempFolder("yedek")
         let resolution = store.resolution(fallback: fallback)
         XCTAssertEqual(resolution.url, fallback)
@@ -115,7 +114,6 @@ final class FolderStoreTests: XCTestCase {
         try store.choose(dir)
         guard case .ready(let url) = store.state else { return XCTFail("Klasör hazır olmalıydı: \(store.state)") }
         XCTAssertTrue(samePath(url, dir))
-        XCTAssertTrue(store.hasChoice)
         let resolution = store.resolution(fallback: makeTempFolder("yedek"))
         XCTAssertNil(resolution.warning)
         XCTAssertTrue(samePath(resolution.url, dir))
@@ -143,14 +141,6 @@ final class FolderStoreTests: XCTestCase {
         let resolution = store.resolution(fallback: fallback)
         XCTAssertEqual(resolution.url, fallback)
         XCTAssertNotNil(resolution.warning, "Klasör kaybolursa kırmızı uyarı çıkar")
-    }
-
-    func testForgetReturnsToNotChosen() throws {
-        let (store, _) = makeStore()
-        try store.choose(makeTempFolder("unutulacak"))
-        store.forget()
-        XCTAssertEqual(store.state, .notChosen)
-        XCTAssertFalse(store.hasChoice)
     }
 
     func testTestFileIsWrittenOnlyToAChosenFolder() throws {

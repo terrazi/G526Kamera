@@ -47,12 +47,6 @@ final class CaptureEngine {
         self.store = store
     }
 
-    var isBusy: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return busy
-    }
-
     /// Tetikleme anından `after` saniye sonra çalışır. Meşgulse false döner.
     @discardableResult
     func capture(reason: String, options: CaptureOptions,
@@ -128,89 +122,5 @@ final class CaptureEngine {
         return .success(CapturedPhoto(jpeg: rendered.data, date: Date(), sharpness: best.sharpness,
                                       width: rendered.width, height: rendered.height,
                                       framesUsed: rendered.used, candidates: candidates.count, reason: reason))
-    }
-}
-
-/// Görüntü değişince otomatik çekim: sahne değişir, sabitlenir, bir kez çekilir.
-/// Belge alınıp masa boşalınca (ilk durulan "boş masa" görüntüsüne dönünce) çekmez;
-/// yalnızca yeni bir belge konunca çeker.
-final class MotionDetector {
-    var enabled = false
-    var sensitivity = 1
-
-    private var reference: [Float]?
-    private var background: [Float]?
-    private var previous: [Float]?
-    private var settlingSince: TimeInterval?
-    private var cooldownUntil: TimeInterval = 0
-    private let settleTime: TimeInterval = 0.9
-
-    private var changeThreshold: Double { return [10.0, 6.0, 2.5][max(0, min(2, sensitivity))] }
-    private var moveThreshold: Double { return [4.0, 2.5, 1.5][max(0, min(2, sensitivity))] }
-
-    func reset() {
-        reference = nil
-        background = nil
-        previous = nil
-        settlingSince = nil
-    }
-
-    private static func meanAbsDiff(_ a: [Float], _ b: [Float]) -> Double {
-        if a.count != b.count || a.isEmpty { return 255 }
-        var total: Float = 0
-        for i in 0..<a.count {
-            total += abs(a[i] - b[i])
-        }
-        return Double(total) / Double(a.count)
-    }
-
-    /// `true` dönerse şimdi fotoğraf çekilmeli.
-    func process(signature: [UInt8], time: TimeInterval, busy: Bool) -> Bool {
-        if !enabled { return false }
-        let current = signature.map { Float($0) }
-        guard var ref = reference, let prev = previous else {
-            reference = current
-            background = current
-            previous = current
-            return false
-        }
-        let frameDiff = MotionDetector.meanAbsDiff(prev, current)
-        previous = current
-        if busy || time < cooldownUntil { return false }
-
-        let sceneDiff = MotionDetector.meanAbsDiff(ref, current)
-        if sceneDiff <= changeThreshold {
-            settlingSince = nil
-            // Yavaş ışık / pozlama kaymasına uyum sağla
-            for i in 0..<ref.count {
-                ref[i] += 0.02 * (current[i] - ref[i])
-            }
-            reference = ref
-            if var bg = background, MotionDetector.meanAbsDiff(bg, current) <= changeThreshold {
-                for i in 0..<bg.count {
-                    bg[i] += 0.02 * (current[i] - bg[i])
-                }
-                background = bg
-            }
-            return false
-        }
-
-        if frameDiff > moveThreshold {
-            settlingSince = nil
-            return false
-        }
-        guard let since = settlingSince else {
-            settlingSince = time
-            return false
-        }
-        if time - since < settleTime { return false }
-
-        settlingSince = nil
-        reference = current
-        if let bg = background, MotionDetector.meanAbsDiff(bg, current) <= changeThreshold {
-            return false
-        }
-        cooldownUntil = time + 2.0
-        return true
     }
 }

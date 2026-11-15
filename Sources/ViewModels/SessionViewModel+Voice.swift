@@ -77,6 +77,7 @@ extension SessionViewModel {
             lastVoiced[item.text] = deps.now()
             announced.append(item.text)
             tlog("[sesli uyarı] \(item.text)")
+            defer { quietTicks = 0 }
             do {
                 try await deps.speaker.speak(item.text, saveAs: nil)
             } catch {

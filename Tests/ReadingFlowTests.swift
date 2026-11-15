@@ -63,7 +63,7 @@ final class ReadingFlowTests: XCTestCase {
         await settle()
         h.scheduler.advance(by: Timing.answerCueEvery + 0.1)
         let cue = await waitUntil { h.vm.announced.contains(Say.stillWaiting) }
-        XCTAssertTrue(cue, "30 saniyede cevap gelmediyse 'cevap bekleniyor' denir")
+        XCTAssertTrue(cue, "15 saniyede cevap gelmediyse 'cevap bekleniyor' denir")
         XCTAssertEqual(h.vm.phase, .answering)
 
         h.scheduler.advance(by: Timing.answerCap)

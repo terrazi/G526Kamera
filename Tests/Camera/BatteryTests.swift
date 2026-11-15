@@ -1,44 +1,8 @@
 import XCTest
 @testable import G526CameraDrive
 
-/// "Batarya kontrol" sesli komutu ve düşük şarj uyarısı
+/// Düşük şarj uyarısı ve kamera pil kademeleri
 final class BatteryTests: XCTestCase {
-    private func hits(_ text: String) -> Int {
-        return GuidanceVocabulary.batteryIntent.count(in: text)
-    }
-
-    func testManyWaysToAskForBattery() {
-        for t in ["batarya kontrol", "şarj durumu nedir", "şarj durumu", "pil durumu nedir", "pil ne kadar", "telefonun şarjı ne kadar",
-                  "kameranın şarjı", "batarya ne kadar kaldı", "şarjım kaç", "bataryayı kontrol et", "pil kaç"] {
-            XCTAssertGreaterThan(hits(t), 0, t)
-        }
-    }
-
-    func testOtherSpeechDoesNotAskForBattery() {
-        for t in ["tamam", "rapor ver", "durum nedir", "hepsini gönder", "sayfayı çevir", "kaç sayfa çekildi", "son fotoğrafı sil",
-                  "yeniden çek", "okey", "pilav yapalım", "pirinç", "pilot geldi", "özet ver"] {
-            XCTAssertEqual(hits(t), 0, t)
-        }
-    }
-
-    func testSpokenBatterySentence() {
-        XCTAssertEqual(SpokenReport.battery(phone: 72, charging: false, camera: .level(2)),
-                       "Telefon yüzde 72, kamera şarjı tahminen yüzde 40 ile 60 arasında.")
-        XCTAssertEqual(SpokenReport.battery(phone: 72, charging: true, camera: nil),
-                       "Telefon yüzde 72 ve şarjda, kameranın şarj bilgisi henüz gelmedi.")
-        XCTAssertEqual(SpokenReport.battery(phone: 80, charging: false, camera: .charging),
-                       "Telefon yüzde 80, kamera şarjda.")
-        XCTAssertTrue(SpokenReport.battery(phone: 80, charging: false, camera: .level(4)).contains("yüzde 80'in üzerinde"))
-        XCTAssertTrue(SpokenReport.battery(phone: nil, charging: false, camera: nil).contains("okunamıyor"))
-        XCTAssertTrue(SpokenReport.battery(phone: 15, charging: false, camera: nil).hasSuffix("Telefon şarjı düşük."))
-        XCTAssertFalse(SpokenReport.battery(phone: 15, charging: true, camera: nil).contains("düşük"))
-        let low = SpokenReport.battery(phone: 80, charging: false, camera: .level(0))
-        XCTAssertTrue(low.contains("yüzde 20'nin altında"))
-        XCTAssertTrue(low.hasSuffix("Kamerayı şarja takın."))
-        XCTAssertTrue(SpokenReport.battery(phone: 80, charging: false, camera: .level(1)).hasSuffix("Kamerayı şarja takın."))
-        XCTAssertFalse(SpokenReport.battery(phone: 80, charging: false, camera: .level(2)).contains("şarja takın"))
-    }
-
     func testLowBatteryWarnsOncePerThreshold() {
         var w = LowBatteryWatcher()
         XCTAssertNil(w.update(percent: 60, charging: false))
@@ -66,13 +30,6 @@ final class BatteryTests: XCTestCase {
         XCTAssertEqual(w.update(percent: 4, charging: false), 4)
         XCTAssertNil(w.update(percent: 3, charging: false))
         XCTAssertNil(w.update(percent: 15, charging: false))                      // 5 eşiği zaten söylendi, 10/20 yeniden sayılmaz
-    }
-
-    func testCameraBatteryFieldIsReadOnlyWhenPresent() {
-        XCTAssertNil(CameraProbe.batteryPercent(in: ["cmd": "GetDevInfo", "id": "X", "wifisig": 3, "lock": 2]))
-        XCTAssertEqual(CameraProbe.batteryPercent(in: ["cmd": "GetDevInfo", "battery": 64]), 64)
-        XCTAssertEqual(CameraProbe.batteryPercent(in: ["cmd": "GetDevInfo", "Bat": "77%"]), 77)
-        XCTAssertNil(CameraProbe.batteryPercent(in: ["cmd": "GetDevInfo", "battery": 250]))      // yüzde olamaz
     }
 }
 
@@ -117,17 +74,6 @@ final class CameraBatteryTests: XCTestCase {
         XCTAssertNil(CameraBattery.decode(header: header(code: .infinity)))
         XCTAssertNil(CameraBattery.decode(header: header(code: 1e9)))
         XCTAssertNil(CameraBattery.decode(header: [1, 2, 3]))
-    }
-
-    func testEstimatedPercentRanges() {
-        XCTAssertEqual(CameraBatteryLevel.level(0).estimatedRange?.low, 0)
-        XCTAssertEqual(CameraBatteryLevel.level(0).estimatedRange?.high, 20)
-        XCTAssertEqual(CameraBatteryLevel.level(2).estimatedRange?.low, 40)
-        XCTAssertEqual(CameraBatteryLevel.level(4).estimatedRange?.high, 100)
-        XCTAssertNil(CameraBatteryLevel.charging.estimatedRange)
-        XCTAssertTrue(CameraBatteryLevel.level(1).isLow)
-        XCTAssertFalse(CameraBatteryLevel.level(2).isLow)
-        XCTAssertFalse(CameraBatteryLevel.charging.isLow)
     }
 
     func testPhrasesAreEstimatesNotExactPercent() {

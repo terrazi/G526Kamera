@@ -110,7 +110,7 @@ enum CaptureSubject: Equatable {
     case passage
 }
 
-/// Kamerayı açıp soruyu çeken bileşen. Gerçeği V1'in kamera altyapısıyla çalışır (`CameraCaptureController`), testler sahtesini kullanır.
+/// Kamerayı açıp soruyu çeken bileşen. Gerçeği `CameraCaptureController` ile çalışır, testler sahtesini kullanır.
 @MainActor
 protocol CameraCapturing: AnyObject {
     /// Konumlandırma cümleleri (kulaklıktan söylenir); çağıran söylemeye uygun değilse yutabilir

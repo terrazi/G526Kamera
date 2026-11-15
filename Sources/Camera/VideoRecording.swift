@@ -15,15 +15,10 @@ import CoreVideo
 final class VideoRecorder {
     /// Elle başlatılan video kaydı en çok bu kadar sürer (kareler bu süreden sonra yazılmaz)
     static let maxSeconds: TimeInterval = 90
-    /// Deneme sınavının bir videosu en çok bu kadar sürer (sayfa sayfa video; kullanıcı kararı 2026-11-12)
-    static let examMaxSeconds: TimeInterval = 90
     /// Sayfa sayfa videoda her sayfanın kaydedilen süresi (sn)
     static let pageSegmentSeconds = 5
-    /// Ayarlarda seçilebilen kayıt süresi aralıkları (sn) ve adım; varsayılanlar yukarıdaki değerlerdir
-    static let manualSecondsRange = 10...300
-    static let examSecondsRange = 10...300
+    /// Ayarlarda seçilebilen sayfa başına kayıt süresi aralığı (sn)
     static let pageSecondsRange = 2...15
-    static let secondsStep = 10
     static let fps: Double = 2
     static let bitsPerPixel: Double = 0.28
     static let minBitrate: Double = 250_000
@@ -44,10 +39,6 @@ final class VideoRecorder {
     private let queue = DispatchQueue(label: "g526.videorec", qos: .userInitiated)
     private let lock = NSLock()
     private var armed = false
-    /// Duraklatıldı: kareler yazılmaz, dosya açık kalır (kilitle korunur)
-    private var paused = false
-    /// Şimdiye dek dosyaya yazılan video süresi (sn; duraklamalar sayılmaz). Kilitle korunur.
-    private var recorded: Double = 0
 
     // Yalnızca `queue` üzerinde kullanılır
     private var writer: AVAssetWriter?
@@ -60,11 +51,6 @@ final class VideoRecorder {
     private var frames = 0
     private var failed: String?
     private var limit: TimeInterval = VideoRecorder.maxSeconds
-    /// Duraklamalarda atlanan kaynak süresi (video zamanı = kaynak zamanı − firstTime − skipped)
-    private var skipped: Double = 0
-    /// En son değerlendirilen karenin video zamanı (devamda bir pencere sonrasından sürdürülür)
-    private var lastT: Double = -1
-    private var resumePending = false
 
     /// Şu anki yarım saniyelik pencerenin şimdiye dek gelen en net karesi (yalnızca `queue` üzerinde).
     private struct Candidate {
@@ -73,25 +59,6 @@ final class VideoRecorder {
         let window: Int
     }
     private var pending: Candidate?
-
-    var isRecording: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return armed
-    }
-
-    var isPaused: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return armed && paused
-    }
-
-    /// Dosyaya şimdiye dek yazılan video süresi (sn); duraklamalar sayılmaz
-    var recordedSeconds: Double {
-        lock.lock()
-        defer { lock.unlock() }
-        return recorded
-    }
 
     /// Hedef bit hızı (bit/sn): çözünürlükle orantılı, alt ve üst sınırlı.
     static func bitrate(width: Int, height: Int) -> Int {
@@ -111,44 +78,9 @@ final class VideoRecorder {
             self.lastPTS = -1
             self.frames = 0
             self.failed = nil
-            self.skipped = 0
-            self.lastT = -1
-            self.resumePending = false
         }
         lock.lock()
         armed = true
-        paused = false
-        recorded = 0
-        lock.unlock()
-    }
-
-    /// Kaydı duraklatır: dosya açık kalır, kareler yazılmaz. Süre sınırı yalnız yazılan saniyeleri sayar.
-    func pause() {
-        lock.lock()
-        guard armed, !paused else {
-            lock.unlock()
-            return
-        }
-        paused = true
-        lock.unlock()
-        queue.sync {
-            // bu ana dek gelen son (yarım kalmış) pencerenin en net karesi de yazılır
-            if let last = self.pending {
-                self.pending = nil
-                self.commit(last)
-            }
-        }
-    }
-
-    /// Duraklatılmış kayda devam eder: sonraki kare, önceki karenin bir pencere sonrasına yazılır (arada boşluk kalmaz).
-    func resume() {
-        lock.lock()
-        let ok = armed && paused
-        lock.unlock()
-        guard ok else { return }
-        queue.sync { self.resumePending = true }
-        lock.lock()
-        paused = false
         lock.unlock()
     }
 
@@ -156,7 +88,7 @@ final class VideoRecorder {
     /// Her `1/fps` saniyelik pencereden en yüksek puanlı kare yazılır; eşit puanda pencerenin ilk karesi kalır.
     func offer(_ buffer: CVPixelBuffer, time: TimeInterval, sharpness: Double) {
         lock.lock()
-        let on = armed && !paused
+        let on = armed
         lock.unlock()
         guard on else { return }
         queue.async { self.consider(buffer, time: time, sharpness: sharpness) }
@@ -171,7 +103,6 @@ final class VideoRecorder {
     func finish(_ done: @escaping (Result<Output, Failure>) -> Void) {
         lock.lock()
         armed = false
-        paused = false
         lock.unlock()
         queue.async {
             // son (yarım kalmış) pencerenin en net karesi de yazılır
@@ -216,7 +147,6 @@ final class VideoRecorder {
     func cancel() {
         lock.lock()
         armed = false
-        paused = false
         lock.unlock()
         queue.async {
             let url = self.fileURL
@@ -241,21 +171,10 @@ final class VideoRecorder {
         if writer == nil {
             guard open(url: url, buffer: buffer) else { return }
             firstTime = time
-            resumePending = false
         }
-        var t = time - firstTime - skipped
-        if resumePending {
-            // duraklamadan sonraki ilk kare: önceki karenin tam bir pencere sonrasına oturur
-            resumePending = false
-            if lastT >= 0 {
-                let next = lastT + 1.0 / VideoRecorder.fps
-                skipped = (time - firstTime) - next
-                t = next
-            }
-        }
+        let t = time - firstTime
         // süre sınırı: bundan sonraki kareler hiç yazılmaz
         if t < 0 || t >= limit { return }
-        lastT = t
         let window = Int(t * VideoRecorder.fps)
         if let p = pending {
             if window < p.window { return }          // geç gelen eski kare
@@ -282,9 +201,6 @@ final class VideoRecorder {
         if ad.append(c.buffer, withPresentationTime: CMTime(seconds: t, preferredTimescale: 600)) {
             frames += 1
             lastPTS = t
-            lock.lock()
-            recorded = t + 1.0 / VideoRecorder.fps
-            lock.unlock()
         } else {
             failed = w.error?.localizedDescription ?? "kare yazılamadı"
         }

@@ -29,7 +29,7 @@ final class FakeDimHardware: DimHardware {
     func overlayVanishes() { overlayVisible = false }
 }
 
-/// "Test sürerken ekranı kıs": parlaklık, koyu örtü, sistemin parlaklığı geri yükseltmesi, çökmeden sonra geri verme, karar nedenleri
+/// "Ekranı kıs": parlaklık, koyu örtü, sistemin parlaklığı geri yükseltmesi, çökmeden sonra geri verme, karar nedenleri
 /// ve açılışta pano işaretinin durumu (yeniden açılma otomasyonunun neden açmadığını anlamak için)
 @MainActor
 final class ScreenAndClipboardTests: XCTestCase {
@@ -147,13 +147,19 @@ final class ScreenAndClipboardTests: XCTestCase {
 
     func testDecisionOrderAndReasons() {
         typealias D = DimDecision
-        XCTAssertEqual(D.decide(enabled: false, running: true, active: true, warnings: []), .settingOff)
-        XCTAssertEqual(D.decide(enabled: true, running: false, active: true, warnings: []), .notRunning)
-        XCTAssertEqual(D.decide(enabled: true, running: true, active: false, warnings: []), .inactive)
-        XCTAssertEqual(D.decide(enabled: true, running: true, active: true, warnings: ["Mikrofon yok", "Şarj az"]), .warning("Mikrofon yok", 2))
-        XCTAssertEqual(D.decide(enabled: true, running: true, active: true, warnings: []), .dim)
+        XCTAssertEqual(D.decide(enabled: false, active: true, warnings: []), .settingOff)
+        XCTAssertEqual(D.decide(enabled: true, active: false, warnings: []), .inactive)
+        XCTAssertEqual(D.decide(enabled: true, active: true, warnings: ["Mikrofon yok", "Şarj az"]), .warning("Mikrofon yok", 2))
+        XCTAssertEqual(D.decide(enabled: true, active: true, warnings: []), .dim, "Test başlamamış olsa da ayar açıksa ekran kısılır")
         XCTAssertTrue(D.dim.shouldDim)
-        for other in [D.settingOff, .notRunning, .inactive, .warning("x", 1)] { XCTAssertFalse(other.shouldDim) }
+        for other in [D.settingOff, .inactive, .warning("x", 1)] { XCTAssertFalse(other.shouldDim) }
+    }
+
+    /// Kısma hafiftir: parlaklık en alta inmez, örtü ekranı kapatmaz; yazılar az da olsa görünür
+    func testDimIsLightEnoughToStillSeeTheScreen() {
+        XCTAssertGreaterThanOrEqual(ScreenDimmer.dimLevel, 0.1)
+        XCTAssertLessThanOrEqual(ScreenDimmer.overlayAlpha, 0.5)
+        XCTAssertGreaterThan(ScreenDimmer.dimLevel * (1 - ScreenDimmer.overlayAlpha), 0.08, "Etkin ışık çok düşük olmamalı")
     }
 
     func testStatusTextsNameTheBlockingWarning() {
@@ -165,7 +171,6 @@ final class ScreenAndClipboardTests: XCTestCase {
         XCTAssertLessThan(long.count, 200, "Uzun uyarı metni kısaltılır")
         XCTAssertEqual(DimDecision.settingOff.statusText, "", "Ayar kapalıyken Ayarlar'da bir şey yazılmaz")
         XCTAssertFalse(DimDecision.dim.statusText.isEmpty)
-        XCTAssertFalse(DimDecision.notRunning.statusText.isEmpty)
         XCTAssertFalse(DimDecision.inactive.statusText.isEmpty)
     }
 

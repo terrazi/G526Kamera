@@ -105,7 +105,7 @@ final class DocumentGateTests: XCTestCase {
         for (name, scene) in [("çizgili", stripes()), ("ızgara", grid())] {
             let m = GuidanceAnalyzer.analyze(luma: scene, width: 960, height: 540)
             XCTAssertNotEqual(DocumentGate.verdict(m), .document, "\(name): \(DocumentGate.describe(m, DocumentGate.verdict(m)))")
-            XCTAssertNotEqual(GuidanceAdvisor.decide(m, choice: nil, sharpFloor: 0.45).advice, .ok, name)
+            XCTAssertNotEqual(GuidanceAdvisor.decide(m, sharpFloor: 0.45).advice, .ok, name)
         }
     }
 
@@ -130,7 +130,7 @@ final class DocumentGateTests: XCTestCase {
         let m = GuidanceAnalyzer.analyze(luma: stripes(), width: 960, height: 540)
         let e = GuidanceEngine()
         for i in 0..<12 {
-            let o = e.step(m, time: Double(i) * 0.3, stillFor: 1.0, diffToCapture: 100)
+            let o = e.step(m, time: Double(i) * 0.3, stillFor: 1.0)
             XCTAssertFalse(o.capture, "çizgili desen çekilmemeli")
         }
     }

@@ -294,7 +294,6 @@ final class LoopGuardTests: XCTestCase {
         XCTAssertEqual(s.bluetoothShortcut, "Bluetooth")
         XCTAssertEqual(s.resetShortcut, "Sistemi Sıfırla")
         XCTAssertEqual(s.outputShortcut, "Kulaklık Düzeltme")
-        XCTAssertTrue(s.missingShortcuts.isEmpty)
         // Kullanıcı değiştirir, bir tanesini siler: sonraki açılışta geri yazılmaz
         s.wifiShortcut = "Kendi Wifi"
         s.outputShortcut = ""

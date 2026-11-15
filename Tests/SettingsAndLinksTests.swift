@@ -61,12 +61,6 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(s.startMinutes, 0)
     }
 
-    func testTimeText() {
-        XCTAssertEqual(AppSettings.timeText(minutes: 9 * 60), "09:00")
-        XCTAssertEqual(AppSettings.timeText(minutes: 23 * 60 + 5), "23:05")
-        XCTAssertEqual(AppSettings.timeText(minutes: 9999), "23:59")
-    }
-
     func testStartTimeRoundTrip() {
         let s = AppSettings(defaults: makeDefaults())
         s.startMinutes = 7 * 60 + 30
@@ -78,14 +72,12 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(s.startMinutes, 21 * 60 + 15)
     }
 
-    func testShortcutNamesAreTrimmedAndMissingOnesReported() {
+    func testShortcutNamesAreTrimmed() {
         let s = AppSettings(defaults: makeDefaults())
         s.wifiShortcut = "  WiFi_Ac \n"
         XCTAssertEqual(s.shortcutName(for: .wifi), "WiFi_Ac")
-        XCTAssertEqual(s.missingShortcuts, [.cellular, .bluetooth, .reset])
-        s.cellularShortcut = "Hücresel_Ac"
         s.resetShortcut = "   "
-        XCTAssertEqual(s.missingShortcuts, [.bluetooth, .reset], "Yalnız boşluktan oluşan ad boş sayılır")
+        XCTAssertEqual(s.shortcutName(for: .reset), "", "Yalnız boşluktan oluşan ad boş sayılır")
     }
 }
 

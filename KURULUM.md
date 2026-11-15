@@ -40,6 +40,8 @@ Ayrıntılı işleyiş: `docs/PROSEDUR.md` (adım adım), `docs/SENARYOLAR.md` (
 
 ## 4) Ayarlar (ana ekranda sağ üst)
 
+Ayarlar bölümleri **akordiyon** gibidir: açılışta yalnız başlıklar görünür; bir başlığa dokununca içeriği açılır (aynı anda tek bölüm açık kalır), yeniden dokununca kapanır.
+
 - **Başlama saati:** açıp saati seçin. Asıl yol aşağıdaki otomasyondur (5. bölüm).
 - **Gemini modelleri ve API anahtarları (4 yedekli profil):** her profilin kendi adı, modeli ve anahtarı vardır. Anahtarı
   **Yapıştır** ile girin (açık görünür, doğru yapıştığını gözle kontrol edin), **Anahtarı dene** ile sınayın. Soru önce 1. profile
@@ -57,7 +59,7 @@ Ayrıntılı işleyiş: `docs/PROSEDUR.md` (adım adım), `docs/SENARYOLAR.md` (
 - **Cevabı Gemini sesiyle oku:** açıkken cevap Gemini'nin ses modeliyle üretilip kaydedilir; olmazsa telefonun sesi kullanılır.
 - **Modelleri listele / Model seç:** her profilde anahtar girilince anahtarın görebildiği modelleri listeler, listeden seçilen model o
   profile yazılır (model adını elle yazmak gerekmez). Gemma modellerinde "düşünme" otomatik açılır (soru çözümünde doğruluk için).
-- **Kamera kutusu (ana ekran):** V1'deki gibi ana ekranda hep durur; kamera kapalıyken siyahtır. Üstünde kamera durumu (nokta ve yazı) ve pili, altında konumlandırma bildirimi görünür. **Canlı önizleme** anahtarı kapatılırsa kutu yerine tek satır kalır (pil tasarrufu); **Test sürerken ekranı kıs** anahtarı da burada. **Şimdi çek** yalnız kamera çekimi sürerken çalışır. Çekimden sonra **Son fotoğraf** küçük resmi gösterilir. Ayarlar > Kamera > Pil ve ısınma'dan **Canlı önizlemeyi kapat** ve **Son fotoğrafı ana ekranda gösterme** ile ikisi de kapatılabilir (kapalıyken küçük resim bellekte de tutulmaz; çekim ve gönderim aynen sürer).
+- **Kamera kutusu (ana ekran):** ana ekranda hep durur; kamera kapalıyken siyahtır. Üstünde kamera durumu (nokta ve yazı) ve pili, altında konumlandırma bildirimi görünür. **Canlı önizleme** anahtarı kapatılırsa kutu yerine tek satır kalır (pil tasarrufu); **Ekranı kıs** anahtarı da burada (test sürerken ya da sürmezken ekranı kısar; ekran çok karanlık olmaz, hafif görünür kalır). **Şimdi çek** yalnız kamera çekimi sürerken çalışır. Çekimden sonra **Son fotoğraf** küçük resmi gösterilir. Ayarlar > Kamera > Pil ve ısınma'dan **Canlı önizlemeyi kapat** ve **Son fotoğrafı ana ekranda gösterme** ile ikisi de kapatılabilir (kapalıyken küçük resim bellekte de tutulmaz; çekim ve gönderim aynen sürer).
 - **Çekim klasörü (Ayarlar > Çekim klasörü):** Kamerayla çekilen her soru (fotoğraf + video) önce telefona yazılır: Dosyalar uygulamasında
   **Bu iPhone'da > Sesli Kontrol > Cekimler** (alt klasörler: Bekleyen, Gonderilen, Gonderilemeyen, Paragraf). İnternet gelene kadar
   orada bekler, gelince en eskisinden başlayarak sırayla Gemini'ye gider; cevabı gelince Gonderilen'e taşınır (cevap.txt ile). Uygulama
@@ -68,11 +70,11 @@ Ayrıntılı işleyiş: `docs/PROSEDUR.md` (adım adım), `docs/SENARYOLAR.md` (
 - **Telefon sesi:** "Otomatik" en kaliteli kurulu Türkçe sesi seçer; isterseniz listeden başka ses seçin. Ana ekrandaki **Sesi dene**
   seçtiğiniz sesi kulaklıktan dinletir.
 - **Uyarıları sesli söyle:** (açık gelir) ekrana yazılan her uyarı kulaklıktan da kısaca söylenir: internet koptu, mikrofon yok, onarım başarısız, şarj azaldı, yedek modelden cevap geldi… (hangi modelin cevapladığı söylenmez; yalnız cevap diğer modeller yanıt vermeyince ÜCRETLİ modelden gelirse “Ücretli modelden cevaplandı” denir. Sunucunun uzun, çoğu İngilizce hata metni ve açıklamalar yalnız ekranda yazar, hiç okunmaz). Yalnız Bluetooth kulaklıktan çalar (kulaklık yoksa hiçbir şey çalınmaz; ses telefondan çıkmaz). Soru okunurken ya da cevap beklenirken araya girmez: duraklama ve onarım anlarında hemen, aksi hâlde cevap duyulduktan sonra söylenir. Aynı cümle 5 dakika içinde tekrar etmez.
-- **Test sürerken ekranı kıs:** (kapalı gelir) test sürerken parlaklığı en aza indirir, pil daha yavaş biter. Ekran açık kalır
-  (Kestirmeler için gerekir). iOS parlaklık atamasını sessizce yok sayabildiği ve otomatik parlaklık değeri geri yükseltebildiği için
-  üç şey birlikte yapılır: parlaklık düşürülür, ekranın üstüne dokunuşları geçiren koyu bir örtü konur (OLED'de siyah piksel yanmaz;
-  parlaklık atanmasa bile ekran kararır) ve 5 saniyede bir parlaklık denetlenip gerekirse yeniden düşürülür. Kırmızı uyarı çıkınca ya da
-  uygulamadan çıkınca/test bitince parlaklık ve örtü geri verilir. **Kırmızı uyarı sürdükçe ekran kısılmaz** (örn. düşük güç modu uyarısı
+- **Ekranı kıs:** (kapalı gelir) test başlamış olsun olmasın ekranı kısar, pil daha yavaş biter; ekran çok karanlık olmaz, hafif görünür
+  kalır (parlaklık %18'e iner, üstüne en çok %30 koyuluğunda bir örtü gelir). Ekran açık kalır (Kestirmeler için gerekir). iOS parlaklık
+  atamasını sessizce yok sayabildiği ve otomatik parlaklık değeri geri yükseltebildiği için üç şey birlikte yapılır: parlaklık düşürülür,
+  ekranın üstüne dokunuşları geçiren koyu bir örtü konur ve 5 saniyede bir parlaklık denetlenip gerekirse yeniden düşürülür. Kırmızı uyarı
+  çıkınca ya da uygulamadan çıkınca parlaklık ve örtü geri verilir. **Kırmızı uyarı sürdükçe ekran kısılmaz** (örn. düşük güç modu uyarısı
   kalıcıdır); ayarın altındaki yazı o an kısılıp kısılmadığını ve kısılmıyorsa nedenini (uyarı metniyle) söyler.
 - **Anında tespit (nabız):** (açık gelir) Dinlerken mikrofonun ses verip vermediğine yarım saniyede bir, internete 5 saniyede bir (ağ yolu değişince hemen) bakılır. Mikrofon bir saniyeden uzun ses vermezse dinleme hemen yeniden kurulur ve yarım metin korunur; art arda 3 kez işe yaramazsa ses oturumu ve dinleme baştan kurulur (kulaklık sağlamsa Kestirme hiç çalışmaz; yalnız kulaklık yoldan çıkmışsa çalışır). iOS'un ses servisi çökerse ve ses motoru kendiliğinden durursa bildirim gelir gelmez aynı onarım başlar. İnternet için art arda iki nabız yoksa onarım başlar; bağlantı yokken her 2 saniyede bir bakıldığından internet dönünce 60 saniyelik yeniden deneme beklenmeden devam edilir. Kulaklık yoldan çıkınca çıkış kestirmesi 1 saniye sonra çalışır. Kısa kesintiden sonra uzun anons yerine yalnız "Hazır. Son soruyu tekrar oku." denir. Ana ekranda "Canlı: Kulaklık ✓ · Mikrofon ✓ · İnternet ✓" satırı görünür; Tanı ve günlük'te "[tespit]" satırları neyin ne zaman yakalandığını gösterir. Sorun çıkarsa Ayarlar'dan kapatılabilir.
 - **Cevaptan sonra sonraki soruyu iste:** (açık gelir) Cevap kulaklıktan okunup bitince program kendisi "Lütfen sonraki soruyu okuyun" der, ondan sonra dinlemeye geçer; "Cevapla" deyip numara sorulmasına kadar ne yapacağınızı düşünmeniz gerekmez. Bu cümle kayda yazılmaz (soru_N dosyasında yalnız cevap vardır). Cevap alınamadıysa söylenmez (zaten "Soruyu yeniden okuyun" denir). Ayarlardan kapatılabilir.
@@ -110,7 +112,11 @@ Uygulama kapanıp açıldığında ya da "Testi bitir"den sonra yeniden başlat�
 - Cevap vermezseniz bir kez hatırlatılır; yine olmazsa önceki kayıt 12 saatten **yeniyse devam**, eskiyse yeni sınav sayılır.
 - Beklenmedik kapanmadan sonra (çökme, iOS kapattı) soru sorulmaz: kaldığı yerden otomatik sürer. Önceki kayıtta hiç cevap yoksa da soru sorulmaz.
 - **Soru numarası okunmadıysa sor:** (açık gelir) Soruyu okuyup "Cevapla" dediniz ama numara söylemediyseniz program "Lütfen okuduğunuz sorunun numarasını söyleyin" der. "Yedi" ya da "soru yedi" demeniz yeter; numara sorunun başına yazılıp Gemini'ye öyle gider. Bilmiyorsanız "sıradaki" deyin, sıradaki numara verilir. Hiç söylemezseniz iki kez hatırlatılır, sonra sıradaki numarayla gönderilir (soru kaybolmaz). Kapalıyken numara sorulmaz, sıradaki numara verilir.
-- **Gemini beklerken bilgi ver:** (açık gelir) "Cevapla" deyince kulaklıktan "Soru başarıyla alınıp Gemini'ye gönderildi, cevap bekleniyor" denir; cevap uzarsa 30 saniyede bir "Cevap bekleniyor" denir. Gemini **3 dakikada** cevap vermezse bekleme bırakılır, "soruyu tekrar okuyun" denir ve dinlemeye dönülür. Kapalıyken bu anonslar ve 3 dakikalık sınır yoktur.
+- **Gemini beklerken bilgi ver:** (açık gelir) "Cevapla" deyince kulaklıktan "Soru başarıyla alınıp Gemini'ye gönderildi, cevap bekleniyor" denir; cevap uzarsa 15 saniyede bir "Cevap bekleniyor" denir. Gemini **3 dakikada** cevap vermezse bekleme bırakılır, "soruyu tekrar okuyun" denir ve dinlemeye dönülür. Kapalıyken bu anonslar ve 3 dakikalık sınır yoktur.
+- **Boşluklarda kısa bilgi ver:** (açık gelir) program sessiz bir işle meşgulken (sistem kontrolü, kameraya ya da internete geçiş, bağlantı
+  onarımı) ayardaki aralıkla (5–30 sn; varsayılan 10) "Kameraya geçiliyor, lütfen bekleyin" gibi kısa bir cümle söyler; böylece bağlantı koptu
+  mu diye tedirgin olmazsınız. Soru okumadan uzun süre beklerseniz (aralığın üç katı) "Dinliyorum" der, bir soruda en çok üç kez. Siz soruyu
+  okurken araya girmez. Kapalıyken bu cümleler söylenmez.
 - **Kesintiden sonra akıllı devam:** (açık gelir) Soru Gemini'ye gittikten sonra bağlantı koptu ve onarıldıysa "Bağlantı yeniden onarıldı. Sorunuz yarım kaldıysa son soruyu tekrar okuyunuz" denir. Okurken kesilirse program soru numarasını ve en son okuduğunuz cümleyi söyler ("En son üçüncü soruda şu cümleyi okudunuz: … Buradan devam edebilirsiniz"); devam ettiğiniz metin öncekiyle birleştirilir. Uygulama tümüyle kapanıp yeniden açılırsa yarım metin ve ortak paragraf korunamaz (soru baştan okunur). Kapalıyken eski davranış: "Lütfen en son kaldığın soruyu tekrar oku" ve yarım metin silinir.
 - **Tanı ve günlük:** ayarların en altında; cihaz özeti (şarj, ısı, boş yer) ve olay günlüğü. Bir sorun olursa **Günlüğü kopyala** ile
   yapıştırıp bana gönderin; nedeni Mac olmadan okunur. Kopya dosyadan alınır: uygulama kapanıp yeniden açıldıysa **kapanan çalışmanın son
@@ -149,7 +155,7 @@ Kamera ile çekim için Kestirmeler'de üç kestirme daha yapın; adları Ayarla
 
 Günlükte `“…” kestirmesi bulunamadı` görürseniz o ad telefonunuzdaki bir kestirmeyle birebir uyuşmuyor ya da kestirme yok: Ayarlar'daki adı Kestirmeler'deki gerçek adla aynı yapın. `Çalma Hedefi aygıt bulunamadığı için iş ayarlanamadı` ise Kestirmeler'in kestirmeyi kendisinin geri çevirdiği geçici bir durumdur (sınavda ses açıkken görüldü); program aynı kestirmeyi 2,5 sn arayla en çok 2 kez yeniden çalıştırır, günlükte `[kestirme] … geri çevrildi` satırı görünür.
 
-**Sınavdan önce bir kez Ayarlar > Kamera > “Kamerayı dene” düğmesine basın:** kamera ilk kez açılırken iOS “yerel ağ” izni sorar (“İzin ver”e basın); sınavda bu kutu çıkarsa kulaklıktan yönetilen akış kilitlenir. Deneme, sınavın adımlarını sırayla yürütür ve her adımın sonucunu yazar.
+**Sınavdan önce bir kez Ayarlar > “Kamerayı dene (sınavdan önce)” düğmesine basın:** kamera ilk kez açılırken iOS “yerel ağ” izni sorar (“İzin ver”e basın); sınavda bu kutu çıkarsa kulaklıktan yönetilen akış kilitlenir. Deneme, sınavın adımlarını sırayla yürütür ve her adımın sonucunu yazar.
 
 Bu sürümde Wi-Fi artık internet onarımı için kullanılmaz (internet yalnız hücreseldir): internet kopunca sırayla hücresel ve sistem sıfırlama çalışır. Kestirmelerin Wi-Fi ve hücreseli sorunsuz (onay sormadan) değiştirip değiştirmediği ve kameranın ağına kendiliğinden bağlanıp bağlanmadığı cihazda denenmedi: Ayarlar'daki **Dene** düğmesiyle üçünü de sınayın.
 

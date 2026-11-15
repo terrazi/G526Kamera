@@ -26,7 +26,7 @@ final class SettingsViewModel: ObservableObject {
     /// Şu an modelleri listelenen profil (0 = yok)
     @Published var listingModelsSlot = 0
     @Published var folderStatus = ""
-    /// "Test sürerken ekranı kıs" açıkken ekranın şu an kısılıp kısılmadığı ve nedeni (boşsa ayar kapalı)
+    /// "Ekranı kıs" açıkken ekranın şu an kısılıp kısılmadığı ve nedeni (boşsa ayar kapalı)
     @Published var dimStatus = ""
     @Published var folderMessage = ""
 

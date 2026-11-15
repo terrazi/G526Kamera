@@ -82,7 +82,6 @@ final class CameraFlowTests: XCTestCase {
         XCTAssertFalse(first.lastShotOff, "Varsayılan: son fotoğraf gösterilir")
         first.lastShotOff = true
         XCTAssertTrue(CameraSettings(defaults: defaults).lastShotOff, "Ayar kalıcıdır")
-        XCTAssertTrue(CameraSettings.allKeys.contains("lastShotOff"))
     }
 
     func testAnUnreadablePhotoLeavesTheLastShotUntouchedAndTheFlowGoesOn() async {
@@ -981,53 +980,49 @@ final class GuidanceFocusTests: XCTestCase {
         return m
     }
 
-    private func decide(_ m: PageMetrics, focus: Bool) -> GuidanceDecision {
-        var c = GuidanceConfig()
-        c.focusQuestion = focus
-        return GuidanceAdvisor.decide(m, choice: nil, config: c, sharpFloor: 0.45)
+    private func decide(_ m: PageMetrics) -> GuidanceDecision {
+        return GuidanceAdvisor.decide(m, sharpFloor: 0.45)
     }
 
     func testTextRunningOffTheTopAndBottomIsFineBecauseNeighbouringQuestionsContinue() {
         let m = metrics(x0: 0.2, x1: 0.8, y0: GuidanceAnalyzer.skipTop + 0.005, y1: 0.995)
-        XCTAssertNotEqual(decide(m, focus: false).advice, .ok, "V1 kipinde taşan yazı düzeltme ister")
-        XCTAssertEqual(decide(m, focus: true).advice, .ok, "Odak kipinde üst ve alttan taşma sorun sayılmaz")
+        XCTAssertEqual(decide(m).advice, .ok, "Üst ve alttan taşma sorun sayılmaz")
     }
 
     func testCutNeighbouringColumnNeverAsksWhichOneAndTheCentreOneIsUsed() {
         let m = metrics(x0: 0.1, x1: 0.999, columns: [col(0.1, 0.45), col(0.55, 0.999)])
-        XCTAssertEqual(decide(m, focus: false).advice, .chooseColumn, "V1 kipinde bölüm sorulur")
-        let d = decide(m, focus: true)
+        let d = decide(m)
         XCTAssertEqual(d.advice, .ok, "Ortaya yakın bölüm tam sığıyor: yandaki yarım sütun sorun değil, bölüm sorulmaz")
     }
 
     func testTheCentreColumnIsChosenEvenWhenItIsTheRightOne() {
         let m = metrics(x0: 0.001, x1: 0.9, columns: [col(0.001, 0.4), col(0.5, 0.9)])
-        XCTAssertEqual(decide(m, focus: true).advice, .ok, "Ortaya yakın olan sağ sütun tam sığıyor; soldaki kesik olsa da")
+        XCTAssertEqual(decide(m).advice, .ok, "Ortaya yakın olan sağ sütun tam sığıyor; soldaki kesik olsa da")
     }
 
     func testTheTargetColumnCutAtTheSideStillGetsMoveAdvice() {
         let m = metrics(x0: 0.005, x1: 0.9, columns: [col(0.005, 0.52), col(0.6, 0.9)])
-        XCTAssertEqual(decide(m, focus: true).advice, .moveLeft, "Hedef bölüm yandan taşıyorsa yön söylenir")
+        XCTAssertEqual(decide(m).advice, .moveLeft, "Hedef bölüm yandan taşıyorsa yön söylenir")
     }
 
     func testNoTextIsStillReportedInFocusMode() {
         var m = metrics(x0: 0.2, x1: 0.8)
         m.hasText = false
-        XCTAssertEqual(decide(m, focus: true).advice, .blurry)
+        XCTAssertEqual(decide(m).advice, .blurry)
         m.hasPage = false
-        XCTAssertEqual(decide(m, focus: true).advice, .noText)
+        XCTAssertEqual(decide(m).advice, .noText)
     }
 
     func testBlurAndGlareChecksRemainInFocusMode() {
         var m = metrics(x0: 0.2, x1: 0.8)
         m.sharp = 0.1
-        XCTAssertEqual(decide(m, focus: true).advice, .blurry)
+        XCTAssertEqual(decide(m).advice, .blurry)
     }
 
     func testVerticalRecentringIsNotAskedInFocusMode() {
         // Küçük yazı bloğu üstte: V1 "yaklaşın" derken önce aşağı kaydırma isteyebilir; odak kipinde yalnız yaklaşma / yatay yön söylenir
         let m = metrics(x0: 0.4, x1: 0.6, y0: 0.1, y1: 0.3)
-        let advice = decide(m, focus: true).advice
+        let advice = decide(m).advice
         XCTAssertFalse(advice == .moveUp || advice == .moveDown)
     }
 }

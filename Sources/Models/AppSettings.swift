@@ -31,6 +31,8 @@ final class AppSettings: ObservableObject {
         static let askCamera = "v3.askCamera"
         static let askCaptureKind = "v4.askCaptureKind"
         static let cameraCheckMinutes = "v4.cameraCheckMinutes"
+        static let gapNarration = "v4.gapNarration"
+        static let gapNarrationSeconds = "v4.gapNarrationSeconds"
         static let sectionsOn = "v4.sectionsOn"
         static let sectionQuestions = "v4.sectionQuestions"
     }
@@ -88,6 +90,9 @@ final class AppSettings: ObservableObject {
     static let defaultReplayGap: Double = 3
     static let defaultCameraCheckMinutes = 5
     static let cameraCheckMinutesRange = 1...60
+    /// Boşluk bilgisi: program sessiz bir işle meşgulken kaç saniyede bir kısa bilgi verir (5...30; varsayılan 10)
+    static let gapNarrationRange = 5...30
+    static let defaultGapNarrationSeconds = 10
     static let defaultStartMinutes = 9 * 60
 
     private let defaults: UserDefaults
@@ -143,6 +148,21 @@ final class AppSettings: ObservableObject {
             let fixed = AppSettings.clampCameraCheckMinutes(cameraCheckMinutes)
             if fixed != cameraCheckMinutes { cameraCheckMinutes = fixed; return }
             defaults.set(cameraCheckMinutes, forKey: Key.cameraCheckMinutes)
+        }
+    }
+
+    /// Boşluk bilgisi: program sessiz bir işle meşgulken (sistem kontrolü, kameraya / internete geçiş, onarım) ve dinlerken uzun süre ses
+    /// çıkmadığında kısa bir cümleyle durumu söyler; kullanıcı "hat mı düştü" diye tedirgin olmaz.
+    @Published var gapNarration: Bool {
+        didSet { defaults.set(gapNarration, forKey: Key.gapNarration) }
+    }
+
+    /// Meşgulken kaç saniyede bir bilgi verilir (5...30). Dinlerken "Dinliyorum" bunun üç katı aralıkla söylenir.
+    @Published var gapNarrationSeconds: Int {
+        didSet {
+            let fixed = AppSettings.clampGapNarrationSeconds(gapNarrationSeconds)
+            if fixed != gapNarrationSeconds { gapNarrationSeconds = fixed; return }
+            defaults.set(gapNarrationSeconds, forKey: Key.gapNarrationSeconds)
         }
     }
 
@@ -267,6 +287,8 @@ final class AppSettings: ObservableObject {
         askNextQuestion = defaults.object(forKey: Key.askNextQuestion) as? Bool ?? true
         readAnswersAtEnd = defaults.object(forKey: Key.readAnswersAtEnd) as? Bool ?? true
         spokenProgress = defaults.object(forKey: Key.spokenProgress) as? Bool ?? true
+        gapNarration = defaults.object(forKey: Key.gapNarration) as? Bool ?? true
+        gapNarrationSeconds = AppSettings.clampGapNarrationSeconds(defaults.object(forKey: Key.gapNarrationSeconds) as? Int ?? AppSettings.defaultGapNarrationSeconds)
         smartResume = defaults.object(forKey: Key.smartResume) as? Bool ?? true
         dimScreen = defaults.object(forKey: Key.dimScreen) as? Bool ?? false
         spokenWarnings = defaults.object(forKey: Key.spokenWarnings) as? Bool ?? true
@@ -320,13 +342,12 @@ final class AppSettings: ObservableObject {
         return min(max(minutes, cameraCheckMinutesRange.lowerBound), cameraCheckMinutesRange.upperBound)
     }
 
-    static func clampGap(_ seconds: Double) -> Double {
-        return min(max(seconds, replayGapRange.lowerBound), replayGapRange.upperBound)
+    static func clampGapNarrationSeconds(_ seconds: Int) -> Int {
+        return min(max(seconds, gapNarrationRange.lowerBound), gapNarrationRange.upperBound)
     }
 
-    static func timeText(minutes: Int) -> String {
-        let m = clampMinutes(minutes)
-        return String(format: "%02d:%02d", m / 60, m % 60)
+    static func clampGap(_ seconds: Double) -> Double {
+        return min(max(seconds, replayGapRange.lowerBound), replayGapRange.upperBound)
     }
 
     /// DatePicker için: başlama saati bugünün bir saati olarak
@@ -366,10 +387,5 @@ final class AppSettings: ObservableObject {
         case .bluetooth: return bluetoothShortcut.trimmed
         case .reset: return resetShortcut.trimmed
         }
-    }
-
-    /// Adı yazılmamış kestirmeler
-    var missingShortcuts: [RecoveryStep] {
-        return RecoveryStep.allCases.filter { shortcutName(for: $0).isEmpty }
     }
 }

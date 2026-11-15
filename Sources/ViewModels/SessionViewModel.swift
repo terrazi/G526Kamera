@@ -40,7 +40,7 @@ final class SessionViewModel: ObservableObject {
         /// Paragraf numaraları söylendikten sonra bu süre "Tamam" duyulmazsa program kendisi sorar
         static let targetsIdle: TimeInterval = 4
         /// Cevap beklerken "cevap bekleniyor" anonsu bu aralıkla (sn) söylenir; bu süre dolarsa (sn) bekleme bırakılır
-        static let answerCueEvery: TimeInterval = 30
+        static let answerCueEvery: TimeInterval = 15
         static let answerCap: TimeInterval = 180
         /// Sessizlikte dinlemeyi yenileyip sağlığa bakmadan önce beklenen süre
         static let silenceProbe: TimeInterval = 4
@@ -188,7 +188,7 @@ final class SessionViewModel: ObservableObject {
     @Published var questions: [QuestionEntry] = []
     /// "Sesi dene" sonucu ve çalışıyor mu
     @Published var soundTest = ""
-    /// Kameranın son çektiği sayfanın küçük resmi ve bilgisi (ana ekranda "Son fotoğraf"; V1'deki gibi); fotoğraf okunamazsa değişmez
+    /// Kameranın son çektiği sayfanın küçük resmi ve bilgisi (ana ekranda "Son fotoğraf"); fotoğraf okunamazsa değişmez
     @Published var lastShot: UIImage?
     @Published var lastShotInfo = ""
     @Published var testingSound = false
@@ -376,9 +376,14 @@ final class SessionViewModel: ObservableObject {
     var interruptedFrom: SessionPhase?
     /// Cevap beklenirken "cevap bekleniyor" anonsu ve 3 dakikalık bekleme sınırı için zamanlayıcı
     var answerWait: ScheduledTask?
+    /// Boşluk bilgisi zamanlayıcısı, programın son konuşmasından beri geçen sessiz adım sayısı ve dinlerken art arda söylenen "Dinliyorum" sayısı
+    /// (bkz. `SessionViewModel+Narration`)
+    var gapTask: ScheduledTask?
+    var quietTicks = 0
+    var idleCuesInRow = 0
 
     // MARK: Sürüm 4: kamera
-    /// Kamera ayarları (V1'deki kamera bölümleri)
+    /// Kamera ayarları
     let cameraSettings: CameraSettings
     /// Bir sonraki soru dinlemesinde önce "kamera ile çekmek ister misiniz?" sorulacak
     var offerCamera = false
@@ -478,6 +483,7 @@ final class SessionViewModel: ObservableObject {
         deps.screen.keepAwake(true)
         deps.network.start()
         startSentinel()
+        startGapNarration()
         work = Task { [weak self] in await self?.runStartup() }
     }
 
@@ -586,6 +592,9 @@ final class SessionViewModel: ObservableObject {
         numberEdit = nil
         cameraProbeTask?.cancel()
         cameraProbeTask = nil
+        gapTask?.cancel()
+        gapTask = nil
+        idleCuesInRow = 0
         cameraDownSince = nil
         questions = []
         currentEntry = nil
@@ -788,6 +797,7 @@ final class SessionViewModel: ObservableObject {
         }
         clearWarning("mikrofon")
         phase = .listening
+        quietTicks = 0   // sessizlik buradan sayılır (bkz. `SessionViewModel+Narration`)
         speechSealed = true   // kullanıcı söz sırasında: bundan sonra söylenen ilk anons yeni bir "son söz" grubu başlatır
         statusNote = ""
         micCooldown = Timing.micWarmupTicks
@@ -2009,6 +2019,7 @@ final class SessionViewModel: ObservableObject {
         phase = .speaking
         await settleAnnouncements()   // önce bekleyen uyarılar, sonra bu anons
         guard !Task.isCancelled, phase == .speaking else { return false }
+        defer { quietTicks = 0 }
         do {
             try await deps.speaker.speak(text, saveAs: saveAs)
         } catch SpeakError.routeUnsafe {

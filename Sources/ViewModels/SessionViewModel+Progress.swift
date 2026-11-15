@@ -17,6 +17,7 @@ extension SessionViewModel {
         answerWait?.cancel()
         answerWait = nil
         answerWaitElapsed = 0
+        idleCuesInRow = 0   // yeni bir soru gitti: sonraki dinlemede "Dinliyorum" yeniden söylenebilir
         guard settings.spokenProgress else { return }
         scheduleAnswerTick()
     }
@@ -76,6 +77,7 @@ extension SessionViewModel {
         voiceTask = Task { [weak self] in
             guard let self = self else { return }
             _ = try? await self.deps.speaker.speak(text, saveAs: nil)
+            self.quietTicks = 0
             self.voiceTask = nil
             self.drainAnnouncementsIfQuiet()
         }

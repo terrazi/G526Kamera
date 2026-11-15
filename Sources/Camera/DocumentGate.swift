@@ -40,10 +40,6 @@ enum DocumentGate {
         return .document
     }
 
-    static func isDocument(_ m: PageMetrics) -> Bool {
-        return verdict(m) == .document
-    }
-
     /// Günlük için kısa dökümü
     static func describe(_ m: PageMetrics, _ v: DocumentVerdict) -> String {
         return "\(v.reason) — \(m.summary), yazı hücresi \(m.cells), harf parçası \(m.glyphs), harf payı \(String(format: "%.2f", m.glyphShare))"

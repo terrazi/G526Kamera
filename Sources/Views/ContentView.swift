@@ -81,7 +81,7 @@ struct ContentView: View {
         .cornerRadius(12)
     }
 
-    /// Sürüm 4: kamera kutusu V1'deki gibi ana ekranda hep durur (görüntü yokken siyahtır). Üstünde kamera durumu, altında bildirim bandı;
+    /// Kamera kutusu ana ekranda hep durur (görüntü yokken siyahtır). Üstünde kamera durumu, altında bildirim bandı;
     /// önizleme ve ekran kısma buradan açılıp kapatılır; "Şimdi çek" yalnız çekim sürerken çalışır.
     private var cameraCard: some View {
         // Kutu, kartın içindeki genişliğe oranla (yatay 16:9, dikey 9:16) oturur; sabit ekran genişliğinden hesaplanırsa kart + kenar boşluğu taşırdı
@@ -105,7 +105,7 @@ struct ContentView: View {
                 cameraStatusLine
             }
             Toggle("Canlı önizleme", isOn: previewOn).font(.subheadline)
-            Toggle("Test sürerken ekranı kıs", isOn: $settings.dimScreen).font(.subheadline)
+            Toggle("Ekranı kıs", isOn: $settings.dimScreen).font(.subheadline)
             Button("Şimdi çek") { cameraController.captureNow() }
                 .buttonStyle(.bordered)
                 .disabled(!cameraController.active)
@@ -145,7 +145,7 @@ struct ContentView: View {
         }
     }
 
-    /// V1'deki "Son fotoğraf": kameranın en son çektiği sayfa (küçük resim) ve bilgisi
+    /// "Son fotoğraf": kameranın en son çektiği sayfa (küçük resim) ve bilgisi
     @ViewBuilder
     private var lastShotCard: some View {
         if !camera.lastShotOff, let image = session.lastShot {

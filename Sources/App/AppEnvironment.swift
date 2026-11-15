@@ -6,7 +6,7 @@ import UserNotifications
 @MainActor
 final class AppEnvironment: ObservableObject {
     let settings: AppSettings
-    /// Kamera ayarları (V1'deki kamera bölümleri)
+    /// Kamera ayarları
     let camera: CameraSettings
     /// Sürüm 4: soruyu kamera ile çeken bileşen (çekim sürerken ana ekranda canlı görüntü gösterir)
     let cameraController: CameraCaptureController
@@ -81,13 +81,13 @@ final class AppEnvironment: ObservableObject {
         wireDimming()
     }
 
-    /// Ekran yalnız şu durumda kısılır: ayar açık, test sürüyor, uygulama önde ve kırmızı uyarı yok (uyarı görünsün)
+    /// Ekran yalnız şu durumda kısılır: ayar açık, uygulama önde ve kırmızı uyarı yok (uyarı görünsün). Test sürmesi şart değildir.
     private var isActive = true
 
     private func wireDimming() {
-        Publishers.CombineLatest3(session.$phase, session.$warnings, settings.$dimScreen)
+        Publishers.CombineLatest(session.$warnings, settings.$dimScreen)
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] _, _, _ in self?.syncDimming() }
+            .sink { [weak self] _, _ in self?.syncDimming() }
             .store(in: &cancellables)
     }
 
@@ -95,8 +95,7 @@ final class AppEnvironment: ObservableObject {
     private var lastDimDecision: DimDecision?
 
     func syncDimming() {
-        let decision = DimDecision.decide(enabled: settings.dimScreen, running: session.phase.isRunning, active: isActive,
-                                          warnings: session.warnings.map { $0.text })
+        let decision = DimDecision.decide(enabled: settings.dimScreen, active: isActive, warnings: session.warnings.map { $0.text })
         if decision != lastDimDecision {
             lastDimDecision = decision
             if decision != .settingOff { tlog("[ekran] \(decision.statusText)") }

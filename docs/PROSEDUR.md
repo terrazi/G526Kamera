@@ -21,7 +21,7 @@ Bu belge, programın sesle nasıl işlemesi gerektiğini adım adım yazar; her 
    (Wi-Fi kapanır) → internet gelince fotoğraf + video Gemini'ye gider → cevap 2. adımdaki gibi okunur ve kaydedilir → sıradaki soru için yine sorulur.
    Çekim olmazsa nedeni söylenir ve soru sesle okunur; internet gelmezse V3'ün internet onarımı çalışır ve çekim telefonda bekler (gelince bir kez
    yeniden gönderilir; test bitince atılır ve cevapsız kalan soru sayısı yazılır). Arama / kulaklık kesintisi kamerayı kapatır, onarımdan sonra kamera
-   sorusu yeniden sorulur. İlk kullanımdan önce Ayarlar > Kamera > "Kamerayı dene" ile iOS yerel ağ izni alınır.
+   sorusu yeniden sorulur. İlk kullanımdan önce Ayarlar > "Kamerayı dene (sınavdan önce)" ile iOS yerel ağ izni alınır.
    Kamera sorusu açıkken V3 komutları da çalışır ("Testi bitir" onay ister ve kamera başlamaz; vazgeçilirse soru yeniden sorulur; "Son cevabı tekrarla" okur
    ve yeniden sorar). Kamera sorusunda "bitir" ya da "devam" evet sayılmaz (yalnız evet / tamam / çek gibi sözler). "Devam" ya da "Yeni sınav" seçiminden
    ve kesinti sonrası sürdürmeden sonra da ilk soru için kamera sorulur. Çekilen soruya Gemini 3 dk yanıt vermezse çekim bir kez daha gönderilir; yine
@@ -36,7 +36,7 @@ Bu belge, programın sesle nasıl işlemesi gerektiğini adım adım yazar; her 
    ve "Bu paragraf hangi sorular için? Numaraları söyleyip Tamam deyin" diye sorulur → "5, 6, 7" + Tamam → "Ortak paragraf 5, 6 ve 7 için kaydedildi" →
    bu soru için kamera yeniden sorulur. Paragraf tek başına Gemini'ye gitmez; paragrafın fotoğrafı ve videosu o numaralı her soruyla (sesle okunan ya da
    kamerayla çekilen) birlikte gider, hepsi cevaplanınca bırakılır. Paragraf ve soru görüntüleri birlikte 14 MB'ı aşarsa paragrafın videosu atılır
-   (fotoğrafı gider). Video süresi Ayarlar > Kamera > "Soru videosu" ayarındandır. Uygulama kapanıp açılırsa paragrafın yalnız fotoğrafı korunur.
+   (fotoğrafı gider). Video süresi Ayarlar > Video kaydı > "Soru videosu" ayarındandır. Uygulama kapanıp açılırsa paragrafın yalnız fotoğrafı korunur.
 3. **Ortak paragraf.** "Ortak paragraf" (duraklayın) → "Lütfen ortak paragrafı okuyun, bitince Tamam deyin" → paragraf + "Tamam" → "Paragraf metnini
    aldım, hangi sorular için? Numaraları söyleyip Tamam deyin" → "5, 6, 7" → "Ortak paragraf 5, 6 ve 7 için kaydedildi. Şimdi soruları okuyabilirsiniz" →
    her soru (numarası listede ise) paragrafla birlikte gider; hepsi cevaplanınca paragraf bırakılır.

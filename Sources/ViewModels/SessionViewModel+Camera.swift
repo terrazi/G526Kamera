@@ -675,6 +675,7 @@ extension SessionViewModel {
         Task { [weak self] in
             guard let self = self else { return }
             _ = try? await self.deps.speaker.speak(text, saveAs: nil)
+            self.quietTicks = 0
             self.cameraGuidanceSpeaking = false
         }
     }
