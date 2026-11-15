@@ -91,6 +91,13 @@ final class SessionViewModel: ObservableObject {
         static let memoryOKMB = 400
         /// Boş yer bu kadar MB'ın altına inince uyarılır (ses kayıtları yazılamayabilir)
         static let lowDiskMB = 200
+        /// Çıkış ses seviyesi bunun altındaysa (yüzde 10; iPhone'da en alttan ikinci adım) cevaplar duyulmayabilir: uyarılır
+        static let lowVolume: Float = 0.10
+        /// Sesle ses ayarı: bir "aç / kıs" adımı (iPhone'da iki ses adımı), izin verilen en düşük düzey (yüzde 15: duyulur kalsın) ve ayardan sonra
+        /// seviyenin yeniden okunmasından önce beklenen süre
+        static let volumeStep: Float = 0.125
+        static let minVolume: Float = 0.15
+        static let volumeSettle: TimeInterval = 0.5
         /// Kaynak durumu her bu kadar nabızda bir (60 sn) günlüğe yazılıp denetlenir
         static let systemEveryTicks = 120
         /// Nabız bu kadar saniyeden geç gelirse günlüğe yazılır (ana iş parçacığı takıldı ya da uygulama askıya alındı)
@@ -805,6 +812,12 @@ final class SessionViewModel: ObservableObject {
             confirmTask = deps.scheduler.after(Timing.numberConfirm) { [weak self] in self?.fireVoiceCommand() }
             return
         }
+        // "Beşinci sorunun cevabını tekrarla": soru numarası ya da paragraf numaraları beklenirken de söylenebilir (kısa numara cevabı sanılmasın);
+        // cevap okunur ve aynı soru yeniden sorulur
+        if [ListenMode.missingNumber, .passageTargets].contains(listenMode), spokenCommand()?.isRepeatNumber == true {
+            confirmTask = deps.scheduler.after(Timing.numberConfirm) { [weak self] in self?.fireVoiceCommand() }
+            return
+        }
         // "Anlamadım", "duyamadım", "bir daha söyle": her kipte söylenebilir; program son sözünü yeniden söyler ve aynı kipte dinler
         if repeatSpeechRequested() {
             confirmTask = deps.scheduler.after(Timing.numberConfirm) { [weak self] in self?.fireRepeatSpeech() }
@@ -935,9 +948,9 @@ final class SessionViewModel: ObservableObject {
         case .passage:
             guard command == .cancelPassage else { return }
         case .passageTargets:
-            guard command == .replayAnswers || command == .cancelPassage else { return }
+            guard command == .replayAnswers || command == .cancelPassage || command.isRepeatNumber else { return }
         case .missingNumber:
-            guard command == .replayAnswers || command == .cancelQuestion else { return }
+            guard command == .replayAnswers || command == .cancelQuestion || command.isRepeatNumber else { return }
         case .confirmEnd:
             guard command == .replayAnswers else { return }
         default:
@@ -998,9 +1011,16 @@ final class SessionViewModel: ObservableObject {
         case .repeatNumber(let number):
             tlog("[komut] sesli komut: \(number). sorunun cevabını tekrarla")
             let text = answers.first(where: { $0.number == number })?.spoken ?? Say.noAnswerFor(number)
+            // Numara ya da paragraf numaraları beklenirken söylendiyse (tutulan soru / paragraf taslağı korunur) cevap okunduktan sonra aynı soru yeniden sorulur
+            let waiting: ListenMode? = (from == .missingNumber || from == .passageTargets) ? from : nil
             work = Task { [weak self] in
                 guard let self = self, await self.speakNotice(text) else { return }
-                self.beginListening()
+                guard let target = waiting else {
+                    self.beginListening()
+                    return
+                }
+                guard await self.speakNotice(target == .missingNumber ? Say.reviewBackToNumber : Say.reviewBackToTargets) else { return }
+                self.beginListening(mode: target)
             }
         case .cancelQuestion:
             // Okunan soru (metin ve ses kaydı yukarıda temizlendi) vazgeçilir; kamera sorusundayken silinecek bir şey yoktur
@@ -1016,7 +1036,7 @@ final class SessionViewModel: ObservableObject {
                 guard let self = self, await self.speakNotice(notice) else { return }
                 self.beginListening(mode: .question)
             }
-        case .repeatSpeech, .help, .whatHeard, .deleteLast, .status, .missingAnswers:
+        case .repeatSpeech, .help, .whatHeard, .deleteLast, .status, .missingAnswers, .report, .volume, .camera:
             break   // yukarıda ele alındı
         case .cancelPassage:
             let notice = cancelPassage(from: from, phraseOnly: phraseOnly)
@@ -1509,7 +1529,12 @@ final class SessionViewModel: ObservableObject {
                 warn("yedek", reply.note)
                 if changed, !reply.spokenNote.isEmpty { announce(reply.spokenNote) }
             }
+            let replacing = answers.contains { $0.number == number }   // aynı numaralı eski cevap ezilecek mi (numara yanlış okunmuş olabilir)
             store(record)
+            if replacing {
+                tlog("[soru \(number)] bu numaranın önceki cevabı yenisiyle değiştirildi")
+                announce(Say.answerReplaced(number))
+            }
             completePassage(for: number)
             deps.journal.saveNextNumber(nextNumber)
             deps.journal.savePending(PendingWork(question: question, english: english, spokenNumber: spokenNumber, number: number, spoken: record.spoken))

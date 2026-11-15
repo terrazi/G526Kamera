@@ -195,6 +195,7 @@ final class FakeSpeaker: AnswerSpeaking {
 @MainActor
 final class FakeNetwork: NetworkWatching {
     var isOnline = true
+    var kind: NetworkKind = .wifi
     var onChange: (@MainActor (Bool) -> Void)?
     var onPathChange: (@MainActor () -> Void)?
     private(set) var startCalls = 0
@@ -446,6 +447,17 @@ final class FakeSystem: SystemHealthProviding {
     var onThermalChange: (() -> Void)?
     var onPowerModeChange: (() -> Void)?
     func snapshot() -> SystemSnapshot { return current }
+}
+
+/// Ses seviyesi ayarı: istekleri kaydeder; `apply` doluysa ses seviyesini onunla değiştirir (iOS'un izin vermediği durumu sınamak için boş bırakılır)
+@MainActor
+final class FakeVolume: VolumeControlling {
+    private(set) var requests: [Float] = []
+    var apply: ((Float) -> Void)?
+    func requestOutputVolume(_ level: Float) {
+        requests.append(level)
+        apply?(level)
+    }
 }
 
 /// Çalışmalar arası defter: testler `start` ile "önceki çalışma böyle bitti" der, yazılanları `saved*` alanlarından okur

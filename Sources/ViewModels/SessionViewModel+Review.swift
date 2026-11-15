@@ -198,8 +198,10 @@ extension SessionViewModel {
     /// Sesle testi tamamlar: kısa bilgi verilir, test biter (cevaplar klasörde kalır)
     func completeTestByVoice(prefix: String = "") async {
         let count = answers.count
-        tlog("[komut] test tamamlandı (\(count) cevap)")
-        await speakNotice(prefix + Say.testCompleted(count))
+        let missing = unansweredNumbers().missing
+        let missingNote = missing.isEmpty ? "" : "; cevapsız: " + QuestionComposer.listText(missing)
+        tlog("[komut] test tamamlandı (\(count) cevap\(missingNote))")
+        await speakNotice(prefix + Say.testCompleted(count, missing: missing))
         guard !Task.isCancelled else { return }
         endTest()
     }

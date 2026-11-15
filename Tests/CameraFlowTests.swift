@@ -938,6 +938,17 @@ final class CameraTesterTests: XCTestCase {
         XCTAssertFalse(r.tester.running)
     }
 
+    func testTheTestShotPhotoIsKeptForThePreviewAndClearedByTheNextRun() async {
+        let r = rig()
+        let shot = FakeCamera.shot()
+        let photo = shot.photo
+        r.camera.results = [.success(shot), .failure(.notConnected)]
+        await r.tester.run()
+        XCTAssertEqual(r.tester.lastPhoto, photo, "Başarılı denemenin fotoğrafı ekranda küçük resim için tutulur")
+        await r.tester.run()
+        XCTAssertNil(r.tester.lastPhoto, "Sonraki deneme başarısızsa eski resim kalmaz")
+    }
+
     func testACameraFailureIsReportedAndThePhoneStillReturnsToTheInternet() async {
         let r = rig()
         r.camera.results = [.failure(.notConnected)]

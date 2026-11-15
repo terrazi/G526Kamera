@@ -1,5 +1,6 @@
 import Foundation
 import UIKit
+import AVFoundation
 import os
 
 /// Telefonun kaynak durumunun anlık görüntüsü: bellek, ısı, güç modu, boş yer
@@ -12,13 +13,16 @@ struct SystemSnapshot: Equatable {
     var lowPowerMode: Bool
     /// Cihazda boş kalan yer (MB); okunamıyorsa nil
     var freeDiskMB: Int?
+    /// Çıkışın ses seviyesi (0...1); okunamıyorsa nil. Sıfıra yakınsa cevaplar duyulmaz.
+    var outputVolume: Float? = nil
 
     /// Günlük satırı: "bellek kullanımı 180 MB, kalan 1900 MB; ısı normal; güç modu normal; boş yer 5200 MB"
     var line: String {
         let used = footprintMB.map { "\($0) MB" } ?? "okunamadı"
         let left = availableMemoryMB.map { "\($0) MB" } ?? "okunamadı"
         let disk = freeDiskMB.map { "\($0) MB" } ?? "okunamadı"
-        return "bellek kullanımı \(used), kalan \(left); ısı \(DeviceInfo.thermalText(thermal)); güç modu \(lowPowerMode ? "düşük güç" : "normal"); boş yer \(disk)"
+        let volume = outputVolume.map { "; ses seviyesi yüzde \(Int(($0 * 100).rounded()))" } ?? ""
+        return "bellek kullanımı \(used), kalan \(left); ısı \(DeviceInfo.thermalText(thermal)); güç modu \(lowPowerMode ? "düşük güç" : "normal"); boş yer \(disk)\(volume)"
     }
 }
 
@@ -73,7 +77,8 @@ final class SystemHealthMonitor: SystemHealthProviding {
                               footprintMB: SystemHealthMonitor.footprintBytes().map { Int($0 / 1_048_576) },
                               thermal: info.thermalState,
                               lowPowerMode: info.isLowPowerModeEnabled,
-                              freeDiskMB: DeviceInfo.freeBytes().map { Int($0 / 1_048_576) })
+                              freeDiskMB: DeviceInfo.freeBytes().map { Int($0 / 1_048_576) },
+                              outputVolume: AVAudioSession.sharedInstance().outputVolume)
     }
 
     /// Uygulamanın fiziksel bellek ayak izi (iOS'un bellek baskısında esas aldığı değer)

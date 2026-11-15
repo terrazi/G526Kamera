@@ -77,6 +77,9 @@ Bu belge, programın sesle nasıl işlemesi gerektiğini adım adım yazar; her 
    | **Son cümleyi sil** ("son sözü sil", "az önce söylediğimi sil") | "Son cümle silindi: …" (silinenin ilk 8 sözcüğü) ve "Soruyu okumaya devam edebilirsiniz" (hiç metin kalmadıysa "baştan okuyabilirsiniz") | "Silinecek cümle yok." |
    | **Durum** ("durum nedir", "neredeyiz", "kaç soru cevaplandı", "kaçıncı soru") | "N soru cevaplandı. Sıradaki soru numarası M." + yalnız bilinenler: kulaklık, internet, pil | — (bilinmeyen bilgi söylenmez) |
    | **Cevapsız soruları söyle** ("eksik soruları söyle", "hangi soruları atladım", "cevabı olmayan sorular") | "Cevabı olmayan sorular: 2, 4 ve 5." (1'den en yüksek cevaplanan numaraya kadar; 12'den fazlaysa "ve devamı") | "Cevapsız soru yok…" / "Henüz cevaplanan soru yok." |
+   | **Rapor** ("internet raporu", "mikrofon raporu", "kulaklık raporu", "ses raporu", "kamera raporu", "şarj durumu", "ısınma durumu", "bellek durumu", "genel rapor") | Durumu tek cümleyle söyler (genel rapor hepsini sayar); internet raporu gerçekten yoklar | Bilinmeyen bilgi söylenmez ("şarj durumu okunamadı" gibi) |
+   | **Ses seviyesi** ("sesi aç", "sesi kıs", "sesi yüzde 60 yap") | "Ses açıldı. Ses seviyesi yüzde N." (iOS'tan okunarak doğrulanır) | "Ses seviyesi değiştirilemedi" / "okunamadığı için ayarlanamadı"; en az yüzde 15 |
+   | **Kamera ayarı** ("kamera sorusunu kapat", "görüntü kalitesini yüksek yap", "video süresi 8 saniye", "kadrajı dikey yap"…) | Yapılan ayarı söyler ("zaten" ise onu) | Kamera çalışırken "ayar değiştirilemez"; uyumsuz yön/kadraj nedeniyle reddedilir |
 
    "Son cümle" = son sessizlikten (1 sn) sonra söylenen kısım; soru okunurken araya girilirse komuttan önceki metin korunur. Soru metninin ortasında tek
    sözcüklük komut ("yardım", "durum") tanınmaz (soru metninin parçası olabilir): iki sözcüklü söyleyin ("yardım et", "durum nedir") ya da komutu tek
@@ -85,6 +88,11 @@ Bu belge, programın sesle nasıl işlemesi gerektiğini adım adım yazar; her 
    Her komut tek başına: Tekrarla → son cevap ("Tekrarlanacak cevap yok."), "5. sorunun cevabını tekrarla" → o cevap ("5 numaralı soru için kayıtlı cevap
    yok."), "Paragrafı iptal et" → "Ortak paragraf iptal edildi." / "Kayıtlı ortak paragraf silindi." / "Silinecek ortak paragraf yok.", anlaşılmayan komut →
    "Komutu anlayamadım. Lütfen komutu bir kez daha söyleyin."
+   **Rapor ve ayar komutlarının güvenlik kuralı:** yalnız TÜM söz komut sözcüklerinden oluşuyorsa tanınır; sınav soru başlıkları ("Ses nedir", "Bellek nedir") ve olumsuz biçimler
+   ("sesi kısma") komut değildir. Soru metninin ortasında tek sözcük ("ses", "şarj") hiçbir zaman komut olmaz. Kamera ayarı çekim sürerken değiştirilmez.
+   **Numara beklerken cevap tekrarı:** "N. sorunun cevabını tekrarla" eksik numara ya da paragraf numaraları beklenirken de çalışır; cevap okunur, sonra aynı soru yeniden sorulur, tutulan soru ve paragraf taslağı bozulmaz.
+   **Aynı numaralı cevap:** bir numara yeniden cevaplanırsa eski cevabın yenisiyle değiştirildiği söylenir. **Test sonu:** "Test tamamlandı. N cevap kaydedildi." cümlesi cevabı olmayan numaraları da sayar.
+   **Ses seviyesi uyarısı:** açılışta ve dakikada bir çıkış sesi yüzde 10'un altındaysa söylenir (oturum engellenmez); yükselince uyarı kalkar.
 5. **Cevapları okuma ve menü.** Cevaplar numara sırasıyla, aralarında Tekrar boşluğu (varsayılan 3 sn) okunur. Bitince: "N sorunun cevabı okundu. Ne yapmak
    istersiniz? Teste kaldığınız yerden devam etmek için **Devam**, cevapları yeniden dinlemek için **Tekrar**, testi tamamlamak için **Bitir** deyin."
    Devam → kalınan yere dönülür (soru / eksik numara / paragraf numaraları); Tekrar → yeniden okunur ve yine sorulur; Bitir → "Test tamamlandı. N cevap
@@ -131,6 +139,12 @@ Kabul edilen numara söyleyişleri: "yedi", "7", "yedinci", "7. soru", "soru yed
 bitişik "567" (üç haneli ve 150'nin üstündeyse tek tek rakam sayılır).
 
 ## Bilinen eksikler
+
+- Cevaplar okunurken sesle araya girilemez (okuma sürerken dinleme açık değildir). Durdurmak için ekrandaki Duraklat düğmesi kullanılır; cihazda denenmedi.
+- Numara / paragraf numarası beklerken "testi bitir" denmez (kısa numara cevabıyla karışır); önce "soruyu iptal et" ya da numarayı söyleyin.
+- Ses seviyesini sesle değiştirme iOS'un izin vermediği bir işlemi gizli ses çubuğuyla dener; **cihazda doğrulanmadı**. Değişmezse program bunu söyler.
+- Kamera pili yalnız kamera açıkken bilinir; sınav sırasındaki pil raporu telefonun pilidir. "Genel rapor" kamera ayarlarını saymaz ("kamera raporu" ayrı).
+- Kamera sorusu kapatılırken bekleyen bir çekim varsa o çekim yine gönderilir.
 
 - Paragraf okunurken yalnız "paragrafı iptal et" çalışır; diğer komutlar (testi bitir, cevapları tekrarla…) paragrafa karışır, çünkü paragraf serbest metindir.
 - "Soruyu iptal et" yalnız soru dinlenirken (okunan metni siler) anlamlıdır; kamerayla çekilmiş soru Gemini'ye gittikten sonra geri alınamaz.

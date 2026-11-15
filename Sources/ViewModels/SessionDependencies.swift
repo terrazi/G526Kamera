@@ -26,6 +26,8 @@ struct SessionDependencies {
     var battery: BatteryProviding = NoBattery()
     /// Telefonun kaynak durumu (bellek, ısı, güç modu, boş yer) ve sistemin uyarıları
     var system: SystemHealthProviding = NoSystemHealth()
+    /// Telefonun ses seviyesini ayarlayan bileşen ("sesi aç" komutu); yoksa ses sesle değiştirilemez
+    var volume: VolumeControlling = NoVolumeControl()
     /// Çalışmalar arası kalıcı defter (beklenmedik kapanmayı anlamak ve yarım kalan işi tamamlamak için)
     var journal: RunJournaling = NoJournal()
     /// Programı gerçekten kapatır ("Programı kapat" düğmesi); testlerde sahtesi verilir

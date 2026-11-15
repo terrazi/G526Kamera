@@ -204,11 +204,17 @@ enum VoiceCommand: Equatable {
     case status
     /// "Cevapsız soruları söyle": cevabı olmayan (atlanan) soru numaraları
     case missingAnswers
+    /// "İnternet raporu", "şarj kaç", "ısındı mı", "ram durumu", "genel rapor": telefonun ve donanımın durumu sesle söylenir
+    case report(ReportKind)
+    /// "Sesi aç", "sesi kıs", "sesi yüzde elli yap": telefonun ses seviyesi değişir
+    case volume(VolumeAction)
+    /// "Görüntü kalitesini yüksek yap", "kamera sorusunu kapat", "kadrajı dikey yap": kamera ayarı değişir
+    case camera(CameraAction)
 
     /// Bilgi ve düzeltme komutları: her kipte söylenebilir, soru metnini korur ve yaptığını ya da yapamadığını kısaca söyler
     var isInfo: Bool {
         switch self {
-        case .help, .whatHeard, .deleteLast, .status, .missingAnswers: return true
+        case .help, .whatHeard, .deleteLast, .status, .missingAnswers, .report, .volume, .camera: return true
         default: return false
         }
     }
@@ -453,6 +459,7 @@ enum VoiceCommand: Equatable {
         if let numbered = parseNumbered(text) { return numbered }
         if isRepeatSpeech(all) { return .repeatSpeech }
         if let info = parseInfo(all) { return info }
+        if let setting = parseSetting(all) { return setting }
         guard !all.isEmpty, all.count <= 7 else { return nil }
         let words = all.filter { !SpokenWords.matches($0, fillers) }
         guard !words.isEmpty else { return nil }

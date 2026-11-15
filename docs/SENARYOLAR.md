@@ -174,4 +174,21 @@ yol bildirimi ve onarım sınırı aynı anda üst üste gelince tetikleniyordu.
 2. **Zaman aşımında ses kaydı:** ilk profil zaman aşımına uğrarsa sıradaki profile yalnız metinle (kayıtsız) gitmek; doğruluğu biraz düşürür, ama yavaş hatta cevabı kurtarır. Karar sizin.
 3. **Kestirmeler "Kapatıldı" otomasyonu:** gerçek telefonda denenmeli (kaydırıp kapatınca açılıyor mu, kilitliyken ne oluyor; Testi Bitir sonrası kaydırıp kapatınca da açılıyor mu; Kestirmeler'e bilerek geçerken pano işareti sayesinde geri çekmiyor mu).
 4. **Cihaz günlüğü:** ilk beklenmedik kapanmadan sonra "Tanı ve günlük"ten günlük istenmeli; neden tahmini günlüğün ipucuna dayanır, kesin değildir.
-5. **Ses seviyesi:** açılışta çıkış sesi çok düşükse (<%10) kullanıcıya söylemek.
+5. ~~Ses seviyesi~~ **Yapıldı (Tur 6):** açılışta ve dakikada bir çıkış sesi <%10 ise söylenir (`Say.lowVolume`); sesle "sesi aç" ile artırılabilir (cihazda doğrulanmadı).
+
+## 8. Tur 6: sesli rapor ve ayar komutları, sınav boşlukları
+
+| Senaryo | Program ne yapar | Test |
+|---|---|---|
+| Sınavda ses çok kısık (<%10) | Söyler (kulaklıktan duyulacak kadar sesle); oturum engellenmez; ses yükselince uyarı kalkar | `testLowVolumeAtStartWarnsButDoesNotBlockTheSession`, `testLowVolumeWarningClearsWhenTheVolumeRises` |
+| Sesi okuyamıyor (simülatör, izin yok) | Yanlış alarm vermez; "okunamadı" der | `testUnknownVolumeGivesNoWarning`, `testVolumeUnreadableIsSaidSo` |
+| "Sesi aç" ama iOS değiştirmedi | Ses yeniden okunur; aynıysa "değiştirilemedi, ses tuşlarını kullanın" | `testVolumeNotChangedByIOSIsSaidSo` |
+| Soru okunurken "internet raporu" (tek başına) | Rapor söylenir, okunan soru metni ve kip bozulmaz, Gemini'ye gitmez | `testReportInTheMiddleOfAQuestionKeepsTheQuestionText` |
+| Soru başlığı "Bellek nedir / Ses nedir" | Komut sayılmaz, soru olarak gider | `testQuestionTitlesAndNegatedOrVagueWordsAreNotReportsOrSettings` |
+| "Sesi kısma" / "kamera sorusunu kapatma" | Komut sayılmaz | aynı test |
+| Kamera sorusunda "kamera sorusunu kapat" | Kapatılır, evet/hayır beklenmez, soru sesle okunur | `testTurningTheCameraQuestionOffAtTheCameraQuestionLeavesIt` |
+| Kamera çekerken "kalite yüksek yap" | "Kamera çalışırken ayar değiştirilemez" | `testCameraSettingsAreRefusedWhileTheCameraWorks` |
+| Yatay kadrajda "yönü dik çevir" | Nedeniyle reddedilir | `testFrameAndOrientationFollowEachOther` |
+| Aynı numaralı soru ikinci kez cevaplanır | "Önceki cevap yenisiyle değiştirildi" | `testAnsweringTheSameNumberAgainSaysTheOldAnswerWasReplaced` |
+| Test biter, cevapsız numaralar var | "Test tamamlandı. N cevap kaydedildi. Cevabı olmayan sorular: …" | `testTestCompletionTellsWhichQuestionsHaveNoAnswer` |
+| Numara beklerken "5. sorunun cevabını tekrarla" | Cevap okunur, sonra numara yeniden sorulur; tutulan soru korunur | `testRepeatNumberWhileTheQuestionNumberIsAskedReadsItAndAsksTheNumberAgain` |

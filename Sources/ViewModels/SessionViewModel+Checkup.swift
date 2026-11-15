@@ -78,6 +78,7 @@ extension SessionViewModel {
             return
         }
         clearWarning("donanim")
+        applyVolume(deps.system.snapshot().outputVolume)   // ses oturumu açıldı: cevapları duyabilecek miyiz
 
         // 3) İnternet (yoksa Kestirmelerle onarılır)
         var internetOK = await deps.health.internetReachable()

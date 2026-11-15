@@ -12,6 +12,8 @@ final class CameraTester: ObservableObject {
     @Published private(set) var running = false
     /// Adım adım sonuç satırları
     @Published private(set) var lines: [String] = []
+    /// Deneme çekiminin fotoğrafı (ekranda küçük resim olarak gösterilir: kadraj ve netlik gözle görülsün). Hiçbir yere gönderilmez, dosyası silinir.
+    @Published private(set) var lastPhoto: Data?
 
     /// İnternetin gelmesi için en çok bu kadar yoklanır (2 sn arayla)
     static let internetPolls = 15
@@ -66,6 +68,7 @@ final class CameraTester: ObservableObject {
         running = true
         stopped = false
         lines = []
+        lastPhoto = nil
         defer { running = false }
 
         // 1) Kameraya geç
@@ -80,6 +83,7 @@ final class CameraTester: ObservableObject {
             case .success(let shot):
                 lines.append("✓ Kamera çalıştı: fotoğraf \(shot.photo.count / 1024) KB"
                              + (shot.video == nil ? "" : ", video \(shot.videoBytes / 1024) KB / \(Int(shot.videoSeconds.rounded())) sn") + ". (Hiçbir yere gönderilmedi.)")
+                lastPhoto = shot.photo
                 shot.discard()
             case .failure(let failure):
                 lines.append("✗ " + failure.message + CameraTester.hint(for: failure))

@@ -54,6 +54,26 @@ paragraf numarası çözümleme ve kesinti/kurtarma akışı (tur 1 ve 2 incelem
 | "Soruyu iptal et" okunmuş soru yokken de "Okunan soru silindi" diyordu | Komuttan önce okunmuş soru metni (ya da numarası beklenen soru) yoksa "Silinecek soru yok" der | `testCancelQuestionSaysDeletedOnlyWhenSomethingWasRead`, `testEveryCommandSaysWhatItDidOrThatItCouldNot` |
 | Olumsuz biçimler ("yardım etme", "son cümleyi silme") komut olmamalı | `silme`, `silmeyin`, `unutma`, `temizleme`… olumsuz sözlüğe eklendi | `testQuestionTextAndNegatedOrVagueWordsAreNotInfoCommands` |
 
+## Tur 6: sınav işlem zincirleri, ekran denetimi, sesli rapor ve ayar komutları (kullanıcı isteği)
+
+| İstek / bulgu | Düzeltme | Önlem |
+|---|---|---|
+| "Bazı işler için prosedür kurulmamış, işlem öngörülmemişti; zincirleri çıkar, eksikleri bul, ekle" | `docs/ISLEM_ZINCIRLERI.md`: sınavın 24 maddelik "olması gerekenler" listesi ve 7 zincir (adım, tetik, kodda işlem, kullanıcının duyduğu, hata dalı, test, durum). 4 boşluk bulundu: ses seviyesi hiç denetlenmiyordu; aynı numaralı cevap sessizce eziliyordu; test sonunda cevapsız numaralar söylenmiyordu; numara/paragraf numarası beklerken "N. sorunun cevabını tekrarla" desteklenmiyordu. Dördü de kodlandı | `Tests/ProcedureGapTests.swift`; `python3 -I docs/check_chains.py` belgedeki her kod/test adını depoda arar |
+| Ekranlar, menüler, tuşlar uyumlu mu; önceki sürümlerden aktarılmamış ya da eksik aktarılmış var mı | Ekran ekran denetim yapıldı (aşağıdaki tablo). V3'te eksik öğe yok; V1'den çıkarılanlar bilinçli (kamera ayarları V4'e taşındı, ölü V1 denetimleri açıklamayla kapalı). Küçük iyileştirme: "Kamerayı dene" son deneme fotoğrafını küçük resim gösterir | `testTheTestShotPhotoIsKeptForThePreviewAndClearedByTheNextRun` |
+| Ses seviyesi ve kamera ayarları sesle; internet, mikrofon, kulaklık, görüntü, ses raporları sesle | `SettingCommands.swift` (`parseReport`, `parseVolume`, `parseCameraSetting`), `SessionViewModel+Reports.swift` (rapor ve ayar yürütme), `VolumeControl.swift` (gizli ses çubuğu; sonuç `outputVolume` yeniden okunarak doğrulanır). Her komut yaptığını ya da yapamadığını söyler | `Tests/SettingCommandTests.swift` (27 test) |
+| Şarj, ısınma, bellek durumu sesli rapor | `reportBattery`, `reportThermal`, `reportMemory`; "genel rapor" hepsini sayar | `testEachReportSpeaksTheCurrentStateAndGoesNowhere`, `testGeneralReportCoversEveryPart` |
+| Komut sözlüğü sınav sorularıyla çakışabilir | Yalnız TÜM söz komut sözcüğündense tanınır; "nedir/neler" ve "bak*" rapor sözü değildir; kibar sözler yalnız tam eşleşmeyle süzülür ("kısın" ≠ "misin") | `testQuestionTitlesAndNegatedOrVagueWordsAreNotReportsOrSettings`; sözlük Python taklidiyle depodaki tüm test metinlerine karşı tarandı |
+
+**Ekran / menü denetimi (V1 → V3 → V4):**
+
+| Ekran / öğe | Bulgu |
+|---|---|
+| Ana ekran (başlat/bitir, durum, tekrar düğmesi) | V3 gibi; kamera durum satırı yalnız kamera açıkken |
+| Ayarlar: anahtar, profiller, kestirmeler, süreler, yardım | V3 ile aynı; yardım metni yeni rapor ve ayar komutlarıyla genişletildi |
+| Ayarlar > Kamera (UID, kestirme adı, kalite, video, süre, kadraj, yön, iyileştirme, önizleme, konumlandırma sesi) | V1'den taşındı ve oturum ayarlarına bağlandı; sesle de değiştirilebilir |
+| "Kamerayı dene" | V4'e özgü; küçük resim eklendi. Kamera pil satırı eklenmedi: `CameraCapturing` pili açığa vermiyor ve kamera kapandıktan sonra bilinmiyor |
+| V1 yalnız-ekran denetimleri (canlı görüntü, elle çekim) | Sınavda ekranı kullanılmadığı için bilinçli yok; ölü denetimler kapalı ve nedeni yazılı |
+
 ## Kurallar (bundan sonrası için)
 
 1. Evet/hayır sorularında "evet" bulanık eşleşmeyle kabul edilmez; yeni bir "evet" sözü eklenirse olumsuz ikizi de listeye yazılır (test yakalar).
@@ -63,3 +83,4 @@ paragraf numarası çözümleme ve kesinti/kurtarma akışı (tur 1 ve 2 incelem
 5. Programın söylediği her şey "bir daha söyle" ile tekrarlatılabilmeli; yeni bir anons türü eklenirse `speakNotice` kullanılır (otomatik hatırlanır). `speakNotice` kullanmayan okuma (örn. cevap) `rememberSpeech` çağırmalıdır.
 6. Cihazda doğrulanmamış hiçbir davranış "çalışıyor" diye yazılmaz (gerçek dikte çıktısı, kestirmelerin Wi-Fi/hücreseli gerçekten değiştirmesi).
 7. Her yeni komut yaptığını ya da yapamadığını kısaca söyler; geri bildirim tablosu testine (`testEveryCommandSaysWhatItDidOrThatItCouldNot`) eklenir.
+8. Sınav prosedüründe yeni bir adım/komut eklenirse `docs/ISLEM_ZINCIRLERI.md` zincirine satır yazılır ve `python3 -I docs/check_chains.py` çalıştırılır.

@@ -25,6 +25,23 @@ extension SessionViewModel {
         if let left = snapshot.availableMemoryMB, left < Timing.lowMemoryMB { handleLowMemory("açılışta kalan bellek \(left) MB") }
     }
 
+    /// Çıkış ses seviyesi: çok düşükse (sınavda cevaplar duyulmaz) ekrana yazılır ve söylenir; yükselince silinir. Okunamıyorsa (nil) hiçbir şey yapılmaz.
+    /// Ses oturumu açıldıktan sonra çağrılır (oturum açılmadan iOS seviyeyi yanlış okuyabilir).
+    func applyVolume(_ volume: Float?) {
+        guard let level = volume else {
+            checkup.removeAll { $0.id == "seviye" }
+            return
+        }
+        let percent = Int((level * 100).rounded())
+        let low = level < Timing.lowVolume
+        if phase == .checking { setCheck("seviye", "Ses seviyesi", ok: !low, detail: low ? "yüzde \(percent), çok düşük" : "yüzde \(percent)") }
+        if low {
+            warn("seviye", Say.lowVolume(percent))
+        } else {
+            clearWarning("seviye")
+        }
+    }
+
     // MARK: Sistemin bildirimleri
 
     func memoryWarningReceived() {
@@ -103,6 +120,7 @@ extension SessionViewModel {
             tlog("[sistem] bellek rahatladı; yardımcı tanıyıcı geri açıldı")
         }
         applyDisk(snapshot.freeDiskMB)
+        applyVolume(snapshot.outputVolume)
         if snapshot.lowPowerMode { warn("guc", Say.lowPowerMode) } else { clearWarning("guc") }
     }
 

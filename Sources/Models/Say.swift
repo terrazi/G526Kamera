@@ -65,8 +65,16 @@ enum Say {
     static let reviewBackToNumber = "Teste devam ediyoruz. Lütfen okuduğunuz sorunun numarasını söyleyin."
     static let reviewBackToTargets = "Teste devam ediyoruz. Ortak paragraf hangi sorulara ait? Soru numaralarını söyleyip Tamam deyin."
     /// Test sesle tamamlandı
-    static func testCompleted(_ answers: Int) -> String {
-        return answers > 0 ? "Test tamamlandı. \(answers) cevap kaydedildi." : "Test tamamlandı."
+    /// `missing`: 1'den en yüksek cevaplanan numaraya kadar cevabı olmayan sorular; varsa kapanışta söylenir (atlanan soru sınavda fark edilmeden kalmasın)
+    static func testCompleted(_ answers: Int, missing: [Int] = []) -> String {
+        let base = answers > 0 ? "Test tamamlandı. \(answers) cevap kaydedildi." : "Test tamamlandı."
+        guard !missing.isEmpty else { return base }
+        let shown = Array(missing.prefix(12))
+        return base + " Cevabı olmayan sorular: \(QuestionComposer.listText(shown))" + (missing.count > shown.count ? " ve devamı." : ".")
+    }
+    /// Aynı numaralı soru yeniden cevaplandı: eski cevap ezildi (numara yanlış okunmuş olabilir; kullanıcı fark etsin)
+    static func answerReplaced(_ number: Int) -> String {
+        return "\(number) numaralı sorunun önceki cevabı yenisiyle değiştirildi."
     }
     /// Duyulan söz komuta benziyor ama anlaşılamadı: program anladığını sanıp susmaz, açıkça söyler ve tekrar ister
     static let commandNotUnderstood = "Komutu anlayamadım. Lütfen komutu bir kez daha söyleyin."
@@ -150,6 +158,10 @@ enum Say {
     static func lowDisk(_ megabytes: Int) -> String {
         return "Telefonda yalnız \(megabytes) megabayt boş yer kaldı. Ses kayıtları yazılamayabilir."
     }
+    /// Çıkış ses seviyesi çok düşük: cevaplar duyulmaz. iOS uygulamanın sesi kendiliğinden açmasına izin vermez; kullanıcı tuşla açar.
+    static func lowVolume(_ percent: Int) -> String {
+        return "Telefonun ses seviyesi yüzde \(percent), çok düşük. Cevapları duyamayabilirsiniz; telefonun ses artırma tuşuna basın."
+    }
     static let stuckRestarting = "Bir adım beklenenden uzun sürdü; sistem yeniden kuruluyor."
 
     static let soundTest = "Ses denemesi. Beni kulaklığınızdan duyuyorsanız ses yolu çalışıyor."
@@ -208,7 +220,7 @@ enum Say {
 
     // MARK: Bilgi ve düzeltme komutları ("yardım", "ne duydun", "son cümleyi sil", "durum", "cevapsız soruları söyle")
     /// Her komut yaptığını ya da yapamadığını kısaca söyler
-    static let helpCommands = "Komutlar: Cevapla ya da Gönder, soruyu gönderir. Testi bitir. Cevapları tekrarla. Son cevabı tekrarla. Soruyu iptal et. Paragrafı iptal et. Ortak paragraf. Son cümleyi sil. Ne duydun. Durum. Cevapsız soruları söyle. Duyamadığınız her şeyi bir daha söyle diyerek tekrarlatabilirsiniz."
+    static let helpCommands = "Komutlar: Cevapla ya da Gönder, soruyu gönderir. Testi bitir. Cevapları tekrarla. Son cevabı tekrarla. Soruyu iptal et. Paragrafı iptal et. Ortak paragraf. Son cümleyi sil. Ne duydun. Durum. Cevapsız soruları söyle. Raporlar için internet, mikrofon, kulaklık, ses, kamera, şarj, ısı ya da ram durumu deyin; hepsi için genel rapor deyin. Sesi aç ya da sesi kıs deyin. Kamera ayarları için kamera sorusunu kapat, görüntü kalitesini yüksek yap ya da kadrajı dikey yap deyin. Duyamadığınız her şeyi bir daha söyle diyerek tekrarlatabilirsiniz."
     /// "Ne duydun": soru metni yoksa
     static let nothingHeard = "Henüz bir şey duymadım."
     /// "Ne duydun" soru dinlenmediği bir anda söylendi (evet/hayır, numara, menü…)

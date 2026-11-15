@@ -60,6 +60,7 @@ final class AppEnvironment: ObservableObject {
                                        camera: cameraController,
                                        battery: SystemBattery(),
                                        system: SystemHealthMonitor(),
+                                       volume: SystemVolumeControl(),
                                        journal: journal)
         let session = SessionViewModel(settings: settings, deps: deps, camera: camera)
         self.settings = settings

@@ -21,6 +21,7 @@ final class SessionHarness {
     let screen = FakeScreen()
     let battery = FakeBattery()
     let system = FakeSystem()
+    let volume = FakeVolume()
     let journal = FakeJournal()
     let exits = ExitCounter()
     let scheduler = ManualScheduler()
@@ -75,9 +76,13 @@ final class SessionHarness {
                                        camera: camera,
                                        battery: battery,
                                        system: system,
+                                       volume: volume,
                                        journal: journal,
                                        terminate: { exitCounter.count += 1 })
         vm = SessionViewModel(settings: settings, deps: deps, camera: cameraSettings)
+        // Varsayılan: ses çubuğu isteği ses seviyesine yansır (gerçek telefondaki başarılı durum); sınanacak testler `volume.apply = nil` yapar
+        let fakeSystem = system
+        volume.apply = { level in fakeSystem.current.outputVolume = level }
         let announcedBy = vm
         speaker.isAnnouncement = { text in announcedBy.announced.contains(text) }
     }

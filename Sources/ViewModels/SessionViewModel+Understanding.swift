@@ -193,7 +193,8 @@ extension SessionViewModel {
         closeListening()
         attemptFails = 0
         clearWarning("duyulan")
-        let reply = infoReply(command, mode: mode, question: question)
+        let live = command.isLive
+        let reply = live ? "" : infoReply(command, mode: mode, question: question)
         let keep = keepText && !accumulator.isEmpty
         if !keep {
             accumulator.clear()
@@ -203,11 +204,26 @@ extension SessionViewModel {
             deps.recorder.reset()
         }
         phase = .speaking
-        tlog("[komut] sesli komut: \(command): \(reply)")
+        if !live { tlog("[komut] sesli komut: \(command): \(reply)") }
         work = Task { [weak self] in
             guard let self = self else { return }
-            guard await self.speakNotice(reply) else { return }
-            self.beginListening(mode: mode, keepPartial: keep)
+            var answer = LiveReply(text: reply)
+            if live {
+                answer = await self.liveReply(command, mode: mode)
+                tlog("[komut] sesli komut: \(command): \(answer.text)")
+            }
+            guard await self.speakNotice(answer.text) else { return }
+            if answer.leaveCameraChoice {
+                // "Kamera sorusunu kapat" kamera sorusu açıkken söylendi: evet/hayır beklenmez, soru V3'teki gibi sesle okunur
+                if mode == .passageCameraChoice {
+                    self.listenMode = .passage
+                    self.beginListening(mode: .passage)
+                } else {
+                    self.listenForVoiceQuestion()
+                }
+            } else {
+                self.beginListening(mode: mode, keepPartial: keep)
+            }
         }
     }
 
@@ -232,13 +248,19 @@ extension SessionViewModel {
             return Say.status(answers: answers.count, next: nextNumber, headphones: routeVerdict?.headphonesOK, internet: netPulse,
                               battery: deps.battery.percent, charging: deps.battery.charging)
         case .missingAnswers:
-            let done = Set(answers.map { $0.number })
-            let highest = done.max() ?? 0
-            let missing: [Int] = highest == 0 ? [] : (1...highest).filter { !done.contains($0) }
-            return Say.missingAnswers(missing, highest: highest)
+            let found = unansweredNumbers()
+            return Say.missingAnswers(found.missing, highest: found.highest)
         default:
             return Say.nothingToRepeat
         }
+    }
+
+    /// 1'den en yüksek cevaplanan numaraya kadar cevabı olmayan sorular ("cevapsız soruları söyle" ve test kapanışı)
+    func unansweredNumbers() -> (missing: [Int], highest: Int) {
+        let done = Set(answers.map { $0.number })
+        let highest = done.max() ?? 0
+        let missing: [Int] = highest == 0 ? [] : (1...highest).filter { !done.contains($0) }
+        return (missing, highest)
     }
 
     /// Soru metninin son sözü (son sessizlikten sonraki kısım) silinir. Silinecek bir şey yoksa bunu söyler.
