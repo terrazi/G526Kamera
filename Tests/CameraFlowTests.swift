@@ -750,8 +750,8 @@ final class CameraFlowTests: XCTestCase {
     /// Test bitince gönderilemeyen çekim SİLİNMEZ: telefondaki klasörde durur; ekranda kaç sorunun cevapsız kaldığı ve nerede durduğu yazılır
     func testEndingTheTestKeepsUnsentShotsOnThePhoneAndSaysSo() async {
         let h = harness(archive: true)
+        _ = await h.startListening()   // çekim, oturum başladıktan sonra klasöre yazılır (başlangıçta klasördekiler zaten gönderilmeye alınır)
         let stored = h.fileStore!.keep(FakeCamera.shot(), kind: .question)
-        _ = await h.startListening()
         h.vm.keepPending(stored)
         XCTAssertEqual(h.vm.pendingShots.count, 1)
         h.vm.endTest()
