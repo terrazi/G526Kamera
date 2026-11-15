@@ -1,8 +1,9 @@
 import SwiftUI
 import UIKit
 
-/// "Programı kapat" düğmesi: kilit penceresindeki "Kilidi aç" düğmesi gibi büyük ve yuvarlaktır. Yanlışlıkla dokunulmasın diye `seconds` saniye
-/// basılı tutmak gerekir (halka dolar), yarıda bırakılırsa sıfırlanır.
+/// Yuvarlak kapatma düğmesi: ana ekrandaki normal "Programı kapat" düğmesine dokununca çıkan örtüde durur ve kilit penceresindeki
+/// "Kilidi aç" düğmesi gibi büyük ve yuvarlaktır. Yanlışlıkla kapanmasın diye `seconds` saniye basılı tutmak gerekir (halka dolar),
+/// yarıda bırakılırsa sıfırlanır.
 /// Basılı tutma tamamlanınca `onClose` çağrılır: oturum biter, program "kullanıcı kapattı" diye işaretlenir ve çıkar. Bunun dışındaki
 /// her kapanış (iOS, çökme, elle kaydırarak kapatma) beklenmedik sayılır ve Kestirmeler otomasyonuyla yeniden açılıp kaldığı yerden sürer.
 struct HoldToCloseButton: View {
@@ -53,6 +54,6 @@ struct HoldToCloseButton: View {
         )
         .accessibilityLabel("Programı kapat")
         .accessibilityHint("\(Int(seconds)) saniye basılı tutun")
-        .accessibilityIdentifier("programiKapat")
+        .accessibilityIdentifier("programiKapatBasili")
     }
 }

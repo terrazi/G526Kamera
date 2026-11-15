@@ -182,7 +182,7 @@ uygulamayı geri açar. İşaret her açılışta silinir (düğmeyle kapattıkt
 yazdığı işaret silinir; arada başka bir şey kopyaladıysanız panonuza dokunulmaz (silmek için panoyu okumak da gerekmez, iOS'un
 "yapıştırmaya izin ver" sorusu çıkmaz).
 
-**Bilerek kapatmak:** ana ekranın altındaki büyük yuvarlak **Programı kapat** düğmesine (kilit açma düğmesiyle aynı görünümde) **3 saniye basılı tutun**; halka dolunca program kapanır. Bu kapanış "bilerek" sayılır:
+**Bilerek kapatmak:** ana ekranın altındaki kırmızı **Programı kapat** düğmesine dokunun; çıkan büyük yuvarlak düğmeye (kilit açma düğmesiyle aynı görünümde) **3 saniye basılı tutun**; halka dolunca program kapanır. Vazgeçmek için **Vazgeç**'e ya da örtünün dışına dokunun. Bu kapanış "bilerek" sayılır:
 oturum biter, uygulama panoya `SESLIKONTROL-KAPALI` yazar, otomasyon bunu görüp uygulamayı yeniden açmaz. Bu düğme dışındaki her
 kapanış otomasyonla geri açılır; oturum sürerken kapandıysa oturum kaldığı yerden sürer ("beklenmedik" sayılır), "Testi Bitir"den sonra ya da
 oturum yokken kapandıysa uygulama yalnız açılır, yeni oturum **başlatmaz**. Bunun bedeli: otomasyon kuruluyken uygulamadan başka uygulamaya

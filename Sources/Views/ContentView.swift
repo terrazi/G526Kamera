@@ -9,6 +9,8 @@ struct ContentView: View {
     @EnvironmentObject private var cameraController: CameraCaptureController
     @State private var showSettings = false
     @State private var confirmEnd = false
+    /// "Programı kapat" düğmesine dokununca açılan yuvarlak, basılı tutmalı kapatma düğmesi görünüyor mu
+    @State private var showCloseHold = false
 
     var body: some View {
         NavigationView {
@@ -58,6 +60,7 @@ struct ContentView: View {
             }
         }
         .navigationViewStyle(.stack)
+        .overlay { closeOverlay }
     }
 
     // MARK: Parçalar
@@ -337,7 +340,51 @@ struct ContentView: View {
         } label: {
             Label("Ekranı kilitle", systemImage: "lock.fill")
         }
-        .buttonStyle(.bordered)
+        .buttonStyle(.borderedProminent)
+        .tint(.blue)
+    }
+
+    /// "Programı kapat": normal (kırmızı) düğme. Dokununca ekranda büyük yuvarlak düğme çıkar; program ancak o düğmeye
+    /// `SessionViewModel.Timing.closeHold` saniye basılı tutulunca kapanır (kilit penceresindeki "Kilidi aç" düğmesi gibi).
+    private var closeButton: some View {
+        Button {
+            showCloseHold = true
+        } label: {
+            Label("Programı kapat", systemImage: "power")
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(.red)
+        .padding(.top, 6)
+        .accessibilityIdentifier("programiKapat")
+    }
+
+    /// Yuvarlak kapatma düğmesinin çıktığı örtü; dışına dokunmak ya da Vazgeç örtüyü kaldırır, program kapanmaz
+    @ViewBuilder
+    private var closeOverlay: some View {
+        if showCloseHold {
+            ZStack {
+                Color.black.opacity(0.5)
+                    .ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .onTapGesture { showCloseHold = false }
+                VStack(spacing: 18) {
+                    Text("Kapatmak için yuvarlak düğmeye basılı tutun.")
+                        .font(.callout)
+                        .multilineTextAlignment(.center)
+                    HoldToCloseButton(seconds: SessionViewModel.Timing.closeHold) {
+                        showCloseHold = false
+                        session.closeByUser()
+                    }
+                    Button("Vazgeç") { showCloseHold = false }
+                        .buttonStyle(.bordered)
+                }
+                .padding(24)
+                .frame(maxWidth: 360)
+                .background(Color(.systemBackground))
+                .cornerRadius(20)
+                .padding(24)
+            }
+        }
     }
 
     private var controls: some View {
@@ -345,6 +392,7 @@ struct ContentView: View {
             if session.phase.isAtRest {
                 Button("Başlat") { session.start() }
                     .buttonStyle(.borderedProminent)
+                    .tint(.green)
                 Button("Cevapları Tekrarla") { session.startReplay() }
                     .buttonStyle(.bordered)
                     .disabled(!session.canReplay)
@@ -368,15 +416,15 @@ struct ContentView: View {
                         .tint(.green)
                 } else if session.canPauseByUser {
                     Button("Duraklat") { session.pauseByUser() }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(.borderedProminent)
+                        .tint(Color(UIColor.brown))
                 }
                 lockButton
                 Button("Testi Bitir") { confirmEnd = true }
                     .buttonStyle(.borderedProminent)
-                    .tint(.red)
+                    .tint(.orange)
             }
-            HoldToCloseButton(seconds: SessionViewModel.Timing.closeHold) { session.closeByUser() }
-                .padding(.top, 6)
+            closeButton
         }
         .frame(maxWidth: .infinity)
     }

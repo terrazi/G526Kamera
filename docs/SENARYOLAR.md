@@ -80,7 +80,7 @@ Durum: ✅ önlem var ve testli · 🛠 bu incelemede bulundu ve düzeltildi · 
 | Ne olabilir | Önlem | Durum |
 |---|---|---|
 | Ekran kilitlenir (Kestirmeler açılamazdı) | Oturum boyunca ekran açık tutulur | ✅ |
-| Ekrana yanlışlıkla dokunulur | "Ekranı kilitle" test başlamadan da vardır; hazır durumdayken kilitlenen ekran test başlayınca da kilitli kalır, test bitince kendiliğinden açılır. Kilit penceresindeki büyük yuvarlak düğmeye 3 sn basılınca açılır. "Programı kapat" da aynı görünümde büyük yuvarlak düğmedir (3 sn basılı tutulur, halka dolar) | ✅ kod; 📱 kilit penceresi ve düğmelerin görünümü |
+| Ekrana yanlışlıkla dokunulur | "Ekranı kilitle" test başlamadan da vardır; hazır durumdayken kilitlenen ekran test başlayınca da kilitli kalır, test bitince kendiliğinden açılır. Kilit penceresindeki büyük yuvarlak düğmeye 3 sn basılınca açılır. "Programı kapat" normal kırmızı düğmedir; dokununca çıkan büyük yuvarlak düğmeye 3 sn basılı tutulunca program kapanır (halka dolar; Vazgeç ya da dışa dokunmak örtüyü kaldırır). Düğme renkleri: Başlat yeşil, Duraklat kahverengi, Ekranı kilitle mavi, Testi Bitir turuncu, Programı kapat kırmızı | ✅ kod; 📱 kilit penceresi ve düğmelerin görünümü |
 | Arka plana geçer | Arka planda ses modu; öne gelince duraklatılmışsa yeniden bakılır | ✅ 📱 |
 | Şarj azalır | Kademeli sesli + kırmızı kutu uyarısı | ✅ |
 | Art arda oturum (bitir → yeniden başlat) | Temiz başlar, eski cevaplar karışmaz | ✅ |
