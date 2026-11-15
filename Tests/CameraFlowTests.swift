@@ -204,7 +204,7 @@ final class CameraFlowTests: XCTestCase {
         let h = harness(shots: [.success(shot)], replies: errors)
         _ = await h.startListening()
         reply(h, "evet")
-        let settled = await waitUntil(8) { h.answering.captureCalls.count == 4 && h.vm.phase == .listening }
+        let settled = await waitUntil(8) { h.answering.captureCalls.count == 4 && self.cameraQuestionOpen(h) }
         XCTAssertTrue(settled, "İlk gönderim 2 deneme, bir kez de bekleyen çekim olarak 2 deneme: toplam 4")
         await settle()
         h.scheduler.advance(by: 30)
@@ -216,6 +216,35 @@ final class CameraFlowTests: XCTestCase {
     }
 
     /// Test bitince gönderilemeyen çekim bir sonraki oturuma sızmaz; kaç sorunun cevapsız kaldığı yazılır
+    /// Bekleyen çekim yeniden gönderilirken arama gelirse bu bir başarısızlık sayılmaz: çekim atılmaz, arama bitince yeniden gönderilir
+    func testInterruptionWhileResendingAPendingShotIsNotAFailure() async {
+        let shot = FakeCamera.shot()
+        let down = Result<GeminiReply, Error>.failure(GeminiError("koptu", .network))
+        let h = harness(shots: [.success(shot)], replies: [down, down, down, .success(FakeAnswering.reply(1))])
+        let previous = h.answering.onCall
+        h.answering.onCall = { name in
+            previous?(name)
+            if h.answering.captureCalls.count == 3 { h.answering.hold = true }   // üçüncü çağrı: bekleyen çekimin yeniden gönderimi
+        }
+        _ = await h.startListening()
+        reply(h, "evet")
+        let held = await waitUntil(8) { h.answering.captureCalls.count == 3 && h.vm.phase == .answering }
+        XCTAssertTrue(held, "Bekleyen çekim yeniden gönderilirken Gemini bekletilir")
+        h.route.interrupt(began: true)
+        await settle()
+        h.answering.hold = false
+        h.answering.release()
+        await settle()
+        XCTAssertEqual(h.vm.pendingShots.count, 1, "Kesinti yüzünden çekim atılmaz")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: shot.video!.path))
+        h.route.interrupt(began: false)
+        h.scheduler.advance(by: T.routeStable + 0.1)
+        let sent = await waitUntil(8) { h.vm.answers.count == 1 }
+        XCTAssertTrue(sent, "Arama bitince bekleyen çekim yeniden gönderilir")
+        XCTAssertEqual(h.answering.captureCalls.count, 4)
+        XCTAssertTrue(h.vm.pendingShots.isEmpty)
+    }
+
     func testEndingTheTestDropsUnsentShotsAndSaysSo() async {
         let shot = FakeCamera.shot()
         let h = harness()
@@ -238,6 +267,8 @@ final class CameraFlowTests: XCTestCase {
         await settle()
         XCTAssertTrue(h.vm.pendingShots.isEmpty, "Aynı sonucu verecek çekim telefonda tutulmaz")
         XCTAssertFalse(FileManager.default.fileExists(atPath: shot.video!.path))
+        let asked = await waitUntil(5) { self.cameraQuestionOpen(h) }
+        XCTAssertTrue(asked, "Hata söylendikten sonra kamera sorusu yeniden sorulur (sesle okumaya kayılmaz)")
     }
 
     func testUnansweredCameraQuestionIsRepeatedOnceThenTheVoiceFlowStartsWithoutTouchingTheNetwork() async {

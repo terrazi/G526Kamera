@@ -165,7 +165,12 @@ extension SessionViewModel {
         for attempt in 1...Timing.cameraSendTries {
             do {
                 let reply = try await deps.answering.answer(capture: shot, expectedNumber: expected)
-                dropPending(shot)
+                if Task.isCancelled, case .paused = phase {
+                    // Cevap tam kesinti anında geldi: `answer` onu okumadan atar. Çekim telefonda kalır, onarımdan sonra yeniden gönderilir
+                    retriedShots.remove(shot.id)
+                } else {
+                    dropPending(shot)
+                }
                 return reply
             } catch let error as GeminiError {
                 last = error
@@ -175,11 +180,26 @@ extension SessionViewModel {
             }
         }
         let failure = last ?? GeminiError("Gemini cevap vermedi.", .error)
+        if Task.isCancelled {
+            // Kulaklık ya da arama kesintisi (duraklatma) başarısızlık sayılmaz: çekim kalır ve onarımdan sonra yeniden denenebilir.
+            // Başka iptallerde (bekleme sınırı, takılma gözcüsü) deneme hakkı yenilenmez: aynı çekim sonsuza dek yeniden gönderilmesin.
+            if case .paused = phase { retriedShots.remove(shot.id) }
+            throw failure
+        }
         switch failure.kind {
         case .blocked, .tooBig:
             dropPending(shot)   // aynı çekim yeniden denense de aynı sonucu verir: telefonda tutulmaz
+            offerCamera = cameraOfferAvailable   // hata söylendikten sonra bu soru için kamera yeniden sorulur
         default:
-            warn("kamera", "Çekilen soru telefonda bekliyor (\(failure.kind == .network ? "Gemini'ye ulaşılamadı" : "gönderilemedi")).")
+            if retriedShots.contains(shot.id) {
+                // Bekleyen çekimin tek yeniden gönderimi de başarısız oldu: sınav akışı her soruda yeniden denemekle yavaşlamasın, atılır ve söylenir
+                dropPending(shot)
+                retriedShots.remove(shot.id)
+                offerCamera = cameraOfferAvailable   // sınav akışı sesle okumaya kaymaz: söylendikten sonra kamera yeniden sorulur
+                warn("kamera", Say.cameraPendingGivenUp)
+            } else {
+                warn("kamera", "Çekilen soru telefonda bekliyor (\(failure.kind == .network ? "Gemini'ye ulaşılamadı" : "gönderilemedi")).")
+            }
         }
         throw failure
     }
@@ -201,13 +221,7 @@ extension SessionViewModel {
         }
         clearWarning("kamera")
         retriedShots.insert(first.id)
-        await sendShot(first)
-        if pendingShots.contains(first) {
-            // Bekleyen çekimin tek yeniden gönderimi de başarısız oldu: sınav akışı her soruda yeniden denemekle yavaşlamasın, atılır ve söylenir
-            dropPending(first)
-            retriedShots.remove(first.id)
-            warn("kamera", Say.cameraPendingGivenUp)
-        }
+        await sendShot(first)   // yine başarısız olursa `sendWithRetry` çekimi atar ve söyler
         return true
     }
 
