@@ -168,7 +168,7 @@ final class CameraSettings: ObservableObject {
 
         pageVideoSeconds = CameraSettings.clampSeconds(defaults.object(forKey: Key.pageVideoSeconds) as? Int,
                                                        range: VideoRecorder.pageSecondsRange, fallback: VideoRecorder.pageSegmentSeconds)
-        countdown = defaults.object(forKey: Key.countdown) as? Bool ?? true
+        countdown = defaults.object(forKey: Key.countdown) as? Bool ?? false   // kullanıcı kararı 2026-11-16: çekim sırasında sürekli konuşma Bluetooth/Wi-Fi çakışmasını artırabilir; varsayılan sessiz
         videoToGemini = defaults.object(forKey: Key.videoToGemini) as? Bool ?? true
         videoQuestion = defaults.string(forKey: Key.videoQuestion) ?? ""
         videoHighRes = defaults.object(forKey: Key.videoHighRes) as? Bool ?? true

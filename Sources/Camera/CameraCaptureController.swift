@@ -62,7 +62,7 @@ enum CameraSay {
     static let shooting = "Çekiyorum, kamerayı sabit tutun."
     static let forced = "Yine de çekiyorum, kamerayı sabit tutun."
     static let manual = "Çekiyorum, kamerayı sabit tutun."
-    /// Sabit süreli çekimin duyurusu (geri sayım açıkken): süre söylenir, sonra sayılır
+    /// Sabit süreli çekimin başlangıç cümlesi: süre söylenir, cümle bitince çekim başlar
     static func countdownIntro(seconds: Int) -> String { return "\(seconds) saniye boyunca çekim yapabilirsiniz. Başlıyorum." }
     /// Geri sayımın sayısı: kalan saniye
     static func countdownNumber(_ remaining: Int) -> String { return "\(remaining)" }
@@ -248,12 +248,6 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
 
         // 3) Sabit süreli çekim: her saniyenin en net karesi (fotoğraf) + aynı sürenin videosu
         pipeline.guidanceOn = false
-        if !settings.countdown {
-            switch trigger {
-            case .forced: say(CameraSay.forced)
-            default: say(CameraSay.shooting)
-            }
-        }
         return await shoot(reason: trigger == .positioned ? "Sesli konumlandırma" : (trigger == .manual ? "Elle" : "Süre doldu"))
     }
 
@@ -464,18 +458,19 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
     }
 
     /// Sabit süreli çekim: `pageVideoSeconds` sn boyunca video yazılır ve her saniyenin EN NET karesi bir fotoğraf olur (kareler aynı akıştan,
-    /// ikisi birlikte). 10 sn = 10 fotoğraf: tek PDF'e dizilir, video ayrıca gider. Geri sayım açıksa önce "N saniye boyunca çekim yapabilirsiniz.
-    /// Başlıyorum." söylenir (bitince süre başlar), sonra N, N-1 … 1 sayılır. Kullanıcı kâğıdı kadraja sığdırmak zorunda değildir: kamerayı gezdirir.
+    /// ikisi birlikte). 10 sn = 10 fotoğraf: tek PDF'e dizilir, video ayrıca gider. Önce "N saniye boyunca çekim yapabilirsiniz. Başlıyorum."
+    /// söylenir (bitince süre başlar); çekim sırasında sessizdir. "Sesli geri sayım" açıksa ayrıca N, N-1 … 1 sayılır. Kullanıcı kâğıdı kadraja sığdırmak zorunda değildir: kamerayı gezdirir.
     private func shoot(reason: String) async -> Result<CapturedQuestion, CameraFailure> {
         shooting = true
         status("Çekiliyor")
         let wantVideo = settings.videoToGemini
         let seconds = max(1, settings.pageVideoSeconds)
-        let countdown = settings.countdown && settings.guidanceVoice
-        if countdown {
+        let countdown = settings.countdown && settings.guidanceVoice   // sayılan saniyeler yalnız ayar açıkken (varsayılan KAPALI: çekim sırasında sessiz)
+        if settings.guidanceVoice {
+            // Başlangıç cümlesi her zaman söylenir (kullanıcı süreyi bilsin) ve çekim başlamadan BİTER; çekim sırasında konuşma yoktur
             let intro = CameraSay.countdownIntro(seconds: seconds)
             if let speak = onSayWait {
-                await speak(intro)   // cümle bitince süre başlar: sayılan saniyeler çekimle aynı anda akar
+                await speak(intro)   // cümle bitince süre başlar
             } else {
                 say(intro)
             }

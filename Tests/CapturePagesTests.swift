@@ -163,18 +163,18 @@ final class CapturePagesTests: XCTestCase {
 
     // MARK: Ayarlar ve söylenen cümleler
 
-    func testTheCaptureLastsTenSecondsByDefaultAndTheCountdownIsOn() {
+    func testTheCaptureLastsTenSecondsByDefaultAndTheCountdownIsOff() {
         let name = "g526-capture-\(UUID().uuidString)"
         let d = UserDefaults(suiteName: name)!
         d.removePersistentDomain(forName: name)
         let s = CameraSettings(defaults: d)
         XCTAssertEqual(s.pageVideoSeconds, 10)
         XCTAssertEqual(VideoRecorder.pageSegmentSeconds, 10)
-        XCTAssertTrue(s.countdown)
-        s.countdown = false
+        XCTAssertFalse(s.countdown, "Çekim sırasında sayım varsayılan olarak sessiz")
+        s.countdown = true
         s.pageVideoSeconds = 7
         let again = CameraSettings(defaults: d)
-        XCTAssertFalse(again.countdown)
+        XCTAssertTrue(again.countdown)
         XCTAssertEqual(again.pageVideoSeconds, 7)
     }
 
