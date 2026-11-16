@@ -3,8 +3,9 @@ import Foundation
 /// Toplu çekim (kullanıcı kararı 2026-11-16): "evet" denince TEK soru değil bir OTURUM çekilir. Tek sınır süredir (varsayılan 75 sn); sayfa sayısı yoktur,
 /// sayfalar eşit sürede gösterilmez: süre içinde ne kadar sayfa gösterilirse hepsi tek PDF olur.
 ///
-/// Akış: (1) oturum bir kez duyurulur ("75 saniye… kulaklık kapanacak"); (2) Kestirme hücreseli, mikrofonu ve kulaklığı kapatır, telefon
-/// kameranın Wi-Fi'sine geçer; (3) kamera hiç konuşmadan aralıksız çeker, saniyede bir fotoğraf (ses de titreşim de YOK; sayfaları kullanıcı kendi hızında
+/// Akış: (0) kamera önceden hazırdır (bkz. `SessionViewModel+SeriesReady`): telefon kameranın Wi-Fi'sinde, hücresel kapalı, kamera bağlı, kullanıcı "Başla"yı bekler;
+/// "Başla" denince "Başladı." söylenir ve süre HEMEN başlar. Kamera hazır değilse eski düzen: (1) oturum bir kez duyurulur ("75 saniye… kulaklık kapanacak");
+/// (2) Kestirme hücreseli, mikrofonu ve kulaklığı kapatır, telefon kameranın Wi-Fi'sine geçer; (3) kamera hiç konuşmadan aralıksız çeker, saniyede bir fotoğraf (ses de titreşim de YOK; sayfaları kullanıcı kendi hızında
 /// gösterir); (4) kamera kapanır, internet ve kulaklık geri gelir (kulaklık gelene kadar ses yolu değişikliği duraklatma sayılmaz); (5) bütün oturumun
 /// fotoğrafları TEK PDF'tir: telefondaki klasöre "bekliyor" olarak yazılır, tek istekle gönderilir ve PDF'teki BÜTÜN soruların cevabı numara sırasıyla,
 /// her cevap arasında `Timing.answerGap` sn boşlukla okunur; (6) sonra yeni oturum sorulur. Cevaplar duyulana kadar PDF silinmez.
@@ -58,8 +59,10 @@ extension SessionViewModel {
             await fallBackToVoice(Say.cameraShortcutsMissing)
             return
         }
-        // Duyuru kestirmeden ÖNCE söylenir: kestirme kulaklığı kapatır ve oturum boyunca hiçbir şey söylenmez
-        guard await speakNotice(Say.seriesStarting(seconds: seconds)) else {
+        // Kamera hazır bekliyorsa (bağlı, görüntü akıyor) süre HEMEN başlar: "Başladı." denir, cümle bitince çekim sürer. Hazır değilse (bağlantı kopmuş)
+        // eski düzen: duyuru kestirmeden ÖNCE söylenir (kestirme kulaklığı kapatabilir) ve oturum boyunca hiçbir şey söylenmez
+        let ready = deps.camera.holding
+        guard await speakNotice(ready ? Say.seriesGo : Say.seriesStarting(seconds: seconds)) else {
             tlog("[kamera] oturum duyurusu kesildi; kestirme çalıştırılmadı, onarımdan sonra yeniden sorulacak")
             offerCamera = true
             return
@@ -67,15 +70,37 @@ extension SessionViewModel {
         let attemptStart = deps.now()
         phase = .answering
         networkMayBeOnCamera = true
-        statusNote = "Toplu çekim: kameraya geçiliyor (hücresel, mikrofon ve kulaklık kapanıyor)"
-        // Oturum boyunca kulaklık ve mikrofon kapalıdır: ses yolu değişikliği donanım duraklatması sayılmaz
+        statusNote = ready ? "Toplu çekim sürüyor" : "Toplu çekim: kameraya geçiliyor (hücresel, mikrofon ve kulaklık kapanıyor)"
+        // Kestirme çalışırsa kulaklık düşebilir: ses yolu değişikliği donanım duraklatması sayılmaz
         let headsetWasThere = routeVerdict?.isSafe ?? true
         connectionResetActive = true
         defer { connectionResetActive = false }
         deps.camera.subject = .question
-        var result = await repairLoop(cameraName: cameraName, speaks: false,
-                                      operation: { camera, limit in await camera.captureSeries(seconds: seconds, connectLimit: limit) },
-                                      interrupted: { [weak self] series in self?.saveInterruptedSeries(series) })
+        let operation: (CameraCapturing, TimeInterval?) async -> Result<PageSeries, CameraFailure> = { camera, limit in
+            await camera.captureSeries(seconds: seconds, connectLimit: limit)
+        }
+        let interrupted: (PageSeries) -> Void = { [weak self] series in self?.saveInterruptedSeries(series) }
+        var result: Result<PageSeries, CameraFailure>
+        if ready {
+            // Hazır bekleyen bağlantıyla hemen çekilir (kestirme çalışmaz, yeniden bağlanılmaz); görüntü gelmiyorsa onarım döngüsüne düşülür
+            let camera = deps.camera
+            camera.onStatus = { [weak self] text in self?.statusNote = text }
+            result = await withTaskCancellationHandler {
+                await operation(camera, Timing.cameraStartFirstConnect)
+            } onCancel: {
+                Task { @MainActor in camera.cancel() }
+            }
+            camera.onStatus = nil
+            if case .failure(let failure) = result, failure == .notConnected || failure == .noFrames, !Task.isCancelled, phase == .answering {
+                tlog("[kamera] hazır bekleyen bağlantıyla çekilemedi (\(failure.message)); kamera onarımı deneniyor")
+                result = await repairLoop(cameraName: cameraName, speaks: false, operation: operation, interrupted: interrupted)
+            } else if Task.isCancelled, case .success(let series) = result {
+                interrupted(series)   // tam kesinti anında bitti: klasöre yazılır
+                result = .failure(.cancelled)
+            }
+        } else {
+            result = await repairLoop(cameraName: cameraName, speaks: false, operation: operation, interrupted: interrupted)
+        }
         // Alınan sayfalar telefondaki klasöre yazılır: internete dönüş sürerken kesinti olsa da kaybolmaz
         if case .success(let series) = result {
             let kept = deps.captureStore.keep(shapedShot(series.shot, isPassage: false), kind: .page)

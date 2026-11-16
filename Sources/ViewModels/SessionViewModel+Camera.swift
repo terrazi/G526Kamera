@@ -31,16 +31,19 @@ extension SessionViewModel {
     /// "Bu soruyu kamera ile çekip göndermek ister misiniz?"
     func askCameraChoice(again: Bool = false) async {
         if !again { cameraReminders = 0 }   // her soru için sayaç baştan başlar (önceki sorudan kalan "cevapsız" sayısı taşınmaz)
+        // Toplu çekimde kamera hazır bekliyorsa (açılışta bağlanılmıştır) internet BİLEREK kapalıdır: internete dönülmez, bekleyen çekim gönderilmez
+        let cameraWaiting = seriesCameraReady
         // Önceki kamera akışı yarıda kesildiyse telefon kameranın Wi-Fi'sinde kalmış olabilir: önce internet geri getirilir
-        await restoreInternetIfStrandedOnCamera()
+        if !cameraWaiting { await restoreInternetIfStrandedOnCamera() }
         // Kesinti (kulaklık, arama, onarım) soruyu söylerken ya da bekleyen çekimi gönderirken gelirse soru kaybolmaz: onarımdan sonra yeniden sorulur
         guard !Task.isCancelled else { offerCamera = true; return }
         // Telefonda bekleyen çekim varsa önce o gönderilir; gönderim kendi akışıyla (cevap, sıradaki soru) devam eder, burada yeniden sorulmaz
-        if !again, resendablePending != nil, await sendPendingShots() { return }
+        if !cameraWaiting, !again, resendablePending != nil, await sendPendingShots() { return }
         // Bekleyenlerin hepsi gönderilip cevapları alındı: bir kez söylenir, sonra canlı sorulara dönülür
         if !again, drainActive, resendablePending == nil {
             drainActive = false
-            if pendingShots.isEmpty {
+            // Toplu çekimde "canlı sorulara devam" denmez: hemen ardından sıradaki oturum için talimat gelir
+            if pendingShots.isEmpty, !cameraSettings.pageSeries {
                 guard !Task.isCancelled, await speakNotice(Say.cameraPendingDone) else { offerCamera = true; return }
             }
         }
@@ -50,6 +53,11 @@ extension SessionViewModel {
             pendingDrainSkipped = true
             beginListening(mode: .question)
             return
+        }
+        // Toplu çekim: talimattan ÖNCE kamera hazırlanır (kameranın Wi-Fi'sine geçilir, bağlanılır); "Başla" denince süre hemen başlar
+        if seriesMode {
+            guard await prepareSeriesCamera() else { return }
+            guard !Task.isCancelled else { offerCamera = true; return }
         }
         guard !Task.isCancelled, await speakNotice(cameraAskText(again: again)) else {
             offerCamera = true
@@ -92,6 +100,12 @@ extension SessionViewModel {
     }
 
     func declineCamera() async {
+        // Toplu çekimde "hayır" oturumu başlatmaz: kamera hazır bekler (internet kapalı olduğu için sesle okuma yoktur), "Başla" beklenir
+        if cameraSettings.pageSeries, seriesCameraReady {
+            guard await speakNotice(Say.seriesWaiting) else { return }
+            beginListening(mode: .cameraChoice)
+            return
+        }
         guard await speakNotice(Say.cameraDeclined) else { return }
         listenForVoiceQuestion()
     }
@@ -109,6 +123,12 @@ extension SessionViewModel {
         if cameraReminders < Timing.cameraAsks {
             let text = cameraAskReminder(unclear: unclear, attempt: cameraReminders + 1)
             guard await speakNotice(text) else { return }
+            beginListening(mode: .cameraChoice)
+        } else if cameraSettings.pageSeries {
+            // Toplu çekimde süre kendiliğinden başlatılmaz (75 sn habersiz harcanmasın): kamera hazır bekler, sessizce dinlenir
+            cameraReminders = 0
+            tlog("[kamera] \"Başla\" komutu \(Timing.cameraAsks) kez gelmedi; süre başlatılmadı, komut bekleniyor")
+            clearWarning("duyulan")
             beginListening(mode: .cameraChoice)
         } else {
             cameraReminders = 0

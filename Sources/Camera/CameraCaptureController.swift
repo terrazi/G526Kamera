@@ -547,12 +547,22 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
     /// kullanıcı sayfaları kendi hızında gösterir (biri 3 sn, biri 8 sn); bütün oturumun fotoğrafları TEK PDF olur, video yoktur.
     /// Kameradan görüntü `lostSeconds` sn kesilirse oturum bırakılır, o ana kadar alınan fotoğraflar döner (`failure` dolu).
     func captureSeries(seconds: Int, connectLimit: TimeInterval?) async -> Result<PageSeries, CameraFailure> {
-        closeHeld()
-        guard !running else { return .failure(.captureFailed("çekim zaten sürüyor")) }
-        running = true
-        cancelled = false
-        shooting = false
-        active = true
+        // "Başla" denince kamera zaten bağlı ve görüntü akıyorsa (hazır bekleme, bkz. `holdOpen`) o bağlantı kullanılır: yeniden bağlanma yoktur,
+        // süre hemen başlar. Bağlantı kopmuşsa kapatılır ve baştan bağlanılır.
+        let adopted = holding && isLive
+        if adopted {
+            holding = false   // bağlantı artık bu çekimindir; aşağıdaki `defer` kapatır
+            cancelled = false
+            shooting = false
+            tlog("[kamera] toplu çekim: hazır bekleyen bağlantı kullanılıyor, süre hemen başlıyor")
+        } else {
+            closeHeld()
+            guard !running else { return .failure(.captureFailed("çekim zaten sürüyor")) }
+            running = true
+            cancelled = false
+            shooting = false
+            active = true
+        }
         defer {
             teardown()
             running = false
@@ -561,12 +571,14 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         guard DiskGuard.level(freeMB: DiskGuard.freeMB()) != .critical else { return .failure(.lowDisk) }
         guard let uid = CameraUID(settings.uid) else { return .failure(.notConnected) }
         pipeline.saving = settings.previewOff
-        status("Kameraya bağlanılıyor")
-        lowBattery = CameraLowBatteryWatcher()
-        startClient(uid: uid)
-        let live = await awaitLive(limit: connectLimit)
-        if cancelled { return .failure(.cancelled) }
-        guard live else { return .failure(connectFailure()) }
+        if !adopted {
+            status("Kameraya bağlanılıyor")
+            lowBattery = CameraLowBatteryWatcher()
+            startClient(uid: uid)
+            let live = await awaitLive(limit: connectLimit)
+            if cancelled { return .failure(.cancelled) }
+            guard live else { return .failure(connectFailure()) }
+        }
         pipeline.guidanceOn = false
         return await shootSeries(seconds: max(1, seconds))
     }

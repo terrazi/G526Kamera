@@ -163,6 +163,8 @@ protocol CameraCapturing: AnyObject {
     func holdOpen(connectLimit: TimeInterval?) async -> Result<Void, CameraFailure>
     /// `holdOpen()` ile açık tutulan bağlantıyı kapatır (hiç açık değilse bir şey yapmaz)
     func closeHeld()
+    /// Bağlantı `holdOpen()` ile açık tutuluyor mu (toplu çekimde "Başla"yı bekleyen hazır kamera)
+    var holding: Bool { get }
     /// Kameraya ulaşılabiliyor mu: bağlanır, görüntü gelirse doğru döner. Konumlandırma söylenmez, hiçbir şey çekilmez; kamera hemen kapanır.
     func probe() async -> Bool
     /// Kameranın son görüntü karelerinden okunan pil durumu (kamera kapandıktan sonra da son bilinen değer kalır); hiç okunmadıysa nil
@@ -175,6 +177,7 @@ extension CameraCapturing {
     func holdOpen(connectLimit: TimeInterval?) async -> Result<Void, CameraFailure> { return .failure(.unavailable) }
     func holdOpen() async -> Result<Void, CameraFailure> { return await holdOpen(connectLimit: nil) }
     func closeHeld() {}
+    var holding: Bool { return false }
     func probe() async -> Bool { return false }
     func captureSeries(seconds: Int, connectLimit: TimeInterval?) async -> Result<PageSeries, CameraFailure> { return .failure(.unavailable) }
 }

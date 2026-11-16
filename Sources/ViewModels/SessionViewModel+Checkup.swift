@@ -85,61 +85,19 @@ extension SessionViewModel {
         clearWarning("donanim")
         applyVolume(deps.system.snapshot().outputVolume)   // ses oturumu açıldı: cevapları duyabilecek miyiz
 
-        // 2b) Sürüm 4: kameranın uyarıları ve "Kamera bağlandı" söylenir; kamera bağlantısı ilk hücresel bağlantıdan önce kapanır ve internete geçilir.
-        // Kesilirse (kulaklık, arama) açılış kontrolü yol dönünce baştan yapılır.
-        guard await finishCameraStart() else { return }
-
-        // 3) İnternet (yoksa Kestirmelerle onarılır)
-        var internetOK = await deps.health.internetReachable()
-        guard !Task.isCancelled else { return }
+        // 2b) Toplu çekim kipi (kullanıcı kararı): kamera bağlandıysa telefon kameranın Wi-Fi'sinde, hücresel kapalı kalır ve kamera açık bekler;
+        // internet ve Gemini sınanmaz (çekim bitince internet gelir). Kameraya ulaşılamadıysa ya da toplu çekim kapalıysa eski açılış sürer.
+        let seriesStart = cameraSettings.pageSeries && cameraStartConnected == true && deps.camera.holding
         var offlineStart = false
-        if !internetOK {
-            // SIM kart yoksa hücresel Kestirme internet getirmez: boş yere onarım döngüsüne girilmez.
-            // Kamera akışı açıksa sınav çevrimdışı sürer (çekimler telefonda birikir, internet gelince gönderilir); değilse nedeni söyle ve dur
-            if !deps.health.hasCellularService() {
-                if cameraOfferAvailable {
-                    tlog("[açılış] internet yok ve telefonda SIM kart yok: çevrimdışı çekim kipinde sürülüyor (çekimler telefonda birikecek)")
-                    setCheck("internet", "İnternet", ok: false, detail: "yok; SIM kart yok, çekimler telefonda birikecek")
-                    offlineStart = true
-                    offlineHeld = true
-                } else {
-                    tlog("[açılış] internet yok ve telefonda SIM kart yok: onarım Kestirmeleri çalıştırılmadı")
-                    setCheck("internet", "İnternet", ok: false, detail: "yok; telefonda SIM kart yok")
-                    await failStart(Say.noSimNoInternet)
-                    return
-                }
-            }
-        }
-        if !internetOK, !offlineStart {
-            setCheck("internet", "İnternet", ok: false, detail: "yok; Kestirmelerle düzeltiliyor")
-            let result = await performRecovery(.network)
-            guard !Task.isCancelled, case .recovering = phase else { return }
-            if case .recovered = result {
-                internetOK = true
-                phase = .checking
-            } else {
-                await failStart(result == .notConfigured ? Say.notConfigured : "İnternet kurulamadı.")
-                return
-            }
-        }
-        if !offlineStart {
-            setCheck("internet", "İnternet", ok: internetOK, detail: "var")
-
-            // 4) Gemini: ulaşılıyor mu, anahtar kabul ediliyor mu (çevrimdışı çekim kipinde internet gelince sınanır)
-            let gemini = await checkGemini()
-            guard !Task.isCancelled else { return }
-            switch gemini {
-            case .ok:
-                setCheck("gemini", "Gemini", ok: true, detail: "anahtar kabul edildi")
-            case .keyRejected(let message):
-                setCheck("gemini", "Gemini", ok: false, detail: message)
-                await failStart(message)
-                return
-            case .unreachable(let message):
-                setCheck("gemini", "Gemini", ok: false, detail: message)
-                await failStart("Gemini'ye ulaşılamadı: \(message)")
-                return
-            }
+        if seriesStart {
+            seriesStartChecks()
+        } else {
+            // Sürüm 4: kameranın uyarıları ve "Kamera bağlandı" söylenir; kamera bağlantısı ilk hücresel bağlantıdan önce kapanır ve internete geçilir.
+            // Kesilirse (kulaklık, arama) açılış kontrolü yol dönünce baştan yapılır.
+            guard await finishCameraStart() else { return }
+            // 3) İnternet (yoksa Kestirmelerle onarılır) ve 4) Gemini
+            guard let offline = await checkInternetAndGemini() else { return }
+            offlineStart = offline
         }
 
         // Kamera: soru açıksa ayarların tamam olduğu görünür (eksikse sorular sesle okunur ve bu başta söylenir)
@@ -176,6 +134,21 @@ extension SessionViewModel {
             beginListening(mode: .startChoice)
             return
         }
+        // Toplu çekim: kamera hazır. Tek anonsta "hazırım + talimat" söylenir (kamera sorusu ayrıca sorulmaz), sonra "Başla" beklenir; süre o anda başlar
+        if seriesStart {
+            var parts = cameraStartNotes + [Say.seriesReadyLead]
+            if sectionIndex > 0 { parts.append(Say.sectionStart(sectionIndex, questions: sectionQuestionCount)) }
+            parts.append(Say.askCameraSeries(seconds: cameraSettings.seriesSeconds))
+            guard await speakNotice(parts.joined(separator: " ")) else { return }
+            cameraStartNotes = []
+            cameraStartDone = true
+            pendingStart = false
+            cameraReminders = 0
+            cameraOfferSuppressed = false
+            offerCamera = false
+            beginListening(mode: .cameraChoice)
+            return
+        }
         // Kameraya oturum başında ulaşılamadıysa bu söylenir (kamera ayarları eksik değil, kamera kapalı); sorular sesle okunur
         let cameraDownAtStart = settings.askCamera && cameraConfigured && cameraDownSince != nil
         var ready = cameraDownAtStart ? Say.readyCameraDown(minutes: AppSettings.clampCameraCheckMinutes(settings.cameraCheckMinutes))
@@ -186,6 +159,63 @@ extension SessionViewModel {
         pendingStart = false
         armCameraOffer()   // Sürüm 4: ilk soru için de kamera sorulur
         beginListening()
+    }
+
+    /// 3) İnternet (yoksa Kestirmelerle onarılır) ve 4) Gemini: ulaşılıyor mu, anahtar kabul ediliyor mu. Dönen: nil → açılış sona erdi ya da kesildi
+    /// (çağıran döner); aksi hâlde sınav çevrimdışı başlıyor mu (SIM kart yok, kamera akışı açık: çekimler telefonda birikir, Gemini sınanmaz).
+    func checkInternetAndGemini() async -> Bool? {
+        var internetOK = await deps.health.internetReachable()
+        guard !Task.isCancelled else { return nil }
+        var offlineStart = false
+        if !internetOK {
+            // SIM kart yoksa hücresel Kestirme internet getirmez: boş yere onarım döngüsüne girilmez.
+            // Kamera akışı açıksa sınav çevrimdışı sürer (çekimler telefonda birikir, internet gelince gönderilir); değilse nedeni söyle ve dur
+            if !deps.health.hasCellularService() {
+                if cameraOfferAvailable {
+                    tlog("[açılış] internet yok ve telefonda SIM kart yok: çevrimdışı çekim kipinde sürülüyor (çekimler telefonda birikecek)")
+                    setCheck("internet", "İnternet", ok: false, detail: "yok; SIM kart yok, çekimler telefonda birikecek")
+                    offlineStart = true
+                    offlineHeld = true
+                } else {
+                    tlog("[açılış] internet yok ve telefonda SIM kart yok: onarım Kestirmeleri çalıştırılmadı")
+                    setCheck("internet", "İnternet", ok: false, detail: "yok; telefonda SIM kart yok")
+                    await failStart(Say.noSimNoInternet)
+                    return nil
+                }
+            }
+        }
+        if !internetOK, !offlineStart {
+            setCheck("internet", "İnternet", ok: false, detail: "yok; Kestirmelerle düzeltiliyor")
+            let result = await performRecovery(.network)
+            guard !Task.isCancelled, case .recovering = phase else { return nil }
+            if case .recovered = result {
+                internetOK = true
+                phase = .checking
+            } else {
+                await failStart(result == .notConfigured ? Say.notConfigured : "İnternet kurulamadı.")
+                return nil
+            }
+        }
+        if !offlineStart {
+            setCheck("internet", "İnternet", ok: internetOK, detail: "var")
+
+            // 4) Gemini: ulaşılıyor mu, anahtar kabul ediliyor mu (çevrimdışı çekim kipinde internet gelince sınanır)
+            let gemini = await checkGemini()
+            guard !Task.isCancelled else { return nil }
+            switch gemini {
+            case .ok:
+                setCheck("gemini", "Gemini", ok: true, detail: "anahtar kabul edildi")
+            case .keyRejected(let message):
+                setCheck("gemini", "Gemini", ok: false, detail: message)
+                await failStart(message)
+                return nil
+            case .unreachable(let message):
+                setCheck("gemini", "Gemini", ok: false, detail: message)
+                await failStart("Gemini'ye ulaşılamadı: \(message)")
+                return nil
+            }
+        }
+        return offlineStart
     }
 
     /// Hatırlanan önceki oturum: sınav klasörü hâlâ varsa ve içinde cevap varsa (sınav klasörü, bölüm sırası (0: bölümsüz), cevapların yazıldığı

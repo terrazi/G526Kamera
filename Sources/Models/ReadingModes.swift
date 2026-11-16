@@ -720,7 +720,8 @@ enum SpokenReply {
     /// Kamera sorusu ("kamera ile çekip göndermek ister misiniz?"): "bitir" ve "devam" burada evet / hayır değildir; "testi bitir" bir
     /// komuttur ve kamerayı başlatmamalı
     static let cameraYes: Set<String> = ["evet", "tamam", "olur", "aynen", "kesinlikle", "tabii", "tabi", "tabiki", "dogru", "istiyorum", "isterim", "istiyoruz", "isteriz",
-                                         "cek", "cekelim", "cekin", "cekeyim", "cekecegim", "cekiyorum", "cekerim", "cekeriz", "cekiyoruz"]
+                                         "cek", "cekelim", "cekin", "cekeyim", "cekecegim", "cekiyorum", "cekerim", "cekeriz", "cekiyoruz",
+                                         "basla", "baslayalim", "baslat", "baslayin", "baslatin", "baslayabiliriz", "baslayabilirsin", "baslayayim"]
     /// Zayıf evet: "kamerayla", "fotoğraf" (soruyu yineleyen kısa cevap). Tek başına evet sayılır; herhangi bir hayır sözüyle birlikte
     /// ("kamera istemiyorum", "kamera değil sesle", "kamera olmasın") hayırdır.
     static let cameraWeakYes: Set<String> = ["kamera", "kamerayla", "kameradan", "kameraya", "kamerayi", "kamerada", "fotograf", "fotografla", "fotografi", "foto",
@@ -728,7 +729,8 @@ enum SpokenReply {
     static let cameraNo: Set<String> = ["hayir", "olmaz", "olmasin", "istemiyorum", "istemiyoruz", "istemem", "istemeyiz", "yok", "degil", "vazgec", "vazgectim",
                                         "iptal", "sesle", "sesli", "okurum", "ses", "okuyayim", "okuyorum", "okuyacagim", "okuyalim", "gerekmez", "gerekmiyor",
                                         "cekme", "cekmem", "cekmeyin", "cekmeyelim", "cekmeyeyim", "cekmiyorum", "cekmiyoruz", "cekmeyecegim", "cekmesin", "cekmesek",
-                                        "cekmeyiz", "kullanma", "kullanmayin", "kullanmayalim", "kullanmam", "kullanmiyorum", "kamerasiz"]
+                                        "cekmeyiz", "kullanma", "kullanmayin", "kullanmayalim", "kullanmam", "kullanmiyorum", "kamerasiz",
+                                        "baslama", "baslamayin", "baslamayalim", "baslamam", "baslamiyorum", "baslamasin"]
     /// "Çekmek", "çekmeyi" gibi mastar biçimleri hayır sözü ("çekme") gibi duyulabilir ama anlamı belirsizdir ("çekmek istiyorum" evettir): bulanık eşleşmeden çıkarılır
     static let cameraNeutral: Set<String> = ["cekmek", "cekmeyi", "cekmeye", "cekmesi", "cekip", "gondermek", "gondermeyi", "gonderip", "gonderelim"]
     /// "Devam / Tekrar / Bitir" menüsünde ve "önceki kayıt mı, yeni mi" sorusunda seçeneği OLUMSUZLAYAN sözler: "devam etmeyelim", "bitirmek

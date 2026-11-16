@@ -540,6 +540,7 @@ final class SessionViewModel: ObservableObject {
         guard phase.isRunning else { return }
         let onCameraNetwork = cameraBusy || networkMayBeOnCamera   // kamera akışı sürerken (ya da yarıda kalıp doğrulanmadan) bitirilirse telefon kameranın Wi-Fi'sinde kalmış olabilir
         cancelWork()
+        deps.camera.closeHeld()   // toplu çekimde hazır bekleyen kamera bağlantısı (cancelWork yalnız "meşgul" kamerayı kapatır)
         replay.stop()
         deps.speaker.stop()
         deps.listener.pause()

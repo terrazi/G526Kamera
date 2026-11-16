@@ -196,6 +196,12 @@ extension SessionViewModel {
             return
         }
         guard phase == .listening else { return }
+        // Toplu çekim: kamera hazır bekliyor, internet bilerek kapalı: alarm değildir
+        if seriesCameraReady {
+            netPulse = .down
+            netFails = 0
+            return
+        }
         // Çevrimdışı çekim kipi (SIM kart yok): internet yokluğu alarm değildir, onarım başlatılmaz
         if offlineCapture {
             netPulse = .down

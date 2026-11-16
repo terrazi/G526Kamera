@@ -212,7 +212,9 @@ struct ContentView: View {
         case .confirmEnd:
             if session.pendingRenumber != nil { return "Numarayı değiştirmek için “evet”, vazgeçmek için “hayır” deyin" }
             return session.pendingDelete != nil ? "Kaydı silmek için “evet”, vazgeçmek için “hayır” deyin" : "Testi bitirmek için “evet”, devam etmek için “hayır” deyin"
-        case .cameraChoice: return "Kamera ile çekmek için “evet”, sesle okumak için “hayır” deyin (ortak paragraf için “ortak paragraf” deyin)"
+        case .cameraChoice:
+            if session.cameraSettings.pageSeries { return "Kamera hazır: süreyi başlatmak için “başla” deyin" }
+            return "Kamera ile çekmek için “evet”, sesle okumak için “hayır” deyin (ortak paragraf için “ortak paragraf” deyin)"
         case .passageCameraChoice: return "Ortak paragrafı kamera ile çekmek için “evet”, sesle okumak için “hayır” deyin"
         case .captureKindChoice: return "Soru çekmek için “bir” ya da “soru”, ortak paragraf için “iki” ya da “paragraf” deyin"
         case .nextSectionChoice: return "Yeni bölüm için “evet”, testi tamamlamak için “hayır” deyin"

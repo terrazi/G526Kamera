@@ -444,9 +444,19 @@ enum Say {
     static let cameraPendingDone = "Bekleyen tüm dosyalar Gemini'ye gönderildi ve cevapları alındı. Canlı sorulara devam edebilirsiniz."
 
     // MARK: Sürüm 4: sayfa bazlı toplu çekim (bir oturumda birkaç sayfa, çekim boyunca ses ve titreşim yok)
+    /// Hazır bekleme (kamera bağlı, telefon kameranın Wi-Fi'sinde, hücresel kapalı): talimat beklenir, "Başla" deyince süre hemen başlar
     static func askCameraSeries(seconds: Int) -> String {
-        return "Kamera oturumu başlasın mı? \(seconds) saniye çekilecek. Evet ya da hayır deyin."
+        return "Kamera oturumu için talimatınızı bekliyorum. Başla deyince \(seconds) saniyelik süreniz başlayacak."
     }
+    /// Açılışta kameraya bağlanıldıktan sonra tek anonsta: hazırım + talimat (soru sonra ayrıca sorulmaz)
+    static let seriesReadyLead = "Ben hazırım, kamera bağlandı."
+    static func readySeries(seconds: Int) -> String {
+        return seriesReadyLead + " " + askCameraSeries(seconds: seconds)
+    }
+    /// Hazır beklerken "hayır" ya da "vazgeç" denirse: oturum başlamaz, beklemeye devam edilir
+    static let seriesWaiting = "Tamam. Hazır olduğunuzda başla deyin."
+    /// Kamera önceden bağlıyken "Başla" denince: süre bu cümle bitince başlar
+    static let seriesGo = "Başladı."
     static func askCameraSeriesAfterRecovery(seconds: Int) -> String {
         return "Bağlantı yeniden onarıldı. " + askCameraSeries(seconds: seconds)
     }

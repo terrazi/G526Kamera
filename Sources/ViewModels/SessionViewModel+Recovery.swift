@@ -383,6 +383,8 @@ extension SessionViewModel {
         // İptal edilmiş bir görev (kuyruğa alınmış ama başlamadan başka bir olay işi iptal etmiş) hiçbir şeye dokunmaz:
         // yoksa aşamayı "onarılıyor" yapıp çıkar ve oturum kalıcı olarak takılırdı
         guard canRecover, !Task.isCancelled else { return }
+        // Toplu çekim: kamera hazır bekliyor, internet BİLEREK kapalı (hücresel kapalı, telefon kameranın Wi-Fi'sinde). Onarım Kestirmeleri kamerayı koparırdı
+        if reason == .network, seriesCameraReady { return }
         // Çevrimdışı çekim kipi (SIM kart yok): dinlerken internetin olmaması sınavı durdurmaz; çekimler birikir, internet gelince gönderilir
         if reason == .network, phase == .listening, offlineCapture {
             offlineHeld = true
