@@ -100,6 +100,10 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
     static let videoWaitSeconds: TimeInterval = 20
     /// Konumlandırma sürerken görüntü bu kadar saniye kesilirse beklenmeden vazgeçilir
     static let lostSeconds = 8
+    /// Toplu çekim sürerken görüntü bu kadar saniye kesilirse oturum bırakılır. Kamera istemcisi sessizliği 6 sn'de fark edip kendiliğinden yeniden bağlanır
+    /// (el sıkışma + ilk anahtar kare ≈ 4–6 sn): 8 sn bunun hemen öncesinde keserdi (günlükte 75 sn'lik oturum 37. saniyede, 28 fotoğrafla bırakıldı).
+    /// Kesinti anında fotoğraf alınmaz; görüntü dönünce çekim kalan süre boyunca sürer.
+    static let seriesLostSeconds = 20
 
     let settings: CameraSettings
     private let client = CameraClient()
@@ -551,7 +555,7 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
 
     /// Toplu çekim: bağlanır, hiç konuşmadan `seconds` sn ARALIKSIZ çeker. Saniyede bir fotoğraf (o saniyenin en net karesi) alınır. Sayfa sayısı yoktur:
     /// kullanıcı sayfaları kendi hızında gösterir (biri 3 sn, biri 8 sn); bütün oturumun fotoğrafları TEK PDF olur, video yoktur.
-    /// Kameradan görüntü `lostSeconds` sn kesilirse oturum bırakılır, o ana kadar alınan fotoğraflar döner (`failure` dolu).
+    /// Kameradan görüntü `seriesLostSeconds` sn kesilirse oturum bırakılır, o ana kadar alınan fotoğraflar döner (`failure` dolu).
     func captureSeries(seconds: Int, connectLimit: TimeInterval?) async -> Result<PageSeries, CameraFailure> {
         // "Başla" denince kamera zaten bağlı ve görüntü akıyorsa (hazır bekleme, bkz. `holdOpen`) o bağlantı kullanılır: yeniden bağlanma yoktur,
         // süre hemen başlar. Bağlantı kopmuşsa kapatılır ve baştan bağlanılır.
@@ -613,7 +617,7 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
             }
             if cancelled { break }
             lostFor = isLive ? 0 : lostFor + 1
-            if lostFor >= CameraCaptureController.lostSeconds {
+            if lostFor >= CameraCaptureController.seriesLostSeconds {
                 cutAt = second
                 tlog("[kamera] toplu çekim: görüntü \(lostFor) sn kesildi (\(second). saniye); oturum bırakılıyor")
                 break

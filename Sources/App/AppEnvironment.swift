@@ -23,6 +23,7 @@ final class AppEnvironment: ObservableObject {
     init() {
         let settings = AppSettings()
         let camera = CameraSettings()
+        BackgroundGrace.enabled = true   // ağ işleri arka plana geçilse de bitsin (gönderim yarıda kesilmesin)
         CameraCaptureController.purgeLeftoverVideos()
         let cameraController = CameraCaptureController(settings: camera)
         settings.applyShortcutPresetOnce()
@@ -79,6 +80,14 @@ final class AppEnvironment: ObservableObject {
         ScreenDimmer.shared.restoreIfLeftDimmed()
         wireStartTriggers()
         wireDimming()
+        wireCellularRoute()
+    }
+
+    /// Toplu çekim kipi açıkken Gemini ve internet yoklaması, telefon kameranın Wi-Fi'sindeyse hücresel yoldan da gidebilir (bkz. `CellularRoute`)
+    private func wireCellularRoute() {
+        camera.$pageSeries
+            .sink { CellularRoute.enabled = $0 }
+            .store(in: &cancellables)
     }
 
     /// Ekran yalnız şu durumda kısılır: ayar açık, uygulama önde ve kırmızı uyarı yok (uyarı görünsün). Test sürmesi şart değildir.

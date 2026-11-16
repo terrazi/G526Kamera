@@ -77,9 +77,11 @@ final class NetworkHealth: HealthChecking {
         request.timeoutInterval = 12
         request.setValue(secret, forHTTPHeaderField: "x-goog-api-key")
         do {
-            let (data, response) = try await session.data(for: request)
-            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            return NetworkHealth.classify(status: status, data: data)
+            // Telefon kameranın Wi-Fi'sindeyse önce hücresel yoldan (kısa süreli: sağlık yoklaması)
+            let quick = CellularHTTP.Options(connectTimeout: 8, idleTimeout: 12, totalTimeout: 12)
+            let result = try await GeminiTransport.send(request, body: nil, session: session, viaCellular: CellularRoute.shouldUse(),
+                                                        cellular: { req, body in try await CellularHTTP.perform(req, body: body, options: quick) })
+            return NetworkHealth.classify(status: result.status, data: result.data)
         } catch {
             return .unreachable(error.localizedDescription)
         }

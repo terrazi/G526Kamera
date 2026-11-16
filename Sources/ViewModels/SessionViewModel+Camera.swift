@@ -440,8 +440,13 @@ extension SessionViewModel {
             } catch let error as GeminiError {
                 last = error
                 guard error.kind == .network, attempt < Timing.cameraSendTries, !Task.isCancelled else { break }
-                tlog("[kamera] gönderim ağ hatası verdi; internet kestirmesi yeniden çalıştırılıp bir kez daha denenecek")
-                _ = await returnToInternet(shortcut: settings.internetShortcut.trimmed)
+                // Telefon kameranın Wi-Fi'sindeyse ve hücresel yol çalışıyorsa kestirme (Wi-Fi/uçak modu/Bluetooth oyunları) çalıştırılmaz: aynı yoldan yeniden denenir
+                if CellularRoute.shouldUse(), await deps.health.quickProbe() {
+                    tlog("[kamera] gönderim ağ hatası verdi; hücresel yol çalışıyor, kestirme çalıştırılmadan bir kez daha denenecek")
+                } else {
+                    tlog("[kamera] gönderim ağ hatası verdi; internet kestirmesi yeniden çalıştırılıp bir kez daha denenecek")
+                    _ = await returnToInternet(shortcut: settings.internetShortcut.trimmed)
+                }
             }
         }
         let failure = last ?? GeminiError("Gemini cevap vermedi.", .error)
@@ -844,7 +849,11 @@ extension SessionViewModel {
     func waitForInternet(seconds: TimeInterval) async -> Bool {
         var waited: TimeInterval = 0
         while !Task.isCancelled {
-            if await deps.health.internetReachable() { return true }
+            if await deps.health.internetReachable() {
+                // Telefon hâlâ kameranın Wi-Fi'sindeyse internet doğrudan hücresel yoldan gelmiştir (bkz. `CellularRoute`)
+                if CellularRoute.shouldUse() { tlog("[kamera] internet geldi: telefon kameranın Wi-Fi'sinde kaldı, Gemini ve yoklama hücresel yoldan gidiyor") }
+                return true
+            }
             if waited >= seconds {
                 // Neden internet yok: telefonun Wi-Fi adresi hâlâ varsa kestirme Wi-Fi'yi kapatmamıştır; yoklamanın hata kodu (-1009 = bağlantı yok, -1001 = zaman aşımı)
                 let wifi = LocalNetwork.wifi().map { LocalNetwork.string($0.ip) } ?? "yok"

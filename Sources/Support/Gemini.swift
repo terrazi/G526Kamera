@@ -178,6 +178,9 @@ final class GeminiClient {
     private let keyProvider: () -> String
     private let modelProvider: () -> String
     private let sleep: (TimeInterval) async -> Void
+    /// Telefon kameranın (internetsiz) Wi-Fi ağındayken istekler önce hücresel arayüzden denenir (bkz. `CellularRoute`)
+    private let preferCellular: () -> Bool
+    private let cellular: GeminiTransport.CellularSender
 
     static func makeSession() -> URLSession {
         let c = URLSessionConfiguration.ephemeral
@@ -191,6 +194,8 @@ final class GeminiClient {
          baseURL: String = GeminiConfig.baseURL,
          key: @escaping () -> String,
          model: @escaping () -> String,
+         preferCellular: @escaping () -> Bool = { CellularRoute.shouldUse() },
+         cellular: @escaping GeminiTransport.CellularSender = GeminiTransport.realCellular,
          sleep: @escaping (TimeInterval) async -> Void = { seconds in
              try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
          }) {
@@ -198,7 +203,18 @@ final class GeminiClient {
         self.baseURL = baseURL
         self.keyProvider = key
         self.modelProvider = model
+        self.preferCellular = preferCellular
+        self.cellular = cellular
         self.sleep = sleep
+    }
+
+    /// İsteği yolundan gönderir: telefon kamera ağındaysa önce hücresel, olmazsa (ya da hücreselden bağlanılamazsa) normal yoldan.
+    /// Dönen durum 0 ise cevap HTTP değildir.
+    private func transport(_ request: URLRequest, body: Data?) async throws -> (data: Data, status: Int) {
+        let viaCellular = preferCellular()
+        return try await BackgroundGrace.run("gemini") {
+            try await GeminiTransport.send(request, body: body, session: self.session, viaCellular: viaCellular, cellular: self.cellular)
+        }
     }
 
     var model: String {
@@ -273,12 +289,12 @@ final class GeminiClient {
             let status: Int
             let data: Data
             do {
-                let (d, response) = try await session.upload(for: request, from: body)
-                guard let http = response as? HTTPURLResponse else {
+                let result = try await transport(request, body: body)
+                guard result.status != 0 else {
                     throw GeminiError("Gemini'den anlaşılmaz yanıt geldi.", .error)
                 }
-                status = http.statusCode
-                data = d
+                status = result.status
+                data = result.data
             } catch let error as GeminiError {
                 throw error
             } catch {
@@ -320,9 +336,9 @@ final class GeminiClient {
         let status: Int
         let data: Data
         do {
-            let (d, response) = try await session.data(for: request)
-            status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            data = d
+            let result = try await transport(request, body: nil)
+            status = result.status
+            data = result.data
         } catch {
             throw GeminiError("İnternete ulaşılamadı: \(error.localizedDescription)", .network)
         }
@@ -365,8 +381,9 @@ extension GeminiClient {
         ]
         guard let body = try? JSONSerialization.data(withJSONObject: object) else { return KeyProbe(status: 0, message: "istek kurulamadı") }
         do {
-            let (data, response) = try await session.upload(for: request, from: body)
-            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            let result = try await transport(request, body: body)
+            let data = result.data
+            let status = result.status
             let error = (GeminiSupport.errorObject(from: data)["error"] as? [String: Any]) ?? [:]
             let message = ((error["message"] as? String) ?? "").trimmed
             tlog("[gemini] anahtar sınaması (\(viaQuery ? "adres" : "başlık")): HTTP \(status) \(message.prefix(120))")

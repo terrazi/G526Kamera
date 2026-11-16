@@ -87,8 +87,46 @@ enum InternetProbe {
         return result.0
     }
 
+    /// Normal yol; telefon kameranın (internetsiz) Wi-Fi'sindeyse hücresel yol da aynı anda denenir, biri başarırsa internet vardır
     private static func attempt(_ target: Target, timeout: TimeInterval = InternetProbe.timeout) async -> (ok: Bool, reason: String) {
         guard let url = URL(string: target.url) else { return (false, "adres hatalı") }
+        guard CellularRoute.shouldUse() else { return await attemptDefault(target, url: url, timeout: timeout) }
+        return await withTaskGroup(of: (Bool, String).self) { group in
+            group.addTask {
+                let r = await attemptDefault(target, url: url, timeout: timeout)
+                return (r.ok, r.reason)
+            }
+            group.addTask {
+                let r = await attemptCellular(target, url: url, timeout: timeout)
+                return (r.ok, "hücresel " + r.reason)
+            }
+            var reasons: [String] = []
+            for await r in group {
+                if r.0 {
+                    group.cancelAll()
+                    return (true, "")
+                }
+                reasons.append(r.1)
+            }
+            return (false, reasons.joined(separator: ", "))
+        }
+    }
+
+    private static func attemptCellular(_ target: Target, url: URL, timeout: TimeInterval) async -> (ok: Bool, reason: String) {
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        let options = CellularHTTP.Options(connectTimeout: timeout, idleTimeout: timeout, totalTimeout: timeout)
+        do {
+            let result = try await CellularHTTP.perform(request, body: nil, options: options)
+            return target.okCodes.contains(result.status) ? (true, "") : (false, "kod \(result.status)")
+        } catch let unavailable as CellularUnavailable {
+            return (false, unavailable.reason)
+        } catch {
+            return (false, "hata \((error as NSError).code)")
+        }
+    }
+
+    private static func attemptDefault(_ target: Target, url: URL, timeout: TimeInterval) async -> (ok: Bool, reason: String) {
         var request = URLRequest(url: url)
         request.timeoutInterval = timeout
         request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
