@@ -124,6 +124,8 @@ final class SessionViewModel: ObservableObject {
         static let cameraSendTries = 2
         /// Kameraya bağlanılamazsa kamera bağlantısı onarımının (Wi-Fi adımı) en çok kaç kez çalışıp çekimin yeniden deneneceği
         static let cameraRepairs = 4   // ilk deneme + 4 onarım = 5 deneme; sonra sesle devam edilir ve kamera yoklanır
+        /// Oturum başında kameraya bağlanırken en çok kaç onarım yapılacağı (ilk deneme + 2 onarım = 3 deneme); olmazsa sesle devam edilir ve kamera yoklanır
+        static let cameraStartRepairs = 2
         /// "Wi-Fi'de kal" kipi: telefon zaten kameranın ağındadır; ilk denemede kameraya bağlanmak için en çok beklenecek süre (sn). Bağlanamazsa onarım kestirmesi çalışır
         static let stayConnectSeconds: TimeInterval = 15
         /// "Wi-Fi'de kal" kipi: çekimden sonra internetin varlığına bakılan süre (sn). İnternet varsa hiçbir kestirme çalışmaz
@@ -151,7 +153,7 @@ final class SessionViewModel: ObservableObject {
         /// (40 sn) ve konumlandırma (30 sn) Gemini bekleyişinin önüne eklenir; bu süre ayrıca tanınır (en kötü durum ~450 sn).
         static func stuckLimit(for phase: SessionPhase, camera: Bool = false) -> TimeInterval? {
             switch phase {
-            case .checking: return 240
+            case .checking: return 240 + (camera ? cameraStuckExtra : 0)   // açılışta kameraya bağlanma (kestirmeler + 3 deneme) bu sınırı aşabilir
             case .answering: return 660 + (camera ? cameraStuckExtra : 0)
             case .speaking: return 180
             case .recovering: return 360
@@ -401,6 +403,8 @@ final class SessionViewModel: ObservableObject {
     var cameraProbeTask: ScheduledTask?
     /// Kamera akışı başladı ama internete dönüş doğrulanmadı: telefon kameranın Wi-Fi'sinde, hücresel kapalı kalmış olabilir
     var networkMayBeOnCamera = false
+    /// Oturum başında kameraya bağlanma adımı bu oturumda yapıldı (açılış kontrolü kulaklık kopmasıyla baştan yapılırsa tekrarlanmaz)
+    var cameraStartDone = false
     /// Çekilen bir soru (fotoğraf + video) Gemini'ye gönderiliyor: bekleme sınırı V3'ün sesli sorusundan daha geniştir (bkz. `Timing.cameraExtraWait`)
     var sendingShotID: UUID?
     var sendingShot: Bool { return sendingShotID != nil }
@@ -610,6 +614,7 @@ final class SessionViewModel: ObservableObject {
         warnings = []
         checkup = []
         statusNote = ""
+        cameraStartDone = false
         nextNumber = 1
         choiceOffer = nil
         choiceReminders = 0

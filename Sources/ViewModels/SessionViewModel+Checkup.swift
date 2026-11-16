@@ -83,6 +83,10 @@ extension SessionViewModel {
         clearWarning("donanim")
         applyVolume(deps.system.snapshot().outputVolume)   // ses oturumu açıldı: cevapları duyabilecek miyiz
 
+        // 2b) Sürüm 4: kameraya hemen bağlanılır (Wi-Fi açık, hücresel kapalı, görüntü ana ekranda); bağlantı ilk hücresel bağlantıdan önce
+        // kapanır ve internete geçilir. Kesilirse (kulaklık, arama) açılış kontrolü yol dönünce baştan yapılır.
+        guard await connectCameraAtStart() else { return }
+
         // 3) İnternet (yoksa Kestirmelerle onarılır)
         var internetOK = await deps.health.internetReachable()
         guard !Task.isCancelled else { return }
@@ -150,7 +154,10 @@ extension SessionViewModel {
             beginListening(mode: .startChoice)
             return
         }
-        let ready = cameraOfferAvailable ? Say.readyCamera : (settings.askCamera ? Say.readyCameraMissing : Say.ready)
+        // Kameraya oturum başında ulaşılamadıysa bu söylenir (kamera ayarları eksik değil, kamera kapalı); sorular sesle okunur
+        let cameraDownAtStart = settings.askCamera && cameraConfigured && cameraDownSince != nil
+        let ready = cameraDownAtStart ? Say.readyCameraDown(minutes: AppSettings.clampCameraCheckMinutes(settings.cameraCheckMinutes))
+            : (cameraOfferAvailable ? Say.readyCamera : (settings.askCamera ? Say.readyCameraMissing : Say.ready))
         // Bölümlü sınavda başlarken hangi bölümde olunduğu söylenir ("Birinci bölüme başlıyorum. Bu bölümde 40 soru var.")
         guard await speakNotice(sectionIndex > 0 ? ready + " " + Say.sectionStart(sectionIndex, questions: sectionQuestionCount) : ready) else { return }
         pendingStart = false

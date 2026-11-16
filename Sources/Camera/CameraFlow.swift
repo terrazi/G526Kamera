@@ -124,8 +124,13 @@ protocol CameraCapturing: AnyObject {
     /// Aynı çekim; kameraya bağlanma beklemesi `connectLimit` sn ile sınırlanır (nil: varsayılan süre). "Wi-Fi'de kal" kipinde telefon zaten kameranın
     /// ağındadır: bağlanamıyorsa uzun beklenmez, onarım kestirmesine geçilir.
     func capture(connectLimit: TimeInterval?) async -> Result<CapturedQuestion, CameraFailure>
-    /// Süren çekimi iptal eder (kamera kapanır)
+    /// Süren çekimi (ya da açık tutulan bağlantıyı) iptal eder (kamera kapanır)
     func cancel()
+    /// Sürüm 4: oturum başlarken kameraya hemen bağlanır; görüntü gelince döner ve bağlantıyı AÇIK bırakır (ana ekrandaki kutuda görüntü akar).
+    /// Konumlandırma söylenmez, hiçbir şey çekilmez. `closeHeld()` kapatır; ilk hücresel bağlantıdan önce çağrılır.
+    func holdOpen() async -> Result<Void, CameraFailure>
+    /// `holdOpen()` ile açık tutulan bağlantıyı kapatır (hiç açık değilse bir şey yapmaz)
+    func closeHeld()
     /// Kameraya ulaşılabiliyor mu: bağlanır, görüntü gelirse doğru döner. Konumlandırma söylenmez, hiçbir şey çekilmez; kamera hemen kapanır.
     func probe() async -> Bool
     /// Kameranın son görüntü karelerinden okunan pil durumu (kamera kapandıktan sonra da son bilinen değer kalır); hiç okunmadıysa nil
@@ -135,6 +140,8 @@ protocol CameraCapturing: AnyObject {
 extension CameraCapturing {
     func capture(connectLimit: TimeInterval?) async -> Result<CapturedQuestion, CameraFailure> { return await capture() }
     var lastBattery: CameraBatteryLevel? { return nil }
+    func holdOpen() async -> Result<Void, CameraFailure> { return .failure(.unavailable) }
+    func closeHeld() {}
     func probe() async -> Bool { return false }
 }
 

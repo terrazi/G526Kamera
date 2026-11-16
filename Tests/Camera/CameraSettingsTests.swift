@@ -31,7 +31,7 @@ final class CameraSettingsTests: XCTestCase {
             "guidanceSharpness": s.guidanceSharpness, "guidanceGlare": s.guidanceGlare, "guidanceDescribe": s.guidanceDescribe,
             "guidancePageEdges": s.guidancePageEdges, "pageVideoSeconds": s.pageVideoSeconds, "videoToGemini": s.videoToGemini,
             "videoQuestion": s.videoQuestion, "videoHighRes": s.videoHighRes, "cameraShortcutName": s.cameraShortcutName,
-            "stayOnWifi": s.stayOnWifi
+            "stayOnWifi": s.stayOnWifi, "connectAtStart": s.connectAtStart
         ]
     }
 
@@ -63,7 +63,8 @@ final class CameraSettingsTests: XCTestCase {
         XCTAssertEqual(s.videoQuestion, "")
         XCTAssertTrue(s.videoHighRes)
         XCTAssertEqual(s.cameraShortcutName, "")
-        XCTAssertTrue(s.stayOnWifi, "telefon varsayılan olarak kameranın Wi-Fi'sinde kalır (kullanıcı kararı 2026-11-16)")
+        XCTAssertFalse(s.stayOnWifi, "varsayılan: Wi-Fi ile hücresel sırayla değişir (kullanıcı kararı 2026-11-16)")
+        XCTAssertTrue(s.connectAtStart, "başlatınca kameraya hemen bağlanılır (kullanıcı kararı 2026-11-16)")
     }
 
     // MARK: Kalıcılık
@@ -77,7 +78,7 @@ final class CameraSettingsTests: XCTestCase {
         s.guidanceEnabled = false; s.guidanceVoice = false; s.statusNotices = false
         s.guidanceSharpness = 2; s.guidanceGlare = false; s.guidanceDescribe = true; s.guidancePageEdges = false
         s.pageVideoSeconds = 9; s.videoToGemini = false; s.videoQuestion = "yalnız seçenekleri söyle"
-        s.videoHighRes = false; s.cameraShortcutName = "Kamera Wifi"; s.stayOnWifi = false
+        s.videoHighRes = false; s.cameraShortcutName = "Kamera Wifi"; s.stayOnWifi = true; s.connectAtStart = false
         s.guidanceFrame = 1; s.imageOrientation = .left90
         XCTAssertEqual(d.string(forKey: "uid"), "ABC123")
         XCTAssertEqual(d.string(forKey: "cameraIP"), "192.168.1.9")

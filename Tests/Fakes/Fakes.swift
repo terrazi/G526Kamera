@@ -330,6 +330,14 @@ final class FakeCamera: CameraCapturing {
     var lastBattery: CameraBatteryLevel?
     /// Çekim başlarken haber verilir (olay sırası sınaması için)
     var onCapture: (() -> Void)?
+    /// Oturum başında bağlantı açılırken / kapanırken haber verilir (olay sırası sınaması için)
+    var onHold: (() -> Void)?
+    var onCloseHeld: (() -> Void)?
+    /// Sırayla verilecek "bağlantıyı açık tut" sonuçları (boşsa başarılı)
+    var holdResults: [Result<Void, CameraFailure>] = []
+    private(set) var holdOpens = 0
+    private(set) var closes = 0
+    private(set) var isHeld = false
     /// Konumlandırma sırasında söylenmiş gibi yapılacak cümle
     var guidance: String?
     /// Doğruysa çekim `release()` çağrılana (ya da iptal edilene) kadar sürer: uzun süren çekim sınamaları için
@@ -378,8 +386,24 @@ final class FakeCamera: CameraCapturing {
         gate = nil
     }
 
+    func holdOpen() async -> Result<Void, CameraFailure> {
+        holdOpens += 1
+        onHold?()
+        let result = holdResults.isEmpty ? Result<Void, CameraFailure>.success(()) : holdResults.removeFirst()
+        if case .success = result { isHeld = true }
+        return result
+    }
+
+    func closeHeld() {
+        guard isHeld else { return }
+        isHeld = false
+        closes += 1
+        onCloseHeld?()
+    }
+
     func cancel() {
         cancels += 1
+        isHeld = false
         release()
     }
 }

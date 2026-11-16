@@ -36,6 +36,7 @@ final class CameraSettings: ObservableObject {
         static let videoHighRes = "videoHighRes"
         static let cameraShortcutName = "cameraShortcutName"
         static let stayOnWifi = "stayOnWifi"
+        static let connectAtStart = "connectAtStart"
     }
 
     /// İlk açılışta Ayarlar'da hazır yazılı gelen kamera adı (UID)
@@ -113,9 +114,13 @@ final class CameraSettings: ObservableObject {
     // MARK: Kestirme
     /// Kamera (Wi-Fi) kestirmesinin adı; boşsa kapalı
     @Published var cameraShortcutName: String { didSet { defaults.set(cameraShortcutName, forKey: Key.cameraShortcutName) } }
-    /// Telefon kameranın Wi-Fi'sinde kalır (kullanıcı kararı 2026-11-16): çekimde "Kameraya geç" kestirmesi çalışmaz, çekimden sonra Wi-Fi bırakılmaz;
-    /// internet hücreselden gelir ve yalnız yoksa hücresel kestirmesi çalışır. Kapalıysa eski düzen: her çekimde kameraya geçilir, sonra Wi-Fi bırakılır.
+    /// Telefon kameranın Wi-Fi'sinde kalır: çekimde "Kameraya geç" kestirmesi çalışmaz, çekimden sonra Wi-Fi bırakılmaz; internet hücreselden gelir
+    /// ve yalnız yoksa hücresel kestirmesi çalışır. Varsayılan KAPALI (kullanıcı kararı 2026-11-16): her çekimde kameraya geçilir (Wi-Fi açık, hücresel kapalı),
+    /// sonra Wi-Fi bırakılıp hücresel açılır.
     @Published var stayOnWifi: Bool { didSet { defaults.set(stayOnWifi, forKey: Key.stayOnWifi) } }
+    /// Oturum başlarken kameraya hemen bağlanılır (kullanıcı kararı 2026-11-16): "Kameraya geç" kestirmesi çalışır, görüntü ana ekranda akar ve
+    /// bağlantı ilk hücresel bağlantıdan önce kapanır. Sonra her soruda eski düzen sürer.
+    @Published var connectAtStart: Bool { didSet { defaults.set(connectAtStart, forKey: Key.connectAtStart) } }
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -163,7 +168,8 @@ final class CameraSettings: ObservableObject {
         videoQuestion = defaults.string(forKey: Key.videoQuestion) ?? ""
         videoHighRes = defaults.object(forKey: Key.videoHighRes) as? Bool ?? true
         cameraShortcutName = defaults.string(forKey: Key.cameraShortcutName) ?? ""
-        stayOnWifi = defaults.object(forKey: Key.stayOnWifi) as? Bool ?? true
+        stayOnWifi = defaults.object(forKey: Key.stayOnWifi) as? Bool ?? false
+        connectAtStart = defaults.object(forKey: Key.connectAtStart) as? Bool ?? true
     }
 
     // MARK: Yardımcılar

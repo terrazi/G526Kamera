@@ -190,6 +190,7 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
     }
 
     func capture(connectLimit: TimeInterval?) async -> Result<CapturedQuestion, CameraFailure> {
+        closeHeld()   // oturum başından kalan açık bağlantı varsa kapanır: çekim kendi bağlantısını kurar
         guard !running else { return .failure(.captureFailed("çekim zaten sürüyor")) }
         running = true
         cancelled = false
@@ -207,20 +208,8 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
 
         // 1) Bağlan
         status("Kameraya bağlanılıyor")
-        decoder.reset()
-        pipeline.reset()
-        decodeClock.clear()
-        batteryMonitor.reset()
         lowBattery = CameraLowBatteryWatcher()
-        let quality = settings.streamQuality == 2 ? (state: 2, stream: 2) : (state: 1, stream: 1)
-        client.start(config: CameraSession.Config(uid: uid,
-                                                  password: settings.cameraPassword,
-                                                  manualIP: settings.cameraIP.trimmed,
-                                                  videoState: quality.state,
-                                                  videoStream: quality.stream,
-                                                  tzHours: TimeZone.current.secondsFromGMT() / 3600,
-                                                  probe: false))
-        cameraState = .connecting("Kameraya bağlanılıyor…")
+        startClient(uid: uid)
         var live = await waitUntil(seconds: connectLimit ?? CameraCaptureController.connectSeconds) { self.isLive }
         if !live, !cancelled, case .connected = cameraState {
             tlog("[kamera] el sıkışıldı, görüntü bekleniyor: \(Int(CameraCaptureController.connectGraceSeconds)) sn ek süre")
@@ -265,6 +254,7 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
     static let probeSeconds: TimeInterval = 25
 
     func probe() async -> Bool {
+        closeHeld()
         guard !running, CameraUID(settings.uid) != nil else { return false }
         running = true
         cancelled = false
@@ -277,12 +267,19 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         }
         pipeline.saving = true
         status("Kamera kontrol ediliyor")
+        guard let uid = CameraUID(settings.uid) else { return false }
+        startClient(uid: uid)
+        let live = await waitUntil(seconds: CameraCaptureController.probeSeconds) { self.isLive }
+        return live && !cancelled
+    }
+
+    /// Kameraya bağlanır (görüntü kareleri akmaya başlar): kare belleği ve ölçümler sıfırlanır, bağlantı kurulur
+    private func startClient(uid: CameraUID) {
         decoder.reset()
         pipeline.reset()
         decodeClock.clear()
         batteryMonitor.reset()
         let quality = settings.streamQuality == 2 ? (state: 2, stream: 2) : (state: 1, stream: 1)
-        guard let uid = CameraUID(settings.uid) else { return false }
         client.start(config: CameraSession.Config(uid: uid,
                                                   password: settings.cameraPassword,
                                                   manualIP: settings.cameraIP.trimmed,
@@ -291,8 +288,62 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
                                                   tzHours: TimeZone.current.secondsFromGMT() / 3600,
                                                   probe: false))
         cameraState = .connecting("Kameraya bağlanılıyor…")
-        let live = await waitUntil(seconds: CameraCaptureController.probeSeconds) { self.isLive }
-        return live && !cancelled
+    }
+
+    // MARK: Oturum başında açık tutulan bağlantı
+
+    /// Bağlantı `holdOpen()` ile açık tutuluyor mu
+    private(set) var holding = false
+
+    /// Sürüm 4: oturum başlarken kameraya hemen bağlanılır; görüntü gelince döner ve bağlantı AÇIK kalır (ana ekrandaki kutuda görüntü akar,
+    /// kamera pili düşükse sesli uyarı verilir). Hiçbir şey çekilmez, konumlandırma yapılmaz. İlk hücresel bağlantıdan önce `closeHeld()` kapatır.
+    func holdOpen() async -> Result<Void, CameraFailure> {
+        if holding { return .success(()) }
+        guard !running else { return .failure(.captureFailed("çekim zaten sürüyor")) }
+        guard let uid = CameraUID(settings.uid) else { return .failure(.notConnected) }
+        running = true
+        cancelled = false
+        shooting = false
+        active = true
+        pipeline.saving = settings.previewOff   // pil tasarrufu açıksa ekrana kare gönderilmez
+        status("Kameraya bağlanılıyor")
+        lowBattery = CameraLowBatteryWatcher()
+        startClient(uid: uid)
+        var live = await waitUntil(seconds: CameraCaptureController.connectSeconds) { self.isLive }
+        if !live, !cancelled, case .connected = cameraState {
+            tlog("[kamera] el sıkışıldı, görüntü bekleniyor: \(Int(CameraCaptureController.connectGraceSeconds)) sn ek süre")
+            live = await waitUntil(seconds: CameraCaptureController.connectGraceSeconds) { self.isLive }
+        }
+        if cancelled || !live {
+            let failure: CameraFailure
+            if cancelled {
+                failure = .cancelled
+            } else {
+                switch cameraState {
+                case .connected, .streaming: failure = .noFrames
+                default: failure = .notConnected
+                }
+            }
+            teardown()
+            running = false
+            active = false
+            return .failure(failure)
+        }
+        holding = true
+        status("Kamera bağlı")
+        tlog("[kamera] oturum başı: kamera bağlı, görüntü geliyor (bağlantı açık tutuluyor)")
+        return .success(())
+    }
+
+    /// Açık tutulan bağlantıyı kapatır (kamera görüntüyü kapatır, boşa geçer); açık bağlantı yoksa bir şey yapmaz
+    func closeHeld() {
+        guard holding else { return }
+        holding = false
+        teardown()
+        running = false
+        active = false
+        statusText = ""
+        tlog("[kamera] oturum başı: açık bağlantı kapatıldı")
     }
 
     /// Ekrandaki "Şimdi çek" düğmesi (yardım eden biri için yedek): konumlandırma beklenmeden çeker
@@ -303,6 +354,10 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
     func cancel() {
         cancelled = true
         resolve(.cancelled)
+        if holding {
+            closeHeld()
+            return
+        }
         if running {
             // Video yazıcısı ve kamera kapanır; capture() geri dönerken `teardown` yeniden çalışır
             teardown()

@@ -393,6 +393,12 @@ enum Say {
     static let captureKindDefault = "Cevap vermediniz. Soru olarak çekiyorum."
     static let cameraAutoStart = "Cevap vermediniz. Üç defa sordum, kamera ile devam ediyorum."
     static let cameraConnecting = "Kameraya geçiliyor. Birkaç saniye bekleyin."
+    /// Oturum başında kameraya bağlanıldı (görüntü ana ekranda); hemen ardından internete geçilir
+    static let cameraStartOK = "Kamera bağlandı. Şimdi internete geçiliyor."
+    /// Oturum başında kameraya ulaşılamadı: sorular sesle okunur, kamera yoklanır
+    static func readyCameraDown(minutes: Int = 5) -> String {
+        return "Ben hazırım, sistem kontrol edildi. Kameraya ulaşılamadı; sorular sesle okunacak. Kamerayı \(minutes) dakikada bir kontrol edeceğim, düzelirse haber vereceğim."
+    }
     static let cameraShortcutsMissing = "Kamera için kestirme adları yazılmamış. Ayarlardan yazın. Şimdilik soruyu okuyun, bitince Cevapla deyin."
     static let cameraRepairing = "Kameraya bağlanılamadı. Bağlantı onarılıyor."
     /// Çekim başarılı: kullanıcı neyin tamamlandığını ve sıradaki adımı duyar

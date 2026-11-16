@@ -6,10 +6,10 @@ import Foundation
 /// "Kameraya N dakika M saniye boyunca ulaşılamıyordu, şu an itibarıyla düzeldi ve kamera kullanılabiliyor" denir ve kamera sorusu yeniden sorulmaya başlar.
 extension SessionViewModel {
     /// 5 denemede kameraya ulaşılamadı: kamera sistemden çıkarılır, yoklama kurulur
-    func markCameraDown(since: Date) {
+    func markCameraDown(since: Date, attempts: Int = Timing.cameraRepairs + 1) {
         guard cameraDownSince == nil else { return }
         cameraDownSince = since
-        tlog("[kamera] kameraya \(Timing.cameraRepairs + 1) denemede ulaşılamadı; sesle devam ediliyor, \(Int(cameraProbeInterval)) sn'de bir yoklanacak")
+        tlog("[kamera] kameraya \(attempts) denemede ulaşılamadı; sesle devam ediliyor, \(Int(cameraProbeInterval)) sn'de bir yoklanacak")
         scheduleCameraProbe()
     }
 

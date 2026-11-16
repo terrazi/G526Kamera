@@ -33,12 +33,12 @@ final class StayOnWifiTests: XCTestCase {
         return h.vm.listenMode == .cameraChoice && h.vm.phase == .listening
     }
 
-    func testTheModeIsOnByDefaultAndKept() {
+    func testTheModeIsOffByDefaultAndKept() {
         let defaults = UserDefaults(suiteName: "g526.testler.\(UUID().uuidString)")!
         let first = CameraSettings(defaults: defaults)
-        XCTAssertTrue(first.stayOnWifi)
-        first.stayOnWifi = false
-        XCTAssertFalse(CameraSettings(defaults: defaults).stayOnWifi, "Ayar kalıcıdır")
+        XCTAssertFalse(first.stayOnWifi, "Varsayılan: Wi-Fi ile hücresel sırayla değişir (kullanıcı kararı 2026-11-16)")
+        first.stayOnWifi = true
+        XCTAssertTrue(CameraSettings(defaults: defaults).stayOnWifi, "Ayar kalıcıdır")
     }
 
     /// İnternet varsa (hücresel Wi-Fi ile birlikte çalışıyorsa) hiçbir kestirme çalışmaz: ne kameraya geçiş ne internete dönüş

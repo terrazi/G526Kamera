@@ -34,20 +34,23 @@ extension SessionViewModel {
     /// cümlelerini söyler).
     var busyPhrase: String? {
         switch phase {
-        case .checking: return Say.gapChecking
+        case .checking: return cameraGapPhrase(statusNote) ?? Say.gapChecking   // açılışta kameraya geçilirken de kameranın bilgisi söylenir
         case .recovering: return Say.gapRepairing
-        case .answering:
-            let note = statusNote
-            if note.contains("Kameraya geçiliyor") || note.contains("Kamera kontrol ediliyor") { return Say.gapCameraSwitch }
-            if note.contains("İnternete geçiliyor") { return Say.gapInternetSwitch }
-            if note.contains("Kamera bağlantısı onarılıyor") { return Say.gapCameraRepair }
-            // Kameraya geçildi, telefon kameranın ağına girip görüntü gelene kadar (yarım dakikayı bulabilir)
-            if note.contains("bağlanılıyor") || note.contains("Giriş yapılıyor") || note.contains("Görüntü isteniyor")
-                || note.contains("sorgulanıyor") { return Say.gapCameraConnect }
-            return nil
+        case .answering: return cameraGapPhrase(statusNote)
         default:
             return nil
         }
+    }
+
+    /// Kamera akışının durum notuna göre söylenecek boşluk bilgisi (nil: kamera akışı yok)
+    private func cameraGapPhrase(_ note: String) -> String? {
+        if note.contains("Kameraya geçiliyor") || note.contains("Kamera kontrol ediliyor") { return Say.gapCameraSwitch }
+        if note.contains("İnternete geçiliyor") { return Say.gapInternetSwitch }
+        if note.contains("Kamera bağlantısı onarılıyor") { return Say.gapCameraRepair }
+        // Kameraya geçildi, telefon kameranın ağına girip görüntü gelene kadar (yarım dakikayı bulabilir)
+        if note.contains("bağlanılıyor") || note.contains("Giriş yapılıyor") || note.contains("Görüntü isteniyor")
+            || note.contains("sorgulanıyor") { return Say.gapCameraConnect }
+        return nil
     }
 
     private func gapTick() {
