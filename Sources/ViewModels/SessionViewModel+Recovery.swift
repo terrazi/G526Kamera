@@ -8,6 +8,11 @@ extension SessionViewModel {
     /// Bluetooth kulaklık ya da yaka mikrofonu koptu: ses anında susar, mikrofon kapanır, her iş durur. Donanım dönene
     /// (ya da `grace` sonra sıfırlama kestirmesi çalışana) kadar hiçbir şey çalınmaz. `grace` nil ise sıfırlama denenmez.
     func enterHardwarePause(_ verdict: RouteVerdict, grace: TimeInterval? = Timing.hardwareGrace) {
+        if connectionResetActive {
+            // Kamera için bağlantılar sıfırlanıyor (uçak modu): kulaklık bilerek düşer, birkaç sn sonra döner; çekim iptal edilmez
+            tlog("[ses yolu] bağlantılar sıfırlanırken beklenen değişiklik (\(verdict.summary)); duraklatılmadı")
+            return
+        }
         var detail = verdict.hint.isEmpty ? verdict.summary : "\(verdict.summary). \(verdict.hint)"
         if detail.isEmpty { detail = "ses yolu kararsız" }
         pauseForHardware(summary: verdict.summary, detail: detail, grace: grace)

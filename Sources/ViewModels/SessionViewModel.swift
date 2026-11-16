@@ -124,6 +124,11 @@ final class SessionViewModel: ObservableObject {
         static let cameraSendTries = 2
         /// Kameraya bağlanılamazsa kamera bağlantısı onarımının (Wi-Fi adımı) en çok kaç kez çalışıp çekimin yeniden deneneceği
         static let cameraRepairs = 4   // ilk deneme + 4 onarım = 5 deneme; sonra sesle devam edilir ve kamera yoklanır
+        /// Bu kadar deneme sonuçsuz kalınca BİR kez bağlantı sıfırlama kestirmesi (uçak modu aç/kapa) çalışır, sonra "Kameraya Geç" ile yeniden denenir
+        /// (kullanıcı önerisi 2026-11-16: kamera bağlantısı Wi-Fi onarımıyla düzelmiyorsa telsizleri baştan kur)
+        static let cameraResetAfter = 2
+        /// Sıfırlamadan sonra Bluetooth kulaklığın dönmesi için en çok beklenecek süre (sn): uçak modu kulaklığı da düşürür (günlükte ≈ 25 sn)
+        static let cameraResetHeadsetWait: TimeInterval = 45
         /// Oturum başında kameraya bağlanırken en çok kaç onarım yapılacağı (ilk deneme + 2 onarım = 3 deneme); olmazsa sesle devam edilir ve kamera yoklanır
         static let cameraStartRepairs = 2
         /// Oturum başında ilk bağlanma denemesinde en çok beklenen süre (sn): "Kameraya geç" telefonu kameranın ağına sokamadıysa 40 sn beklenmez,
@@ -408,6 +413,8 @@ final class SessionViewModel: ObservableObject {
     var cameraProbeTask: ScheduledTask?
     /// Kamera akışı başladı ama internete dönüş doğrulanmadı: telefon kameranın Wi-Fi'sinde, hücresel kapalı kalmış olabilir
     var networkMayBeOnCamera = false
+    /// Kamera için bağlantı sıfırlama (uçak modu) sürüyor: kulaklığın düşmesi beklenen bir durumdur, ses yolu değişince duraklatılmaz
+    var connectionResetActive = false
     /// Oturum başında kameraya bağlanma (bkz. SessionViewModel+CameraStart): nil → henüz denenmedi; true/false → bağlanıldı / bağlanılamadı.
     /// `cameraStartDone`: internete dönüş de tamamlandı. Açılış kontrolü kulaklık kopmasıyla baştan yapılırsa adımlar tekrarlanmaz.
     var cameraStartConnected: Bool?

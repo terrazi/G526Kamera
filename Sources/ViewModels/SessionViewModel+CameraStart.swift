@@ -22,13 +22,26 @@ extension SessionViewModel {
 
         var connected = false
         var repairMissing = false
+        var resetDone = false
         for attempt in 0...Timing.cameraStartRepairs {
             var name = cameraName
             if attempt > 0 {
                 let repair = settings.shortcutName(for: .wifi)
                 name = repair.isEmpty || repairMissing ? cameraName : repair
+                var afterReset = false
+                if attempt == Timing.cameraResetAfter, !resetDone, !settings.shortcutName(for: .reset).isEmpty {
+                    // İki deneme sonuçsuz: uçak moduyla telsizler baştan kurulur (oturum başı sessizdir: duyuru yok), sonra kameraya geç kestirmesi
+                    resetDone = true
+                    afterReset = true
+                    await resetConnectionsForCamera(announce: false)
+                    guard !Task.isCancelled, phase == .checking else {
+                        abandonCameraStart()
+                        return false
+                    }
+                    name = cameraName
+                }
                 statusNote = "Kamera bağlantısı onarılıyor (\(attempt). deneme)"
-                tlog("[kamera] oturum başı: bağlantı onarımı \(attempt). deneme, kestirme “\(name)”")
+                tlog("[kamera] oturum başı: bağlantı onarımı \(attempt). deneme, kestirme “\(name)”\(afterReset ? " (bağlantı sıfırlamadan sonra)" : "")")
             }
             let outcome = await runShortcutRetryingTransient(name: name)
             tlog("[kamera] oturum başı: kestirme sonucu \(outcome)")

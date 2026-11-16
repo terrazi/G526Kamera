@@ -94,7 +94,8 @@ final class CameraStartTests: XCTestCase {
         let listening = await h.startListening()
         XCTAssertTrue(listening, "\(h.speaker.spoken)")
         XCTAssertEqual(h.events, ["kestirme:Kameraya_Gec", "bağlantı açıldı", "kestirme:Kamera_Onar", "bağlantı açıldı",
-                                  "kestirme:Kamera_Onar", "bağlantı açıldı", "kestirme:Hücresele_Gec"])
+                                  "kestirme:Sistemi_Sifirla", "kestirme:Kameraya_Gec", "bağlantı açıldı", "kestirme:Hücresele_Gec"],
+                       "Üçüncü denemeden önce bir kez bağlantı sıfırlanır (uçak modu), sonra kameraya geçilir")
         XCTAssertEqual(h.camera.holdOpens, T.cameraStartRepairs + 1)
         XCTAssertNotNil(h.vm.cameraDownSince, "Kamera sistemden çıktı; yoklanacak")
         let minutes = AppSettings.clampCameraCheckMinutes(h.settings.cameraCheckMinutes)

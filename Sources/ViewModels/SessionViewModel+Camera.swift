@@ -507,14 +507,24 @@ extension SessionViewModel {
         var repairMissing = false   // onarım kestirmesi telefonda yok ("kestirmesi bulunamadı"): aynı yok kestirme bir daha denenmez
         var onCameraNetwork = false   // kameraya geçiş kestirmesi çalıştı: telefon kameranın Wi-Fi'sindedir, onarım kestirmesi olmasa da kamera yeniden denenir
         let stay = cameraSettings.stayOnWifi   // "Wi-Fi'de kal": ilk denemede kestirme çalışmaz
+        var resetDone = false   // bağlantı sıfırlama (uçak modu) bir çekimde en çok BİR kez çalışır
         for attempt in 0...Timing.cameraRepairs {
             var name = cameraName
             if attempt > 0 {
                 let repair = settings.shortcutName(for: .wifi)
                 name = repair.isEmpty || repairMissing ? cameraName : repair   // onarım kestirmesi yazılmamışsa ya da telefonda yoksa kameraya geçiş kestirmesi yeniden çalışır
+                var afterReset = false
+                if attempt == Timing.cameraResetAfter, !resetDone, !settings.shortcutName(for: .reset).isEmpty {
+                    // İki deneme (ilk + bir onarım) sonuçsuz: telefonun telsizleri uçak moduyla baştan kurulur, sonra "Kameraya Geç" ile yeniden denenir
+                    resetDone = true
+                    afterReset = true
+                    await resetConnectionsForCamera(announce: true)
+                    guard !Task.isCancelled, phase == .answering else { return .failure(.cancelled) }
+                    name = cameraName   // Wi-Fi açık, hücresel kapalı: kameraya geçiş kestirmesi
+                }
                 statusNote = "Kamera bağlantısı onarılıyor (\(attempt). deneme)"
-                tlog("[kamera] bağlantı onarımı \(attempt). deneme: kestirme “\(name)”")
-                sayGuidance(Say.cameraRepairing)
+                tlog("[kamera] bağlantı onarımı \(attempt). deneme: kestirme “\(name)”\(afterReset ? " (bağlantı sıfırlamadan sonra)" : "")")
+                sayGuidance(afterReset ? Say.cameraResetDone : Say.cameraRepairing)
             }
             let outcome: ShortcutOutcome
             if stay && attempt == 0 {
@@ -568,6 +578,29 @@ extension SessionViewModel {
             break
         }
         return result
+    }
+
+    /// Kamera iki denemede de açılmadı: "Sistem sıfırlama" kestirmesi (uçak modu aç/kapa) çalışır; Wi-Fi, Bluetooth ve hücresel telsizler baştan kurulur.
+    /// Uçak modu Bluetooth kulaklığı da düşürür (günlükte ≈ 25 sn): bu sürede ses yolu değişikliği duraklatma sayılmaz (`connectionResetActive`) ve
+    /// kulaklığın dönmesi `Timing.cameraResetHeadsetWait` sn'ye kadar beklenir. Duyuru kestirmeden ÖNCE söylenir (kestirme uygulamayı askıya alır).
+    func resetConnectionsForCamera(announce: Bool) async {
+        let name = settings.shortcutName(for: .reset)
+        guard !name.isEmpty else { return }
+        connectionResetActive = true
+        defer { connectionResetActive = false }
+        let headsetWasThere = routeVerdict?.isSafe ?? true   // kulaklık zaten yoktuysa dönmesi beklenmez (oturum başında henüz takılmamış olabilir)
+        tlog("[kamera] \(Timing.cameraResetAfter) denemede kameraya bağlanılamadı: bağlantı sıfırlama kestirmesi “\(name)” (uçak modu aç/kapa) çalıştırılıyor")
+        statusNote = "Telefonun bağlantıları sıfırlanıyor"
+        if announce { await sayGuidanceAndWait(Say.cameraResetting) }
+        let outcome = await runShortcutRetryingTransient(name: name)
+        tlog("[kamera] sıfırlama kestirmesi sonucu: \(outcome)")
+        var waited = 0.0
+        while headsetWasThere, !Task.isCancelled, !(routeVerdict?.isSafe ?? true), waited < Timing.cameraResetHeadsetWait {
+            await Task.yield()   // ses yolu bildirimi gelsin (uyku hiç beklemese de ilerlesin)
+            await deps.sleep(0.5)
+            waited += 0.5
+        }
+        tlog("[kamera] sıfırlamadan sonra kulaklık \((routeVerdict?.isSafe ?? true) ? "yerinde" : "dönmedi") (\(Int(waited)) sn beklendi)")
     }
 
     /// Kestirmeler uygulaması kestirmeyi bazen kendisi geri çevirir: "Çalma Hedefi aygıt bulunamadığı için iş ayarlanamadı". Sınav

@@ -143,7 +143,7 @@ Kestirmeler uygulamasında beş kestirme yapın; adları yukarıdakilerle birebi
 İnternet kopunca uygulama sırayla 2, 4'ü çalıştırır (Sürüm 4; Sürüm 3'te önce 1); kulaklık yoldan çıkınca önce 5'i, kulaklık ya da mikrofon koptuysa 3'ü, işe yaramazsa 4'ü çalıştırır. Konuşma tanıma düşerse hiçbirini çalıştırmaz (aşağıdaki "Konuşma tanıma düşerse" bölümü). Her
 adımdan sonra durumu sınar (internet için internete ve Gemini'ye ulaşmayı, donanım için ses yolunu), düzelince "Bağlantı sorunu
 giderildi…" der ve mikrofonu yeniden açar; **son soruyu baştan okursunuz**. Mikrofon sessiz kaldığı için onarım gerekirse yalnız
-`Sistemi Sıfırla` çalışır (ses yolu sağlam görünürken Bluetooth yenilemesi sorunu çözmüş gibi görünürdü). Kestirmeler uygulaması öne gelip geri döner; bunun için **ekran açık ve kilitsiz** olmalıdır (oturum
+`Sistemi Sıfırla` çalışır (ses yolu sağlam görünürken Bluetooth yenilemesi sorunu çözmüş gibi görünürdü). Kameraya iki denemede bağlanılamazsa (çekimde ya da oturum başında) `Sistemi Sıfırla` bir kez çalışır (uçak modu aç/kapa), ardından `Kameraya Geç` ile yeniden bağlanılır; Bluetooth kulaklık bu sırada ≈ 25 sn düşer, uygulama bunu bekler ve çekimi iptal etmez. Kestirmeler uygulaması öne gelip geri döner; bunun için **ekran açık ve kilitsiz** olmalıdır (oturum
 boyunca ekran kararmaz).
 
 ### Sürüm 4: kamera için üç kestirme

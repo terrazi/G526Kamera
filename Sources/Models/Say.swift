@@ -424,6 +424,9 @@ enum Say {
     }
     static let cameraShortcutsMissing = "Kamera için kestirme adları yazılmamış. Ayarlardan yazın. Şimdilik soruyu okuyun, bitince Cevapla deyin."
     static let cameraRepairing = "Kameraya bağlanılamadı. Bağlantı onarılıyor."
+    /// İki denemeden sonra: uçak modu aç/kapa (bağlantı sıfırlama kestirmesi) çalışmadan önce
+    static let cameraResetting = "Kameraya hâlâ bağlanılamadı. Telefonun bağlantıları sıfırlanıyor, lütfen bekleyin."
+    static let cameraResetDone = "Bağlantılar sıfırlandı. Kameraya yeniden bağlanılıyor."
     /// Çekim başarılı: kullanıcı neyin tamamlandığını ve sıradaki adımı duyar
     static let cameraCaptured = "Soru için video ve fotoğraf çekimi başarıyla yapıldı. Kamera kapatıldı, internete geçiliyor."
     static let cameraSending = "İnternet geldi. Soru Gemini'ye gönderiliyor, cevabı bekleyin."
