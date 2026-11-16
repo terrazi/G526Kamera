@@ -70,8 +70,8 @@ final class NoSimTests: XCTestCase {
         let result = await h.vm.performRecovery(.network)
         XCTAssertEqual(result, .gaveUp)
         XCTAssertTrue(h.shortcuts.runs.isEmpty, "\(h.shortcuts.runs)")
-        let said = await waitUntil { h.speaker.spoken.contains(Say.noSimNoInternet) }
-        XCTAssertTrue(said, "\(h.speaker.spoken)")
+        let said = await waitUntil { h.speaker.announcements.contains(Say.noSimNoInternet) }
+        XCTAssertTrue(said, "\(h.speaker.announcements)")
 
         h.health.internet = true
         let again = await h.vm.performRecovery(.network)
