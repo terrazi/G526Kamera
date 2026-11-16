@@ -444,32 +444,30 @@ enum Say {
     static let cameraPendingDone = "Bekleyen tüm dosyalar Gemini'ye gönderildi ve cevapları alındı. Canlı sorulara devam edebilirsiniz."
 
     // MARK: Sürüm 4: sayfa bazlı toplu çekim (bir oturumda birkaç sayfa, çekim boyunca ses ve titreşim yok)
-    static func askCameraSeries(pages: Int, seconds: Int) -> String {
-        return "Kamera oturumu başlasın mı? \(pages) sayfa çekilecek, her sayfa \(seconds) saniye. Evet ya da hayır deyin."
+    static func askCameraSeries(seconds: Int) -> String {
+        return "Kamera oturumu başlasın mı? \(seconds) saniye çekilecek. Evet ya da hayır deyin."
     }
-    static func askCameraSeriesAfterRecovery(pages: Int, seconds: Int) -> String {
-        return "Bağlantı yeniden onarıldı. " + askCameraSeries(pages: pages, seconds: seconds)
+    static func askCameraSeriesAfterRecovery(seconds: Int) -> String {
+        return "Bağlantı yeniden onarıldı. " + askCameraSeries(seconds: seconds)
     }
-    static func askCameraSeriesAgain(pages: Int, seconds: Int) -> String {
-        return "Anlayamadım, ikinci defa soruyorum. " + askCameraSeries(pages: pages, seconds: seconds)
+    static func askCameraSeriesAgain(seconds: Int) -> String {
+        return "Anlayamadım, ikinci defa soruyorum. " + askCameraSeries(seconds: seconds)
     }
-    static func askCameraSeriesRepeat(_ attempt: Int, pages: Int, seconds: Int) -> String {
+    static func askCameraSeriesRepeat(_ attempt: Int, seconds: Int) -> String {
         let ordinal = attempt >= 3 ? "üçüncü" : "ikinci"
-        return "Cevap vermediniz, \(ordinal) defa soruyorum. " + askCameraSeries(pages: pages, seconds: seconds)
+        return "Cevap vermediniz, \(ordinal) defa soruyorum. " + askCameraSeries(seconds: seconds)
     }
     /// Oturum başlamadan, kestirme kulaklığı kapatmadan ÖNCE bir kez söylenir; çekim boyunca hiçbir şey söylenmez
-    static func seriesStarting(pages: Int, seconds: Int) -> String {
-        return "Kamera oturumu başlıyor: \(pages) sayfa, her sayfa \(seconds) saniye. Çekim sessiz sürer, kulaklık kapanacak. Sayfayı her \(seconds) saniyede bir çevirin. Bitince haber vereceğim."
+    static func seriesStarting(seconds: Int) -> String {
+        return "Kamera oturumu başlıyor: \(seconds) saniye. Çekim sessiz sürer, kulaklık kapanacak. Sayfaları sırayla kameraya gösterin. Süre dolunca haber vereceğim."
     }
-    /// Oturum bitti, internet ve kulaklık geldi: kaç fotoğraflık PDF alındı; tek istekle gönderilir
+    /// Oturum bitti, internet ve kulaklık geldi; görüntüler tek istekle gönderilir. `taken`: alınan fotoğraf (saniye), `planned`: oturum süresi
     static func seriesDone(taken: Int, planned: Int) -> String {
-        if taken >= planned { return "Çekim bitti. \(taken) sayfalık PDF alındı, Gemini'ye gönderiliyor." }
-        return "Çekim yarıda kesildi. \(planned) sayfadan \(taken) tanesi alındı, alınanlar Gemini'ye gönderiliyor."
+        if taken >= planned { return "Çekim bitti. Görüntüler Gemini'ye gönderiliyor." }
+        return "Çekim yarıda kesildi. \(planned) saniyenin \(taken) saniyesi alındı, alınanlar Gemini'ye gönderiliyor."
     }
     /// Oturum bitti ama internet gelmedi
-    static func seriesSavedOffline(taken: Int) -> String {
-        return "Çekim bitti, \(taken) sayfalık PDF alındı ama internet gelmedi. PDF telefonda saklandı; internet gelince gönderilecek."
-    }
+    static let seriesSavedOffline = "Çekim bitti ama internet gelmedi. Görüntüler telefonda saklandı; internet gelince gönderilecek."
     /// Toplu çekimin PDF'i gönderilirken (bekleyen birkaç tane varsa hangisi olduğu söylenir)
     static func pageSending(index: Int, total: Int) -> String {
         if total <= 1 { return "PDF Gemini'ye gönderiliyor, cevapları bekleyin. Birkaç dakika sürebilir." }

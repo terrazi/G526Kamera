@@ -2,8 +2,8 @@ import XCTest
 import UIKit
 @testable import G526CameraDrive
 
-/// Sayfa bazlı toplu çekim (kullanıcı kararı 2026-11-16): bir oturumda birkaç sayfa, çekim boyunca ses ve titreşim yok,
-/// sayfadaki bütün soruların cevabı sırayla okunur.
+/// Toplu çekim (kullanıcı kararı 2026-11-16): oturumun tek sınırı süredir (75 sn), sayfa sayısı yoktur; çekim boyunca ses ve titreşim yok,
+/// görüntülerdeki bütün soruların cevabı sırayla, aralarında 2 sn boşlukla okunur.
 @MainActor
 final class PageSeriesTests: XCTestCase {
     typealias T = SessionViewModel.Timing
@@ -39,21 +39,28 @@ final class PageSeriesTests: XCTestCase {
 
     private func index(of text: String, in spoken: [String]) -> Int? { return spoken.firstIndex(of: text) }
 
+    /// Cevaplar arasındaki 2 sn'lik beklemeler: her biri için o ana kadar söylenen cümle sayısı (bir cevabın hemen ardından, sıradaki cevaptan önce)
+    private func answerGaps(_ h: SessionHarness) -> [Int] {
+        return h.sleepLog.entries
+            .filter { $0.seconds == T.answerGap && $0.spokenCount >= 1 && $0.spokenCount < h.speaker.spoken.count }
+            .filter { h.speaker.spoken[$0.spokenCount - 1].hasPrefix("Soru") && h.speaker.spoken[$0.spokenCount].hasPrefix("Soru") }
+            .map { $0.spokenCount }
+    }
+
     // MARK: Akış
 
     func testYesStartsASessionAndAllTheAnswersOfTheSinglePdfAreReadInOrder() async {
         let h = harness(seriesResults: [series()],
                         pageReplies: [.success([FakeAnswering.reply(1), FakeAnswering.reply(2), FakeAnswering.reply(3)])])
         _ = await h.startListening()
-        let ask = Say.askCameraSeries(pages: 5, seconds: 15)
+        let ask = Say.askCameraSeries(seconds: 75)
         XCTAssertEqual(h.speaker.spoken, [Say.readyCamera, ask], "Toplu çekim açıkken soru oturum sorusudur")
         reply(h, "evet")
         let done = await waitUntil(45) { h.vm.answers.count == 3 && self.questionOpen(h) }
         XCTAssertTrue(done, "\(h.speaker.spoken)")
         XCTAssertEqual(h.events, ["kestirme:Kameraya_Gec", "oturum", "kestirme:Hücresele_Gec", "sayfa gönderimi"],
                        "Önce kameraya geçilir ve oturum çekilir, sonra internete dönülür, ondan sonra TEK PDF tek istekle gönderilir")
-        XCTAssertEqual(h.camera.seriesCalls.first?.pages, 5)
-        XCTAssertEqual(h.camera.seriesCalls.first?.seconds, 15)
+        XCTAssertEqual(h.camera.seriesCalls.first?.seconds, 75, "Oturumun tek sınırı süredir: sayfa sayısı verilmez")
         XCTAssertEqual(h.camera.captures, 0, "Tek soruluk çekim kullanılmaz")
         XCTAssertEqual(h.answering.pageCalls.count, 1, "75 sayfalık PDF tek seferde gider")
         XCTAssertEqual(h.answering.pageCalls.first?.shot.pageCount, 75)
@@ -87,7 +94,7 @@ final class PageSeriesTests: XCTestCase {
         let done = await waitUntil(45) { h.vm.answers.count == 1 && self.questionOpen(h) }
         XCTAssertTrue(done, "\(h.speaker.spoken)")
         guard spokenBefore > 0 else { return XCTFail("Oturum başlamadı: \(h.speaker.spoken)") }
-        let starting = Say.seriesStarting(pages: 5, seconds: 15)
+        let starting = Say.seriesStarting(seconds: 75)
         XCTAssertEqual(h.speaker.spoken.filter { $0 == starting }.count, 1, "Duyuru oturum başında bir kez")
         XCTAssertEqual(h.speaker.spoken[spokenBefore - 1], starting, "Kameraya geçilmeden hemen önce söylenen son cümle duyurudur")
         XCTAssertFalse(handlersSet, "Kameranın konuşma bağlantıları oturumda verilmez: çekim sessizdir")
@@ -169,7 +176,7 @@ final class PageSeriesTests: XCTestCase {
         _ = await h.startListening()
         h.listener.say("şey acaba nasıl")
         h.scheduler.advance(by: T.numberUnclear + 0.1)
-        let again = await waitUntil(45) { h.speaker.spoken.last == Say.askCameraSeriesAgain(pages: 5, seconds: 15) && self.questionOpen(h) }
+        let again = await waitUntil(45) { h.speaker.spoken.last == Say.askCameraSeriesAgain(seconds: 75) && self.questionOpen(h) }
         XCTAssertTrue(again, "\(h.speaker.spoken)")
         XCTAssertEqual(h.camera.seriesCalls.count, 0)
     }
@@ -204,13 +211,16 @@ final class PageSeriesTests: XCTestCase {
         let defaults = UserDefaults(suiteName: "g526.testler.\(UUID().uuidString)")!
         let settings = CameraSettings(defaults: defaults)
         XCTAssertTrue(settings.pageSeries, "Toplu çekim varsayılan AÇIK")
-        XCTAssertEqual(settings.seriesPages, 5)
-        XCTAssertEqual(settings.seriesSeconds, 15)
-        defaults.set(99, forKey: "seriesPages")
-        defaults.set(1, forKey: "seriesSeconds")
+        XCTAssertEqual(settings.seriesSeconds, 75, "Oturum süresi varsayılan 75 sn")
+        defaults.set(1, forKey: "seriesTotalSeconds")
+        XCTAssertEqual(CameraSettings(defaults: defaults).seriesSeconds, 15, "En az 15 sn")
+        defaults.set(999, forKey: "seriesTotalSeconds")
         let clamped = CameraSettings(defaults: defaults)
-        XCTAssertEqual(clamped.seriesPages, 10)
-        XCTAssertEqual(clamped.seriesSeconds, 5)
+        XCTAssertEqual(clamped.seriesSeconds, 150, "En çok 150 sn")
+        let old = UserDefaults(suiteName: "g526.testler.\(UUID().uuidString)")!
+        old.set(15, forKey: "seriesSeconds")   // eski sürümün "sayfa başına sn" anahtarı yeni süreyi etkilemez
+        old.set(5, forKey: "seriesPages")
+        XCTAssertEqual(CameraSettings(defaults: old).seriesSeconds, 75)
         clamped.pageSeries = false
         XCTAssertFalse(CameraSettings(defaults: defaults).pageSeries, "Ayar kalıcıdır")
     }
@@ -293,6 +303,8 @@ final class PageSeriesTests: XCTestCase {
         let object = try JSONSerialization.jsonObject(with: body) as! [String: Any]
         let system = (((object["systemInstruction"] as! [String: Any])["parts"] as! [[String: Any]])[0]["text"] as! String)
         XCTAssertTrue(system.contains("HER SORU İÇİN AYRI BİR SATIR"))
+        XCTAssertTrue(system.contains("eşit sürede gösterilmez"), "Sayfaların eşit sürede gösterilmediği, sayfa sayısının belli olmadığı söylenir")
+        XCTAssertTrue(system.contains("ortak paragraf"), "Paragrafa bağlı soruların hepsi cevaplanır")
         XCTAssertTrue(system.contains("SORU YOK"))
         let contents = object["contents"] as! [[String: Any]]
         let parts = contents[0]["parts"] as! [[String: Any]]
@@ -304,5 +316,85 @@ final class PageSeriesTests: XCTestCase {
         XCTAssertTrue(text.contains("Soru 4"))
         XCTAssertTrue(text.contains("bütün soruları"))
         XCTAssertTrue(text.contains("Şıklar küçük yazılmış"))
+    }
+
+    // MARK: Süre tek sınır, cevaplar arası 2 sn
+
+    func testTheSessionAnnouncementTalksOnlyAboutTheDuration() {
+        let starting = Say.seriesStarting(seconds: 75)
+        XCTAssertTrue(starting.contains("75 saniye"))
+        XCTAssertFalse(starting.lowercased().contains("her sayfa"), "Sayfa sayısı ya da sayfa başına süre söylenmez")
+        XCTAssertFalse(Say.askCameraSeries(seconds: 75).lowercased().contains("sayfa çekilecek"))
+        XCTAssertFalse(Say.seriesDone(taken: 75, planned: 75).contains("sayfalık"), "PDF'in fotoğraf sayısı sayfa gibi söylenmez")
+    }
+
+    func testEveryAnswerOfThePdfIsFollowedByATwoSecondGapExceptTheLast() async {
+        let h = harness(seriesResults: [series()],
+                        pageReplies: [.success([FakeAnswering.reply(1), FakeAnswering.reply(2), FakeAnswering.reply(3)])])
+        _ = await h.startListening()
+        reply(h, "evet")
+        let done = await waitUntil(45) { h.vm.answers.count == 3 && self.questionOpen(h) }
+        XCTAssertTrue(done, "\(h.speaker.spoken)")
+        XCTAssertEqual(T.answerGap, 2, "Cevaplar arası boşluk 2 sn")
+        let gaps = answerGaps(h)
+        XCTAssertEqual(gaps.count, 2, "Üç cevap arasında iki boşluk: sonuncudan sonra yoktur")
+        for gap in gaps {
+            XCTAssertTrue(h.speaker.spoken[gap - 1].hasPrefix("Soru"), "Boşluktan önce bir cevap okunmuştur")
+            XCTAssertTrue(h.speaker.spoken[gap].hasPrefix("Soru"), "Boşluktan sonra sıradaki cevap okunur")
+        }
+        let answers = h.speaker.spoken.filter { $0.hasPrefix("Soru") }
+        XCTAssertEqual(answers, ["Soru 1, Denizli, Örgütsel Davranış", "Soru 2, Denizli, Örgütsel Davranış", "Soru 3, Denizli, Örgütsel Davranış"],
+                       "Her cevap soru numarası, şık sözcüğü ve doğru şıkkın metniyle, sırayla okunur")
+    }
+
+    func testASingleAnswerHasNoGap() async {
+        let h = harness(seriesResults: [series()], pageReplies: [.success([FakeAnswering.reply(1)])])
+        _ = await h.startListening()
+        reply(h, "evet")
+        let done = await waitUntil(45) { h.vm.answers.count == 1 && self.questionOpen(h) }
+        XCTAssertTrue(done, "\(h.speaker.spoken)")
+        XCTAssertTrue(answerGaps(h).isEmpty, "Tek cevaplık PDF'te cevap arası boşluk yoktur")
+    }
+
+    func testAPdfOfAnyNumberOfPagesIsOneRequest() async {
+        // 75 sn'de 3 sayfa da gösterilebilir, 10 sayfa da: soru sayısı sabit değildir, hepsi tek istekte gider ve hepsi okunur
+        let replies = (1...9).map { FakeAnswering.reply($0) }
+        let h = harness(seriesResults: [series()], pageReplies: [.success(replies)])
+        _ = await h.startListening()
+        reply(h, "evet")
+        let done = await waitUntil(45) { h.vm.answers.count == 9 && self.questionOpen(h) }
+        XCTAssertTrue(done, "\(h.speaker.spoken)")
+        XCTAssertEqual(h.answering.pageCalls.count, 1)
+        XCTAssertEqual(answerGaps(h).count, 8, "9 cevap arasında 8 boşluk")
+    }
+
+    // MARK: Kamera: görüntü gelmeyen bağlantıda erken vazgeçme
+
+    func testAConnectionThatGivesNoVideoIsDroppedTwentySecondsAfterTheHandshake() {
+        typealias C = CameraCaptureController
+        XCTAssertEqual(C.videoWaitSeconds, 20)
+        // el sıkışma yok: tam süre beklenir
+        XCTAssertFalse(C.shouldGiveUp(elapsed: 39, limit: 40, handshakeAge: nil, grace: true))
+        XCTAssertTrue(C.shouldGiveUp(elapsed: 40, limit: 40, handshakeAge: nil, grace: true))
+        // el sıkışıldı ama görüntü gelmiyor: 20 sn sonra bırakılır (40 sn beklenmez)
+        XCTAssertFalse(C.shouldGiveUp(elapsed: 25, limit: 40, handshakeAge: 19.9, grace: true))
+        XCTAssertTrue(C.shouldGiveUp(elapsed: 25, limit: 40, handshakeAge: 20, grace: true))
+        // kesin sınır (oturum başı, 15 sn): el sıkışılsa da sınırdan sonra beklenmez
+        XCTAssertTrue(C.shouldGiveUp(elapsed: 15, limit: 15, handshakeAge: 5, grace: false))
+        XCTAssertFalse(C.shouldGiveUp(elapsed: 14, limit: 15, handshakeAge: 5, grace: false))
+        // sınırın hemen sonunda el sıkışılırsa ek süre tanınır, ama en çok `connectGraceSeconds` kadar
+        XCTAssertFalse(C.shouldGiveUp(elapsed: 41, limit: 40, handshakeAge: 3, grace: true))
+        XCTAssertTrue(C.shouldGiveUp(elapsed: 55, limit: 40, handshakeAge: 15, grace: true))
+    }
+
+    func testTheLinkQualityIsGradedFromTheRepeatAndLossRatios() {
+        // Günlükteki iyi oturumlar: tekrar %0,9–6,7, kayıp %0–0,2 → iyi / orta; görüntü gelmeyenler: tekrar %12–57 → zayıf
+        XCTAssertEqual(LinkQuality.level(packets: 7940, lost: 0, repeated: 85), .good)
+        XCTAssertEqual(LinkQuality.level(packets: 5984, lost: 0, repeated: 53), .good)
+        XCTAssertEqual(LinkQuality.level(packets: 7509, lost: 16, repeated: 501), .fair)
+        XCTAssertEqual(LinkQuality.level(packets: 842, lost: 34, repeated: 186), .weak)
+        XCTAssertEqual(LinkQuality.level(packets: 463, lost: 51, repeated: 178), .weak)
+        XCTAssertEqual(LinkQuality.level(packets: 0, lost: 0, repeated: 0), .weak, "Hiç paket gelmediyse bağlantı kullanılamaz")
+        XCTAssertEqual(LinkQuality.text(packets: 842, lost: 34, repeated: 186), "kayıp %3.9, tekrar %22.1, bağlantı zayıf")
     }
 }

@@ -54,14 +54,11 @@ struct CameraSettingsSections: View {
                 Text("Çekim süresi: soru ya da paragraf başına \(camera.pageVideoSeconds) sn")
             }
             Toggle("Çekim sırasında sesli geri sayım", isOn: $camera.countdown)
-            Toggle("Sayfa bazlı toplu çekim (bir oturumda birkaç sayfa)", isOn: $camera.pageSeries)
-            Stepper(value: $camera.seriesPages, in: CameraSettings.seriesPagesRange) {
-                Text("Bir oturumda \(camera.seriesPages) sayfa")
+            Toggle("Toplu çekim (bir oturumda birçok sayfa, süre sınırlı)", isOn: $camera.pageSeries)
+            Stepper(value: $camera.seriesSeconds, in: CameraSettings.seriesSecondsRange, step: 5) {
+                Text("Oturum süresi \(camera.seriesSeconds) sn")
             }
-            Stepper(value: $camera.seriesSeconds, in: CameraSettings.seriesSecondsRange) {
-                Text("Her sayfa \(camera.seriesSeconds) sn")
-            }
-            HelpRow("Sayfa bazlı toplu çekim (varsayılan AÇIK): “kamera ile çekmek ister misiniz?” sorusuna “evet” denince tek soru değil bir OTURUM çekilir: varsayılan 5 sayfa, her sayfa 15 sn (toplam 75 sn; 1–10 sayfa, 5–30 sn ayarlanır). Oturum başlamadan program bir kez söyler (sayfa sayısı, süre); sonra kestirme hücreseli, mikrofonu ve kulaklığı kapatır ve oturum boyunca ne ses ne titreşim olur: kitapçığın sayfasını kendi sayımınızla (her biri bu kadar saniye) çevirirsiniz. Kamera saniyede bir fotoğraf alır; bütün oturumun fotoğrafları (5 × 15 = 75) TEK PDF olur ve tek seferde Gemini'ye gider (16 MB'ı aşarsa fotoğraflar biraz daha düşük kaliteyle yeniden sıkıştırılır; yükleme ve okuma birkaç dakika sürebilir). Oturum bitince internet ve kulaklık gelir, Gemini görüntülerdeki bütün soruları numara sırasıyla cevaplar ve cevaplar numarasıyla art arda okunur; sonra yeni oturum sorulur. Toplu çekimde video gönderilmez. Kapatırsanız her çekim tek bir sorudur (eski düzen).")
+            HelpRow("Toplu çekim (varsayılan AÇIK): “kamera ile çekmek ister misiniz?” sorusuna “evet” denince tek soru değil bir OTURUM çekilir. Oturumun tek sınırı süredir (varsayılan 75 sn, 15–150 sn ayarlanır); sayfa sayısı ya da sayfa başına süre yoktur: sayfaları istediğiniz hızda gösterirsiniz, biri 3 sn, biri 8 sn görünebilir, hızlıysanız 10 sayfa da taranır. Oturum başlamadan program süreyi bir kez söyler; sonra kestirme hücreseli, mikrofonu ve kulaklığı kapatır ve oturum boyunca ne ses ne titreşim olur. Kamera saniyede bir fotoğraf alır; bütün oturumun fotoğrafları TEK PDF olur ve tek seferde Gemini'ye gider (16 MB'ı aşarsa fotoğraflar biraz daha düşük kaliteyle yeniden sıkıştırılır; yükleme ve okuma birkaç dakika sürebilir). Oturum bitince internet ve kulaklık gelir; Gemini görüntülerdeki BÜTÜN soru ve paragraf sorularını cevaplar, cevaplar soru numarası, şık sözcüğü ve doğru şıkkın metniyle sırayla okunur, her cevap arasında 2 sn boşluk olur; sonra yeni oturum sorulur. Toplu çekimde video gönderilmez. Kapatırsanız her çekim tek bir sorudur (eski düzen).")
             Toggle("Videoyu da Gemini'ye gönder", isOn: $camera.videoToGemini)
             Toggle("Videoyu yüksek çözünürlükle oku", isOn: $camera.videoHighRes)
             TextField("Gemini'ye ek talimat (isteğe bağlı)", text: $camera.videoQuestion)

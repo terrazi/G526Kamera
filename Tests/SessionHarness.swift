@@ -24,6 +24,8 @@ final class SessionHarness {
     let volume = FakeVolume()
     let journal = FakeJournal()
     let exits = ExitCounter()
+    /// `deps.sleep` çağrıları: süre ve o ana kadar söylenen cümle sayısı (cevaplar arası boşluk gibi bekleme sınamaları için)
+    let sleepLog = SleepLog()
     /// Sahte saat: varsayılan donuk; kamera yoklaması gibi süre ölçen testler `clock.offset` ile ilerletir
     let clock = TestClock()
     let scheduler = ManualScheduler()
@@ -81,6 +83,8 @@ final class SessionHarness {
             settings.wifiShortcut = "Kamera_Onar"   // Sürüm 4: Wi-Fi adımı kamera bağlantısını onarır
         }
         let exitCounter = exits
+        let sleepRecord = sleepLog
+        let speakerRef = speaker
         let clockRef = clock
         let deps = SessionDependencies(route: route,
                                        listener: listener,
@@ -96,7 +100,7 @@ final class SessionHarness {
                                        scheduler: scheduler,
                                        library: library ?? AnswerLibrary(root: root),
                                        now: { Date(timeIntervalSince1970: 1_800_000_000 + clockRef.offset) },
-                                       sleep: { _ in },
+                                       sleep: { seconds in sleepRecord.entries.append((seconds: seconds, spokenCount: speakerRef.spoken.count)) },
                                        recoveryConfig: RecoveryCoordinator.Config(settle: 0, verifyWindow: 0, verifyInterval: 1,
                                                                                   cycleGap: 0, maxCycles: 1),
                                        camera: camera,
@@ -154,4 +158,9 @@ final class SessionHarness {
 /// Testlerde ViewModel'in "şimdi"sini ilerletmek için (varsayılan 0: saat donuktur, başka testler etkilenmez)
 final class TestClock {
     var offset: TimeInterval = 0
+}
+
+/// `SessionHarness.sleepLog`: sahte `sleep` çağrılarının kaydı
+final class SleepLog {
+    var entries: [(seconds: TimeInterval, spokenCount: Int)] = []
 }

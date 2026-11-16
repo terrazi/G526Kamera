@@ -1,34 +1,35 @@
 import Foundation
 
-/// Sayfa bazlı toplu çekim (kullanıcı kararı 2026-11-16): "evet" denince TEK soru değil bir OTURUM çekilir (varsayılan 5 sayfa × 15 sn = 75 sn).
+/// Toplu çekim (kullanıcı kararı 2026-11-16): "evet" denince TEK soru değil bir OTURUM çekilir. Tek sınır süredir (varsayılan 75 sn); sayfa sayısı yoktur,
+/// sayfalar eşit sürede gösterilmez: süre içinde ne kadar sayfa gösterilirse hepsi tek PDF olur.
 ///
-/// Akış: (1) oturum bir kez duyurulur ("5 sayfa, her sayfa 15 saniye… kulaklık kapanacak"); (2) Kestirme hücreseli, mikrofonu ve kulaklığı kapatır, telefon
-/// kameranın Wi-Fi'sine geçer; (3) kamera hiç konuşmadan aralıksız çeker, saniyede bir fotoğraf (ses de titreşim de YOK; sayfayı kullanıcı kendi sayımıyla
-/// çevirir); (4) kamera kapanır, internet ve kulaklık geri gelir (kulaklık gelene kadar ses yolu değişikliği duraklatma sayılmaz); (5) bütün oturumun
-/// fotoğrafları (75) TEK PDF'tir (kullanıcı kararı: "tüm 75 sayfa pdf tek seferde gitsin"): telefondaki klasöre "bekliyor" olarak yazılır, tek istekle
-/// gönderilir ve PDF'teki BÜTÜN soruların cevabı numara sırasıyla okunur; (6) sonra yeni oturum sorulur. Cevaplar duyulana kadar PDF silinmez.
+/// Akış: (1) oturum bir kez duyurulur ("75 saniye… kulaklık kapanacak"); (2) Kestirme hücreseli, mikrofonu ve kulaklığı kapatır, telefon
+/// kameranın Wi-Fi'sine geçer; (3) kamera hiç konuşmadan aralıksız çeker, saniyede bir fotoğraf (ses de titreşim de YOK; sayfaları kullanıcı kendi hızında
+/// gösterir); (4) kamera kapanır, internet ve kulaklık geri gelir (kulaklık gelene kadar ses yolu değişikliği duraklatma sayılmaz); (5) bütün oturumun
+/// fotoğrafları TEK PDF'tir: telefondaki klasöre "bekliyor" olarak yazılır, tek istekle gönderilir ve PDF'teki BÜTÜN soruların cevabı numara sırasıyla,
+/// her cevap arasında `Timing.answerGap` sn boşlukla okunur; (6) sonra yeni oturum sorulur. Cevaplar duyulana kadar PDF silinmez.
 extension SessionViewModel {
     // MARK: Kamera sorusunun cümleleri
 
     /// "Kamera ile çekmek ister misiniz?" sorusu: toplu çekim açıksa oturum sorusu
     func cameraAskText(again: Bool) -> String {
         guard cameraSettings.pageSeries else { return again ? Say.askCameraAgain : Say.askCamera }
-        let (pages, seconds) = (cameraSettings.seriesPages, cameraSettings.seriesSeconds)
-        return again ? Say.askCameraSeriesAgain(pages: pages, seconds: seconds) : Say.askCameraSeries(pages: pages, seconds: seconds)
+        let seconds = cameraSettings.seriesSeconds
+        return again ? Say.askCameraSeriesAgain(seconds: seconds) : Say.askCameraSeries(seconds: seconds)
     }
 
     /// Cevapsız kalınca yeniden sorma ("Cevap vermediniz…") ya da anlaşılmayınca ("Anlayamadım…")
     func cameraAskReminder(unclear: Bool, attempt: Int) -> String {
         guard cameraSettings.pageSeries else { return unclear ? Say.reask(Say.askCameraAgain, attempt: attempt) : Say.askCameraRepeat(attempt) }
-        let (pages, seconds) = (cameraSettings.seriesPages, cameraSettings.seriesSeconds)
-        return unclear ? Say.reask(Say.askCameraSeriesAgain(pages: pages, seconds: seconds), attempt: attempt)
-                       : Say.askCameraSeriesRepeat(attempt, pages: pages, seconds: seconds)
+        let seconds = cameraSettings.seriesSeconds
+        return unclear ? Say.reask(Say.askCameraSeriesAgain(seconds: seconds), attempt: attempt)
+                       : Say.askCameraSeriesRepeat(attempt, seconds: seconds)
     }
 
     /// Onarımdan sonra evet / hayır yeniden sorulurken
     var cameraAskAfterRecovery: String {
         guard cameraSettings.pageSeries else { return Say.askCameraAfterRecovery }
-        return Say.askCameraSeriesAfterRecovery(pages: cameraSettings.seriesPages, seconds: cameraSettings.seriesSeconds)
+        return Say.askCameraSeriesAfterRecovery(seconds: cameraSettings.seriesSeconds)
     }
 
     /// Kamera "evet" denince: toplu çekim açıksa oturum başlar, değilse eski düzen (soru mu paragraf mı, tek çekim)
@@ -49,17 +50,16 @@ extension SessionViewModel {
         }
         cameraBusy = true
         defer { cameraBusy = false }
-        let pages = cameraSettings.seriesPages
         let seconds = cameraSettings.seriesSeconds
         let cameraName = cameraSettings.cameraShortcutName.trimmed
         let internetName = settings.internetShortcut.trimmed
-        tlog("[kamera] toplu çekim: \(pages) sayfa × \(seconds) sn, kestirme “\(cameraName)”, internet kestirmesi “\(internetName)”")
+        tlog("[kamera] toplu çekim: \(seconds) sn, kestirme “\(cameraName)”, internet kestirmesi “\(internetName)”")
         guard cameraConfigured else {
             await fallBackToVoice(Say.cameraShortcutsMissing)
             return
         }
         // Duyuru kestirmeden ÖNCE söylenir: kestirme kulaklığı kapatır ve oturum boyunca hiçbir şey söylenmez
-        guard await speakNotice(Say.seriesStarting(pages: pages, seconds: seconds)) else {
+        guard await speakNotice(Say.seriesStarting(seconds: seconds)) else {
             tlog("[kamera] oturum duyurusu kesildi; kestirme çalıştırılmadı, onarımdan sonra yeniden sorulacak")
             offerCamera = true
             return
@@ -74,7 +74,7 @@ extension SessionViewModel {
         defer { connectionResetActive = false }
         deps.camera.subject = .question
         var result = await repairLoop(cameraName: cameraName, speaks: false,
-                                      operation: { camera, limit in await camera.captureSeries(pages: pages, seconds: seconds, connectLimit: limit) },
+                                      operation: { camera, limit in await camera.captureSeries(seconds: seconds, connectLimit: limit) },
                                       interrupted: { [weak self] series in self?.saveInterruptedSeries(series) })
         // Alınan sayfalar telefondaki klasöre yazılır: internete dönüş sürerken kesinti olsa da kaybolmaz
         if case .success(let series) = result {
@@ -130,10 +130,10 @@ extension SessionViewModel {
                 beginListening()
             } else if offlineCapture {
                 tlog("[kamera] çevrimdışı çekim kipi: \(taken) fotoğraflık PDF telefonda bekliyor")
-                await continueOffline(Say.seriesSavedOffline(taken: taken))
+                await continueOffline(Say.seriesSavedOffline)
             } else {
                 warn("kamera", "Çekilen PDF telefonda bekliyor: internet gelmedi.")
-                await repairInternetAfterCamera(Say.seriesSavedOffline(taken: taken))
+                await repairInternetAfterCamera(Say.seriesSavedOffline)
             }
         }
     }

@@ -378,11 +378,11 @@ final class FakeCamera: CameraCapturing {
 
     /// Toplu sayfa çekimi: sırayla verilecek oturum sonuçları (boşsa kamera yok), yapılan çağrılar ve oturum başlarken haber verilen kanca
     var seriesResults: [Result<PageSeries, CameraFailure>] = []
-    private(set) var seriesCalls: [(pages: Int, seconds: Int, limit: TimeInterval?)] = []
+    private(set) var seriesCalls: [(seconds: Int, limit: TimeInterval?)] = []
     var onSeries: (() -> Void)?
 
-    func captureSeries(pages: Int, seconds: Int, connectLimit: TimeInterval?) async -> Result<PageSeries, CameraFailure> {
-        seriesCalls.append((pages, seconds, connectLimit))
+    func captureSeries(seconds: Int, connectLimit: TimeInterval?) async -> Result<PageSeries, CameraFailure> {
+        seriesCalls.append((seconds, connectLimit))
         onSeries?()
         guard !seriesResults.isEmpty else { return .failure(.unavailable) }
         return seriesResults.removeFirst()

@@ -95,6 +95,9 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
     static let connectSeconds: TimeInterval = 40
     /// Süre dolarken kameraya el sıkışılmış ama görüntü henüz gelmemişse tanınan ek süre (kamera bazen sınırın hemen sonunda bağlanır)
     static let connectGraceSeconds: TimeInterval = 15
+    /// El sıkışma yapıldıktan sonra görüntü bu kadar sn içinde gelmezse beklenmez (sn). Günlükte görüntü el sıkışmadan en geç 10 sn sonra geldi;
+    /// bağlantı kurulduğu halde görüntü gelmeyen kötü bağlantıda 40 sn beklemek yerine hemen yeniden denenir
+    static let videoWaitSeconds: TimeInterval = 20
     /// Konumlandırma sürerken görüntü bu kadar saniye kesilirse beklenmeden vazgeçilir
     static let lostSeconds = 8
 
@@ -116,6 +119,8 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
     private var cancelled = false
     private var shooting = false
     private var cancellables = Set<AnyCancellable>()
+    /// Kameraya el sıkışılan an (systemUptime); bağlantı kopunca ya da kamera kapanınca boşalır
+    private var handshakeAt: TimeInterval?
 
     var renderer: VideoRenderer { return pipeline.renderer }
 
@@ -158,6 +163,17 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
     private func stateChanged(_ state: CameraState) {
         guard running || state == .stopped else { return }
         cameraState = state
+        let now = ProcessInfo.processInfo.systemUptime
+        switch state {
+        case .connected:
+            handshakeAt = now
+        case .reconnecting, .stopped:
+            handshakeAt = nil
+        case .streaming:
+            if let at = handshakeAt { tlog("[kamera] ilk görüntü: el sıkışmadan \(String(format: "%.1f", now - at)) sn sonra") }
+        default:
+            break
+        }
         switch state {
         case .connecting, .reconnecting:
             decoder.reset()
@@ -216,18 +232,9 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         status("Kameraya bağlanılıyor")
         lowBattery = CameraLowBatteryWatcher()
         startClient(uid: uid)
-        var live = await waitUntil(seconds: connectLimit ?? CameraCaptureController.connectSeconds) { self.isLive }
-        if !live, !cancelled, case .connected = cameraState {
-            tlog("[kamera] el sıkışıldı, görüntü bekleniyor: \(Int(CameraCaptureController.connectGraceSeconds)) sn ek süre")
-            live = await waitUntil(seconds: CameraCaptureController.connectGraceSeconds) { self.isLive }
-        }
+        let live = await awaitLive(limit: connectLimit)
         if cancelled { return .failure(.cancelled) }
-        guard live else {
-            switch cameraState {
-            case .connected, .streaming: return .failure(.noFrames)
-            default: return .failure(.notConnected)
-            }
-        }
+        guard live else { return .failure(connectFailure()) }
 
         // 2) Konumlandır ("Sesle konumlandır" kapalıysa konumlandırma yok: bağlanır bağlanmaz çekilir)
         let trigger: Trigger
@@ -281,6 +288,7 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         pipeline.reset()
         decodeClock.clear()
         batteryMonitor.reset()
+        handshakeAt = nil
         let quality = settings.streamQuality == 2 ? (state: 2, stream: 2) : (state: 1, stream: 1)
         client.start(config: CameraSession.Config(uid: uid,
                                                   password: settings.cameraPassword,
@@ -311,21 +319,9 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         status("Kameraya bağlanılıyor")
         lowBattery = CameraLowBatteryWatcher()
         startClient(uid: uid)
-        var live = await waitUntil(seconds: connectLimit ?? CameraCaptureController.connectSeconds) { self.isLive }
-        if !live, !cancelled, case .connected = cameraState {
-            tlog("[kamera] el sıkışıldı, görüntü bekleniyor: \(Int(CameraCaptureController.connectGraceSeconds)) sn ek süre")
-            live = await waitUntil(seconds: CameraCaptureController.connectGraceSeconds) { self.isLive }
-        }
+        let live = await awaitLive(limit: connectLimit)
         if cancelled || !live {
-            let failure: CameraFailure
-            if cancelled {
-                failure = .cancelled
-            } else {
-                switch cameraState {
-                case .connected, .streaming: failure = .noFrames
-                default: failure = .notConnected
-                }
-            }
+            let failure: CameraFailure = cancelled ? .cancelled : connectFailure()
             teardown()
             running = false
             active = false
@@ -547,10 +543,10 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
 
     // MARK: Toplu sayfa çekimi
 
-    /// Toplu çekim: bağlanır, hiç konuşmadan `pages` × `seconds` sn ARALIKSIZ çeker. Saniyede bir fotoğraf (o saniyenin en net karesi) alınır
-    /// (kullanıcı sayfayı her `seconds` saniyede bir kendi sayımıyla çevirir); bütün oturumun fotoğrafları TEK PDF olur (75 sayfa), video yoktur.
+    /// Toplu çekim: bağlanır, hiç konuşmadan `seconds` sn ARALIKSIZ çeker. Saniyede bir fotoğraf (o saniyenin en net karesi) alınır. Sayfa sayısı yoktur:
+    /// kullanıcı sayfaları kendi hızında gösterir (biri 3 sn, biri 8 sn); bütün oturumun fotoğrafları TEK PDF olur, video yoktur.
     /// Kameradan görüntü `lostSeconds` sn kesilirse oturum bırakılır, o ana kadar alınan fotoğraflar döner (`failure` dolu).
-    func captureSeries(pages: Int, seconds: Int, connectLimit: TimeInterval?) async -> Result<PageSeries, CameraFailure> {
+    func captureSeries(seconds: Int, connectLimit: TimeInterval?) async -> Result<PageSeries, CameraFailure> {
         closeHeld()
         guard !running else { return .failure(.captureFailed("çekim zaten sürüyor")) }
         running = true
@@ -568,39 +564,29 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         status("Kameraya bağlanılıyor")
         lowBattery = CameraLowBatteryWatcher()
         startClient(uid: uid)
-        var live = await waitUntil(seconds: connectLimit ?? CameraCaptureController.connectSeconds) { self.isLive }
-        if !live, !cancelled, case .connected = cameraState {
-            tlog("[kamera] el sıkışıldı, görüntü bekleniyor: \(Int(CameraCaptureController.connectGraceSeconds)) sn ek süre")
-            live = await waitUntil(seconds: CameraCaptureController.connectGraceSeconds) { self.isLive }
-        }
+        let live = await awaitLive(limit: connectLimit)
         if cancelled { return .failure(.cancelled) }
-        guard live else {
-            switch cameraState {
-            case .connected, .streaming: return .failure(.noFrames)
-            default: return .failure(.notConnected)
-            }
-        }
+        guard live else { return .failure(connectFailure()) }
         pipeline.guidanceOn = false
-        return await shootSeries(pages: max(1, pages), seconds: max(1, seconds))
+        return await shootSeries(seconds: max(1, seconds))
     }
 
     /// Oturum en az bu kadar fotoğraf aldıysa tutulur (görüntü kesilmişse alınanlar gönderilir; çok azsa çekim başarısız sayılır)
     static func minPhotos(total: Int) -> Int { return max(1, min(5, total)) }
 
-    private func shootSeries(pages: Int, seconds: Int) async -> Result<PageSeries, CameraFailure> {
+    private func shootSeries(seconds: Int) async -> Result<PageSeries, CameraFailure> {
         shooting = true
-        let total = pages * seconds
+        let total = seconds
         let options = captureOptions()
         let engine = pipeline.engine
         let t0 = ProcessInfo.processInfo.systemUptime
         var tasks: [Task<Result<CapturedPhoto, CaptureError>, Never>] = []
         var lostFor = 0
         var cutAt: Int?
-        tlog("[kamera] toplu çekim başladı: \(pages) sayfa × \(seconds) sn (konuşma ve titreşim yok)")
+        tlog("[kamera] toplu çekim başladı: \(seconds) sn (konuşma ve titreşim yok)")
         for second in 1...total {
             if cancelled { break }
-            let page = (second - 1) / seconds + 1
-            status("Sayfa \(page)/\(pages): \((second - 1) % seconds + 1)/\(seconds) sn")
+            status("Çekim: \(second)/\(total) sn")
             let target = t0 + Double(second)
             while !cancelled {
                 let rest = target - ProcessInfo.processInfo.systemUptime
@@ -655,6 +641,55 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
 
     // MARK: Yardımcılar
 
+    /// Beklemenin bırakılıp bırakılmayacağı (saf karar; testlenir). `elapsed`: bağlanma denemesinin başından beri geçen süre, `limit`: toplam süre sınırı,
+    /// `handshakeAge`: el sıkışmadan beri geçen süre (el sıkışma yoksa nil), `grace`: sınır dolduğunda el sıkışılmışsa ek süre tanınsın mı.
+    /// Görüntü gelmeyen kötü bağlantı el sıkışmadan `videoWait` sn sonra bırakılır; sınır hiçbir zaman uzatılmaz, yalnız kısaltılır
+    /// (ek süre dışında: el sıkışılmış ama görüntü henüz gelmemişse sınırdan sonra `connectGraceSeconds` kadar beklenir).
+    static func shouldGiveUp(elapsed: TimeInterval, limit: TimeInterval, handshakeAge: TimeInterval?, grace: Bool,
+                             videoWait: TimeInterval = CameraCaptureController.videoWaitSeconds,
+                             graceSeconds: TimeInterval = CameraCaptureController.connectGraceSeconds) -> Bool {
+        if let age = handshakeAge, age >= videoWait { return true }
+        if elapsed >= limit {
+            if grace, handshakeAge != nil, elapsed < limit + graceSeconds { return false }
+            return true
+        }
+        return false
+    }
+
+    /// Kameraya bağlanıp görüntünün gelmesini bekler. `limit` verilmezse `connectSeconds` ve ek süre geçerlidir; verilirse sınır kesindir.
+    private func awaitLive(limit: TimeInterval?) async -> Bool {
+        let started = ProcessInfo.processInfo.systemUptime
+        let total = limit ?? CameraCaptureController.connectSeconds
+        var graceLogged = false
+        while !cancelled {
+            if isLive { return true }
+            let now = ProcessInfo.processInfo.systemUptime
+            let age = handshakeAt.map { now - $0 }
+            let elapsed = now - started
+            if CameraCaptureController.shouldGiveUp(elapsed: elapsed, limit: total, handshakeAge: age, grace: limit == nil) {
+                if let age = age, age >= CameraCaptureController.videoWaitSeconds {
+                    tlog("[kamera] el sıkışıldı ama \(Int(age)) sn içinde görüntü gelmedi; bağlantı bırakılıyor (yeniden denenecek)")
+                }
+                break
+            }
+            if !graceLogged, elapsed >= total, age != nil {
+                graceLogged = true
+                tlog("[kamera] el sıkışıldı, görüntü bekleniyor: en çok \(Int(CameraCaptureController.connectGraceSeconds)) sn ek süre")
+            }
+            try? await Task.sleep(nanoseconds: 250_000_000)
+        }
+        return isLive
+    }
+
+    /// Görüntü gelmeden bırakılınca nedeni: el sıkışılmışsa kamera görüntü vermedi, yoksa kameraya ulaşılamadı
+    private func connectFailure() -> CameraFailure {
+        if handshakeAt != nil { return .noFrames }
+        switch cameraState {
+        case .connected, .streaming: return .noFrames
+        default: return .notConnected
+        }
+    }
+
     private func waitUntil(seconds: TimeInterval, _ condition: () -> Bool) async -> Bool {
         let end = Date().addingTimeInterval(seconds)
         while !cancelled && Date() < end {
@@ -666,6 +701,10 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
 
     /// Kamera kapatılır: bağlantı, ölçüm, yazıcı ve kare belleği; Wi-Fi'ye dokunulmaz (kestirme onu yapar)
     private func teardown() {
+        if cameraState != .stopped {
+            // Her oturumun sonunda kamera pili günlüğe yazılır: bağlantı sorunlarının düşük pille birlikte gelip gelmediği görülsün
+            tlog("[kamera] oturum özeti: \((cameraBattery ?? lastBattery)?.shortText ?? "kamera pili okunamadı"), görüntü \(isLive ? "akıyordu" : "akmıyordu")")
+        }
         timeoutTask?.cancel()
         timeoutTask = nil
         liveTask?.cancel()

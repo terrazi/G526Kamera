@@ -150,10 +150,10 @@ protocol CameraCapturing: AnyObject {
     /// Aynı çekim; kameraya bağlanma beklemesi `connectLimit` sn ile sınırlanır (nil: varsayılan süre). "Wi-Fi'de kal" kipinde telefon zaten kameranın
     /// ağındadır: bağlanamıyorsa uzun beklenmez, onarım kestirmesine geçilir.
     func capture(connectLimit: TimeInterval?) async -> Result<CapturedQuestion, CameraFailure>
-    /// Toplu çekim: kameraya bağlanır, `pages` × `seconds` sn aralıksız çeker (her saniyenin en net karesi), konuşmaz ve konumlandırma yapmaz, bitince
-    /// kamerayı kapatır. Bütün fotoğraflar TEK PDF olur (75 sayfa). Bağlanamazsa `.failure`; bağlanıp bir kısım fotoğraf alındıktan sonra kesilirse
-    /// `.success` ve `failure` dolu döner (alınanlar kaybolmaz).
-    func captureSeries(pages: Int, seconds: Int, connectLimit: TimeInterval?) async -> Result<PageSeries, CameraFailure>
+    /// Toplu çekim: kameraya bağlanır, `seconds` sn aralıksız çeker (her saniyenin en net karesi), konuşmaz ve konumlandırma yapmaz, bitince
+    /// kamerayı kapatır. Tek sınır süredir (sayfa sayısı yok); bütün fotoğraflar TEK PDF olur. Bağlanamazsa `.failure`; bağlanıp bir kısım fotoğraf
+    /// alındıktan sonra kesilirse `.success` ve `failure` dolu döner (alınanlar kaybolmaz).
+    func captureSeries(seconds: Int, connectLimit: TimeInterval?) async -> Result<PageSeries, CameraFailure>
     /// Süren çekimi (ya da açık tutulan bağlantıyı) iptal eder (kamera kapanır)
     func cancel()
     /// Sürüm 4: oturum başlarken kameraya hemen bağlanır; görüntü gelince döner ve bağlantıyı AÇIK bırakır (ana ekrandaki kutuda görüntü akar).
@@ -176,7 +176,7 @@ extension CameraCapturing {
     func holdOpen() async -> Result<Void, CameraFailure> { return await holdOpen(connectLimit: nil) }
     func closeHeld() {}
     func probe() async -> Bool { return false }
-    func captureSeries(pages: Int, seconds: Int, connectLimit: TimeInterval?) async -> Result<PageSeries, CameraFailure> { return .failure(.unavailable) }
+    func captureSeries(seconds: Int, connectLimit: TimeInterval?) async -> Result<PageSeries, CameraFailure> { return .failure(.unavailable) }
 }
 
 /// Kamera yapılandırılmamış oturumlar (ve eski testler) için

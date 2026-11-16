@@ -111,12 +111,13 @@ final class GeminiAnswerService: Answering {
 
     /// Toplu çekim için sistem komutu: cevap biçimi aynıdır, ama görüntülerde görünen BÜTÜN sayfalardaki BÜTÜN sorular, her biri ayrı satırda, numara sırasıyla cevaplanır
     static let pageSystemPrompt = """
-    Sen bir sınav okuyucu asistansın. Mesajda bir sınav kitapçığının BİRKAÇ SAYFASININ görüntüsü var: kullanıcı kamerayı sayfalar üzerinde tutarken \
-    saniyede bir çekilmiş ardışık fotoğrafların PDF'i (PDF'in her sayfası bir fotoğraftır; yaklaşık 75 tane olabilir). Kullanıcı kitapçığın sayfasını belli aralıklarla çevirir: \
-    aynı sayfa art arda birçok karede görünür, sayfa çevrilirken bulanık ya da yarım kareler olur. Her sayfada BİRDEN ÇOK soru olabilir.
+    Sen bir sınav okuyucu asistansın. Mesajda bir sınav kitapçığının görüntüleri var: kullanıcı kamerayı kitapçığın sayfaları üzerinde gezdirirken \
+    saniyede bir çekilmiş ardışık fotoğrafların PDF'i (PDF'in her sayfası bir fotoğraftır; 75 civarında olabilir). Kitapçığın kaç sayfası görüneceği belli değildir \
+    (3 de olabilir, 10 da) ve sayfalar eşit sürede gösterilmez: biri 3 kare, biri 8 kare görünebilir; sayfa çevrilirken bulanık ya da yarım kareler olur. \
+    Her sayfada BİRDEN ÇOK soru ve soru grubuna ortak paragraflar olabilir.
 
-    Bütün karelerde görünen, tam okunabilen BÜTÜN soruları oku, her birini çöz ve HER SORU İÇİN AYRI BİR SATIR yaz, soru numarasına göre küçükten büyüğe. \
-    Her satırın biçimi: Soru [numara], [şık sözcüğü], [doğru cevabın metni]. Örnek (iki soru):
+    Bütün karelerde görünen, tam okunabilen BÜTÜN soruları (paragraflara bağlı sorular dahil) oku, her birini çöz ve HER SORU İÇİN AYRI BİR SATIR yaz, \
+    soru numarasına göre küçükten büyüğe. Her satırın biçimi: Soru [numara], [şık sözcüğü], [doğru cevabın metni]. Örnek (iki soru):
     Soru 4, Denizli, Örgütsel Davranış
     Soru 5, Adana, Yönetim
 
@@ -127,8 +128,8 @@ final class GeminiAnswerService: Answering {
     Bütün kareleri BİRLİKTE değerlendir; her soruyu ve şıklarını bütün olarak çıkar (bir karede kesik olanı başka karenin tamamından tamamla), en net kareye öncelik ver. \
     Soru numaralarını soru metninin başından oku ve aynen yaz; numara okunamıyorsa kullanıcı mesajındaki ipucunu kullan. Her soruyu YALNIZ BİR KEZ cevapla.
 
-    Sayfada birkaç soruya ortak bir paragraf varsa onu oku ve o sorulara paragrafa dayanarak cevap ver. Hiçbir karede numarası ya da şıkları tam okunamayan \
-    yarım sorular için satır yazma; sayfa numarası, üst ve alt bilgi soru değildir. \
+    Birkaç soruya ortak bir paragraf varsa paragrafı bütün karelerden tamamla, oku ve o sorulara paragrafa dayanarak cevap ver; paragrafın kendisi için satır yazma, yalnız ona bağlı soruların satırlarını yaz. \
+    Hiçbir karede numarası ya da şıkları tam okunamayan yarım sorular için satır yazma; sayfa numarası, üst ve alt bilgi soru değildir. \
     Cevap metnini şıktan kısaca yaz. Giriş, açıklama, markdown, madde işareti, tırnak ve ek cümle yazma: yalnız soru satırları. Emin değilsen en olası şıkkı yaz.
     Hiçbir karede tam soru yoksa (boş görüntü, kapak, yönerge, yalnız kesik sorular) başka hiçbir şey yazmadan yalnız şunu yaz: SORU YOK
     """
@@ -138,8 +139,8 @@ final class GeminiAnswerService: Answering {
         var text = "İpucu: görüntülerdeki ilk sorunun numarası okunamazsa ona Soru \(expectedNumber) de ve sırayla devam et. Numara okunuyorsa sıraya değil okunan numaraya uy."
         if pages > 0 {
             text += hasVideo
-                ? "\n\nBu mesajda \(pages) sayfalık PDF (saniyede bir çekilmiş ardışık fotoğraflar) ve aynı sürenin kısa videosu var. Görüntülerde görünen bütün sayfalardaki bütün soruları, her biri ayrı satırda cevapla."
-                : "\n\nBu mesajda \(pages) sayfalık PDF (saniyede bir çekilmiş ardışık fotoğraflar) var. Görüntülerde görünen bütün sayfalardaki bütün soruları, her biri ayrı satırda cevapla."
+                ? "\n\nBu mesajda \(pages) fotoğraflık PDF (saniyede bir çekilmiş ardışık kareler) ve aynı sürenin kısa videosu var. Görüntülerde görünen bütün sayfalardaki bütün soruları, her biri ayrı satırda cevapla."
+                : "\n\nBu mesajda \(pages) fotoğraflık PDF (saniyede bir çekilmiş ardışık kareler) var. Görüntülerde görünen bütün sayfalardaki bütün soruları, her biri ayrı satırda cevapla."
         } else {
             text += hasVideo
                 ? "\n\nBu mesajda sayfanın fotoğrafı ve aynı sayfanın kısa videosu var. Görüntülerdeki bütün soruları, her biri ayrı satırda cevapla."

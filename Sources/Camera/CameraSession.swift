@@ -69,7 +69,8 @@ final class CameraSession {
     }
 
     var statistics: String {
-        return "paket \(videoPackets), kare \(framesDelivered), kayıp \(videoAssembler.lostPackets), tekrar \(videoAssembler.duplicates)"
+        let lost = videoAssembler.lostPackets, repeated = videoAssembler.duplicates
+        return "paket \(videoPackets), kare \(framesDelivered), kayıp \(lost), tekrar \(repeated); " + LinkQuality.text(packets: videoPackets, lost: lost, repeated: repeated)
     }
 
     private func log(_ s: String) { tlog("[kamera] " + s) }
@@ -441,5 +442,31 @@ final class CameraSession {
             // Cihaz bilgisi (pil, şarj, sıcaklık gibi alanlar) tam yazılır: kopmaların nedeni için günlükte lazım
             log("Cevap \(name): \(compact.prefix(name == "GetDevInfo" ? 900 : 200))")
         }
+    }
+}
+
+/// Bir oturumun telsiz bağlantı kalitesi (günlük için). Telefondan kameraya giden onaylar kaybolur ya da geç kalırsa kamera aynı paketi yeniden yollar ("tekrar");
+/// kayıp paket kareyi eksik bırakır. Günlükteki oturumlarda iyi bağlantı: tekrar %1–7, kayıp %0–0,2; görüntü gelmeyen bağlantı: tekrar %12–57, kayıp %1–11.
+enum LinkQuality {
+    enum Level: String { case good = "iyi", fair = "orta", weak = "zayıf" }
+
+    /// Yüzde olarak (alınan paket sayısına göre); paket yoksa 0
+    static func percent(_ count: Int, of packets: Int) -> Double {
+        return packets > 0 ? 100.0 * Double(count) / Double(packets) : 0
+    }
+
+    static func level(packets: Int, lost: Int, repeated: Int) -> Level {
+        guard packets > 0 else { return .weak }   // hiç paket gelmediyse bağlantı kullanılamaz
+        let repeatedPercent = percent(repeated, of: packets)
+        let lostPercent = percent(lost, of: packets + lost)
+        if repeatedPercent >= 10 || lostPercent >= 3 { return .weak }
+        if repeatedPercent >= 5 || lostPercent >= 1 { return .fair }
+        return .good
+    }
+
+    static func text(packets: Int, lost: Int, repeated: Int) -> String {
+        let l = String(format: "%.1f", percent(lost, of: packets + lost))
+        let r = String(format: "%.1f", percent(repeated, of: packets))
+        return "kayıp %\(l), tekrar %\(r), bağlantı \(level(packets: packets, lost: lost, repeated: repeated).rawValue)"
     }
 }

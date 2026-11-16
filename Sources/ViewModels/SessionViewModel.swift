@@ -154,6 +154,8 @@ final class SessionViewModel: ObservableObject {
         static let cameraExtraWait: TimeInterval = 180
         /// Toplu çekimin 75 fotoğraflık PDF'i (≈16 MB) hücresel veriyle yüklenir ve çok görüntü okunur: bekleme sınırına bu kadar eklenir
         static let seriesExtraWait: TimeInterval = 420
+        /// Toplu çekimde bir PDF'in birbirini izleyen soru cevapları arasındaki boşluk (sn): kullanıcı kararı 2026-11-16
+        static let answerGap: TimeInterval = 2
         /// Bekleyen bir çekim, internet çalışırken bile bu kadar kez gönderilemezse (hep hata ya da zaman aşımı) o test için beklemeye alınır:
         /// her soru sınırında yeniden denemek sınavı yavaşlatırdı. Çekim SİLİNMEZ; klasörde durur ve sonraki testte yeniden denenir.
         static let pendingSendAttempts = 3
@@ -1936,6 +1938,8 @@ final class SessionViewModel: ObservableObject {
             guard !Task.isCancelled, phase == .speaking else { return }
             // Toplu çekimde bir sayfanın kalan cevapları: "sonraki soruyu okuyun" denmeden sırayla okunur
             if pageBeingRead != nil, !queuedReplies.isEmpty {
+                await deps.sleep(Timing.answerGap)   // cevaplar arasında 2 sn sessizlik
+                guard !Task.isCancelled, phase == .speaking else { return }
                 await readNextQueuedReply()
                 return
             }
