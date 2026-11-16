@@ -128,6 +128,7 @@ final class NoSimTests: XCTestCase {
         XCTAssertTrue(second, "\(h.speaker.spoken)")
 
         let waitingOrder = h.vm.pendingShots.map { $0.id }
+        h.settings.spokenProgress = true   // üretim ayarı: gönderim ilerlemesi söylenir (sınama düzeneğinde varsayılan kapalı)
         h.health.internet = true   // Wi-Fi ya da hücresel geldi
         h.vm.netBeat("internet geldi")
         let sent = await waitUntil(45) { h.vm.answers.count == 2 && h.vm.pendingShots.isEmpty && self.cameraQuestionOpen(h) }
