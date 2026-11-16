@@ -298,7 +298,7 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
 
     /// Sürüm 4: oturum başlarken kameraya hemen bağlanılır; görüntü gelince döner ve bağlantı AÇIK kalır (ana ekrandaki kutuda görüntü akar,
     /// kamera pili düşükse sesli uyarı verilir). Hiçbir şey çekilmez, konumlandırma yapılmaz. İlk hücresel bağlantıdan önce `closeHeld()` kapatır.
-    func holdOpen() async -> Result<Void, CameraFailure> {
+    func holdOpen(connectLimit: TimeInterval?) async -> Result<Void, CameraFailure> {
         if holding { return .success(()) }
         guard !running else { return .failure(.captureFailed("çekim zaten sürüyor")) }
         guard let uid = CameraUID(settings.uid) else { return .failure(.notConnected) }
@@ -310,7 +310,7 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         status("Kameraya bağlanılıyor")
         lowBattery = CameraLowBatteryWatcher()
         startClient(uid: uid)
-        var live = await waitUntil(seconds: CameraCaptureController.connectSeconds) { self.isLive }
+        var live = await waitUntil(seconds: connectLimit ?? CameraCaptureController.connectSeconds) { self.isLive }
         if !live, !cancelled, case .connected = cameraState {
             tlog("[kamera] el sıkışıldı, görüntü bekleniyor: \(Int(CameraCaptureController.connectGraceSeconds)) sn ek süre")
             live = await waitUntil(seconds: CameraCaptureController.connectGraceSeconds) { self.isLive }

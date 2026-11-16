@@ -42,8 +42,9 @@ extension SessionViewModel {
                 return false
             }
             // Kestirme çalışmasa da denenir: telefon kameranın ağına elle geçmiş olabilir (Ayarlar'daki deneme de böyle yapar)
+            let limit: TimeInterval? = attempt == 0 ? Timing.cameraStartFirstConnect : nil
             let result = await withTaskCancellationHandler {
-                await camera.holdOpen()
+                await camera.holdOpen(connectLimit: limit)
             } onCancel: {
                 Task { @MainActor in camera.cancel() }
             }
@@ -92,6 +93,8 @@ extension SessionViewModel {
                 }
                 cameraStartSpoken = true
                 phase = .checking
+                await deps.sleep(Timing.cameraStartShow)   // görüntü gözle görülsün: anonsla birlikte en az birkaç sn ekranda akar
+                guard !Task.isCancelled, phase == .checking else { return false }
             }
         } else {
             setCheck("kameraBaglanti", "Kamera bağlantısı", ok: false, detail: "bağlanılamadı; sorular sesle okunacak")

@@ -128,7 +128,9 @@ protocol CameraCapturing: AnyObject {
     func cancel()
     /// Sürüm 4: oturum başlarken kameraya hemen bağlanır; görüntü gelince döner ve bağlantıyı AÇIK bırakır (ana ekrandaki kutuda görüntü akar).
     /// Konumlandırma söylenmez, hiçbir şey çekilmez. `closeHeld()` kapatır; ilk hücresel bağlantıdan önce çağrılır.
-    func holdOpen() async -> Result<Void, CameraFailure>
+    /// `connectLimit`: kameraya bağlanma beklemesi bu kadar sn ile sınırlanır (nil: varsayılan süre). "Kameraya geç" kestirmesi telefonu kameranın
+    /// ağına bazen sokamaz (günlükte 40 sn boşuna beklendi); ilk denemede kısa beklenip onarım kestirmesine geçilir.
+    func holdOpen(connectLimit: TimeInterval?) async -> Result<Void, CameraFailure>
     /// `holdOpen()` ile açık tutulan bağlantıyı kapatır (hiç açık değilse bir şey yapmaz)
     func closeHeld()
     /// Kameraya ulaşılabiliyor mu: bağlanır, görüntü gelirse doğru döner. Konumlandırma söylenmez, hiçbir şey çekilmez; kamera hemen kapanır.
@@ -140,7 +142,8 @@ protocol CameraCapturing: AnyObject {
 extension CameraCapturing {
     func capture(connectLimit: TimeInterval?) async -> Result<CapturedQuestion, CameraFailure> { return await capture() }
     var lastBattery: CameraBatteryLevel? { return nil }
-    func holdOpen() async -> Result<Void, CameraFailure> { return .failure(.unavailable) }
+    func holdOpen(connectLimit: TimeInterval?) async -> Result<Void, CameraFailure> { return .failure(.unavailable) }
+    func holdOpen() async -> Result<Void, CameraFailure> { return await holdOpen(connectLimit: nil) }
     func closeHeld() {}
     func probe() async -> Bool { return false }
 }

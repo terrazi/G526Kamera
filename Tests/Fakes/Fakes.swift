@@ -386,7 +386,10 @@ final class FakeCamera: CameraCapturing {
         gate = nil
     }
 
-    func holdOpen() async -> Result<Void, CameraFailure> {
+    /// Her bağlanmada verilen bekleme sınırı (ilk denemede kısa, onarımdan sonrakilerde nil)
+    private(set) var holdLimits: [TimeInterval?] = []
+    func holdOpen(connectLimit: TimeInterval?) async -> Result<Void, CameraFailure> {
+        holdLimits.append(connectLimit)
         holdOpens += 1
         onHold?()
         let result = holdResults.isEmpty ? Result<Void, CameraFailure>.success(()) : holdResults.removeFirst()

@@ -85,6 +85,7 @@ final class CameraStartTests: XCTestCase {
                                   "kestirme:Hücresele_Gec"])
         XCTAssertNil(h.vm.cameraDownSince)
         XCTAssertEqual(h.speaker.spoken.suffix(2), [Say.readyCamera, Say.askCamera])
+        XCTAssertEqual(h.camera.holdLimits, [T.cameraStartFirstConnect, nil], "İlk deneme kısa beklenir (40 sn boşa geçmez), onarımdan sonrakiler varsayılan süreyle")
     }
 
     /// Kamera hiç cevap vermezse (kapalı, şarjı bitti): üç deneme sonra internete dönülür, kamera sistemden çıkar, sorular sesle okunur
