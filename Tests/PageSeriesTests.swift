@@ -1,4 +1,5 @@
 import XCTest
+import UIKit
 @testable import G526CameraDrive
 
 /// Sayfa bazlı toplu çekim (kullanıcı kararı 2026-11-16): bir oturumda birkaç sayfa, çekim boyunca ses ve titreşim yok,
@@ -7,9 +8,9 @@ import XCTest
 final class PageSeriesTests: XCTestCase {
     typealias T = SessionViewModel.Timing
 
-    private func series(_ pages: Int, planned: Int? = nil, failure: CameraFailure? = nil) -> Result<PageSeries, CameraFailure> {
-        let shots = (1...pages).map { FakeCamera.page(UInt8($0)) }
-        return .success(PageSeries(pages: shots, planned: planned ?? pages, failure: failure))
+    /// Bir oturumun sonucu: `photos` fotoğraflık TEK PDF (planlanan 75)
+    private func series(photos: Int = 75, planned: Int = 75, failure: CameraFailure? = nil) -> Result<PageSeries, CameraFailure> {
+        return .success(PageSeries(shot: FakeCamera.page(1, photos: photos), planned: planned, failure: failure))
     }
 
     /// Kameraya geçince internet gider, "Hücresele Geç" kestirmesi interneti getirir
@@ -40,20 +41,23 @@ final class PageSeriesTests: XCTestCase {
 
     // MARK: Akış
 
-    func testYesStartsASessionAndEveryPageAnswerIsReadInOrder() async {
-        let h = harness(seriesResults: [series(2)],
-                        pageReplies: [.success([FakeAnswering.reply(1), FakeAnswering.reply(2)]), .success([FakeAnswering.reply(3)])])
+    func testYesStartsASessionAndAllTheAnswersOfTheSinglePdfAreReadInOrder() async {
+        let h = harness(seriesResults: [series()],
+                        pageReplies: [.success([FakeAnswering.reply(1), FakeAnswering.reply(2), FakeAnswering.reply(3)])])
         _ = await h.startListening()
         let ask = Say.askCameraSeries(pages: 5, seconds: 15)
         XCTAssertEqual(h.speaker.spoken, [Say.readyCamera, ask], "Toplu çekim açıkken soru oturum sorusudur")
         reply(h, "evet")
         let done = await waitUntil(45) { h.vm.answers.count == 3 && self.questionOpen(h) }
         XCTAssertTrue(done, "\(h.speaker.spoken)")
-        XCTAssertEqual(h.events, ["kestirme:Kameraya_Gec", "oturum", "kestirme:Hücresele_Gec", "sayfa gönderimi", "sayfa gönderimi"],
-                       "Önce kameraya geçilir ve oturum çekilir, sonra internete dönülür, ondan sonra sayfalar sırayla gönderilir")
+        XCTAssertEqual(h.events, ["kestirme:Kameraya_Gec", "oturum", "kestirme:Hücresele_Gec", "sayfa gönderimi"],
+                       "Önce kameraya geçilir ve oturum çekilir, sonra internete dönülür, ondan sonra TEK PDF tek istekle gönderilir")
         XCTAssertEqual(h.camera.seriesCalls.first?.pages, 5)
         XCTAssertEqual(h.camera.seriesCalls.first?.seconds, 15)
         XCTAssertEqual(h.camera.captures, 0, "Tek soruluk çekim kullanılmaz")
+        XCTAssertEqual(h.answering.pageCalls.count, 1, "75 sayfalık PDF tek seferde gider")
+        XCTAssertEqual(h.answering.pageCalls.first?.shot.pageCount, 75)
+        XCTAssertEqual(h.answering.pageCalls.first?.expectedNumber, 1)
         let spoken = h.speaker.spoken
         let first = index(of: "Soru 1, Denizli, Örgütsel Davranış", in: spoken)
         let second = index(of: "Soru 2, Denizli, Örgütsel Davranış", in: spoken)
@@ -62,18 +66,16 @@ final class PageSeriesTests: XCTestCase {
         XCTAssertNotNil(second)
         XCTAssertNotNil(third)
         if let first = first, let second = second, let third = third {
-            XCTAssertLessThan(first, second)
-            XCTAssertLessThan(second, third)
-            XCTAssertEqual(second, first + 1, "Aynı sayfanın cevapları arasında başka cümle girmez")
+            XCTAssertEqual(second, first + 1, "Cevaplar arasında başka cümle girmez")
+            XCTAssertEqual(third, second + 1)
         }
-        XCTAssertEqual(h.answering.pageCalls.map { $0.expectedNumber }, [1, 3], "İkinci sayfa, birincinin son numarasından sonra gelir")
         XCTAssertEqual(h.speaker.spoken.last, ask, "Bitince yeni oturum sorulur")
         XCTAssertTrue(h.vm.pendingShots.isEmpty)
         XCTAssertEqual(h.vm.questions.map { $0.number }, [1, 2, 3])
     }
 
     func testTheSessionIsAnnouncedOnceAndNothingIsSaidWhileTheCameraRuns() async {
-        let h = harness(seriesResults: [series(2)], pageReplies: [.success([FakeAnswering.reply(1)]), .success([FakeAnswering.reply(2)])])
+        let h = harness(seriesResults: [series()], pageReplies: [.success([FakeAnswering.reply(1)])])
         var spokenBefore = -1
         var handlersSet = true
         h.camera.onSeries = {
@@ -82,19 +84,19 @@ final class PageSeriesTests: XCTestCase {
         }
         _ = await h.startListening()
         reply(h, "evet")
-        let done = await waitUntil(45) { h.vm.answers.count == 2 && self.questionOpen(h) }
+        let done = await waitUntil(45) { h.vm.answers.count == 1 && self.questionOpen(h) }
         XCTAssertTrue(done, "\(h.speaker.spoken)")
         guard spokenBefore > 0 else { return XCTFail("Oturum başlamadı: \(h.speaker.spoken)") }
         let starting = Say.seriesStarting(pages: 5, seconds: 15)
         XCTAssertEqual(h.speaker.spoken.filter { $0 == starting }.count, 1, "Duyuru oturum başında bir kez")
         XCTAssertEqual(h.speaker.spoken[spokenBefore - 1], starting, "Kameraya geçilmeden hemen önce söylenen son cümle duyurudur")
         XCTAssertFalse(handlersSet, "Kameranın konuşma bağlantıları oturumda verilmez: çekim sessizdir")
-        let seriesDone = Say.seriesDone(taken: 2, planned: 2)
+        let seriesDone = Say.seriesDone(taken: 75, planned: 75)
         XCTAssertEqual(h.speaker.spoken[spokenBefore], seriesDone, "Çekim sırasında ve hemen ardından duyuruya kadar hiçbir şey söylenmez")
     }
 
     func testTheHeadsetDroppingDuringTheSessionDoesNotPauseTheFlow() async {
-        let h = harness(seriesResults: [series(1)], pageReplies: [.success([FakeAnswering.reply(1)])])
+        let h = harness(seriesResults: [series()], pageReplies: [.success([FakeAnswering.reply(1)])])
         var paused = false
         func notePause() { if case .paused = h.vm.phase { paused = true } }
         h.trackEvents { name in
@@ -118,17 +120,18 @@ final class PageSeriesTests: XCTestCase {
         let done = await waitUntil(45) { h.vm.answers.count == 1 }
         XCTAssertTrue(done, "\(h.speaker.spoken)")
         XCTAssertFalse(paused, "Oturum boyunca kulaklığın düşmesi duraklatma sayılmaz")
-        XCTAssertTrue(h.speaker.spoken.contains(Say.seriesDone(taken: 1, planned: 1)))
+        XCTAssertTrue(h.speaker.spoken.contains(Say.seriesDone(taken: 75, planned: 75)))
         XCTAssertFalse(h.isHardwarePause)
     }
 
-    func testASessionCutShortStillSendsThePagesItGot() async {
-        let h = harness(seriesResults: [series(1, planned: 5, failure: .noFrames)], pageReplies: [.success([FakeAnswering.reply(1)])])
+    func testASessionCutShortStillSendsThePhotosItGot() async {
+        let h = harness(seriesResults: [series(photos: 40, planned: 75, failure: .noFrames)], pageReplies: [.success([FakeAnswering.reply(1)])])
         _ = await h.startListening()
         reply(h, "evet")
         let done = await waitUntil(45) { h.vm.answers.count == 1 && self.questionOpen(h) }
         XCTAssertTrue(done, "\(h.speaker.spoken)")
-        XCTAssertTrue(h.speaker.spoken.contains(Say.seriesDone(taken: 1, planned: 5)), "Yarıda kesilince kaç sayfa alındığı söylenir")
+        XCTAssertTrue(h.speaker.spoken.contains(Say.seriesDone(taken: 40, planned: 75)), "Yarıda kesilince kaç sayfa alındığı söylenir")
+        XCTAssertEqual(h.answering.pageCalls.first?.shot.pageCount, 40)
         XCTAssertTrue(h.vm.pendingShots.isEmpty)
     }
 
@@ -144,18 +147,21 @@ final class PageSeriesTests: XCTestCase {
         XCTAssertTrue(h.answering.pageCalls.isEmpty)
     }
 
-    func testAPageWithNoQuestionSaysSoAndTakesNoNumber() async {
+    func testAPdfWithNoQuestionSaysSoAndTakesNoNumber() async {
         let empty = GeminiReply(number: nil, option: "", text: "", spoken: "", model: "fake")
-        let h = harness(seriesResults: [series(2)], pageReplies: [.success([empty]), .success([FakeAnswering.reply(1)])])
+        let h = harness(seriesResults: [series(), series()], pageReplies: [.success([empty]), .success([FakeAnswering.reply(1)])])
         _ = await h.startListening()
+        reply(h, "evet")
+        let said = await waitUntil(45) { h.speaker.spoken.contains(Say.pageNoQuestion) && self.questionOpen(h) }
+        XCTAssertTrue(said, "\(h.speaker.spoken)")
+        XCTAssertTrue(h.vm.answers.isEmpty, "Soru bulunmayan PDF cevap üretmez")
+        XCTAssertEqual(h.vm.nextNumber, 1, "Numara tüketilmez")
+        XCTAssertTrue(h.vm.questions.isEmpty, "Satır bırakmaz")
+        XCTAssertTrue(h.vm.pendingShots.isEmpty, "Soru bulunmayan PDF de gönderilmiş sayılır")
         reply(h, "evet")
         let done = await waitUntil(45) { h.vm.answers.count == 1 && self.questionOpen(h) }
         XCTAssertTrue(done, "\(h.speaker.spoken)")
-        XCTAssertTrue(h.speaker.spoken.contains(Say.pageNoQuestion))
-        XCTAssertEqual(h.vm.answers.map { $0.number }, [1], "Boş sayfa numara tüketmez")
         XCTAssertEqual(h.answering.pageCalls.map { $0.expectedNumber }, [1, 1])
-        XCTAssertEqual(h.vm.questions.count, 1, "Boş sayfa soru listesinde satır bırakmaz")
-        XCTAssertTrue(h.vm.pendingShots.isEmpty, "Soru bulunmayan sayfa da gönderilmiş sayılır")
     }
 
     func testTheSessionQuestionIsAskedAgainInTheSessionWording() async {
@@ -168,8 +174,8 @@ final class PageSeriesTests: XCTestCase {
         XCTAssertEqual(h.camera.seriesCalls.count, 0)
     }
 
-    func testPagesArePersistedAsPagesAndMoveToSentWhenAnswered() async {
-        let h = harness(seriesResults: [series(2)], pageReplies: [.success([FakeAnswering.reply(1), FakeAnswering.reply(2)]), .success([FakeAnswering.reply(3)])],
+    func testThePdfIsPersistedAsAPageAndMovesToSentWhenAllAnswersAreHeard() async {
+        let h = harness(seriesResults: [series()], pageReplies: [.success([FakeAnswering.reply(1), FakeAnswering.reply(2), FakeAnswering.reply(3)])],
                         archive: true)
         _ = await h.startListening()
         reply(h, "evet")
@@ -177,7 +183,7 @@ final class PageSeriesTests: XCTestCase {
         XCTAssertTrue(done, "\(h.speaker.spoken)")
         let summary = h.fileStore!.summary()
         XCTAssertEqual(summary.pending, 0)
-        XCTAssertEqual(summary.sent, 2, "İki sayfa da cevapları duyulunca Gönderilen klasörüne taşınır")
+        XCTAssertEqual(summary.sent, 1, "PDF, bütün cevapları duyulunca Gönderilen klasörüne taşınır")
     }
 
     func testACaptureStoreRestoresAPageAsAPage() {
@@ -209,10 +215,55 @@ final class PageSeriesTests: XCTestCase {
         XCTAssertFalse(CameraSettings(defaults: defaults).pageSeries, "Ayar kalıcıdır")
     }
 
-    func testAPageNeedsAFewPhotosToBeKept() {
-        XCTAssertEqual(CameraCaptureController.minPhotos(perPage: 15), 3)
-        XCTAssertEqual(CameraCaptureController.minPhotos(perPage: 5), 2)
-        XCTAssertEqual(CameraCaptureController.minPhotos(perPage: 1), 1)
+    func testASessionNeedsAFewPhotosToBeKept() {
+        XCTAssertEqual(CameraCaptureController.minPhotos(total: 75), 5)
+        XCTAssertEqual(CameraCaptureController.minPhotos(total: 3), 3)
+        XCTAssertEqual(CameraCaptureController.minPhotos(total: 1), 1)
+    }
+
+    // MARK: Tek PDF ve boyut bütçesi
+
+    /// Gürültülü (sıkışması zor) bir JPEG: gerçek bir sayfa fotoğrafının boyutuna yakın (1 piksel = 1 nokta: telefonun ekran ölçeğine bağlı değil)
+    private func noisyJPEG(size: CGSize = CGSize(width: 960, height: 540), quality: CGFloat = 0.92) -> Data {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let renderer = UIGraphicsImageRenderer(size: size, format: format)
+        return renderer.jpegData(withCompressionQuality: quality) { ctx in
+            for _ in 0..<2500 {
+                let r = CGFloat.random(in: 0...1)
+                let g = CGFloat.random(in: 0...1)
+                let b = CGFloat.random(in: 0...1)
+                UIColor(red: r, green: g, blue: b, alpha: 1).setFill()
+                ctx.fill(CGRect(x: CGFloat.random(in: 0..<size.width), y: CGFloat.random(in: 0..<size.height), width: 40, height: 20))
+            }
+        }
+    }
+
+    func testPhotosThatFitTheBudgetAreLeftUntouched() {
+        let jpegs = (0..<4).map { noisyJPEG() }
+        let fitted = PageDocument.fit(jpegs, budget: jpegs.reduce(0) { $0 + $1.count } + 1000)
+        XCTAssertEqual(fitted, jpegs, "Bütçeye sığan fotoğraflar yeniden sıkıştırılmaz")
+    }
+
+    func testPhotosOverTheBudgetAreRecompressedToFitWithoutLosingAny() {
+        let jpegs = (0..<12).map { noisyJPEG() }
+        let raw = jpegs.reduce(0) { $0 + $1.count }
+        let budget = raw / 2
+        let fitted = PageDocument.fit(jpegs, budget: budget)
+        XCTAssertEqual(fitted.count, jpegs.count, "Hiçbir fotoğraf atılmaz")
+        XCTAssertLessThanOrEqual(fitted.reduce(0) { $0 + $1.count }, budget, "Toplam bütçeye sığar")
+        XCTAssertTrue(fitted.allSatisfy { UIImage(data: $0) != nil }, "Yeniden sıkıştırılan fotoğraflar okunur")
+        let pdf = PageDocument.make(jpegs: fitted)
+        XCTAssertEqual(pdf.map { PageDocument.pageCount(of: $0) }, 12, "PDF her fotoğraf için bir sayfa taşır")
+    }
+
+    func testRecompressionCanAlsoShrinkTheImage() {
+        let jpeg = noisyJPEG()
+        let small = PageDocument.recompress(jpeg, quality: 0.6, scale: 0.5)
+        XCTAssertNotNil(small)
+        if let small = small, let image = UIImage(data: small) {
+            XCTAssertEqual(Int(image.size.width * image.scale), 480, accuracy: 2)
+        }
     }
 
     // MARK: Gemini isteği ve cevap satırları

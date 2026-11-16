@@ -152,6 +152,8 @@ final class SessionViewModel: ObservableObject {
         static let shortcutTransientPause: TimeInterval = 2.5
         /// Kamera çekimi gönderilirken cevap beklemeye eklenen süre (sn). Telefonda bekleyen çekim sayısına SINIR YOK: çekimler silinmez.
         static let cameraExtraWait: TimeInterval = 180
+        /// Toplu çekimin 75 fotoğraflık PDF'i (≈16 MB) hücresel veriyle yüklenir ve çok görüntü okunur: bekleme sınırına bu kadar eklenir
+        static let seriesExtraWait: TimeInterval = 420
         /// Bekleyen bir çekim, internet çalışırken bile bu kadar kez gönderilemezse (hep hata ya da zaman aşımı) o test için beklemeye alınır:
         /// her soru sınırında yeniden denemek sınavı yavaşlatırdı. Çekim SİLİNMEZ; klasörde durur ve sonraki testte yeniden denenir.
         static let pendingSendAttempts = 3

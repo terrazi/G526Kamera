@@ -461,22 +461,22 @@ enum Say {
     static func seriesStarting(pages: Int, seconds: Int) -> String {
         return "Kamera oturumu başlıyor: \(pages) sayfa, her sayfa \(seconds) saniye. Çekim sessiz sürer, kulaklık kapanacak. Sayfayı her \(seconds) saniyede bir çevirin. Bitince haber vereceğim."
     }
-    /// Oturum bitti, internet ve kulaklık geldi: kaç sayfa alındı; sayfalar sırayla gönderilir
+    /// Oturum bitti, internet ve kulaklık geldi: kaç fotoğraflık PDF alındı; tek istekle gönderilir
     static func seriesDone(taken: Int, planned: Int) -> String {
-        if taken >= planned { return "Çekim bitti. \(taken) sayfa alındı, sayfalar gönderiliyor." }
-        return "Çekim yarıda kesildi. \(planned) sayfadan \(taken) tanesi alındı, alınanlar gönderiliyor."
+        if taken >= planned { return "Çekim bitti. \(taken) sayfalık PDF alındı, Gemini'ye gönderiliyor." }
+        return "Çekim yarıda kesildi. \(planned) sayfadan \(taken) tanesi alındı, alınanlar Gemini'ye gönderiliyor."
     }
     /// Oturum bitti ama internet gelmedi
     static func seriesSavedOffline(taken: Int) -> String {
-        return "Çekim bitti, \(taken) sayfa alındı ama internet gelmedi. Sayfalar telefonda saklandı; internet gelince sırayla gönderilecek."
+        return "Çekim bitti, \(taken) sayfalık PDF alındı ama internet gelmedi. PDF telefonda saklandı; internet gelince gönderilecek."
     }
-    /// Toplu çekimde sıradaki sayfa gönderilirken
+    /// Toplu çekimin PDF'i gönderilirken (bekleyen birkaç tane varsa hangisi olduğu söylenir)
     static func pageSending(index: Int, total: Int) -> String {
-        if total <= 1 { return "Sayfa Gemini'ye gönderiliyor, cevapları bekleyin." }
-        return "\(total) sayfadan \(ordinal(max(index, 1))) Gemini'ye gönderiliyor, cevapları bekleyin."
+        if total <= 1 { return "PDF Gemini'ye gönderiliyor, cevapları bekleyin. Birkaç dakika sürebilir." }
+        return "\(total) PDF'ten \(ordinal(max(index, 1))) Gemini'ye gönderiliyor, cevapları bekleyin. Birkaç dakika sürebilir."
     }
-    /// Sayfada Gemini hiç soru bulamadı (boş sayfa, kapak, yönerge); sonraki sayfaya geçilir
-    static let pageNoQuestion = "Bu sayfada soru bulunamadı."
+    /// PDF'te Gemini hiç soru bulamadı (görüntüler boş, okunamıyor ya da soru yok)
+    static let pageNoQuestion = "Görüntülerde soru bulunamadı."
 
     // MARK: Sürüm 4: kamerayla ortak paragraf
     static let askPassageCamera = "Ortak paragraf. Paragrafı kamera ile çekmek ister misiniz? Evet ya da hayır deyin."

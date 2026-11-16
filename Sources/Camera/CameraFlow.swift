@@ -124,10 +124,11 @@ enum CaptureSubject: Equatable {
     case passage
 }
 
-/// Toplu sayfa çekiminin sonucu: çekilen sayfalar sırayla; `failure` doluysa oturum yarıda kesilmiştir (kalan sayfalar çekilemedi)
+/// Toplu çekimin sonucu: bütün oturumun fotoğrafları TEK PDF'tir (`shot`, `pageCount` = alınan fotoğraf sayısı); `failure` doluysa oturum yarıda
+/// kesilmiştir (planlanan fotoğrafların yalnız bir kısmı alındı)
 struct PageSeries: Equatable {
-    var pages: [CapturedQuestion]
-    /// Planlanan sayfa sayısı
+    var shot: CapturedQuestion
+    /// Planlanan fotoğraf sayısı (sayfa sayısı × sayfa süresi: saniyede bir fotoğraf)
     var planned: Int
     var failure: CameraFailure?
 }
@@ -149,9 +150,9 @@ protocol CameraCapturing: AnyObject {
     /// Aynı çekim; kameraya bağlanma beklemesi `connectLimit` sn ile sınırlanır (nil: varsayılan süre). "Wi-Fi'de kal" kipinde telefon zaten kameranın
     /// ağındadır: bağlanamıyorsa uzun beklenmez, onarım kestirmesine geçilir.
     func capture(connectLimit: TimeInterval?) async -> Result<CapturedQuestion, CameraFailure>
-    /// Sayfa bazlı toplu çekim: kameraya bağlanır, `pages` × `seconds` sn aralıksız çeker (her saniyenin en net karesi; sayfa p = (p-1)·seconds … p·seconds),
-    /// konuşmaz ve konumlandırma yapmaz, bitince kamerayı kapatır. Bağlanamazsa `.failure`; bağlanıp bir kısım sayfa alındıktan sonra kesilirse
-    /// `.success` ve `failure` dolu döner (alınan sayfalar kaybolmaz).
+    /// Toplu çekim: kameraya bağlanır, `pages` × `seconds` sn aralıksız çeker (her saniyenin en net karesi), konuşmaz ve konumlandırma yapmaz, bitince
+    /// kamerayı kapatır. Bütün fotoğraflar TEK PDF olur (75 sayfa). Bağlanamazsa `.failure`; bağlanıp bir kısım fotoğraf alındıktan sonra kesilirse
+    /// `.success` ve `failure` dolu döner (alınanlar kaybolmaz).
     func captureSeries(pages: Int, seconds: Int, connectLimit: TimeInterval?) async -> Result<PageSeries, CameraFailure>
     /// Süren çekimi (ya da açık tutulan bağlantıyı) iptal eder (kamera kapanır)
     func cancel()

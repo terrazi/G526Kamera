@@ -388,11 +388,11 @@ final class FakeCamera: CameraCapturing {
         return seriesResults.removeFirst()
     }
 
-    /// Bir sayfa çekimi: `isPage` işaretli, 15 fotoğraflık PDF'i varmış gibi
-    static func page(_ tag: UInt8 = 1) -> CapturedQuestion {
+    /// Toplu çekimin tek PDF'i: `isPage` işaretli, `photos` fotoğraflık PDF'i varmış gibi
+    static func page(_ tag: UInt8 = 1, photos: Int = 75) -> CapturedQuestion {
         var s = CapturedQuestion(photo: Data([tag, 2, 3]))
         s.pdf = Data([tag, 9, 9, 9])
-        s.pageCount = 15
+        s.pageCount = photos
         s.isPage = true
         return s
     }

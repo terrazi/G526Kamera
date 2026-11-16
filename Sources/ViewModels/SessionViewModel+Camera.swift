@@ -382,7 +382,7 @@ extension SessionViewModel {
                           : (shot.passageMedia == nil ? Say.cameraSending : Say.cameraSendingWithPassage))
         }
         startAnswerWait()
-        answerWaitElapsed = -Timing.cameraExtraWait   // fotoğraf + video hücresel veriyle yüklenir: V3'ün 180 sn sınırına bu kadar eklenir
+        answerWaitElapsed = -(shot.isPage ? Timing.seriesExtraWait : Timing.cameraExtraWait)   // fotoğraf + video hücresel veriyle yüklenir: V3'ün 180 sn sınırına bu kadar eklenir
         let fetch: () async throws -> GeminiReply = { [weak self] in
             guard let self = self else { throw CancellationError() }
             return try await self.sendWithRetry(shot, expected: expected)

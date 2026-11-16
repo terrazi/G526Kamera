@@ -109,41 +109,41 @@ final class GeminiAnswerService: Answering {
     Cevap metnini şıktan kısaca yaz. Giriş, açıklama, markdown, tırnak ve ek cümle yazma. Emin değilsen en olası şıkkı yaz.
     """
 
-    /// Toplu sayfa çekimi (bir çekim = bir sayfa) için sistem komutu: cevap biçimi aynıdır, ama sayfadaki BÜTÜN sorular, her biri ayrı satırda, numara sırasıyla cevaplanır
+    /// Toplu çekim için sistem komutu: cevap biçimi aynıdır, ama görüntülerde görünen BÜTÜN sayfalardaki BÜTÜN sorular, her biri ayrı satırda, numara sırasıyla cevaplanır
     static let pageSystemPrompt = """
-    Sen bir sınav okuyucu asistansın. Mesajda basılı ya da ekranda gösterilen bir test SAYFASININ görüntüsü var: kamera sayfa üzerinde gezinirken \
-    saniyede bir çekilmiş ardışık fotoğrafların PDF'i (her sayfa bir fotoğraftır) ve (varsa) aynı sürenin kısa VİDEOSU. Sayfada BİRDEN ÇOK soru olabilir.
+    Sen bir sınav okuyucu asistansın. Mesajda bir sınav kitapçığının BİRKAÇ SAYFASININ görüntüsü var: kullanıcı kamerayı sayfalar üzerinde tutarken \
+    saniyede bir çekilmiş ardışık fotoğrafların PDF'i (PDF'in her sayfası bir fotoğraftır; yaklaşık 75 tane olabilir). Kullanıcı kitapçığın sayfasını belli aralıklarla çevirir: \
+    aynı sayfa art arda birçok karede görünür, sayfa çevrilirken bulanık ya da yarım kareler olur. Her sayfada BİRDEN ÇOK soru olabilir.
 
-    Sayfada tam okunabilen BÜTÜN soruları görüntüden oku, her birini çöz ve HER SORU İÇİN AYRI BİR SATIR yaz, soru numarasına göre küçükten büyüğe. \
+    Bütün karelerde görünen, tam okunabilen BÜTÜN soruları oku, her birini çöz ve HER SORU İÇİN AYRI BİR SATIR yaz, soru numarasına göre küçükten büyüğe. \
     Her satırın biçimi: Soru [numara], [şık sözcüğü], [doğru cevabın metni]. Örnek (iki soru):
     Soru 4, Denizli, Örgütsel Davranış
     Soru 5, Adana, Yönetim
 
     Şıklar: A=Adana, B=Bursa, C=Ceyhan, D=Denizli, E=Erzurum. Şık için HER ZAMAN bu sözcüğü yaz, harf yazma. \
-    Sayfada şıklar A, B, C, D, E harfleriyle basılıdır; hangi harfin hangi sözcüğe denk geldiğini karıştırma.
+    Sayfalarda şıklar A, B, C, D, E harfleriyle basılıdır; hangi harfin hangi sözcüğe denk geldiğini karıştırma.
 
-    PDF'in sayfaları ve video aynı kâğıt sayfasını gösterir. Kamera gezdirildiği için aynı soru farklı konum ve açılarla tekrar tekrar görünür; \
-    bazı karelerde yazının bir bölümü kayık, bulanık ya da parlamalı olabilir. Bütün sayfaları ve videoyu BİRLİKTE değerlendir; her soruyu ve şıklarını \
-    bütün olarak çıkar, en net kareye öncelik ver, okunmayan yeri öbür kareden ya da videodan tamamla. Soru numaralarını soru metninin başından oku \
-    ve aynen yaz; numara okunamıyorsa kullanıcı mesajındaki ipucunu kullan. Aynı soruyu iki kez cevaplama.
+    AYNI SORU birçok karede tekrar tekrar görünür ve farklı açı ve konumdadır; bir karede yazının bir bölümü kayık, bulanık ya da parlamalı olabilir. \
+    Bütün kareleri BİRLİKTE değerlendir; her soruyu ve şıklarını bütün olarak çıkar (bir karede kesik olanı başka karenin tamamından tamamla), en net kareye öncelik ver. \
+    Soru numaralarını soru metninin başından oku ve aynen yaz; numara okunamıyorsa kullanıcı mesajındaki ipucunu kullan. Her soruyu YALNIZ BİR KEZ cevapla.
 
-    Sayfada birkaç soruya ortak bir paragraf varsa onu oku ve o sorulara paragrafa dayanarak cevap ver. Sayfanın kenarında kesilmiş, numarası \
-    ya da şıkları okunamayan yarım sorular (başı önceki sayfada, sonu sonraki sayfada kalanlar) için satır yazma; sayfa numarası, üst ve alt bilgi soru değildir. \
+    Sayfada birkaç soruya ortak bir paragraf varsa onu oku ve o sorulara paragrafa dayanarak cevap ver. Hiçbir karede numarası ya da şıkları tam okunamayan \
+    yarım sorular için satır yazma; sayfa numarası, üst ve alt bilgi soru değildir. \
     Cevap metnini şıktan kısaca yaz. Giriş, açıklama, markdown, madde işareti, tırnak ve ek cümle yazma: yalnız soru satırları. Emin değilsen en olası şıkkı yaz.
-    Sayfada hiç tam soru yoksa (boş sayfa, kapak, yönerge, yalnız kesik sorular) başka hiçbir şey yazmadan yalnız şunu yaz: SORU YOK
+    Hiçbir karede tam soru yoksa (boş görüntü, kapak, yönerge, yalnız kesik sorular) başka hiçbir şey yazmadan yalnız şunu yaz: SORU YOK
     """
 
-    /// Sayfa kipi kullanıcı mesajı (görüntü parçalarından sonra gelir)
+    /// Toplu çekim kullanıcı mesajı (görüntü parçalarından sonra gelir)
     static func pageText(expectedNumber: Int, hasVideo: Bool, extra: String, pages: Int = 0) -> String {
-        var text = "İpucu: sayfadaki ilk sorunun numarası okunamazsa ona Soru \(expectedNumber) de ve sırayla devam et. Numara okunuyorsa sıraya değil okunan numaraya uy."
+        var text = "İpucu: görüntülerdeki ilk sorunun numarası okunamazsa ona Soru \(expectedNumber) de ve sırayla devam et. Numara okunuyorsa sıraya değil okunan numaraya uy."
         if pages > 0 {
             text += hasVideo
-                ? "\n\nBu mesajda sayfanın \(pages) sayfalık PDF'i (saniyede bir çekilmiş ardışık fotoğraflar) ve aynı sürenin kısa videosu var. Sayfadaki bütün soruları, her biri ayrı satırda cevapla."
-                : "\n\nBu mesajda sayfanın \(pages) sayfalık PDF'i (saniyede bir çekilmiş ardışık fotoğraflar) var. Sayfadaki bütün soruları, her biri ayrı satırda cevapla."
+                ? "\n\nBu mesajda \(pages) sayfalık PDF (saniyede bir çekilmiş ardışık fotoğraflar) ve aynı sürenin kısa videosu var. Görüntülerde görünen bütün sayfalardaki bütün soruları, her biri ayrı satırda cevapla."
+                : "\n\nBu mesajda \(pages) sayfalık PDF (saniyede bir çekilmiş ardışık fotoğraflar) var. Görüntülerde görünen bütün sayfalardaki bütün soruları, her biri ayrı satırda cevapla."
         } else {
             text += hasVideo
-                ? "\n\nBu mesajda sayfanın fotoğrafı ve aynı sayfanın kısa videosu var. Sayfadaki bütün soruları, her biri ayrı satırda cevapla."
-                : "\n\nBu mesajda sayfanın fotoğrafı var. Sayfadaki bütün soruları, her biri ayrı satırda cevapla."
+                ? "\n\nBu mesajda sayfanın fotoğrafı ve aynı sayfanın kısa videosu var. Görüntülerdeki bütün soruları, her biri ayrı satırda cevapla."
+                : "\n\nBu mesajda sayfanın fotoğrafı var. Görüntülerdeki bütün soruları, her biri ayrı satırda cevapla."
         }
         let note = extra.trimmed
         if !note.isEmpty { text += "\n\nKullanıcının ek talimatı: \(note)" }
@@ -364,12 +364,14 @@ final class GeminiAnswerService: Answering {
     func answerPage(capture: CapturedQuestion, expectedNumber: Int) async throws -> [GeminiReply] {
         guard !GeminiProfiles.usable(profilesProvider()).isEmpty else { throw GeminiError(Say.noKeyShort, .key) }
         let body = try GeminiAnswerService.captureBody(capture, expectedNumber: expectedNumber, page: true)
+        // 75 fotoğraflık PDF (≈16 MB) hücresel veriyle yüklenir ve çok görüntü okunur: model başına bekleme üç katıdır
+        let limit = capture.pageCount > 20 ? captureLimit * 3 : captureLimit
         do {
-            return try await runChain(body: body, limit: captureLimit, parse: GeminiAnswerService.parsePage)
+            return try await runChain(body: body, limit: limit, parse: GeminiAnswerService.parsePage)
         } catch let error as GeminiError where error.status == 400 && error.kind == .http && capture.sendsFrameRate {
             tlog("[kamera] kare hızı ayarıyla sayfa isteği reddedildi (\(error.message)); ayarsız yeniden deneniyor")
             return try await runChain(body: try GeminiAnswerService.captureBody(capture, expectedNumber: expectedNumber, fps: nil, page: true),
-                                      limit: captureLimit, parse: GeminiAnswerService.parsePage)
+                                      limit: limit, parse: GeminiAnswerService.parsePage)
         }
     }
 

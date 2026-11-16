@@ -3,10 +3,10 @@ import Foundation
 /// Sayfa bazlı toplu çekim (kullanıcı kararı 2026-11-16): "evet" denince TEK soru değil bir OTURUM çekilir (varsayılan 5 sayfa × 15 sn = 75 sn).
 ///
 /// Akış: (1) oturum bir kez duyurulur ("5 sayfa, her sayfa 15 saniye… kulaklık kapanacak"); (2) Kestirme hücreseli, mikrofonu ve kulaklığı kapatır, telefon
-/// kameranın Wi-Fi'sine geçer; (3) kamera hiç konuşmadan aralıksız çeker: sayfa p, p'inci süre dilimidir (ses de titreşim de YOK; sayfayı kullanıcı
-/// kendi sayımıyla çevirir); (4) kamera kapanır, internet ve kulaklık geri gelir (kulaklık gelene kadar ses yolu değişikliği duraklatma sayılmaz);
-/// (5) sayfalar telefondaki klasöre "bekliyor" olarak yazılır ve sırayla gönderilir: bir sayfadaki BÜTÜN soruların cevabı numarasıyla okunur;
-/// (6) sonra yeni oturum sorulur. Hiçbir sayfa cevabı duyulana kadar silinmez.
+/// kameranın Wi-Fi'sine geçer; (3) kamera hiç konuşmadan aralıksız çeker, saniyede bir fotoğraf (ses de titreşim de YOK; sayfayı kullanıcı kendi sayımıyla
+/// çevirir); (4) kamera kapanır, internet ve kulaklık geri gelir (kulaklık gelene kadar ses yolu değişikliği duraklatma sayılmaz); (5) bütün oturumun
+/// fotoğrafları (75) TEK PDF'tir (kullanıcı kararı: "tüm 75 sayfa pdf tek seferde gitsin"): telefondaki klasöre "bekliyor" olarak yazılır, tek istekle
+/// gönderilir ve PDF'teki BÜTÜN soruların cevabı numara sırasıyla okunur; (6) sonra yeni oturum sorulur. Cevaplar duyulana kadar PDF silinmez.
 extension SessionViewModel {
     // MARK: Kamera sorusunun cümleleri
 
@@ -78,12 +78,9 @@ extension SessionViewModel {
                                       interrupted: { [weak self] series in self?.saveInterruptedSeries(series) })
         // Alınan sayfalar telefondaki klasöre yazılır: internete dönüş sürerken kesinti olsa da kaybolmaz
         if case .success(let series) = result {
-            let kept = series.pages.map { page -> CapturedQuestion in
-                let shot = deps.captureStore.keep(shapedShot(page, isPassage: false), kind: .page)
-                keepPending(shot)
-                return shot
-            }
-            result = .success(PageSeries(pages: kept, planned: series.planned, failure: series.failure))
+            let kept = deps.captureStore.keep(shapedShot(series.shot, isPassage: false), kind: .page)
+            keepPending(kept)
+            result = .success(PageSeries(shot: kept, planned: series.planned, failure: series.failure))
         }
         var cameraGaveUp = false
         if case .failure(let failure) = result, failure == .notConnected || failure == .noFrames, !Task.isCancelled, phase == .answering {
@@ -122,40 +119,39 @@ extension SessionViewModel {
                 await repairInternetAfterCamera(Say.cameraFailedOffline(failure))
             }
         case .success(let series):
-            if let first = series.pages.first { rememberShot(first) }
-            tlog("[kamera] toplu çekim bitti: \(series.pages.count)/\(series.planned) sayfa\(series.failure.map { "; kesilme nedeni: \($0.message)" } ?? ""); internet \(online ? "geldi" : "gelmedi")")
+            rememberShot(series.shot)
+            let taken = series.shot.pageCount
+            tlog("[kamera] toplu çekim bitti: \(taken)/\(series.planned) fotoğraflık PDF\(series.failure.map { "; kesilme nedeni: \($0.message)" } ?? ""); internet \(online ? "geldi" : "gelmedi")")
             if online {
                 clearWarning("kamera")
-                guard await speakNotice(Say.seriesDone(taken: series.pages.count, planned: series.planned)) else { return }   // kesildi: sayfalar bekliyor, onarımdan sonra gönderilir
-                // Sayfalar bekleyenlerdedir: dinleme açılırken sırayla gönderilir (bkz. `beginListening`, `sendPendingShots`); bitince yeni oturum sorulur
+                guard await speakNotice(Say.seriesDone(taken: taken, planned: series.planned)) else { return }   // kesildi: PDF bekliyor, onarımdan sonra gönderilir
+                // PDF bekleyenlerdedir: dinleme açılırken gönderilir (bkz. `beginListening`, `sendPendingShots`); cevaplar okunur, bitince yeni oturum sorulur
                 armCameraOffer()
                 beginListening()
             } else if offlineCapture {
-                tlog("[kamera] çevrimdışı çekim kipi: \(series.pages.count) sayfa telefonda bekliyor")
-                await continueOffline(Say.seriesSavedOffline(taken: series.pages.count))
+                tlog("[kamera] çevrimdışı çekim kipi: \(taken) fotoğraflık PDF telefonda bekliyor")
+                await continueOffline(Say.seriesSavedOffline(taken: taken))
             } else {
-                warn("kamera", "Çekilen sayfalar telefonda bekliyor: internet gelmedi.")
-                await repairInternetAfterCamera(Say.seriesSavedOffline(taken: series.pages.count))
+                warn("kamera", "Çekilen PDF telefonda bekliyor: internet gelmedi.")
+                await repairInternetAfterCamera(Say.seriesSavedOffline(taken: taken))
             }
         }
     }
 
-    /// Oturum tam kesinti anında (kulaklık, arama, onarım) bitti: sayfalar klasöre yazılır ve onarımdan sonra gönderilir
+    /// Oturum tam kesinti anında (kulaklık, arama, onarım) bitti: PDF klasöre yazılır ve onarımdan sonra gönderilir
     func saveInterruptedSeries(_ series: PageSeries) {
-        for page in series.pages {
-            let shot = deps.captureStore.keep(shapedShot(page, isPassage: false), kind: .page)
-            guard shot.archived else {
-                shot.discard()
-                continue
-            }
-            keepPending(shot)
+        let shot = deps.captureStore.keep(shapedShot(series.shot, isPassage: false), kind: .page)
+        guard shot.archived else {
+            shot.discard()
+            return
         }
-        tlog("[kamera] kesinti anında biten oturumun \(series.pages.count) sayfası klasöre yazıldı; onarımdan sonra gönderilecek")
+        keepPending(shot)
+        tlog("[kamera] kesinti anında biten oturumun \(series.shot.pageCount) fotoğraflık PDF'i klasöre yazıldı; onarımdan sonra gönderilecek")
     }
 
     // MARK: Sayfanın cevapları
 
-    /// Sayfanın sıradaki cevabı okunur (ilki `answer` ile okundu): "sonraki soruyu okuyun" denmeden, kendi numarasıyla
+    /// PDF'in sıradaki cevabı okunur (ilki `answer` ile okundu): "sonraki soruyu okuyun" denmeden, kendi numarasıyla
     func readNextQueuedReply() async {
         guard !queuedReplies.isEmpty else { return }
         let next = queuedReplies.removeFirst()

@@ -547,9 +547,9 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
 
     // MARK: Toplu sayfa çekimi
 
-    /// Sayfa bazlı toplu çekim: bağlanır, hiç konuşmadan `pages` × `seconds` sn ARALIKSIZ çeker. Saniyede bir fotoğraf (o saniyenin en net karesi) alınır;
-    /// sayfa p, p'inci `seconds` saniyelik dilimdir (kullanıcı sayfayı bu dilimlere göre çevirir). Her dilimin fotoğrafları tek PDF olur; video yoktur.
-    /// Kameradan görüntü `lostSeconds` sn kesilirse oturum bırakılır, o ana kadar alınan sayfalar döner (`failure` dolu).
+    /// Toplu çekim: bağlanır, hiç konuşmadan `pages` × `seconds` sn ARALIKSIZ çeker. Saniyede bir fotoğraf (o saniyenin en net karesi) alınır
+    /// (kullanıcı sayfayı her `seconds` saniyede bir kendi sayımıyla çevirir); bütün oturumun fotoğrafları TEK PDF olur (75 sayfa), video yoktur.
+    /// Kameradan görüntü `lostSeconds` sn kesilirse oturum bırakılır, o ana kadar alınan fotoğraflar döner (`failure` dolu).
     func captureSeries(pages: Int, seconds: Int, connectLimit: TimeInterval?) async -> Result<PageSeries, CameraFailure> {
         closeHeld()
         guard !running else { return .failure(.captureFailed("çekim zaten sürüyor")) }
@@ -584,8 +584,8 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         return await shootSeries(pages: max(1, pages), seconds: max(1, seconds))
     }
 
-    /// En az bu kadar fotoğrafı olan sayfa tutulur (görüntü kesildiği için yarım kalan sayfa için)
-    static func minPhotos(perPage seconds: Int) -> Int { return max(1, min(3, seconds / 2)) }
+    /// Oturum en az bu kadar fotoğraf aldıysa tutulur (görüntü kesilmişse alınanlar gönderilir; çok azsa çekim başarısız sayılır)
+    static func minPhotos(total: Int) -> Int { return max(1, min(5, total)) }
 
     private func shootSeries(pages: Int, seconds: Int) async -> Result<PageSeries, CameraFailure> {
         shooting = true
@@ -622,38 +622,35 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
             })
         }
         if cancelled { return .failure(.cancelled) }
-        var photosByPage: [[CapturedPhoto]] = Array(repeating: [], count: pages)
+        var photos: [CapturedPhoto] = []
         var failures: [CaptureError] = []
-        for (index, task) in tasks.enumerated() {
+        for task in tasks {
             switch await task.value {
-            case .success(let photo): photosByPage[index / seconds].append(photo)
+            case .success(let photo): photos.append(photo)
             case .failure(let error): failures.append(error)
             }
         }
         if cancelled { return .failure(.cancelled) }
-        let keep = CameraCaptureController.minPhotos(perPage: seconds)
-        var shots: [CapturedQuestion] = []
-        for (number, photos) in photosByPage.enumerated() {
-            guard photos.count >= keep, let best = photos.max(by: { $0.sharpness < $1.sharpness }) else {
-                tlog("[kamera] toplu çekim: \(number + 1). sayfada yalnız \(photos.count) fotoğraf alınabildi; sayfa atlandı")
-                continue
-            }
-            let jpegs = photos.map { $0.jpeg }
-            let pdf = await Task.detached(priority: .userInitiated) { PageDocument.make(jpegs: jpegs) }.value
-            tlog("[kamera] \(number + 1). sayfa: \(photos.count) fotoğraf (\(best.width)×\(best.height)) → PDF \(pdf.map { "\($0.count / 1024) KB" } ?? "kurulamadı")")
-            var shot = CapturedQuestion(photo: best.jpeg)
-            shot.pdf = pdf
-            shot.pageCount = pdf == nil ? 0 : photos.count
-            shot.date = best.date
-            shot.isPage = true
-            shots.append(shot)
-        }
-        guard !shots.isEmpty else {
+        let keep = CameraCaptureController.minPhotos(total: total)
+        guard photos.count >= keep, let best = photos.max(by: { $0.sharpness < $1.sharpness }) else {
+            tlog("[kamera] toplu çekim: yalnız \(photos.count) fotoğraf alınabildi (en az \(keep) gerekir)")
             if cutAt != nil || failures.contains(where: { if case .noFrames = $0 { return true } else { return false } }) { return .failure(.noFrames) }
             return .failure(.captureFailed(failures.first?.message ?? ""))
         }
-        let failure: CameraFailure? = cutAt != nil ? .noFrames : (shots.count < pages ? .captureFailed("") : nil)
-        return .success(PageSeries(pages: shots, planned: pages, failure: failure))
+        // Bütün oturumun fotoğrafları TEK PDF olur (zaman sırasıyla); toplam bütçeyi aşarsa fotoğraflar yeniden sıkıştırılır
+        let raw = photos.map { $0.jpeg }
+        let (pdf, fitted) = await Task.detached(priority: .userInitiated) { () -> (Data?, Int) in
+            let fit = PageDocument.fit(raw)
+            return (PageDocument.make(jpegs: fit, title: "Toplu çekim"), fit.reduce(0) { $0 + $1.count })
+        }.value
+        tlog("[kamera] toplu çekim: \(photos.count)/\(total) fotoğraf (\(best.width)×\(best.height), ham \(raw.reduce(0) { $0 + $1.count } / 1024) KB → \(fitted / 1024) KB) → PDF \(pdf.map { "\($0.count / 1024) KB" } ?? "kurulamadı")")
+        var shot = CapturedQuestion(photo: best.jpeg)
+        shot.pdf = pdf
+        shot.pageCount = pdf == nil ? 0 : photos.count
+        shot.date = best.date
+        shot.isPage = true
+        let failure: CameraFailure? = cutAt != nil ? .noFrames : (photos.count < total ? .captureFailed("") : nil)
+        return .success(PageSeries(shot: shot, planned: total, failure: failure))
     }
 
     // MARK: Yardımcılar
