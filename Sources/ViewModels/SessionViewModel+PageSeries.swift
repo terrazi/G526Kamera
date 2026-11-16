@@ -45,15 +45,6 @@ extension SessionViewModel {
     // MARK: Oturum
 
     func runPageSeries() async {
-        // "Başla" dendiğinde hazır bekleyen bağlantı kopmuşsa (görüntü gelmiyor) süre başlatılmaz: kullanıcı boşuna sayfa gösterirdi.
-        // Kamera yeniden hazırlanır, sonra talimat yeniden sorulur
-        if cameraSettings.pageSeries, deps.camera.holding, !deps.camera.holdingLive {
-            tlog("[kamera] \"Başla\" denince hazır bekleyen kamera bağlantısı kopmuş çıktı; süre başlatılmadı, kamera yeniden hazırlanıyor")
-            deps.camera.closeHeld()
-            guard await speakNotice(Say.seriesLinkLost) else { offerCamera = true; return }
-            await askCameraChoice(relink: true)
-            return
-        }
         guard !cameraBusy else {
             tlog("[kamera] önceki çekim sürüyor; yeni oturum başlatılmadı")
             return
@@ -70,7 +61,7 @@ extension SessionViewModel {
         }
         // Kamera hazır bekliyorsa (bağlı, görüntü akıyor) süre HEMEN başlar: "Başladı." denir, cümle bitince çekim sürer. Hazır değilse (bağlantı kopmuş)
         // eski düzen: duyuru kestirmeden ÖNCE söylenir (kestirme kulaklığı kapatabilir) ve oturum boyunca hiçbir şey söylenmez
-        let ready = deps.camera.holdingLive
+        let ready = deps.camera.holding
         guard await speakNotice(ready ? Say.seriesGo : Say.seriesStarting(seconds: seconds)) else {
             tlog("[kamera] oturum duyurusu kesildi; kestirme çalıştırılmadı, onarımdan sonra yeniden sorulacak")
             offerCamera = true
@@ -91,7 +82,8 @@ extension SessionViewModel {
         let interrupted: (PageSeries) -> Void = { [weak self] series in self?.saveInterruptedSeries(series) }
         var result: Result<PageSeries, CameraFailure>
         if ready {
-            // Hazır bekleyen bağlantıyla hemen çekilir (kestirme çalışmaz, yeniden bağlanılmaz); görüntü gelmiyorsa onarım döngüsüne düşülür
+            // Hazır bekleyen bağlantı canlıysa hemen çekilir (kestirme çalışmaz, yeniden bağlanılmaz). Görüntü bir an kesilmişse (kayıp, anahtar kare bekleniyor)
+            // `captureSeries` aynı Wi-Fi'de bağlantıyı yeniden kurar (≈ 2–3 sn); süre görüntü gelince başlar
             let camera = deps.camera
             camera.onStatus = { [weak self] text in self?.statusNote = text }
             result = await withTaskCancellationHandler {
@@ -101,8 +93,14 @@ extension SessionViewModel {
             }
             camera.onStatus = nil
             if case .failure(let failure) = result, failure == .notConnected || failure == .noFrames, !Task.isCancelled, phase == .answering {
-                tlog("[kamera] hazır bekleyen bağlantıyla çekilemedi (\(failure.message)); kamera onarımı deneniyor")
-                result = await repairLoop(cameraName: cameraName, speaks: false, operation: operation, interrupted: interrupted)
+                // Bekleyen bağlantı kopmuştu ve aynı Wi-Fi'de yeni bağlantı da kurulamadı: süre HİÇ başlamadı. Onarım döngüsünde süre sessizce başlatılmaz
+                // (kullanıcı ne zaman başladığını bilemez, boşuna sayfa gösterir); kamera baştan hazırlanır ve "Başla" yeniden beklenir
+                tlog("[kamera] hazır bekleyen bağlantıyla çekilemedi (\(failure.message)); süre başlamadı, kamera yeniden hazırlanıp \"Başla\" yeniden beklenecek")
+                deps.camera.closeHeld()
+                statusNote = ""
+                guard await speakNotice(Say.seriesLinkLost) else { offerCamera = true; return }
+                await askCameraChoice(relink: true)
+                return
             } else if Task.isCancelled, case .success(let series) = result {
                 interrupted(series)   // tam kesinti anında bitti: klasöre yazılır
                 result = .failure(.cancelled)

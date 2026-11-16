@@ -130,26 +130,28 @@ final class PageSeriesTests: XCTestCase {
         XCTAssertTrue(h.camera.holding, "Kestirme yazılı olmasa da kamera hazırlanır")
     }
 
-    func testAConnectionThatDiedWhileWaitingNeverStartsTheTimerAndTheCameraIsPreparedAgain() async {
-        let h = harness(seriesResults: [series()], pageReplies: [.success([FakeAnswering.reply(1)])])
+    func testAConnectionThatDiedWhileWaitingNeverStartsTheTimerSilentlyAndTheCameraIsPreparedAgain() async {
+        // İlk "Başla": bekleyen bağlantı kopmuş ve yeni bağlantı da kurulamıyor; süre başlamaz. Kamera baştan hazırlanır, ikinci "Başla" çalışır
+        let h = harness(seriesResults: [.failure(.notConnected), series()], pageReplies: [.success([FakeAnswering.reply(1)])])
         _ = await h.startListening()
         h.camera.linkLost = true   // kamera bekleme sırasında görüntü göndermeyi kesti
         reply(h, "başla")
         let again = await waitUntil(45) { h.speaker.spoken.last == Say.askCameraSeries(seconds: 75) && self.questionOpen(h) && h.camera.holdingLive }
         XCTAssertTrue(again, "\(h.speaker.spoken)")
-        XCTAssertEqual(h.camera.seriesCalls.count, 0, "Ölü bağlantıda süre başlamaz")
-        XCTAssertFalse(h.speaker.spoken.contains(Say.seriesGo), "\"Başladı.\" denmez: kullanıcı boşuna sayfa göstermesin")
-        XCTAssertTrue(h.speaker.spoken.contains(Say.seriesLinkLost))
-        XCTAssertEqual(h.events, ["kestirme:Kameraya_Gec", "kestirme:Bluetooth_Yenile", "bağlantı açıldı",
-                                  "bağlantı kapandı",
-                                  "kestirme:Kameraya_Gec", "kestirme:Bluetooth_Yenile", "bağlantı açıldı"],
-                       "Kopuk bağlantı kapatılır, kamera baştan hazırlanır")
-        // Yeniden hazırlandıktan sonra "Başla" bu kez süreyi hemen başlatır
+        XCTAssertEqual(h.camera.seriesCalls.count, 1, "Süre başlamadı: tek (başarısız) bağlanma denemesi")
+        XCTAssertEqual(h.camera.seriesHeldAtStart, [false], "Bağlantı canlı değildi")
+        XCTAssertTrue(h.speaker.spoken.contains(Say.seriesLinkLost), "Süre başlamadı diye söylenir")
+        XCTAssertEqual(Array(h.events.prefix(7)),
+                       ["kestirme:Kameraya_Gec", "kestirme:Bluetooth_Yenile", "bağlantı açıldı",
+                        "oturum",
+                        "kestirme:Kameraya_Gec", "kestirme:Bluetooth_Yenile", "bağlantı açıldı"],
+                       "Bağlanılamayınca kamera baştan hazırlanır (kestirme, Bluetooth, bağlanma)")
+        // Yeniden hazırlandıktan sonra "Başla" süreyi hemen başlatır
         reply(h, "başla")
         let done = await waitUntil(45) { h.vm.answers.count == 1 && self.questionOpen(h) }
         XCTAssertTrue(done, "\(h.speaker.spoken)")
-        XCTAssertEqual(h.camera.seriesCalls.count, 1)
-        XCTAssertEqual(h.camera.seriesHeldAtStart, [true])
+        XCTAssertEqual(h.camera.seriesCalls.count, 2)
+        XCTAssertEqual(h.camera.seriesHeldAtStart, [false, true])
     }
 
     func testTwoSessionsInARowKeepTheNumberingAndPrepareTheCameraEachTime() async {
@@ -322,13 +324,14 @@ final class PageSeriesTests: XCTestCase {
     }
 
     func testASessionThatCannotConnectFallsBackToReadingTheQuestionAloud() async {
-        // İlk çekim hazır bekleyen bağlantıyla denenir, sonra onarım döngüsü (ilk deneme + onarımlar)
-        let h = harness(seriesResults: Array(repeating: .failure(.notConnected), count: T.cameraRepairs + 2), pageReplies: [])
+        // "Başla": bekleyen bağlantıyla çekilemez; kamera baştan hazırlanmak istenir ama hiç bağlanılamaz (ilk deneme + onarımlar): sesle okumaya dönülür
+        let h = harness(seriesResults: [.failure(.notConnected)], pageReplies: [])
+        h.camera.holdResults = [.success(())] + Array(repeating: .failure(.notConnected), count: T.cameraRepairs + 1)
         _ = await h.startListening()
         reply(h, "başla")
-        let fallen = await waitUntil(45) { h.vm.listenMode == .question && h.vm.phase == .listening }
+        let fallen = await waitUntil(60) { h.vm.listenMode == .question && h.vm.phase == .listening }
         XCTAssertTrue(fallen, "\(h.speaker.spoken)")
-        XCTAssertEqual(h.camera.seriesCalls.count, T.cameraRepairs + 2)
+        XCTAssertEqual(h.camera.seriesCalls.count, 1, "Süre hiç başlamadı")
         XCTAssertTrue(h.speaker.spoken.contains(Say.cameraFailed(.notConnected, down: true, minutes: h.settings.cameraCheckMinutes)))
         XCTAssertTrue(h.vm.pendingShots.isEmpty)
         XCTAssertTrue(h.answering.pageCalls.isEmpty)
