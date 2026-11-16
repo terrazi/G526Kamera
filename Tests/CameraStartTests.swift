@@ -1,9 +1,10 @@
 import XCTest
 @testable import G526CameraDrive
 
-/// Sürüm 4: "Başlat"a basılınca kameraya hemen bağlanma (kullanıcı kararı 2026-11-16). Ses yolu doğrulanınca telefon kameranın Wi-Fi'sine geçer
-/// (hücresel kapanır), kameraya bağlanılır ve görüntü ana ekranda akar; bağlantı ilk hücresel bağlantıdan önce kapanır ve internete geçilir.
-/// Sonra her soruda eski düzen sürer. Bağlanılamazsa onarım denenir, olmazsa kamera sistemden çıkar ve sorular sesle okunur.
+/// Sürüm 4: "Başlat"a basılınca kameraya hemen bağlanma (kullanıcı kararı 2026-11-16). Ayarlar'daki "Kamerayı dene" yolunun aynısı Başlat'a gömülüdür:
+/// açılış kontrolünün EN BAŞINDA (kulaklık ve mikrofon beklenmeden) telefon kameranın Wi-Fi'sine geçer (hücresel kapanır), kameraya bağlanılır ve
+/// görüntü ana ekranda akar; bağlantı ilk hücresel bağlantıdan önce kapanır ve internete geçilir. Sonra her soruda eski düzen sürer.
+/// Bağlanılamazsa onarım denenir, olmazsa kamera sistemden çıkar ve sorular sesle okunur.
 @MainActor
 final class CameraStartTests: XCTestCase {
     typealias T = SessionViewModel.Timing
@@ -36,7 +37,7 @@ final class CameraStartTests: XCTestCase {
         let listening = await h.startListening()
         XCTAssertTrue(listening, "\(h.speaker.spoken)")
         XCTAssertEqual(h.events, ["kestirme:Kameraya_Gec", "bağlantı açıldı", "bağlantı kapandı", "kestirme:Hücresele_Gec"])
-        XCTAssertEqual(h.speaker.spoken, [Say.cameraConnecting, Say.cameraStartOK, Say.readyCamera, Say.askCamera])
+        XCTAssertEqual(h.speaker.spoken, [Say.cameraStartOK, Say.readyCamera, Say.askCamera], "Bağlanırken sessiz kalınır (ses yolu henüz doğrulanmadı)")
         XCTAssertFalse(h.camera.isHeld, "İnternete geçmeden kamera bağlantısı kapanmıştır")
         XCTAssertEqual(h.camera.captures, 0, "Başlangıçta hiçbir şey çekilmez")
         XCTAssertEqual(h.vm.checkup.first(where: { $0.id == "kameraBaglanti" })?.ok, true)
@@ -100,5 +101,35 @@ final class CameraStartTests: XCTestCase {
         XCTAssertFalse(h.speaker.spoken.contains(Say.askCamera), "Kamera kapalıyken kamera sorusu sorulmaz")
         XCTAssertEqual(h.vm.checkup.first(where: { $0.id == "kameraBaglanti" })?.ok, false)
         XCTAssertEqual(h.vm.listenMode, .question)
+    }
+
+    /// Kulaklık henüz yokken de "Başlat" kameraya hemen bağlanır (görüntü beklemez); kulaklık gelince kamera yeniden bağlanmadan açılış sürer
+    func testTheCameraConnectsRightAwayEvenBeforeTheHeadphonesAreReady() async {
+        let h = harness()
+        h.route.current = FakeRoute.noHeadphones
+        h.vm.start()
+        let paused = await waitUntil(45) { h.isHardwarePause }
+        XCTAssertTrue(paused, "\(h.speaker.spoken)")
+        XCTAssertEqual(h.camera.holdOpens, 1, "Görüntü, kulaklık beklenmeden başlar")
+        XCTAssertEqual(h.events, ["kestirme:Kameraya_Gec", "bağlantı açıldı"])
+        XCTAssertTrue(h.camera.isHeld, "Kulaklık gelene kadar görüntü ekranda akmaya devam eder")
+        XCTAssertFalse(h.speaker.spoken.contains(Say.cameraStartOK), "Kulaklık yokken konuşulmaz")
+        h.route.change(to: FakeRoute.good)
+        h.scheduler.advance(by: T.routeStable + 0.1)
+        let listening = await waitUntil(45) { h.vm.phase == .listening }
+        XCTAssertTrue(listening, "\(h.speaker.spoken)")
+        XCTAssertEqual(h.camera.holdOpens, 1, "Kamera ikinci kez bağlanmaz")
+        XCTAssertEqual(h.events, ["kestirme:Kameraya_Gec", "bağlantı açıldı", "bağlantı kapandı", "kestirme:Hücresele_Gec"])
+        XCTAssertEqual(h.speaker.spoken, [Say.cameraStartOK, Say.readyCamera, Say.askCamera])
+        XCTAssertFalse(h.camera.isHeld)
+    }
+
+    /// Başlat'a basılınca ilk iş kameradır: kulaklık ve mikrofon denetiminden önce kestirme çalışır ve bağlantı açılır
+    func testTheCameraIsTheFirstThingTheStartDoes() async {
+        let h = harness()
+        h.vm.start()
+        let held = await waitUntil(45) { h.camera.holdOpens == 1 }
+        XCTAssertTrue(held)
+        XCTAssertEqual(h.events.first, "kestirme:Kameraya_Gec")
     }
 }

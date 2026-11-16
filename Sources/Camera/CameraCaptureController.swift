@@ -160,6 +160,7 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
             decodeClock.clear()
             batteryMonitor.reset()
             cameraBattery = nil
+            pipeline.renderer.clear()   // akış koptu: eski kare "canlı" görünüp donmuş kalmasın
         default:
             break
         }
@@ -539,6 +540,7 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         decodeClock.clear()
         cameraState = .stopped
         shooting = false
+        pipeline.renderer.clear()   // kamera kapandı: son kare donmuş kalmaz
     }
 }
 

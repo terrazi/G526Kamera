@@ -403,8 +403,13 @@ final class SessionViewModel: ObservableObject {
     var cameraProbeTask: ScheduledTask?
     /// Kamera akışı başladı ama internete dönüş doğrulanmadı: telefon kameranın Wi-Fi'sinde, hücresel kapalı kalmış olabilir
     var networkMayBeOnCamera = false
-    /// Oturum başında kameraya bağlanma adımı bu oturumda yapıldı (açılış kontrolü kulaklık kopmasıyla baştan yapılırsa tekrarlanmaz)
+    /// Oturum başında kameraya bağlanma (bkz. SessionViewModel+CameraStart): nil → henüz denenmedi; true/false → bağlanıldı / bağlanılamadı.
+    /// `cameraStartDone`: internete dönüş de tamamlandı. Açılış kontrolü kulaklık kopmasıyla baştan yapılırsa adımlar tekrarlanmaz.
+    var cameraStartConnected: Bool?
     var cameraStartDone = false
+    /// "Kamera bağlandı" anonsu yapıldı mı; açık bağlantı sürerken kameranın verdiği uyarılar (düşük pil gibi) ses yolu doğrulanana kadar burada bekler
+    var cameraStartSpoken = false
+    var cameraStartNotes: [String] = []
     /// Çekilen bir soru (fotoğraf + video) Gemini'ye gönderiliyor: bekleme sınırı V3'ün sesli sorusundan daha geniştir (bkz. `Timing.cameraExtraWait`)
     var sendingShotID: UUID?
     var sendingShot: Bool { return sendingShotID != nil }
@@ -614,7 +619,10 @@ final class SessionViewModel: ObservableObject {
         warnings = []
         checkup = []
         statusNote = ""
+        cameraStartConnected = nil
         cameraStartDone = false
+        cameraStartSpoken = false
+        cameraStartNotes = []
         nextNumber = 1
         choiceOffer = nil
         choiceReminders = 0

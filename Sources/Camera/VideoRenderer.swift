@@ -15,6 +15,14 @@ final class VideoRenderer {
         lock.unlock()
     }
 
+    /// Kamera kapanınca ya da yeniden bağlanırken son kare ekranda donmuş kalmasın: görüntü silinir (siyah kutu + altındaki durum yazısı)
+    func clear() {
+        lock.lock()
+        let target = layer
+        lock.unlock()
+        target?.flushAndRemoveImage()
+    }
+
     func enqueue(_ pixelBuffer: CVPixelBuffer) {
         lock.lock()
         let target = layer

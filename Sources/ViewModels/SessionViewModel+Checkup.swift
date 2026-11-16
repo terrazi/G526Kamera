@@ -6,6 +6,8 @@ extension SessionViewModel {
         deps.library.prepare()
         checkSystemAtStart()
         sectionPlan = settings.sectionPlan   // sınav boyunca bu oturumun başındaki ayar geçerlidir
+        // Sürüm 4: "Başlat"a basılınca kameraya HEMEN bağlanılır (kulaklık ve mikrofon beklenmeden; görüntü ana ekranda akar). İnternete geçmeden önce kapanır (2b).
+        guard await connectCameraAtStart() else { return }
         do {
             // Beklenmedik kapanmadan sonra aynı klasöre ve numaraya devam edilir (cevaplar ikiye bölünmesin, soru_N ezilmesin)
             choiceOffer = nil
@@ -83,9 +85,9 @@ extension SessionViewModel {
         clearWarning("donanim")
         applyVolume(deps.system.snapshot().outputVolume)   // ses oturumu açıldı: cevapları duyabilecek miyiz
 
-        // 2b) Sürüm 4: kameraya hemen bağlanılır (Wi-Fi açık, hücresel kapalı, görüntü ana ekranda); bağlantı ilk hücresel bağlantıdan önce
-        // kapanır ve internete geçilir. Kesilirse (kulaklık, arama) açılış kontrolü yol dönünce baştan yapılır.
-        guard await connectCameraAtStart() else { return }
+        // 2b) Sürüm 4: kameranın uyarıları ve "Kamera bağlandı" söylenir; kamera bağlantısı ilk hücresel bağlantıdan önce kapanır ve internete geçilir.
+        // Kesilirse (kulaklık, arama) açılış kontrolü yol dönünce baştan yapılır.
+        guard await finishCameraStart() else { return }
 
         // 3) İnternet (yoksa Kestirmelerle onarılır)
         var internetOK = await deps.health.internetReachable()

@@ -1,35 +1,22 @@
 import Foundation
 
-/// Sürüm 4: oturum başında kameraya hemen bağlanma (kullanıcı kararı 2026-11-16)
+/// Sürüm 4: oturum başında kameraya hemen bağlanma (kullanıcı kararı 2026-11-16). Ayarlar'daki "Kamerayı dene" yolunun aynısı, "Başlat"a gömülüdür:
+/// kameraya geç kestirmesi, kameraya bağlanma (görüntü ana ekranda akar), kamerayı kapatma, hücresele geç kestirmesi ve internetin gelmesi.
 extension SessionViewModel {
-    /// "Başlat"a basılınca (ses yolu doğrulandıktan sonra, internet adımından ÖNCE) telefon kameranın Wi-Fi'sine geçer (hücresel kapanır), kameraya
-    /// bağlanır ve görüntü ana ekrandaki kutuda akar. Bağlantı, ilk hücresel bağlantı kurulmadan önce kapatılır; sonra internete dönülür ve
-    /// her soruda eski düzen sürer (kameraya geç → çek → kamerayı kapat → hücresel). Bağlanılamazsa (kapalı, şarjı bitti, menzil dışı) birkaç onarım
-    /// denenir; olmazsa kamera sistemden çıkarılır, sorular sesle okunur ve kamera yoklanır (çekim sırasındaki gibi).
+    /// 1. adım: "Başlat"a basılınca açılış kontrolünün EN BAŞINDA, kulaklık ve mikrofon beklenmeden çalışır. Telefon kameranın Wi-Fi'sine geçer
+    /// (hücresel kapanır), kameraya bağlanır; görüntü ana ekrandaki kutuda akar ve bağlantı AÇIK kalır. Bu adım sessizdir (ses yolu henüz doğrulanmadı):
+    /// kameranın uyarıları biriktirilir, 2. adımda söylenir. Bağlanılamazsa en çok `Timing.cameraStartRepairs` onarım denenir.
     ///
-    /// Dönen değer: false → açılış kesildi (kulaklık, arama, iptal); açılış kontrolü yol dönünce baştan yapılır.
+    /// Dönen değer: false → açılış kesildi (iptal, durum değişti); açılış kontrolü yol dönünce baştan yapılır.
     func connectCameraAtStart() async -> Bool {
-        guard cameraSettings.connectAtStart, resume == nil, !cameraStartDone, cameraOfferAvailable else { return true }
+        guard cameraSettings.connectAtStart, resume == nil, cameraStartConnected == nil, cameraOfferAvailable else { return true }
         let cameraName = cameraSettings.cameraShortcutName.trimmed
-        let internetName = settings.internetShortcut.trimmed
-        let startedAt = deps.now()
         let camera = deps.camera
-        pendingStart = true
-        guard await speakNotice(Say.cameraConnecting) else {
-            tlog("[kamera] oturum başı: “Kameraya geçiliyor” anonsu kesildi; açılış kontrolü yol dönünce baştan yapılacak")
-            return false
-        }
-        phase = .checking
-        cameraBusy = true   // kamera akışı sürüyor: takılma gözcüsü uzun sınır tanır, yönlendirme cümleleri söylenebilir
+        cameraBusy = true   // kamera akışı sürüyor: takılma gözcüsü uzun sınır tanır; iş iptal edilirse kamera da kapanır
         networkMayBeOnCamera = true   // kestirme çalışınca hücresel kapanır; internete dönüş doğrulanana kadar bayrak durur
-        camera.onSay = { [weak self] text in self?.sayGuidance(text) }
+        cameraStartNotes = []
+        camera.onSay = { [weak self] text in self?.cameraStartNotes.append(text) }
         camera.onStatus = { [weak self] text in self?.statusNote = text }
-        defer {
-            camera.onSay = nil
-            camera.onStatus = nil
-            camera.closeHeld()
-            cameraBusy = false
-        }
         statusNote = "Kameraya geçiliyor (hücresel kesiliyor)"
         tlog("[kamera] oturum başı: hücresel kesilip kameranın Wi-Fi ağına geçiliyor, kestirme “\(cameraName)”")
 
@@ -42,7 +29,6 @@ extension SessionViewModel {
                 name = repair.isEmpty || repairMissing ? cameraName : repair
                 statusNote = "Kamera bağlantısı onarılıyor (\(attempt). deneme)"
                 tlog("[kamera] oturum başı: bağlantı onarımı \(attempt). deneme, kestirme “\(name)”")
-                sayGuidance(Say.cameraRepairing)
             }
             let outcome = await runShortcutRetryingTransient(name: name)
             tlog("[kamera] oturum başı: kestirme sonucu \(outcome)")
@@ -52,6 +38,7 @@ extension SessionViewModel {
             }
             guard !Task.isCancelled, phase == .checking else {
                 tlog("[kamera] oturum başı: kestirmeden dönüşte iş iptal edilmiş ya da durum değişmiş (\(phase)); açılış kontrolü baştan yapılacak")
+                abandonCameraStart()
                 return false
             }
             // Kestirme çalışmasa da denenir: telefon kameranın ağına elle geçmiş olabilir (Ayarlar'daki deneme de böyle yapar)
@@ -60,24 +47,56 @@ extension SessionViewModel {
             } onCancel: {
                 Task { @MainActor in camera.cancel() }
             }
-            await waitForGuidanceSpeech()   // kamera pili düşükse söylenen uyarı bitsin
-            guard !Task.isCancelled, phase == .checking else { return false }
+            guard !Task.isCancelled, phase == .checking else {
+                abandonCameraStart()
+                return false
+            }
             if case .success = result {
                 connected = true
                 break
             }
             if case .failure(let failure) = result { tlog("[kamera] oturum başı: bağlanılamadı: \(failure.message)") }
         }
+        cameraStartConnected = connected
+        statusNote = connected ? "Kamera bağlı, görüntü geliyor" : ""
+        return true
+    }
 
+    /// 2. adım: ses yolu doğrulandıktan sonra, internet adımından ÖNCE. Kameranın biriken uyarıları ve "Kamera bağlandı" söylenir (görüntü hâlâ ekranda akar),
+    /// sonra kamera bağlantısı kapanır (ilk hücresel bağlantıdan önce), hücresele geç kestirmesi çalışır ve internetin gelmesi beklenir.
+    /// Kameraya ulaşılamadıysa kamera sistemden çıkar (sorular sesle okunur, kamera yoklanır).
+    ///
+    /// Dönen değer: false → açılış kesildi; açılış kontrolü yol dönünce baştan yapılır.
+    func finishCameraStart() async -> Bool {
+        guard let connected = cameraStartConnected, !cameraStartDone else { return true }
+        let camera = deps.camera
+        let internetName = settings.internetShortcut.trimmed
+        pendingStart = true
+        defer {
+            camera.onSay = nil
+            camera.onStatus = nil
+            camera.closeHeld()
+            cameraBusy = false
+        }
         if connected {
             clearWarning("kamera")
-            setCheck("kameraBaglanti", "Kamera bağlantısı", ok: true, detail: "bağlandı, görüntü geldi")
-            // Görüntü ekranda akarken söylenir; sonra bağlantı kapanır ve internete geçilir
-            guard await speakNotice(Say.cameraStartOK) else { return false }
-            phase = .checking
+            var detail = "bağlandı, görüntü geldi"
+            if let level = camera.lastBattery {
+                detail += "; " + level.shortText
+                tlog("[kamera] oturum başı: kamera pili: \(level.shortText)")
+            }
+            setCheck("kameraBaglanti", "Kamera bağlantısı", ok: true, detail: detail)
+            if !cameraStartSpoken {
+                for note in cameraStartNotes + [Say.cameraStartOK] {
+                    guard await speakNotice(note) else { return false }
+                }
+                cameraStartSpoken = true
+                phase = .checking
+            }
         } else {
             setCheck("kameraBaglanti", "Kamera bağlantısı", ok: false, detail: "bağlanılamadı; sorular sesle okunacak")
         }
+        cameraStartNotes = []
         camera.closeHeld()   // ilk hücresel bağlantıdan önce kamera bağlantısı kapanır
         statusNote = internetNote
         tlog("[kamera] oturum başı: kamera bağlantısı kapatıldı, internete geçiliyor")
@@ -85,9 +104,18 @@ extension SessionViewModel {
         if online { networkMayBeOnCamera = false }
         statusNote = ""
         guard !Task.isCancelled, phase == .checking else { return false }
-        if !connected { markCameraDown(since: startedAt, attempts: Timing.cameraStartRepairs + 1) }
+        if !connected { markCameraDown(since: deps.now(), attempts: Timing.cameraStartRepairs + 1) }
         cameraStartDone = true
         pendingStart = false
         return true
+    }
+
+    /// Açılış kontrolü kesilince: açık bağlantı kapanır, kamera akışı bitmiş sayılır (kontrol baştan yapılırken yeniden denenir)
+    private func abandonCameraStart() {
+        let camera = deps.camera
+        camera.closeHeld()
+        camera.onSay = nil
+        camera.onStatus = nil
+        cameraBusy = false
     }
 }
