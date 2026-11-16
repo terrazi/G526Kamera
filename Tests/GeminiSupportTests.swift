@@ -168,17 +168,17 @@ final class FakeGeminiProtocol: URLProtocol {
     override func stopLoading() {}
 }
 
-private final class SleepLog {
+private final class GeminiSleepRecord {
     var values: [TimeInterval] = []
 }
 
 final class GeminiClientTests: XCTestCase {
-    private var sleeps = SleepLog()
+    private var sleeps = GeminiSleepRecord()
 
     override func setUp() {
         super.setUp()
         FakeGeminiProtocol.reset()
-        sleeps = SleepLog()
+        sleeps = GeminiSleepRecord()
     }
 
     private func makeClient(key: String = " AIza-TEST \n", model: String = "") -> GeminiClient {
