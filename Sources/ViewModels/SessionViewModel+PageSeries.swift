@@ -45,6 +45,15 @@ extension SessionViewModel {
     // MARK: Oturum
 
     func runPageSeries() async {
+        // "Başla" dendiğinde hazır bekleyen bağlantı kopmuşsa (görüntü gelmiyor) süre başlatılmaz: kullanıcı boşuna sayfa gösterirdi.
+        // Kamera yeniden hazırlanır, sonra talimat yeniden sorulur
+        if cameraSettings.pageSeries, deps.camera.holding, !deps.camera.holdingLive {
+            tlog("[kamera] \"Başla\" denince hazır bekleyen kamera bağlantısı kopmuş çıktı; süre başlatılmadı, kamera yeniden hazırlanıyor")
+            deps.camera.closeHeld()
+            guard await speakNotice(Say.seriesLinkLost) else { offerCamera = true; return }
+            await askCameraChoice(relink: true)
+            return
+        }
         guard !cameraBusy else {
             tlog("[kamera] önceki çekim sürüyor; yeni oturum başlatılmadı")
             return
@@ -61,7 +70,7 @@ extension SessionViewModel {
         }
         // Kamera hazır bekliyorsa (bağlı, görüntü akıyor) süre HEMEN başlar: "Başladı." denir, cümle bitince çekim sürer. Hazır değilse (bağlantı kopmuş)
         // eski düzen: duyuru kestirmeden ÖNCE söylenir (kestirme kulaklığı kapatabilir) ve oturum boyunca hiçbir şey söylenmez
-        let ready = deps.camera.holding
+        let ready = deps.camera.holdingLive
         guard await speakNotice(ready ? Say.seriesGo : Say.seriesStarting(seconds: seconds)) else {
             tlog("[kamera] oturum duyurusu kesildi; kestirme çalıştırılmadı, onarımdan sonra yeniden sorulacak")
             offerCamera = true

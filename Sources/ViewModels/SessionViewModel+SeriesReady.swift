@@ -4,7 +4,7 @@ import Foundation
 /// (telefon kameranın Wi-Fi'sinde, hücresel kapalı, kulaklık ve mikrofon açık), kamera bağlanır ve görüntü akarken kullanıcıya talimatı beklediği söylenir:
 /// "Başla deyince N saniyelik süreniz başlayacak." Açılışta internet ve Gemini sınanmaz. "Başla" denince kamera zaten bağlı olduğu için süre HEMEN başlar
 /// (bkz. `runPageSeries`); çekim bitince internet gelir, tek PDF gönderilir, cevaplar okunur ve sıradaki oturum için kamera aynı şekilde yeniden hazırlanır
-/// (`prepareSeriesCamera`). Hazır beklerken internet BİLEREK kapalıdır: internet onarımı çalışmaz, bekleyen çekimler çekimden sonra gönderilir.
+/// (`prepareSeriesCamera`). Hazır bekleyen bağlantı kopmuşsa ("Başla" denince görüntü gelmiyorsa) süre BAŞLAMAZ: kamera yeniden hazırlanır ve talimat yeniden sorulur. Hazır beklerken internet BİLEREK kapalıdır: internet onarımı çalışmaz, bekleyen çekimler çekimden sonra gönderilir.
 extension SessionViewModel {
     /// Toplu çekim kipi: ayar açık ve kamera kullanılabilir (yapılandırılmış, ulaşılabilir)
     var seriesMode: Bool {
@@ -59,7 +59,12 @@ extension SessionViewModel {
     /// Dönen: true → kamera hazır, talimat sorulabilir; false → kesildi (onarımdan sonra yeniden hazırlanır) ya da kameraya ulaşılamadı
     /// (neden söylendi, internete dönüldü, sorular sesle okunur ve kamera yoklanır).
     func prepareSeriesCamera() async -> Bool {
-        if deps.camera.holding { return true }
+        if deps.camera.holdingLive { return true }
+        if deps.camera.holding {
+            // Bağlantı açık görünüyor ama görüntü gelmiyor (kamera uyudu, onarım kestirmesi telsizleri kapattı): baştan hazırlanır
+            tlog("[kamera] toplu çekim: hazır bekleyen bağlantı kopmuş (görüntü gelmiyor); kapatılıp yeniden hazırlanıyor")
+            deps.camera.closeHeld()
+        }
         let cameraName = cameraSettings.cameraShortcutName.trimmed
         let internetName = settings.internetShortcut.trimmed
         cameraBusy = true

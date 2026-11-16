@@ -29,10 +29,11 @@ extension SessionViewModel {
     // MARK: Evet / hayır
 
     /// "Bu soruyu kamera ile çekip göndermek ister misiniz?"
-    func askCameraChoice(again: Bool = false) async {
+    /// `relink`: toplu çekimde kopmuş hazır bekleme bağlantısı yeniden kuruluyor; internet BİLEREK kapalıdır, internete dönülmez
+    func askCameraChoice(again: Bool = false, relink: Bool = false) async {
         if !again { cameraReminders = 0 }   // her soru için sayaç baştan başlar (önceki sorudan kalan "cevapsız" sayısı taşınmaz)
         // Toplu çekimde kamera hazır bekliyorsa (açılışta bağlanılmıştır) internet BİLEREK kapalıdır: internete dönülmez, bekleyen çekim gönderilmez
-        let cameraWaiting = seriesCameraReady
+        let cameraWaiting = seriesCameraReady || relink
         // Önceki kamera akışı yarıda kesildiyse telefon kameranın Wi-Fi'sinde kalmış olabilir: önce internet geri getirilir
         if !cameraWaiting { await restoreInternetIfStrandedOnCamera() }
         // Kesinti (kulaklık, arama, onarım) soruyu söylerken ya da bekleyen çekimi gönderirken gelirse soru kaybolmaz: onarımdan sonra yeniden sorulur

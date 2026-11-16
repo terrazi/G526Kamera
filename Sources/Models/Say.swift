@@ -457,6 +457,8 @@ enum Say {
     static let seriesWaiting = "Tamam. Hazır olduğunuzda başla deyin."
     /// Kamera önceden bağlıyken "Başla" denince: süre bu cümle bitince başlar
     static let seriesGo = "Başladı."
+    /// "Başla" denince hazır bekleyen kamera bağlantısı kopmuş çıktı: süre başlamaz, kamera yeniden hazırlanır
+    static let seriesLinkLost = "Kamera bağlantısı kopmuş, süre başlamadı. Yeniden bağlanıyorum."
     static func askCameraSeriesAfterRecovery(seconds: Int) -> String {
         return "Bağlantı yeniden onarıldı. " + askCameraSeries(seconds: seconds)
     }

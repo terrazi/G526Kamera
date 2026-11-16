@@ -383,12 +383,15 @@ final class FakeCamera: CameraCapturing {
 
     /// Toplu çekim hazır bekleyen bağlantıyı kullanır ve bitince kapatır (gerçek kamerada `captureSeries` bağlantıyı devralır)
     var holding: Bool { return isHeld }
+    /// Doğruysa açık tutulan bağlantı kopmuştur (görüntü gelmiyor); yeni bir `holdOpen` bağlantıyı onarır
+    var linkLost = false
+    var holdingLive: Bool { return isHeld && !linkLost }
     /// Çekim başlarken bağlantı açık tutuluyor muydu (hazır bekleme)
     private(set) var seriesHeldAtStart: [Bool] = []
 
     func captureSeries(seconds: Int, connectLimit: TimeInterval?) async -> Result<PageSeries, CameraFailure> {
         seriesCalls.append((seconds, connectLimit))
-        seriesHeldAtStart.append(isHeld)
+        seriesHeldAtStart.append(holdingLive)
         isHeld = false
         onSeries?()
         guard !seriesResults.isEmpty else { return .failure(.unavailable) }
@@ -446,7 +449,7 @@ final class FakeCamera: CameraCapturing {
         holdOpens += 1
         onHold?()
         let result = holdResults.isEmpty ? Result<Void, CameraFailure>.success(()) : holdResults.removeFirst()
-        if case .success = result { isHeld = true }
+        if case .success = result { isHeld = true; linkLost = false }
         return result
     }
 

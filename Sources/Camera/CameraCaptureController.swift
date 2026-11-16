@@ -305,6 +305,9 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
     /// Bağlantı `holdOpen()` ile açık tutuluyor mu
     private(set) var holding = false
 
+    /// Bağlantı açık tutuluyor ve görüntü geliyor (son 3 sn içinde kare var): kopmuş bağlantıda süre başlatılmaz, kamera yeniden hazırlanır
+    var holdingLive: Bool { return holding && isLive }
+
     /// Sürüm 4: oturum başlarken kameraya hemen bağlanılır; görüntü gelince döner ve bağlantı AÇIK kalır (ana ekrandaki kutuda görüntü akar,
     /// kamera pili düşükse sesli uyarı verilir). Hiçbir şey çekilmez, konumlandırma yapılmaz. İlk hücresel bağlantıdan önce `closeHeld()` kapatır.
     func holdOpen(connectLimit: TimeInterval?) async -> Result<Void, CameraFailure> {
@@ -549,7 +552,7 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
     func captureSeries(seconds: Int, connectLimit: TimeInterval?) async -> Result<PageSeries, CameraFailure> {
         // "Başla" denince kamera zaten bağlı ve görüntü akıyorsa (hazır bekleme, bkz. `holdOpen`) o bağlantı kullanılır: yeniden bağlanma yoktur,
         // süre hemen başlar. Bağlantı kopmuşsa kapatılır ve baştan bağlanılır.
-        let adopted = holding && isLive
+        let adopted = holdingLive
         if adopted {
             holding = false   // bağlantı artık bu çekimindir; aşağıdaki `defer` kapatır
             cancelled = false
