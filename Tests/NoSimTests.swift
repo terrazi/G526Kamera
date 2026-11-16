@@ -126,12 +126,23 @@ final class NoSimTests: XCTestCase {
         let second = await waitUntil(45) { h.vm.pendingShots.count == 2 && self.cameraQuestionOpen(h) }
         XCTAssertTrue(second, "\(h.speaker.spoken)")
 
+        let waitingOrder = h.vm.pendingShots.map { $0.id }
         h.health.internet = true   // Wi-Fi ya da hücresel geldi
         h.vm.netBeat("internet geldi")
         let sent = await waitUntil(45) { h.vm.answers.count == 2 && h.vm.pendingShots.isEmpty && self.cameraQuestionOpen(h) }
         XCTAssertTrue(sent, "gönderilen \(h.answering.captureCalls.count), bekleyen \(h.vm.pendingShots.count), \(h.speaker.spoken)")
         XCTAssertEqual(h.answering.captureCalls.count, 2)
+        XCTAssertEqual(h.answering.captureCalls.map { $0.shot.id }, waitingOrder, "Önce eskisi, sonra yenisi gönderilir")
         XCTAssertEqual(h.vm.answers.map { $0.number }, [1, 2])
+        // Toplu gönderimin başında bir kez, sonunda bir kez konuşulur; ara çekim için tekrar konuşulmaz
+        let spoken = h.speaker.spoken
+        XCTAssertEqual(spoken.filter { $0 == Say.cameraPendingSending }.count, 1, "\(spoken)")
+        XCTAssertEqual(spoken.filter { $0 == Say.cameraPendingDone }.count, 1, "\(spoken)")
+        let start = spoken.firstIndex(of: Say.cameraPendingSending) ?? -1
+        let done = spoken.firstIndex(of: Say.cameraPendingDone) ?? -1
+        XCTAssertLessThan(start, done)
+        XCTAssertEqual(spoken.last, Say.askCamera, "Bekleyenler bitince canlı sorulara dönülür")
+        XCTAssertFalse(h.vm.drainActive)
     }
 
     /// Oturum sürerken internet kopar ve SIM yok: onarım Kestirme çalıştırmaz, nedeni söyler; internet kendiliğinden gelirse onarım biter

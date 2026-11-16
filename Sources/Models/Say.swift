@@ -420,7 +420,10 @@ enum Say {
     static let cameraSlowParked = "Gemini çekilen soruya birkaç kez cevap vermedi. Soru telefondaki klasörde duruyor; bu testte artık denenmeyecek, sonraki testte yeniden gönderilecek."
     static let cameraPendingParked = "Önceki çekilen soru birkaç kez gönderilemedi. Telefondaki klasörde duruyor; bu testte artık denenmeyecek, sonraki testte yeniden gönderilecek."
     static let cameraPendingKept = "Önceki çekilen soru yine gönderilemedi. Telefonda duruyor; internet düzelince sırayla gönderilecek."
-    static let cameraPendingSending = "Önceki çekilen soru telefonda bekliyordu, şimdi gönderiyorum."
+    /// Telefonda bekleyen çekimlerin gönderimi başlarken (bir toplu gönderimde bir kez söylenir)
+    static let cameraPendingSending = "İnternet bağlantısı tekrar kuruldu, dosya gönderimi yapılıyor, lütfen biraz bekleyiniz."
+    /// Bekleyenlerin hepsi sırayla gönderilip cevapları alındıktan sonra: canlı sorulara dönülür
+    static let cameraPendingDone = "Bekleyen tüm dosyalar Gemini'ye gönderildi ve cevapları alındı. Canlı sorulara devam edebilirsiniz."
 
     // MARK: Sürüm 4: kamerayla ortak paragraf
     static let askPassageCamera = "Ortak paragraf. Paragrafı kamera ile çekmek ister misiniz? Evet ya da hayır deyin."

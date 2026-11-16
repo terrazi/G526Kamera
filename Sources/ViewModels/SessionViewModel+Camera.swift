@@ -37,6 +37,13 @@ extension SessionViewModel {
         guard !Task.isCancelled else { offerCamera = true; return }
         // Telefonda bekleyen çekim varsa önce o gönderilir; gönderim kendi akışıyla (cevap, sıradaki soru) devam eder, burada yeniden sorulmaz
         if !again, resendablePending != nil, await sendPendingShots() { return }
+        // Bekleyenlerin hepsi gönderilip cevapları alındı: bir kez söylenir, sonra canlı sorulara dönülür
+        if !again, drainActive, resendablePending == nil {
+            drainActive = false
+            if pendingShots.isEmpty {
+                guard !Task.isCancelled, await speakNotice(Say.cameraPendingDone) else { offerCamera = true; return }
+            }
+        }
         guard cameraOfferAvailable else {
             // Kamera sorusu kapatılmış ya da yapılandırılmamış (yalnız bekleyen çekim vardı): soru V3 gibi sesle okunur
             guard !Task.isCancelled else { offerCamera = true; return }   // kesildi: onarımdan sonra bekleyen çekim yeniden denenir
@@ -361,7 +368,7 @@ extension SessionViewModel {
         let expected = nextNumber
         beginEntry(text: Say.cameraEntryText, withAudio: false, number: expected)
         deps.journal.savePending(nil)
-        if settings.spokenProgress { speakProgress(shot.passageMedia == nil ? Say.cameraSending : Say.cameraSendingWithPassage) }
+        if settings.spokenProgress, !drainActive { speakProgress(shot.passageMedia == nil ? Say.cameraSending : Say.cameraSendingWithPassage) }   // toplu gönderimde baştaki söz yeter
         startAnswerWait()
         answerWaitElapsed = -Timing.cameraExtraWait   // fotoğraf + video hücresel veriyle yüklenir: V3'ün 180 sn sınırına bu kadar eklenir
         let fetch: () async throws -> GeminiReply = { [weak self] in
@@ -443,12 +450,17 @@ extension SessionViewModel {
             tlog("[kamera] telefonda \(pendingShots.count) bekleyen çekim var, internet yok (SIM kart yok): gönderilmedi")
             return false
         }
-        guard await speakNotice(Say.cameraPendingSending) else { return true }   // konuşma kesildi: onarım sonrası yeniden denenir
+        // Toplu gönderimin başında bir kez: "internet tekrar kuruldu, dosya gönderimi yapılıyor, lütfen bekleyiniz"; sıradaki çekimler sessiz gider
+        if !drainActive {
+            guard await speakNotice(Say.cameraPendingSending) else { return true }   // konuşma kesildi: onarım sonrası yeniden denenir
+        }
         guard await waitForInternet(seconds: Timing.cameraInternetWait) else {
             warn("kamera", "Bekleyen çekilen soru gönderilemedi: internet yok.")
+            drainActive = false
             return false
         }
         clearWarning("kamera")
+        drainActive = true
         retriedShots.insert(first.id)
         await sendShot(first)   // yine başarısız olursa `sendWithRetry` çekimi atar ve söyler
         return true

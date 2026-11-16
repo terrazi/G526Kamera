@@ -430,6 +430,9 @@ final class SessionViewModel: ObservableObject {
     /// Çevrimdışı çekim kipi (SIM kart yok): internet yokken çekimler telefonda birikir. Bekleyen çekimler varken internet gelince
     /// dinleme açıksa gönderilir (bkz. `drainPendingWhenOnline`). Yalnız internet yokluğu görüldüyse kurulur.
     var offlineHeld = false
+    /// Telefonda biriken çekimler sırayla gönderiliyor (eskiden yeniye, her biri gönderilip cevabı okunur ve kaydedilir). Toplu gönderimin başında
+    /// bir kez "internet tekrar kuruldu" denir, sonunda "tüm bekleyenler gönderildi" denir; ara çekimler için tekrar konuşulmaz.
+    var drainActive = false
     /// Bekleyen çekimlerin bu testteki başarısız gönderim sayısı (bkz. `Timing.pendingSendAttempts`)
     var sendFailures: [UUID: Int] = [:]
     /// Kendiliğinden yeniden gönderilmesi denenmiş bekleyen çekimler (bkz. `resendablePending`)
@@ -632,6 +635,7 @@ final class SessionViewModel: ObservableObject {
         cameraStartSpoken = false
         cameraStartNotes = []
         offlineHeld = false
+        drainActive = false
         nextNumber = 1
         choiceOffer = nil
         choiceReminders = 0
@@ -792,6 +796,7 @@ final class SessionViewModel: ObservableObject {
                 return
             }
         }
+        drainActive = false   // buraya gelindiyse bekleyen çekimlerin toplu gönderimi sürmüyor (sürerken yukarıda kamera akışına yönlenilir)
         cancelTimers()
         abandonEntry("Cevap alınamadı. Soruyu yeniden okuyun.")
         deps.journal.savePending(nil)   // dinlemeye dönüldüyse yarım kalan iş yoktur
