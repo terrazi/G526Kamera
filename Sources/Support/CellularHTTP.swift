@@ -67,7 +67,9 @@ enum HTTPWire {
         for (name, value) in headers.sorted(by: { $0.key < $1.key }) {
             let lower = name.lowercased()
             if own.contains(lower) { continue }
-            if name.contains(where: { $0 == "\r" || $0 == "\n" || $0 == ":" }) || value.contains(where: { $0 == "\r" || $0 == "\n" }) {
+            // "\r\n" Swift'te TEK bir Character'dır; satır sonu denetimi bu yüzden karakterle değil Unicode skaleriyle yapılır
+            if name.unicodeScalars.contains(where: { $0 == "\r" || $0 == "\n" || $0 == ":" }) ||
+                value.unicodeScalars.contains(where: { $0 == "\r" || $0 == "\n" }) {
                 return nil
             }
             if lower == "accept-encoding" { hasEncoding = true }
@@ -133,12 +135,12 @@ enum HTTPWire {
             while true {
                 switch phase {
                 case .head:
-                    guard let end = find([13, 10, 13, 10], from: pos) else {
+                    guard let headEnd = find([13, 10, 13, 10], from: pos) else {
                         if buffer.count - pos > ResponseParser.maxHead { return fail("cevap başı çok büyük") }
                         return .more
                     }
-                    let headBytes = Array(buffer[pos..<end])
-                    pos = end + 4
+                    let headBytes = Array(buffer[pos..<headEnd])
+                    pos = headEnd + 4
                     guard let head = ResponseParser.parseHead(headBytes) else { return fail("cevap başı anlaşılamadı") }
                     if head.status >= 100 && head.status < 200 { continue }   // ara cevap: asıl cevap arkasından gelir
                     status = head.status
