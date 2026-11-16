@@ -913,6 +913,81 @@ final class CameraFlowTests: XCTestCase {
         XCTAssertEqual(h.vm.listenMode, .question)
         XCTAssertNil(h.vm.checkup.first(where: { $0.id == "kamera" }), "Soru kapalıysa kamera maddesi görünmez")
     }
+
+    // MARK: Bağlantı sıfırlama (uçak modu) — iki başarısız denemeden sonra
+
+    /// İki deneme (ilk + bir onarım) sonuçsuz: "Sistemi Sıfırla" (uçak modu aç/kapa) bir kez çalışır, ardından "Kameraya Geç" ile yeniden denenir
+    func testAfterTwoFailedAttemptsTheResetShortcutRunsOnceAndTheCameraIsTriedAgain() async {
+        let h = harness(shots: [.failure(.notConnected), .failure(.noFrames), .success(FakeCamera.shot())])
+        _ = await h.startListening()
+        reply(h, "evet")
+        let done = await waitUntil(45) { h.vm.answers.count == 1 }
+        XCTAssertTrue(done, "\(h.speaker.spoken)")
+        XCTAssertEqual(Array(h.events.prefix(7)), ["kestirme:Kameraya_Gec", "çekim", "kestirme:Kamera_Onar", "çekim",
+                                                  "kestirme:Sistemi_Sifirla", "kestirme:Kameraya_Gec", "çekim"])
+        XCTAssertTrue(h.speaker.spoken.contains(Say.cameraResetting), "Sıfırlamadan önce sesle haber verilir: \(h.speaker.spoken)")
+        XCTAssertFalse(h.vm.connectionResetActive, "Sıfırlama bitince ses yolu koruması yeniden devrede")
+    }
+
+    /// Bir iki denemede bağlanırsa uçak moduna hiç dokunulmaz
+    func testTheResetShortcutDoesNotRunWhenTheCameraConnectsEarly() async {
+        let h = harness(shots: [.failure(.notConnected), .success(FakeCamera.shot())])
+        _ = await h.startListening()
+        reply(h, "evet")
+        let done = await waitUntil(45) { h.vm.answers.count == 1 }
+        XCTAssertTrue(done, "\(h.speaker.spoken)")
+        XCTAssertFalse(h.shortcuts.runs.contains("Sistemi_Sifirla"), "\(h.shortcuts.runs)")
+    }
+
+    /// Sıfırlama kestirmesi yazılmamışsa eski onarım düzeni aynen sürer
+    func testWithoutAResetShortcutTheRepairsRunAsBefore() async {
+        let h = harness(shots: [.failure(.notConnected), .failure(.notConnected), .failure(.notConnected), .failure(.notConnected), .failure(.noFrames)])
+        h.settings.resetShortcut = ""
+        _ = await h.startListening()
+        reply(h, "evet")
+        let voice = await waitUntil(45) { h.speaker.spoken.last == Say.cameraFailed(.noFrames, down: true) && h.vm.listenMode == .question && h.vm.phase == .listening }
+        XCTAssertTrue(voice, "\(h.speaker.spoken)")
+        XCTAssertEqual(h.events, ["kestirme:Kameraya_Gec", "çekim", "kestirme:Kamera_Onar", "çekim", "kestirme:Kamera_Onar", "çekim",
+                                  "kestirme:Kamera_Onar", "çekim", "kestirme:Kamera_Onar", "çekim", "kestirme:Hücresele_Gec"])
+    }
+
+    /// Sıfırlama kestirmesi telefonda yoksa ya da çalışmazsa çekim yine "Kameraya Geç" ile sürer
+    func testAFailedResetShortcutStillLetsTheCameraBeTriedAgain() async {
+        let h = harness(shots: [.failure(.notConnected), .failure(.notConnected), .success(FakeCamera.shot())])
+        h.shortcuts.script = [.success, .success, .failed("“Sistemi_Sifirla” kestirmesi bulunamadı.")]
+        _ = await h.startListening()
+        reply(h, "evet")
+        let done = await waitUntil(45) { h.vm.answers.count == 1 }
+        XCTAssertTrue(done, "\(h.speaker.spoken)")
+        XCTAssertEqual(Array(h.shortcuts.runs.prefix(4)), ["Kameraya_Gec", "Kamera_Onar", "Sistemi_Sifirla", "Kameraya_Gec"])
+        XCTAssertEqual(h.camera.captures, 3)
+    }
+
+    /// Uçak modu Bluetooth kulaklığı da düşürür: bu beklenen bir durumdur, çekim duraklatılıp iptal edilmez; kulaklık dönünce çekim sürer
+    func testTheHeadsetDroppingDuringTheResetDoesNotPauseTheCapture() async {
+        let h = harness(shots: [.failure(.notConnected), .failure(.notConnected), .success(FakeCamera.shot())])
+        var paused = false
+        func notePause() { if case .paused = h.vm.phase { paused = true } }
+        h.trackEvents { name in
+            if name == "Kameraya_Gec" { h.health.internet = false; notePause() }
+            if name == "Hücresele_Gec" { h.health.internet = true }
+            if name == "Sistemi_Sifirla" {
+                h.route.change(to: FakeRoute.noHeadphones)   // uçak modu: kulaklık düştü (ses yolu bildirimi eşzamanlı işlenir)
+                notePause()
+                Task { @MainActor in
+                    await Task.yield()
+                    await Task.yield()
+                    h.route.change(to: FakeRoute.good)       // birkaç sn sonra döndü
+                }
+            }
+        }
+        _ = await h.startListening()
+        reply(h, "evet")
+        let done = await waitUntil(45) { h.vm.answers.count == 1 }
+        XCTAssertTrue(done, "\(h.speaker.spoken)")
+        XCTAssertFalse(paused, "Sıfırlama sırasında kulaklığın düşmesi duraklatma sayılmaz")
+        XCTAssertEqual(h.camera.captures, 3)
+    }
 }
 
 /// Sürüm 4: Gemini'ye giden çekim isteği
@@ -1184,80 +1259,5 @@ final class LeftoverVideoTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: url.path), "Önceki çalışmadan kalan video silinir")
         XCTAssertTrue(FileManager.default.fileExists(atPath: other.path), "Video olmayan dosyaya dokunulmaz")
         try? FileManager.default.removeItem(at: other)
-    }
-
-    // MARK: Bağlantı sıfırlama (uçak modu) — iki başarısız denemeden sonra
-
-    /// İki deneme (ilk + bir onarım) sonuçsuz: "Sistemi Sıfırla" (uçak modu aç/kapa) bir kez çalışır, ardından "Kameraya Geç" ile yeniden denenir
-    func testAfterTwoFailedAttemptsTheResetShortcutRunsOnceAndTheCameraIsTriedAgain() async {
-        let h = harness(shots: [.failure(.notConnected), .failure(.noFrames), .success(FakeCamera.shot())])
-        _ = await h.startListening()
-        reply(h, "evet")
-        let done = await waitUntil(45) { h.vm.answers.count == 1 }
-        XCTAssertTrue(done, "\(h.speaker.spoken)")
-        XCTAssertEqual(Array(h.events.prefix(7)), ["kestirme:Kameraya_Gec", "çekim", "kestirme:Kamera_Onar", "çekim",
-                                                  "kestirme:Sistemi_Sifirla", "kestirme:Kameraya_Gec", "çekim"])
-        XCTAssertTrue(h.speaker.spoken.contains(Say.cameraResetting), "Sıfırlamadan önce sesle haber verilir: \(h.speaker.spoken)")
-        XCTAssertFalse(h.vm.connectionResetActive, "Sıfırlama bitince ses yolu koruması yeniden devrede")
-    }
-
-    /// Bir iki denemede bağlanırsa uçak moduna hiç dokunulmaz
-    func testTheResetShortcutDoesNotRunWhenTheCameraConnectsEarly() async {
-        let h = harness(shots: [.failure(.notConnected), .success(FakeCamera.shot())])
-        _ = await h.startListening()
-        reply(h, "evet")
-        let done = await waitUntil(45) { h.vm.answers.count == 1 }
-        XCTAssertTrue(done, "\(h.speaker.spoken)")
-        XCTAssertFalse(h.shortcuts.runs.contains("Sistemi_Sifirla"), "\(h.shortcuts.runs)")
-    }
-
-    /// Sıfırlama kestirmesi yazılmamışsa eski onarım düzeni aynen sürer
-    func testWithoutAResetShortcutTheRepairsRunAsBefore() async {
-        let h = harness(shots: [.failure(.notConnected), .failure(.notConnected), .failure(.notConnected), .failure(.notConnected), .failure(.noFrames)])
-        h.settings.resetShortcut = ""
-        _ = await h.startListening()
-        reply(h, "evet")
-        let voice = await waitUntil(45) { h.speaker.spoken.last == Say.cameraFailed(.noFrames, down: true) && h.vm.listenMode == .question && h.vm.phase == .listening }
-        XCTAssertTrue(voice, "\(h.speaker.spoken)")
-        XCTAssertEqual(h.events, ["kestirme:Kameraya_Gec", "çekim", "kestirme:Kamera_Onar", "çekim", "kestirme:Kamera_Onar", "çekim",
-                                  "kestirme:Kamera_Onar", "çekim", "kestirme:Kamera_Onar", "çekim", "kestirme:Hücresele_Gec"])
-    }
-
-    /// Sıfırlama kestirmesi telefonda yoksa ya da çalışmazsa çekim yine "Kameraya Geç" ile sürer
-    func testAFailedResetShortcutStillLetsTheCameraBeTriedAgain() async {
-        let h = harness(shots: [.failure(.notConnected), .failure(.notConnected), .success(FakeCamera.shot())])
-        h.shortcuts.script = [.success, .success, .failed("“Sistemi_Sifirla” kestirmesi bulunamadı.")]
-        _ = await h.startListening()
-        reply(h, "evet")
-        let done = await waitUntil(45) { h.vm.answers.count == 1 }
-        XCTAssertTrue(done, "\(h.speaker.spoken)")
-        XCTAssertEqual(Array(h.shortcuts.runs.prefix(4)), ["Kameraya_Gec", "Kamera_Onar", "Sistemi_Sifirla", "Kameraya_Gec"])
-        XCTAssertEqual(h.camera.captures, 3)
-    }
-
-    /// Uçak modu Bluetooth kulaklığı da düşürür: bu beklenen bir durumdur, çekim duraklatılıp iptal edilmez; kulaklık dönünce çekim sürer
-    func testTheHeadsetDroppingDuringTheResetDoesNotPauseTheCapture() async {
-        let h = harness(shots: [.failure(.notConnected), .failure(.notConnected), .success(FakeCamera.shot())])
-        var paused = false
-        func notePause() { if case .paused = h.vm.phase { paused = true } }
-        h.trackEvents { name in
-            if name == "Kameraya_Gec" { h.health.internet = false; notePause() }
-            if name == "Hücresele_Gec" { h.health.internet = true }
-            if name == "Sistemi_Sifirla" {
-                h.route.change(to: FakeRoute.noHeadphones)   // uçak modu: kulaklık düştü (ses yolu bildirimi eşzamanlı işlenir)
-                notePause()
-                Task { @MainActor in
-                    await Task.yield()
-                    await Task.yield()
-                    h.route.change(to: FakeRoute.good)       // birkaç sn sonra döndü
-                }
-            }
-        }
-        _ = await h.startListening()
-        reply(h, "evet")
-        let done = await waitUntil(45) { h.vm.answers.count == 1 }
-        XCTAssertTrue(done, "\(h.speaker.spoken)")
-        XCTAssertFalse(paused, "Sıfırlama sırasında kulaklığın düşmesi duraklatma sayılmaz")
-        XCTAssertEqual(h.camera.captures, 3)
     }
 }
