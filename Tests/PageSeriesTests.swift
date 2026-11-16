@@ -240,13 +240,13 @@ final class PageSeriesTests: XCTestCase {
     }
 
     func testPhotosThatFitTheBudgetAreLeftUntouched() {
-        let jpegs = (0..<4).map { noisyJPEG() }
+        let jpegs = (0..<4).map { _ in noisyJPEG() }
         let fitted = PageDocument.fit(jpegs, budget: jpegs.reduce(0) { $0 + $1.count } + 1000)
         XCTAssertEqual(fitted, jpegs, "Bütçeye sığan fotoğraflar yeniden sıkıştırılmaz")
     }
 
     func testPhotosOverTheBudgetAreRecompressedToFitWithoutLosingAny() {
-        let jpegs = (0..<12).map { noisyJPEG() }
+        let jpegs = (0..<12).map { _ in noisyJPEG() }
         let raw = jpegs.reduce(0) { $0 + $1.count }
         let budget = raw / 2
         let fitted = PageDocument.fit(jpegs, budget: budget)
