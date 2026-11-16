@@ -59,10 +59,10 @@ final class PageSeriesTests: XCTestCase {
         reply(h, "başla")
         let done = await waitUntil(45) { h.vm.answers.count == 3 && self.questionOpen(h) }
         XCTAssertTrue(done, "\(h.speaker.spoken)")
-        XCTAssertEqual(h.events, ["kestirme:Kameraya_Gec", "bağlantı açıldı",
+        XCTAssertEqual(h.events, ["kestirme:Kameraya_Gec", "kestirme:Bluetooth_Yenile", "bağlantı açıldı",
                                   "oturum", "kestirme:Hücresele_Gec", "sayfa gönderimi",
-                                  "kestirme:Kameraya_Gec", "bağlantı açıldı"],
-                       "Açılışta direkt kameraya geçilir ve bağlanılır; \"Başla\" denince kestirme çalışmadan çekilir, sonra internete dönülür, TEK PDF tek istekle gönderilir, sıradaki oturum için kamera yeniden hazırlanır")
+                                  "kestirme:Kameraya_Gec", "kestirme:Bluetooth_Yenile", "bağlantı açıldı"],
+                       "Açılışta direkt kameraya geçilir, Bluetooth yeniden açılır ve bağlanılır; \"Başla\" denince kestirme çalışmadan çekilir, sonra internete dönülür, TEK PDF tek istekle gönderilir, sıradaki oturum için kamera yeniden hazırlanır")
         XCTAssertEqual(h.camera.seriesHeldAtStart, [true], "Çekim hazır bekleyen bağlantıyla başladı: yeniden bağlanma yok")
         XCTAssertEqual(h.camera.seriesCalls.first?.seconds, 75, "Oturumun tek sınırı süredir: sayfa sayısı verilmez")
         XCTAssertEqual(h.camera.captures, 0, "Tek soruluk çekim kullanılmaz")
@@ -88,7 +88,8 @@ final class PageSeriesTests: XCTestCase {
     func testTheProgramStartsDirectlyOnTheCameraAndWaitsForTheStartCommandWithoutInternet() async {
         let h = harness(seriesResults: [series()], pageReplies: [.success([FakeAnswering.reply(1)])])
         _ = await h.startListening()
-        XCTAssertEqual(h.events, ["kestirme:Kameraya_Gec", "bağlantı açıldı"], "Önce kameraya geçilir ve bağlanılır; internet kestirmesi çalışmaz")
+        XCTAssertEqual(h.events, ["kestirme:Kameraya_Gec", "kestirme:Bluetooth_Yenile", "bağlantı açıldı"],
+                       "Önce kameraya geçilir, hemen ardından Bluetooth kestirmesi kulaklığı geri getirir, sonra bağlanılır; internet kestirmesi çalışmaz")
         XCTAssertEqual(h.shortcuts.runs.filter { $0 == "Hücresele_Gec" }.count, 0, "Açılışta internete dönülmez")
         XCTAssertTrue(h.camera.holding, "Kamera açık bekler")
         XCTAssertFalse(h.health.internet, "Hücresel kapalı: internet yok")
@@ -112,6 +113,21 @@ final class PageSeriesTests: XCTestCase {
         XCTAssertTrue(done, "\(h.speaker.spoken)")
         XCTAssertEqual(h.camera.seriesCalls.first?.seconds, 90, "Ayardaki süre çekilir")
         XCTAssertEqual(h.speaker.spoken.last, Say.askCameraSeries(seconds: 90), "Sıradaki talimat da ayardaki süreyi söyler")
+    }
+
+    func testTheBluetoothShortcutRunsRightAfterTheCameraShortcutSoTheHeadsetDoesNotStayDropped() async {
+        let h = harness(seriesResults: [], pageReplies: [])
+        _ = await h.startListening()
+        XCTAssertEqual(Array(h.shortcuts.runs.prefix(2)), ["Kameraya_Gec", "Bluetooth_Yenile"], "Uçak modu Bluetooth'u kapatır: hemen ardından Bluetooth kestirmesi")
+        XCTAssertEqual(h.shortcuts.runs.filter { $0 == "Bluetooth_Yenile" }.count, 1)
+    }
+
+    func testWithoutABluetoothShortcutNothingExtraRuns() async {
+        let h = harness(seriesResults: [], pageReplies: [])
+        h.settings.bluetoothShortcut = ""
+        _ = await h.startListening()
+        XCTAssertEqual(h.shortcuts.runs.filter { $0 == "Bluetooth_Yenile" }.count, 0)
+        XCTAssertTrue(h.camera.holding, "Kestirme yazılı olmasa da kamera hazırlanır")
     }
 
     func testSilenceNeverStartsTheSessionByItself() async {

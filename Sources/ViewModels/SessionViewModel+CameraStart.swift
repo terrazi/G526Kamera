@@ -46,6 +46,7 @@ extension SessionViewModel {
             }
             let outcome = await runShortcutRetryingTransient(name: name)
             tlog("[kamera] oturum başı: kestirme sonucu \(outcome)")
+            if name == cameraName { await bringHeadsetBackAfterCameraShortcut(outcome) }   // toplu çekim: uçak modu kulaklığı düşürdü, Bluetooth yeniden açılır
             if case .failed(let message) = outcome, SessionViewModel.isMissingShortcutError(message), attempt > 0, name != cameraName {
                 repairMissing = true
                 tlog("[kamera] “\(name)” kestirmesi bu telefonda yok; sonraki denemede kameraya geçiş kestirmesi çalışır")

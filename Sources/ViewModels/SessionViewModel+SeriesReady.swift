@@ -34,6 +34,25 @@ extension SessionViewModel {
         tlog("[kamera] oturum başı: toplu çekim kipi; kamera açık bekliyor, internet ve Gemini sınanmadı")
     }
 
+    /// Toplu çekimde "Kameraya Geç" kestirmesi uçak modunu açar ve Bluetooth kulaklığı düşürür (kullanıcı kararı 2026-11-16): hemen ardından
+    /// `Bluetooth` kestirmesi (kapat, bekle, aç) çalışır, kulaklık düşmüş kalmaz. Kestirme yazılı değilse ya da kameraya geçiş kestirmesi çalışmadıysa
+    /// hiçbir şey yapılmaz; kulaklığın dönmesini çağıran bekler (ses yolu değişikliği o sırada duraklatma sayılmaz).
+    func bringHeadsetBackAfterCameraShortcut(_ cameraOutcome: ShortcutOutcome) async {
+        guard cameraSettings.pageSeries, !Task.isCancelled else { return }
+        guard cameraOutcome == .success || cameraOutcome == .timedOut else { return }
+        let name = settings.shortcutName(for: .bluetooth)
+        guard !name.isEmpty else {
+            tlog("[kamera] toplu çekim: Bluetooth kestirmesi yazılı değil; kulaklık kameraya geçişte düşerse kendiliğinden dönmesi beklenir")
+            return
+        }
+        let note = statusNote
+        statusNote = "Kulaklık için Bluetooth açılıyor"
+        tlog("[kamera] toplu çekim: kameraya geçildi, kulaklık düşmesin diye Bluetooth kestirmesi “\(name)” çalıştırılıyor")
+        let outcome = await runShortcutRetryingTransient(name: name)
+        tlog("[kamera] toplu çekim: Bluetooth kestirmesi sonucu \(outcome)")
+        statusNote = note
+    }
+
     /// Sıradaki oturum için kamerayı hazırlar: kestirme (hücresel kapanır, telefon kameranın Wi-Fi'sine geçer), kameraya bağlanma ve görüntünün gelmesi;
     /// bağlantı AÇIK kalır. Kulaklık kestirmeyle düştüyse dönmesi beklenir. Kamera zaten hazırsa (açılışta bağlanılmıştır) hiçbir şey yapmaz.
     ///
