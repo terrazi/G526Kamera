@@ -53,7 +53,7 @@ final class VideoRecorderTests: XCTestCase {
         XCTAssertLessThanOrEqual(full, 1_500_000)
         XCTAssertEqual(VideoRecorder.bitrate(width: 640, height: 360), 250_000, "küçük çözünürlükte alt sınır")
         XCTAssertEqual(VideoRecorder.maxSeconds, 90, "elle başlatılan kayıt 90 sn (1,5 dk)")
-        XCTAssertEqual(VideoRecorder.pageSegmentSeconds, 5, "sayfa başına 5 sn (kullanıcı kararı)")
+        XCTAssertEqual(VideoRecorder.pageSegmentSeconds, 10, "soru ya da paragraf başına 10 sn (kullanıcı kararı 2026-11-16; Ayarlar'dan değişir)")
     }
 
     func testRecordsPlayableH264Mp4AtCameraResolution() {
