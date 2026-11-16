@@ -433,6 +433,9 @@ final class SessionViewModel: ObservableObject {
     /// Telefonda biriken çekimler sırayla gönderiliyor (eskiden yeniye, her biri gönderilip cevabı okunur ve kaydedilir). Toplu gönderimin başında
     /// bir kez "internet tekrar kuruldu" denir, sonunda "tüm bekleyenler gönderildi" denir; ara çekimler için tekrar konuşulmaz.
     var drainActive = false
+    /// Toplu gönderimin başındaki bekleyen sayısı ve şimdiye dek sıraya giren çekim sayısı ("Bekleyen 3 sorudan ikinci gönderiliyor")
+    var drainTotal = 0
+    var drainIndex = 0
     /// Bekleyen çekimlerin bu testteki başarısız gönderim sayısı (bkz. `Timing.pendingSendAttempts`)
     var sendFailures: [UUID: Int] = [:]
     /// Kendiliğinden yeniden gönderilmesi denenmiş bekleyen çekimler (bkz. `resendablePending`)

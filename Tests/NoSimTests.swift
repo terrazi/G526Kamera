@@ -94,7 +94,8 @@ final class NoSimTests: XCTestCase {
         XCTAssertEqual(h.events.filter { $0 == "kestirme:Hücresele_Gec" }.count, 0, "Hücresel kestirmesi hiç çalışmadı")
         XCTAssertEqual(h.events.filter { $0 == "çekim" }.count, 2)
         XCTAssertTrue(h.answering.captureCalls.isEmpty, "İnternet yok: hiçbir şey gönderilmedi")
-        XCTAssertEqual(h.speaker.spoken.filter { $0 == Say.cameraSavedOfflineContinue }.count, 2)
+        XCTAssertEqual(h.speaker.spoken.filter { $0 == Say.cameraSavedOfflineContinue(waiting: 1) }.count, 1, "Kaç soru beklediği söylenir: \(h.speaker.spoken)")
+        XCTAssertEqual(h.speaker.spoken.filter { $0 == Say.cameraSavedOfflineContinue(waiting: 2) }.count, 1)
         XCTAssertFalse(h.speaker.spoken.contains(Say.cameraPendingSending), "Her soruda boşuna 'bekleyen gönderiliyor' denmez")
         XCTAssertFalse(h.speaker.spoken.contains(Say.cameraSavedOffline), "Onarım sözü verilmez")
     }
@@ -143,6 +144,7 @@ final class NoSimTests: XCTestCase {
         XCTAssertLessThan(start, done)
         XCTAssertEqual(spoken.last, Say.askCamera, "Bekleyenler bitince canlı sorulara dönülür")
         XCTAssertFalse(h.vm.drainActive)
+        XCTAssertTrue(h.vm.announced.contains { $0.hasPrefix("Bekleyen 2 sorudan") }, "Her bekleyen çekim gönderilirken hangisi olduğu söylenir: \(h.vm.announced)")
     }
 
     /// Oturum sürerken internet kopar ve SIM yok: onarım Kestirme çalıştırmaz, nedeni söyler; internet kendiliğinden gelirse onarım biter

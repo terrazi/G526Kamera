@@ -296,7 +296,11 @@ extension SessionViewModel {
             if !isPassage || passageDraft == nil { offerCamera = true }
             return
         }
-        if case .success = result { sayGuidance(isPassage ? Say.passageCaptured : Say.cameraCaptured) }
+        if case .success = result {
+            // SIM yoksa "internete geçiliyor" denmez (geçilmeyecek): internet kontrol edildiği söylenir
+            let offlineNoSim = !isPassage && !deps.health.hasCellularService()
+            sayGuidance(isPassage ? Say.passageCaptured : (offlineNoSim ? Say.cameraCapturedOffline : Say.cameraCaptured))
+        }
         // Kamera kapandı (görüntü kapatıldı: kamera boşta, Wi-Fi yayını sürer). Eski düzende Wi-Fi bırakılır, hücresel açılır;
         // "Wi-Fi'de kal" kipinde telefon kameranın ağında kalır ve yalnız internet yoksa hücresel kestirmesi çalışır
         if cameraSettings.stayOnWifi {
@@ -343,7 +347,7 @@ extension SessionViewModel {
                 // SIM kart yok: internet bekletilmez, onarım Kestirmesi çalışmaz. Çekim telefonda birikir, sınav sıradaki soruyla sürer;
                 // internet gelince bekleyenler sırayla gönderilir (bkz. `drainPendingWhenOnline`)
                 tlog("[kamera] çevrimdışı çekim kipi: çekim telefonda bekliyor (\(pendingShots.count) bekleyen), sıradaki soruya geçiliyor")
-                await continueOffline(Say.cameraSavedOfflineContinue)
+                await continueOffline(Say.cameraSavedOfflineContinue(waiting: pendingShots.count))
             } else {
                 warn("kamera", "Çekilen soru telefonda bekliyor: internet gelmedi.")
                 await repairInternetAfterCamera(Say.cameraSavedOffline)
@@ -368,7 +372,11 @@ extension SessionViewModel {
         let expected = nextNumber
         beginEntry(text: Say.cameraEntryText, withAudio: false, number: expected)
         deps.journal.savePending(nil)
-        if settings.spokenProgress, !drainActive { speakProgress(shot.passageMedia == nil ? Say.cameraSending : Say.cameraSendingWithPassage) }   // toplu gönderimde baştaki söz yeter
+        if settings.spokenProgress {
+            // Toplu gönderimde her çekim için hangisinin gönderildiği söylenir (kullanıcı boşlukta kalmaz)
+            speakProgress(drainActive ? Say.cameraDrainSending(index: drainIndex, total: drainTotal)
+                          : (shot.passageMedia == nil ? Say.cameraSending : Say.cameraSendingWithPassage))
+        }
         startAnswerWait()
         answerWaitElapsed = -Timing.cameraExtraWait   // fotoğraf + video hücresel veriyle yüklenir: V3'ün 180 sn sınırına bu kadar eklenir
         let fetch: () async throws -> GeminiReply = { [weak self] in
@@ -452,6 +460,8 @@ extension SessionViewModel {
         }
         // Toplu gönderimin başında bir kez: "internet tekrar kuruldu, dosya gönderimi yapılıyor, lütfen bekleyiniz"; sıradaki çekimler sessiz gider
         if !drainActive {
+            drainTotal = max(1, pendingShots.count)
+            drainIndex = 0
             guard await speakNotice(Say.cameraPendingSending) else { return true }   // konuşma kesildi: onarım sonrası yeniden denenir
         }
         guard await waitForInternet(seconds: Timing.cameraInternetWait) else {
@@ -461,6 +471,7 @@ extension SessionViewModel {
         }
         clearWarning("kamera")
         drainActive = true
+        drainIndex += 1
         retriedShots.insert(first.id)
         await sendShot(first)   // yine başarısız olursa `sendWithRetry` çekimi atar ve söyler
         return true

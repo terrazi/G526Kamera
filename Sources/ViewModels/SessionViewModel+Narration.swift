@@ -77,7 +77,9 @@ extension SessionViewModel {
         defer { idleCueBusy = false }
         guard cameraProbeIsSafe else { return }
         closeListening()
-        guard await speakNotice(Say.listeningNow, remember: false) else { return }
+        // Çevrimdışı çekim kipinde "Dinliyorum" yanında internet olmadığı ve kaç sorunun beklediği de söylenir
+        let cue = offlineHeld && offlineCapture ? Say.listeningOffline(waiting: pendingShots.count) : Say.listeningNow
+        guard await speakNotice(cue, remember: false) else { return }
         beginListening(mode: .question)
     }
 }

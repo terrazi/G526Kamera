@@ -196,7 +196,22 @@ enum Say {
     static let noSimNoInternet = "İnternet yok ve telefonda SIM kart yok, hücresel veri kullanılamaz. Telefonu internet olan bir Wi-Fi ağına bağlayın."
     /// Çevrimdışı çekim kipinde açılış: sınav durmaz, çekimler telefonda birikir
     static let offlineCaptureStart = "Telefonda SIM kart yok ve internet yok. Sorular kamerayla çekilip telefonda saklanacak, internet gelince sırayla gönderilecek."
-    static let cameraSavedOfflineContinue = "Soru çekildi ve telefonda saklandı; internet gelince gönderilecek. Sıradaki soruya geçebilirsiniz."
+    /// Çekimden sonra (SIM yok): ne olduğu, kaç soru beklediği ve ne olacağı söylenir; kullanıcı boşlukta kalmaz
+    static func cameraSavedOfflineContinue(waiting: Int) -> String {
+        return "Soru çekildi ve telefonda saklandı. Telefonda şu an \(waiting) bekleyen soru var; internet gelince eskiden yeniye sırayla gönderilecek. Sıradaki soruya geçebilirsiniz."
+    }
+    /// Çekim bitti, SIM yok: internete geçilmez (hücresel yok), yalnız internet var mı diye bakılır
+    static let cameraCapturedOffline = "Soru için video ve fotoğraf çekimi başarıyla yapıldı. Kamera kapatıldı. Telefonda SIM kart yok, internet kontrol ediliyor."
+    /// Toplu gönderimde sıradaki bekleyen çekim gönderilirken
+    static func cameraDrainSending(index: Int, total: Int) -> String {
+        if total <= 1 { return "Bekleyen soru Gemini'ye gönderiliyor, cevabı bekleyin." }
+        return "Bekleyen \(total) sorudan \(ordinal(index)) Gemini'ye gönderiliyor, cevabı bekleyin."
+    }
+    /// Çevrimdışıyken dinlerken "Dinliyorum" yerine: internet yok, kaç soru bekliyor
+    static func listeningOffline(waiting: Int) -> String {
+        if waiting <= 0 { return "Dinliyorum. Şu an internet yok; çekilen sorular telefonda saklanacak, internet gelince gönderilecek." }
+        return "Dinliyorum. Şu an internet yok; telefonda \(waiting) soru bekliyor, internet gelince sırayla gönderilecek."
+    }
     static func cameraFailedOfflineContinue(_ failure: CameraFailure) -> String {
         return "\(failure.message) İnternet de yok; soruyu yeniden çekmeyi deneyebilirsiniz."
     }
