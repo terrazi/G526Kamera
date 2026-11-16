@@ -161,6 +161,8 @@ Günlükte `“…” kestirmesi bulunamadı` görürseniz o ad telefonunuzdaki 
 
 **Sınavdan önce bir kez Ayarlar > “Kamerayı dene (sınavdan önce)” düğmesine basın:** kamera ilk kez açılırken iOS “yerel ağ” izni sorar (“İzin ver”e basın); sınavda bu kutu çıkarsa kulaklıktan yönetilen akış kilitlenir. Deneme, sınavın adımlarını sırayla yürütür ve her adımın sonucunu yazar. Deneme süreli bir akıştır: bağlanınca en çok 30 sn konumlandırma beklenir (belge kadraja girince ya da “Şimdi çek”e basınca daha erken biter), sonra fotoğraf ve video çekilir ve kamera kapanır; kapanınca kutudaki görüntü silinir.
 
+**Telefonda SIM kart yoksa (ya da hücresel veri hiç gelmiyorsa):** program bunu anlar. “Hücresel Veri” kestirmesi yalnız Wi-Fi'yi kapatacağı için çalıştırılmaz; sınav durmaz. Kamera akışı açıksa her soru kameraya geçilip çekilir, telefonda saklanır (“Soru çekildi ve telefonda saklandı”) ve sıradaki soruya geçilir; internet geldiğinde (örneğin telefon internet olan bir Wi-Fi ağına bağlanınca) bekleyen çekimler sırayla Gemini'ye gönderilir ve cevaplar okunur. Kamera akışı kapalıysa açılış nedeni söyleyip durur. Çekimler telefonda “Cekimler” klasöründe de durur.
+
 Bu sürümde Wi-Fi artık internet onarımı için kullanılmaz (internet yalnız hücreseldir): internet kopunca sırayla hücresel ve sistem sıfırlama çalışır. “Kameranın Wi-Fi'sinde kal” kapalıyken her çekimde kameraya geçilir ve çekimden sonra Wi-Fi bırakılır. Kestirmelerin Wi-Fi ve hücreseli sorunsuz (onay sormadan) değiştirip değiştirmediği ve kameranın ağına kendiliğinden bağlanıp bağlanmadığı cihazda denenmedi: Ayarlar'daki **Dene** düğmesiyle üçünü de sınayın.
 
 

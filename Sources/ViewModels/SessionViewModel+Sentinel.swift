@@ -192,9 +192,17 @@ extension SessionViewModel {
                     self?.netReconnecting = false
                 }
             }
+            drainPendingWhenOnline()
             return
         }
         guard phase == .listening else { return }
+        // Çevrimdışı çekim kipi (SIM kart yok): internet yokluğu alarm değildir, onarım başlatılmaz
+        if offlineCapture {
+            netPulse = .down
+            netFails = 0
+            offlineHeld = true
+            return
+        }
         netFails += 1
         guard netFails >= Timing.netFailLimit else {
             netPulse = .suspect

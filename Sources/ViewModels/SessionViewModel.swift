@@ -427,6 +427,9 @@ final class SessionViewModel: ObservableObject {
     var pendingShots: [CapturedQuestion] = []
     /// Kamera sorusu kapalıyken bekleyen çekimler gönderilemedi: sıradaki dinleme bekleyenleri yeniden denemeden soruyu bekler (döngü olmasın)
     var pendingDrainSkipped = false
+    /// Çevrimdışı çekim kipi (SIM kart yok): internet yokken çekimler telefonda birikir. Bekleyen çekimler varken internet gelince
+    /// dinleme açıksa gönderilir (bkz. `drainPendingWhenOnline`). Yalnız internet yokluğu görüldüyse kurulur.
+    var offlineHeld = false
     /// Bekleyen çekimlerin bu testteki başarısız gönderim sayısı (bkz. `Timing.pendingSendAttempts`)
     var sendFailures: [UUID: Int] = [:]
     /// Kendiliğinden yeniden gönderilmesi denenmiş bekleyen çekimler (bkz. `resendablePending`)
@@ -628,6 +631,7 @@ final class SessionViewModel: ObservableObject {
         cameraStartDone = false
         cameraStartSpoken = false
         cameraStartNotes = []
+        offlineHeld = false
         nextNumber = 1
         choiceOffer = nil
         choiceReminders = 0

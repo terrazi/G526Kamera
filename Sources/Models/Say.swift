@@ -194,6 +194,12 @@ enum Say {
     static let networkLost = "İnternet bağlantısı yok. Test duraklatıldı, bağlantı onarılıyor."
     /// Telefonda SIM kart yokken internet yoksa: hücresel/sıfırlama Kestirmeleri çalıştırılmaz, neden açıkça söylenir
     static let noSimNoInternet = "İnternet yok ve telefonda SIM kart yok, hücresel veri kullanılamaz. Telefonu internet olan bir Wi-Fi ağına bağlayın."
+    /// Çevrimdışı çekim kipinde açılış: sınav durmaz, çekimler telefonda birikir
+    static let offlineCaptureStart = "Telefonda SIM kart yok ve internet yok. Sorular kamerayla çekilip telefonda saklanacak, internet gelince sırayla gönderilecek."
+    static let cameraSavedOfflineContinue = "Soru çekildi ve telefonda saklandı; internet gelince gönderilecek. Sıradaki soruya geçebilirsiniz."
+    static func cameraFailedOfflineContinue(_ failure: CameraFailure) -> String {
+        return "\(failure.message) İnternet de yok; soruyu yeniden çekmeyi deneyebilirsiniz."
+    }
     static let hardwareRepairing = "Kulaklık ya da mikrofon sorunu var. Test duraklatıldı, onarılıyor."
     /// Konuşma tanıma düştü; kulaklık ve mikrofon sağlam. Kullanıcı neyin onarıldığını bilsin, sessizlik kesinti gibi görünmesin.
     static let recognizerRestarting = "Konuşma tanıma durdu, yeniden kuruluyor. Kulaklık ve mikrofon sağlam."

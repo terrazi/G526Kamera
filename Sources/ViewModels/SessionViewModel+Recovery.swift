@@ -378,6 +378,11 @@ extension SessionViewModel {
         // İptal edilmiş bir görev (kuyruğa alınmış ama başlamadan başka bir olay işi iptal etmiş) hiçbir şeye dokunmaz:
         // yoksa aşamayı "onarılıyor" yapıp çıkar ve oturum kalıcı olarak takılırdı
         guard canRecover, !Task.isCancelled else { return }
+        // Çevrimdışı çekim kipi (SIM kart yok): dinlerken internetin olmaması sınavı durdurmaz; çekimler birikir, internet gelince gönderilir
+        if reason == .network, phase == .listening, offlineCapture {
+            offlineHeld = true
+            return
+        }
         if reason == .hardware, hardwareRecoveries >= Timing.maxHardwareRecoveries {
             // Art arda onarıldı ama mikrofon yine çalışmıyor: sonsuz sıfırlama döngüsüne girme, uyar, bir süre sonra bir kez daha dene
             hardwareRecoveries = Timing.maxHardwareRecoveries - 1

@@ -92,14 +92,25 @@ extension SessionViewModel {
         // 3) İnternet (yoksa Kestirmelerle onarılır)
         var internetOK = await deps.health.internetReachable()
         guard !Task.isCancelled else { return }
+        var offlineStart = false
         if !internetOK {
-            // SIM kart yoksa hücresel Kestirme internet getirmez: boş yere onarım döngüsüne girmeden nedeni söyle ve dur
+            // SIM kart yoksa hücresel Kestirme internet getirmez: boş yere onarım döngüsüne girilmez.
+            // Kamera akışı açıksa sınav çevrimdışı sürer (çekimler telefonda birikir, internet gelince gönderilir); değilse nedeni söyle ve dur
             if !deps.health.hasCellularService() {
-                tlog("[açılış] internet yok ve telefonda SIM kart yok: onarım Kestirmeleri çalıştırılmadı")
-                setCheck("internet", "İnternet", ok: false, detail: "yok; telefonda SIM kart yok")
-                await failStart(Say.noSimNoInternet)
-                return
+                if cameraOfferAvailable {
+                    tlog("[açılış] internet yok ve telefonda SIM kart yok: çevrimdışı çekim kipinde sürülüyor (çekimler telefonda birikecek)")
+                    setCheck("internet", "İnternet", ok: false, detail: "yok; SIM kart yok, çekimler telefonda birikecek")
+                    offlineStart = true
+                    offlineHeld = true
+                } else {
+                    tlog("[açılış] internet yok ve telefonda SIM kart yok: onarım Kestirmeleri çalıştırılmadı")
+                    setCheck("internet", "İnternet", ok: false, detail: "yok; telefonda SIM kart yok")
+                    await failStart(Say.noSimNoInternet)
+                    return
+                }
             }
+        }
+        if !internetOK, !offlineStart {
             setCheck("internet", "İnternet", ok: false, detail: "yok; Kestirmelerle düzeltiliyor")
             let result = await performRecovery(.network)
             guard !Task.isCancelled, case .recovering = phase else { return }
@@ -111,22 +122,24 @@ extension SessionViewModel {
                 return
             }
         }
-        setCheck("internet", "İnternet", ok: internetOK, detail: "var")
+        if !offlineStart {
+            setCheck("internet", "İnternet", ok: internetOK, detail: "var")
 
-        // 4) Gemini: ulaşılıyor mu, anahtar kabul ediliyor mu
-        let gemini = await checkGemini()
-        guard !Task.isCancelled else { return }
-        switch gemini {
-        case .ok:
-            setCheck("gemini", "Gemini", ok: true, detail: "anahtar kabul edildi")
-        case .keyRejected(let message):
-            setCheck("gemini", "Gemini", ok: false, detail: message)
-            await failStart(message)
-            return
-        case .unreachable(let message):
-            setCheck("gemini", "Gemini", ok: false, detail: message)
-            await failStart("Gemini'ye ulaşılamadı: \(message)")
-            return
+            // 4) Gemini: ulaşılıyor mu, anahtar kabul ediliyor mu (çevrimdışı çekim kipinde internet gelince sınanır)
+            let gemini = await checkGemini()
+            guard !Task.isCancelled else { return }
+            switch gemini {
+            case .ok:
+                setCheck("gemini", "Gemini", ok: true, detail: "anahtar kabul edildi")
+            case .keyRejected(let message):
+                setCheck("gemini", "Gemini", ok: false, detail: message)
+                await failStart(message)
+                return
+            case .unreachable(let message):
+                setCheck("gemini", "Gemini", ok: false, detail: message)
+                await failStart("Gemini'ye ulaşılamadı: \(message)")
+                return
+            }
         }
 
         // Kamera: soru açıksa ayarların tamam olduğu görünür (eksikse sorular sesle okunur ve bu başta söylenir)
@@ -165,8 +178,9 @@ extension SessionViewModel {
         }
         // Kameraya oturum başında ulaşılamadıysa bu söylenir (kamera ayarları eksik değil, kamera kapalı); sorular sesle okunur
         let cameraDownAtStart = settings.askCamera && cameraConfigured && cameraDownSince != nil
-        let ready = cameraDownAtStart ? Say.readyCameraDown(minutes: AppSettings.clampCameraCheckMinutes(settings.cameraCheckMinutes))
+        var ready = cameraDownAtStart ? Say.readyCameraDown(minutes: AppSettings.clampCameraCheckMinutes(settings.cameraCheckMinutes))
             : (cameraOfferAvailable ? Say.readyCamera : (settings.askCamera ? Say.readyCameraMissing : Say.ready))
+        if offlineStart { ready = Say.offlineCaptureStart + " " + ready }
         // Bölümlü sınavda başlarken hangi bölümde olunduğu söylenir ("Birinci bölüme başlıyorum. Bu bölümde 40 soru var.")
         guard await speakNotice(sectionIndex > 0 ? ready + " " + Say.sectionStart(sectionIndex, questions: sectionQuestionCount) : ready) else { return }
         pendingStart = false

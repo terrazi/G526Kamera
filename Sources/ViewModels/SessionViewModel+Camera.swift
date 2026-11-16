@@ -314,6 +314,8 @@ extension SessionViewModel {
                 } else {
                     await fallBackToVoice(Say.cameraFailed(failure, down: cameraGaveUp, minutes: settings.cameraCheckMinutes))
                 }
+            } else if !isPassage, offlineCapture {
+                await continueOffline(Say.cameraFailedOfflineContinue(failure))
             } else {
                 await repairInternetAfterCamera(Say.cameraFailedOffline(failure))
             }
@@ -330,6 +332,11 @@ extension SessionViewModel {
                 }
             } else if online {
                 await sendShot(shot)
+            } else if offlineCapture {
+                // SIM kart yok: internet bekletilmez, onarım Kestirmesi çalışmaz. Çekim telefonda birikir, sınav sıradaki soruyla sürer;
+                // internet gelince bekleyenler sırayla gönderilir (bkz. `drainPendingWhenOnline`)
+                tlog("[kamera] çevrimdışı çekim kipi: çekim telefonda bekliyor (\(pendingShots.count) bekleyen), sıradaki soruya geçiliyor")
+                await continueOffline(Say.cameraSavedOfflineContinue)
             } else {
                 warn("kamera", "Çekilen soru telefonda bekliyor: internet gelmedi.")
                 await repairInternetAfterCamera(Say.cameraSavedOffline)
@@ -430,6 +437,12 @@ extension SessionViewModel {
     /// internet yoksa ya da konuşma kesildiyse false.
     func sendPendingShots() async -> Bool {
         guard let first = resendablePending else { return false }
+        // SIM kart yoksa internet kendiliğinden gelmez: her soru sınırında konuşup 30 sn beklenmez; internet yoksa sessizce geçilir
+        if !deps.health.hasCellularService(), !(await deps.health.internetReachable()) {
+            offlineHeld = true
+            tlog("[kamera] telefonda \(pendingShots.count) bekleyen çekim var, internet yok (SIM kart yok): gönderilmedi")
+            return false
+        }
         guard await speakNotice(Say.cameraPendingSending) else { return true }   // konuşma kesildi: onarım sonrası yeniden denenir
         guard await waitForInternet(seconds: Timing.cameraInternetWait) else {
             warn("kamera", "Bekleyen çekilen soru gönderilemedi: internet yok.")
@@ -439,6 +452,29 @@ extension SessionViewModel {
         retriedShots.insert(first.id)
         await sendShot(first)   // yine başarısız olursa `sendWithRetry` çekimi atar ve söyler
         return true
+    }
+
+    /// Çevrimdışı çekim kipi: kamera akışı açık ve telefonda SIM kart yok. İnternet yokken sınav durmaz, çekimler telefonda birikir.
+    var offlineCapture: Bool {
+        return cameraOfferAvailable && !deps.health.hasCellularService()
+    }
+
+    /// Çekim (ya da çekim hatası) söylenir, sıradaki soru için kamera sorusu açılır; sınav internet beklemeden sürer
+    func continueOffline(_ text: String) async {
+        offlineHeld = true
+        statusNote = ""
+        guard await speakNotice(text) else { return }   // kesildi (kulaklık, arama): onarımdan sonra sıradaki adım yeniden kurulur
+        armCameraOffer()
+        beginListening()
+    }
+
+    /// Çevrimdışı çekim kipinde bekleyen çekimler varken internet geldi: dinleme açıksa (yarım söz yoksa) bekleyenler sırayla gönderilir
+    func drainPendingWhenOnline() {
+        guard offlineHeld, phase == .listening, resendablePending != nil, accumulator.isEmpty,
+              listenMode == .cameraChoice || listenMode == .question else { return }
+        offlineHeld = false
+        tlog("[kamera] internet geldi; telefonda bekleyen \(pendingShots.count) çekim gönderilecek")
+        beginListening(mode: .question)
     }
 
     /// Kameraya geçilir ve çekilir. Kameraya bağlanılamazsa (kestirme çalışmadı, kamera yanıt vermedi, görüntü gelmedi) "kamera bağlantısı
@@ -661,6 +697,8 @@ extension SessionViewModel {
     /// bekleyen çekimin gönderiminden önce çağrılır; yoksa bağlantı 30 sn boşuna beklenir.
     func restoreInternetIfStrandedOnCamera() async {
         guard networkMayBeOnCamera, !Task.isCancelled else { return }
+        // SIM kart yok: internet kestirmeyle gelmez; her soru sınırında boşuna beklenmez (bkz. `offlineCapture`)
+        if offlineCapture { return }
         if await deps.health.internetReachable() {
             networkMayBeOnCamera = false
             return

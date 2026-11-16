@@ -57,9 +57,15 @@ final class NetworkHealth: HealthChecking {
         return await InternetProbe.quick()
     }
 
+    private var lastCellular: Bool?
+
     func hasCellularService() -> Bool {
         let status = CellularService.status()
-        tlog("[sistem] hücresel hizmet: \(status.available ? "var" : "yok (SIM kart yok)") (\(status.detail))")
+        // Sık sorulur (nabız, her soru sınırı): günlüğe yalnız değişince yazılır
+        if lastCellular != status.available {
+            lastCellular = status.available
+            tlog("[sistem] hücresel hizmet: \(status.available ? "var" : "yok (SIM kart yok)") (\(status.detail))")
+        }
         return status.available
     }
 
