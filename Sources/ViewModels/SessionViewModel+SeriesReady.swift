@@ -53,6 +53,39 @@ extension SessionViewModel {
         statusNote = note
     }
 
+    /// Telefonun Wi-Fi adresi gelene kadar en çok `seconds` sn bekler (yarım sn aralıkla); dönen: adres var mı
+    func waitForPhoneWiFi(seconds: TimeInterval) async -> Bool {
+        var waited = 0.0
+        while !deps.camera.phoneHasWiFiAddress {
+            if waited >= seconds || Task.isCancelled { return false }
+            await Task.yield()
+            await deps.sleep(0.5)
+            waited += 0.5
+        }
+        return true
+    }
+
+    /// "Kameraya Geç" kestirmesinden sonra çağrılır. Kestirmeler Wi-Fi'ye bağlanamaz, yalnız açıp kapatır: kamera ağına girmeyi iPhone kendisi seçer ve
+    /// bazen seçmez (kamera ağında internet yok; günlükte 8 denemenin 3'ünde girmedi, elle dokununca girdi). `Timing.wifiJoinWait` sn içinde Wi-Fi adresi
+    /// yoksa 15 sn'lik bağlanma ve tarama beklenmez: Wi-Fi onarım kestirmesi ("Kamera Bağlantısını Onar": Wi-Fi kapat-aç) hemen çalışır.
+    func ensureWiFiAfterCameraShortcut() async {
+        guard cameraSettings.pageSeries, !Task.isCancelled else { return }
+        if await waitForPhoneWiFi(seconds: Timing.wifiJoinWait) { return }
+        let name = settings.shortcutName(for: .wifi)
+        guard !name.isEmpty else {
+            tlog("[kamera] kameraya geçildi ama \(Int(Timing.wifiJoinWait)) sn içinde telefon bir Wi-Fi ağına girmedi; Wi-Fi onarım kestirmesi yazılı değil")
+            return
+        }
+        tlog("[kamera] kameraya geçildi ama \(Int(Timing.wifiJoinWait)) sn içinde telefon Wi-Fi ağına girmedi; bağlanma beklenmeden Wi-Fi onarım kestirmesi “\(name)” çalıştırılıyor")
+        let note = statusNote
+        statusNote = "Wi-Fi yenileniyor (kamera ağına girilmedi)"
+        let outcome = await runShortcutRetryingTransient(name: name)
+        guard !Task.isCancelled else { return }
+        let joined = await waitForPhoneWiFi(seconds: Timing.wifiJoinWaitAfterRepair)
+        tlog("[kamera] Wi-Fi onarım kestirmesi sonucu \(outcome); telefon Wi-Fi ağına \(joined ? "girdi" : "yine girmedi")")
+        statusNote = note
+    }
+
     /// Sıradaki oturum için kamerayı hazırlar: kestirme (hücresel kapanır, telefon kameranın Wi-Fi'sine geçer), kameraya bağlanma ve görüntünün gelmesi;
     /// bağlantı AÇIK kalır. Kulaklık kestirmeyle düştüyse dönmesi beklenir. Kamera zaten hazırsa (açılışta bağlanılmıştır) hiçbir şey yapmaz.
     ///

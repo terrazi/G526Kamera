@@ -308,6 +308,9 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
     /// Bağlantı açık tutuluyor ve görüntü geliyor (son 3 sn içinde kare var): kopmuş bağlantıda süre başlatılmaz, kamera yeniden hazırlanır
     var holdingLive: Bool { return holding && isLive }
 
+    /// Telefonun Wi-Fi'sinde (en0) IPv4 adresi var mı
+    var phoneHasWiFiAddress: Bool { return LocalNetwork.wifi() != nil }
+
     /// Sürüm 4: oturum başlarken kameraya hemen bağlanılır; görüntü gelince döner ve bağlantı AÇIK kalır (ana ekrandaki kutuda görüntü akar,
     /// kamera pili düşükse sesli uyarı verilir). Hiçbir şey çekilmez, konumlandırma yapılmaz. İlk hücresel bağlantıdan önce `closeHeld()` kapatır.
     func holdOpen(connectLimit: TimeInterval?) async -> Result<Void, CameraFailure> {

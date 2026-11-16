@@ -386,6 +386,17 @@ final class FakeCamera: CameraCapturing {
     /// Doğruysa açık tutulan bağlantı kopmuştur (görüntü gelmiyor); yeni bir `holdOpen` bağlantıyı onarır
     var linkLost = false
     var holdingLive: Bool { return isHeld && !linkLost }
+    /// Telefonun Wi-Fi adresi: bu kadar yoklama boyunca "yok" döner, sonra var (kamera ağına girilmemiş telefon)
+    var wifiMissingChecks = 0
+    private(set) var wifiChecks = 0
+    var phoneHasWiFiAddress: Bool {
+        wifiChecks += 1
+        if wifiMissingChecks > 0 {
+            wifiMissingChecks -= 1
+            return false
+        }
+        return true
+    }
     /// Çekim başlarken bağlantı açık tutuluyor muydu (hazır bekleme)
     private(set) var seriesHeldAtStart: [Bool] = []
 

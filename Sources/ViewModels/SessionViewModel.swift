@@ -136,6 +136,11 @@ final class SessionViewModel: ObservableObject {
         /// Oturum başında ilk bağlanma denemesinde en çok beklenen süre (sn): "Kameraya geç" telefonu kameranın ağına sokamadıysa 40 sn beklenmez,
         /// onarım kestirmesine geçilir (onarımdan sonrakilerde varsayılan süre)
         static let cameraStartFirstConnect: TimeInterval = 15
+        /// "Kameraya geç" kestirmesinden sonra telefon kameranın Wi-Fi'sine (Wi-Fi adresi) en çok bu kadar sn içinde girmeli; girmezse 15 sn'lik bağlanma
+        /// ve tarama beklenmeden Wi-Fi onarım kestirmesi (Wi-Fi kapat-aç) hemen çalışır (günlükte onarım 3 sn'de ağa soktu; elle dokunmakla aynıdır)
+        static let wifiJoinWait: TimeInterval = 8
+        /// Wi-Fi onarım kestirmesinden sonra ağa girilmesi için en çok beklenecek süre (sn)
+        static let wifiJoinWaitAfterRepair: TimeInterval = 10
         /// Kamera bağlandıktan sonra görüntü ekranda en az bu kadar sn daha akar (anons bittikten sonra), sonra bağlantı kapanır
         static let cameraStartShow: TimeInterval = 3
         /// "Wi-Fi'de kal" kipi: telefon zaten kameranın ağındadır; ilk denemede kameraya bağlanmak için en çok beklenecek süre (sn). Bağlanamazsa onarım kestirmesi çalışır

@@ -183,6 +183,39 @@ final class PageSeriesTests: XCTestCase {
         XCTAssertTrue(h.events.isEmpty, "\(h.events)")
     }
 
+    func testAPhoneThatDidNotJoinTheCameraWiFiGetsTheWiFiRepairAtOnceInsteadOfWaitingForTheConnectionToTimeOut() async {
+        let h = harness(seriesResults: [], pageReplies: [])
+        h.camera.wifiMissingChecks = 1000   // iPhone kamera ağına kendiliğinden girmedi
+        h.trackEvents { name in
+            if name == "Kameraya_Gec" { h.health.internet = false }
+            if name == "Hücresele_Gec" { h.health.internet = true }
+            if name == "Hücresel_Ac" { h.health.internet = true }
+            if name == "Kamera_Onar" { h.camera.wifiMissingChecks = 0 }   // Wi-Fi kapat-aç: kamera ağına girildi
+        }
+        _ = await h.startListening()
+        XCTAssertEqual(h.events, ["kestirme:Kameraya_Gec", "kestirme:Bluetooth_Yenile", "kestirme:Kamera_Onar", "bağlantı açıldı"],
+                       "Wi-Fi onarımı kameraya bağlanma DENENMEDEN önce çalışır (15 sn'lik bağlanma ve tarama beklenmez)")
+        XCTAssertEqual(h.camera.holdOpens, 1, "Bağlanma tek denemede oldu: boşa deneme yok")
+        XCTAssertTrue(h.camera.holding)
+        XCTAssertEqual(h.vm.listenMode, .cameraChoice)
+    }
+
+    func testAPhoneThatJoinedByItselfGetsNoWiFiRepair() async {
+        let h = harness(seriesResults: [], pageReplies: [])
+        _ = await h.startListening()
+        XCTAssertFalse(h.shortcuts.runs.contains("Kamera_Onar"), "Telefon kamera ağındaysa Wi-Fi'ye dokunulmaz")
+    }
+
+    func testWithoutAWiFiRepairShortcutTheCameraIsStillTried() async {
+        let h = harness(seriesResults: [], pageReplies: [])
+        h.settings.wifiShortcut = ""
+        h.camera.wifiMissingChecks = 1000
+        _ = await h.startListening()
+        XCTAssertFalse(h.shortcuts.runs.contains("Kamera_Onar"))
+        XCTAssertEqual(h.camera.holdOpens, 1, "Onarım kestirmesi yoksa yine de kameraya bağlanılır")
+        XCTAssertTrue(h.camera.holding)
+    }
+
     func testSilenceNeverStartsTheSessionByItself() async {
         let h = harness(seriesResults: [series()], pageReplies: [])
         _ = await h.startListening()

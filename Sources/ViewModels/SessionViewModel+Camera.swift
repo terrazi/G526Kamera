@@ -583,7 +583,10 @@ extension SessionViewModel {
                 tlog("[kamera] kestirme çalıştırılıyor: “\(name)”")
                 outcome = await runShortcutRetryingTransient(name: name)
                 tlog("[kamera] kestirme sonucu: \(outcome)")
-                if name == cameraName { await bringHeadsetBackAfterCameraShortcut(outcome) }   // toplu çekim: uçak modu kulaklığı düşürdü, Bluetooth yeniden açılır
+                if name == cameraName {
+                    await bringHeadsetBackAfterCameraShortcut(outcome)   // toplu çekim: uçak modu kulaklığı düşürdü, Bluetooth yeniden açılır
+                    if outcome == .success || outcome == .timedOut { await ensureWiFiAfterCameraShortcut() }   // telefon kamera ağına girmediyse Wi-Fi kapat-aç hemen
+                }
             }
             if case .failed(let message) = outcome, SessionViewModel.isMissingShortcutError(message), attempt > 0, name != cameraName {
                 repairMissing = true
