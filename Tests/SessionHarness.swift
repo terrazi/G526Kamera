@@ -33,7 +33,8 @@ final class SessionHarness {
     /// Çekimlerin kalıcı klasörü: yalnız `archive: true` ise vardır (varsayılan: çekimler saklanmaz, eski davranış)
     let fileStore: FileCaptureStore?
 
-    init(shortcutNames: Bool = true, library: AnswerLibrary? = nil, cameraFlow: Bool = false, archive: Bool = false) {
+    /// `stayOnWifi`: "Kameranın Wi-Fi'sinde kal" kipi. Varsayılan olarak AÇIKTIR; eski testlerin kestirme sıraları bozulmasın diye burada kapalı, ona ait testler açar.
+    init(shortcutNames: Bool = true, library: AnswerLibrary? = nil, cameraFlow: Bool = false, archive: Bool = false, stayOnWifi: Bool = false) {
         root = makeTempFolder("g526-oturum")
         let captureBox: CaptureStoring
         if archive {
@@ -62,6 +63,7 @@ final class SessionHarness {
         // "Soru mu, paragraf mı?" sorusu varsayılan olarak açıktır; kamera akışı testlerinin "evet"i doğrudan çekime gitsin diye burada kapalı, ona ait testler açar
         settings.askCaptureKind = false
         cameraSettings = CameraSettings(defaults: defaults)
+        cameraSettings.stayOnWifi = stayOnWifi
         if shortcutNames {
             settings.wifiShortcut = "WiFi_Ac"
             settings.cellularShortcut = "Hücresel_Ac"

@@ -35,6 +35,7 @@ final class CameraSettings: ObservableObject {
         static let videoQuestion = "videoQuestion"
         static let videoHighRes = "videoHighRes"
         static let cameraShortcutName = "cameraShortcutName"
+        static let stayOnWifi = "stayOnWifi"
     }
 
     /// İlk açılışta Ayarlar'da hazır yazılı gelen kamera adı (UID)
@@ -112,6 +113,9 @@ final class CameraSettings: ObservableObject {
     // MARK: Kestirme
     /// Kamera (Wi-Fi) kestirmesinin adı; boşsa kapalı
     @Published var cameraShortcutName: String { didSet { defaults.set(cameraShortcutName, forKey: Key.cameraShortcutName) } }
+    /// Telefon kameranın Wi-Fi'sinde kalır (kullanıcı kararı 2026-11-16): çekimde "Kameraya geç" kestirmesi çalışmaz, çekimden sonra Wi-Fi bırakılmaz;
+    /// internet hücreselden gelir ve yalnız yoksa hücresel kestirmesi çalışır. Kapalıysa eski düzen: her çekimde kameraya geçilir, sonra Wi-Fi bırakılır.
+    @Published var stayOnWifi: Bool { didSet { defaults.set(stayOnWifi, forKey: Key.stayOnWifi) } }
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -159,6 +163,7 @@ final class CameraSettings: ObservableObject {
         videoQuestion = defaults.string(forKey: Key.videoQuestion) ?? ""
         videoHighRes = defaults.object(forKey: Key.videoHighRes) as? Bool ?? true
         cameraShortcutName = defaults.string(forKey: Key.cameraShortcutName) ?? ""
+        stayOnWifi = defaults.object(forKey: Key.stayOnWifi) as? Bool ?? true
     }
 
     // MARK: Yardımcılar

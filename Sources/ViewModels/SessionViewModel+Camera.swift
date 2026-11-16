@@ -258,8 +258,9 @@ extension SessionViewModel {
         let attemptStart = deps.now()
         phase = .answering
         networkMayBeOnCamera = true   // kestirme çalışınca hücresel kapanır; internete dönüş doğrulanana kadar bayrak durur
-        statusNote = "Kameraya geçiliyor (hücresel kesiliyor)"
-        tlog("[kamera] hücresel kesilip kameranın Wi-Fi ağına geçiliyor: kestirme “\(cameraName)”\(isPassage ? " (ortak paragraf)" : "")")
+        statusNote = cameraSettings.stayOnWifi ? "Kameraya bağlanılıyor" : "Kameraya geçiliyor (hücresel kesiliyor)"
+        tlog(cameraSettings.stayOnWifi ? "[kamera] Wi-Fi'de kal: telefon kameranın ağında kalır, hücresel kesilmez"
+             : "[kamera] hücresel kesilip kameranın Wi-Fi ağına geçiliyor: kestirme “\(cameraName)”\(isPassage ? " (ortak paragraf)" : "")")
         deps.camera.subject = subject
         var result = await captureWithRepair(cameraName: cameraName)
         // Çekim telefonda saklanır: internete dönüş sürerken kesinti olsa ya da gönderim başarısız olsa da kaybolmaz
@@ -289,8 +290,12 @@ extension SessionViewModel {
             return
         }
         if case .success = result { sayGuidance(isPassage ? Say.passageCaptured : Say.cameraCaptured) }
-        // Kamera kapandı: Wi-Fi bırakılır, hücresel açılır
-        statusNote = "İnternete geçiliyor (Wi-Fi bırakılıyor)"
+        // Kamera kapandı (görüntü kapatıldı: kamera boşta, Wi-Fi yayını sürer). Eski düzende Wi-Fi bırakılır, hücresel açılır;
+        // "Wi-Fi'de kal" kipinde telefon kameranın ağında kalır ve yalnız internet yoksa hücresel kestirmesi çalışır
+        if cameraSettings.stayOnWifi {
+            tlog("[kamera] kamera uykuya alındı (görüntü kapatıldı); telefon kameranın Wi-Fi'sinde kalıyor")
+        }
+        statusNote = internetNote
         let online = await returnToInternet(shortcut: internetName)
         if online { networkMayBeOnCamera = false }
         await waitForGuidanceSpeech()
@@ -442,6 +447,7 @@ extension SessionViewModel {
         var result: Result<CapturedQuestion, CameraFailure> = .failure(.notConnected)
         var repairMissing = false   // onarım kestirmesi telefonda yok ("kestirmesi bulunamadı"): aynı yok kestirme bir daha denenmez
         var onCameraNetwork = false   // kameraya geçiş kestirmesi çalıştı: telefon kameranın Wi-Fi'sindedir, onarım kestirmesi olmasa da kamera yeniden denenir
+        let stay = cameraSettings.stayOnWifi   // "Wi-Fi'de kal": ilk denemede kestirme çalışmaz
         for attempt in 0...Timing.cameraRepairs {
             var name = cameraName
             if attempt > 0 {
@@ -451,9 +457,16 @@ extension SessionViewModel {
                 tlog("[kamera] bağlantı onarımı \(attempt). deneme: kestirme “\(name)”")
                 sayGuidance(Say.cameraRepairing)
             }
-            tlog("[kamera] kestirme çalıştırılıyor: “\(name)”")
-            let outcome = await runShortcutRetryingTransient(name: name)
-            tlog("[kamera] kestirme sonucu: \(outcome)")
+            let outcome: ShortcutOutcome
+            if stay && attempt == 0 {
+                // Telefon kameranın Wi-Fi'sinde kalmıştır: kestirme çalışmaz, doğrudan bağlanılır; bağlanamazsa onarım kestirmesi devreye girer
+                tlog("[kamera] Wi-Fi'de kal: kestirme çalıştırılmadı, doğrudan bağlanılıyor (en çok \(Int(Timing.stayConnectSeconds)) sn)")
+                outcome = .success
+            } else {
+                tlog("[kamera] kestirme çalıştırılıyor: “\(name)”")
+                outcome = await runShortcutRetryingTransient(name: name)
+                tlog("[kamera] kestirme sonucu: \(outcome)")
+            }
             if case .failed(let message) = outcome, SessionViewModel.isMissingShortcutError(message), attempt > 0, name != cameraName {
                 repairMissing = true
                 tlog("[kamera] “\(name)” kestirmesi bu telefonda yok: Kestirmeler'de bu adla kestirme oluşturulmalı (KURULUM.md); sonraki denemede kameraya geçiş kestirmesi çalışır")
@@ -472,8 +485,9 @@ extension SessionViewModel {
                 deps.camera.onSay = { [weak self] text in self?.sayGuidance(text) }
                 deps.camera.onStatus = { [weak self] text in self?.statusNote = text }
                 // V3 işi iptal ederse (kulaklık, arama, onarım: `work?.cancel()`) kamera da kapanır; yoksa 70 sn boyunca açık kalırdı
+                let limit: TimeInterval? = stay && attempt == 0 ? Timing.stayConnectSeconds : nil
                 result = await withTaskCancellationHandler {
-                    await camera.capture()
+                    await camera.capture(connectLimit: limit)
                 } onCancel: {
                     Task { @MainActor in camera.cancel() }
                 }
@@ -614,6 +628,16 @@ extension SessionViewModel {
 
     /// Kestirme: Wi-Fi bırakılır, hücresel açılır; internet gelene kadar beklenir. İkinci kez denenir. İnternet geldi mi.
     func returnToInternet(shortcut: String) async -> Bool {
+        // "Wi-Fi'de kal": telefon kameranın ağında kalır, internet hücreselden gelir. İnternet varsa hiçbir kestirme çalışmaz;
+        // yoksa hücresel kestirmesi (yalnız hücreseli yenileyen, Wi-Fi'ye dokunmayan) çalışır
+        if cameraSettings.stayOnWifi {
+            if await waitForInternet(seconds: Timing.stayInternetCheck) {
+                tlog("[kamera] Wi-Fi'de kal: internet var, kestirme çalıştırılmadı")
+                return true
+            }
+            guard !Task.isCancelled else { return false }
+            tlog("[kamera] Wi-Fi'de kal: internet yok; hücresel kestirmesi çalıştırılıyor: “\(shortcut)”")
+        }
         for attempt in 1...Timing.cameraInternetTries {
             let outcome = await runShortcutRetryingTransient(name: shortcut)
             guard !Task.isCancelled else { return false }
@@ -638,7 +662,7 @@ extension SessionViewModel {
         let name = settings.internetShortcut.trimmed
         guard !name.isEmpty else { return }
         tlog("[kamera] önceki kamera akışı yarıda kaldı ve internet yok; “\(name)” kestirmesi çalıştırılıyor")
-        statusNote = "İnternete geçiliyor (Wi-Fi bırakılıyor)"
+        statusNote = internetNote
         if await returnToInternet(shortcut: name) { networkMayBeOnCamera = false }
         statusNote = ""
     }
@@ -651,6 +675,8 @@ extension SessionViewModel {
         tlog("[kamera] test kamera akışı sürerken bitti; internet kestirmesi çalıştırılıyor: “\(name)”")
         work = Task { [weak self] in
             guard let self = self else { return }
+            // "Wi-Fi'de kal": telefon kameranın ağında kalır; internet varsa kestirme gerekmez
+            if self.cameraSettings.stayOnWifi, await self.deps.health.internetReachable() { return }
             _ = await self.deps.shortcuts.run(name: name)
         }
     }
@@ -667,6 +693,11 @@ extension SessionViewModel {
     }
 
     // MARK: Yardımcılar
+
+    /// İnternete dönüş sürerken ekranda ve boşluk bilgisinde görünen not ("İnternete geçiliyor" sesli bilgiyi de tetikler)
+    var internetNote: String {
+        return cameraSettings.stayOnWifi ? "İnternete geçiliyor (hücresel kontrol ediliyor)" : "İnternete geçiliyor (Wi-Fi bırakılıyor)"
+    }
 
     /// Çekim sürerken kamera programının yönlendirme cümleleri: ayrı bir cümle sürüyorsa yenisi atlanır (art arda üst üste binmesin)
     func sayGuidance(_ text: String) {

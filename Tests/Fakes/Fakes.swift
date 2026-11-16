@@ -355,6 +355,13 @@ final class FakeCamera: CameraCapturing {
         return probeResults.isEmpty ? false : probeResults.removeFirst()
     }
 
+    /// Her çekimde verilen bağlanma sınırı ("Wi-Fi'de kal": ilk denemede kısa, onarımdan sonrakilerde nil)
+    private(set) var connectLimits: [TimeInterval?] = []
+    func capture(connectLimit: TimeInterval?) async -> Result<CapturedQuestion, CameraFailure> {
+        connectLimits.append(connectLimit)
+        return await capture()
+    }
+
     func capture() async -> Result<CapturedQuestion, CameraFailure> {
         captures += 1
         subjects.append(subject)

@@ -149,15 +149,17 @@ boyunca ekran kararmaz).
 
 Kamera ile çekim için Kestirmeler'de üç kestirme daha yapın; adları Ayarlar'daki alanlarla birebir aynı olsun (ilk açılışta kendiliğinden yazılır):
 
-1. `Kameraya Geç` — hücresel veriyi kapat, Wi-Fi'yi aç. Telefon kameranın ağına kendiliğinden bağlanır: kamerayı bir kez elle bağlayıp **Otomatik Bağlan**'ı açık bırakın (Kestirmeler belirli bir ağa bağlanma eylemi sunmaz).
-2. `Hücresel Veri` — Wi-Fi'yi kapat, hücresel veriyi aç (internete dönüş kestirmesi olarak da bu kullanılır; ayrı bir `Hücresele Geç` yapmanız gerekmez).
-3. `Kamera Bağlantısını Onar` — Wi-Fi'yi kapat, 2 sn bekle, aç (telefon kameranın ağına yeniden bağlanır; kamera bağlanamayınca çalışır).
+1. `Kameraya Geç` — Wi-Fi'yi aç (hücresel veriye dokunmayın). Telefon kameranın ağına kendiliğinden bağlanır: kamerayı bir kez elle bağlayıp **Otomatik Bağlan**'ı açık bırakın (Kestirmeler belirli bir ağa bağlanma eylemi sunmaz). Yalnız kamera sorgulanırken ve kameraya ulaşılamayınca çalışır.
+2. `Hücresel Veri` — **yalnız hücresel veriyi kapatıp aç** (örnek: Hücresel Veriyi Ayarla: Kapat → 2 sn Bekle → Hücresel Veriyi Ayarla: Aç). **Wi-Fi'yi kapatan eylemi bu kestirmeden çıkarın**; telefon kameranın ağında kalacak. İnternet kopunca bu kestirme çalışır (ayrı bir `Hücresele Geç` yapmanız gerekmez).
+3. `Kamera Bağlantısını Onar` — Wi-Fi'yi kapat, 2 sn bekle, aç (telefon kameranın ağına yeniden bağlanır; kamera bağlanamayınca çalışır). Wi-Fi'yi kapatan tek kestirme budur.
+
+**“Kameranın Wi-Fi'sinde kal” (Ayarlar > Kestirmeler, varsayılan açık):** telefon kameranın Wi-Fi ağında kalır, internet hücreselden gelir. Çekimde program doğrudan kameraya bağlanır (bağlanamazsa `Kamera Bağlantısını Onar` çalışır ve yeniden dener); çekim bitince kameraya görüntüyü kapatma komutu gider ve kamera boşta bekler (kameranın bilinen bir uyku komutu yoktur, Wi-Fi yayını sürer). Çekimden sonra internet varsa hiçbir kestirme çalışmaz; yoksa `Hücresel Veri` çalışır. Kapatırsanız eski düzen geçerlidir: her çekimde `Kameraya Geç` hücreseli keser ve Wi-Fi'yi açar, sonra `Hücresel Veri` Wi-Fi'yi bırakıp hücreseli açar (bu durumda `Hücresel Veri` kestirmenize Wi-Fi'yi kapatan eylemi geri koymanız gerekir). Kameranın Wi-Fi'sindeyken hücresel verinin birlikte çalışması kullanıcının telefonunda görüldü ama ara sıra koptu; kopunca yukarıdaki hücresel yenileme devreye girer.
 
 Günlükte `“…” kestirmesi bulunamadı` görürseniz o ad telefonunuzdaki bir kestirmeyle birebir uyuşmuyor ya da kestirme yok: Ayarlar'daki adı Kestirmeler'deki gerçek adla aynı yapın. `Çalma Hedefi aygıt bulunamadığı için iş ayarlanamadı` ise Kestirmeler'in kestirmeyi kendisinin geri çevirdiği geçici bir durumdur (sınavda ses açıkken görüldü); program aynı kestirmeyi 2,5 sn arayla en çok 2 kez yeniden çalıştırır, günlükte `[kestirme] … geri çevrildi` satırı görünür.
 
 **Sınavdan önce bir kez Ayarlar > “Kamerayı dene (sınavdan önce)” düğmesine basın:** kamera ilk kez açılırken iOS “yerel ağ” izni sorar (“İzin ver”e basın); sınavda bu kutu çıkarsa kulaklıktan yönetilen akış kilitlenir. Deneme, sınavın adımlarını sırayla yürütür ve her adımın sonucunu yazar.
 
-Bu sürümde Wi-Fi artık internet onarımı için kullanılmaz (internet yalnız hücreseldir): internet kopunca sırayla hücresel ve sistem sıfırlama çalışır. Kestirmelerin Wi-Fi ve hücreseli sorunsuz (onay sormadan) değiştirip değiştirmediği ve kameranın ağına kendiliğinden bağlanıp bağlanmadığı cihazda denenmedi: Ayarlar'daki **Dene** düğmesiyle üçünü de sınayın.
+Bu sürümde Wi-Fi artık internet onarımı için kullanılmaz (internet yalnız hücreseldir): internet kopunca sırayla hücresel ve sistem sıfırlama çalışır. “Kameranın Wi-Fi'sinde kal” kapalıyken her çekimde kameraya geçilir ve çekimden sonra Wi-Fi bırakılır. Kestirmelerin Wi-Fi ve hücreseli sorunsuz (onay sormadan) değiştirip değiştirmediği ve kameranın ağına kendiliğinden bağlanıp bağlanmadığı cihazda denenmedi: Ayarlar'daki **Dene** düğmesiyle üçünü de sınayın.
 
 
 **Zamanlı başlatma:** Kestirmeler > Otomasyon > Günün Saati > sınav saati > eylem **URL'yi Aç**: `seslikontrol://basla` > **Hemen

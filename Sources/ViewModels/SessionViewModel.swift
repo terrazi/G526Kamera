@@ -124,6 +124,10 @@ final class SessionViewModel: ObservableObject {
         static let cameraSendTries = 2
         /// Kameraya bağlanılamazsa kamera bağlantısı onarımının (Wi-Fi adımı) en çok kaç kez çalışıp çekimin yeniden deneneceği
         static let cameraRepairs = 4   // ilk deneme + 4 onarım = 5 deneme; sonra sesle devam edilir ve kamera yoklanır
+        /// "Wi-Fi'de kal" kipi: telefon zaten kameranın ağındadır; ilk denemede kameraya bağlanmak için en çok beklenecek süre (sn). Bağlanamazsa onarım kestirmesi çalışır
+        static let stayConnectSeconds: TimeInterval = 15
+        /// "Wi-Fi'de kal" kipi: çekimden sonra internetin varlığına bakılan süre (sn). İnternet varsa hiçbir kestirme çalışmaz
+        static let stayInternetCheck: TimeInterval = 6
         /// Kameraya ulaşılamıyorken yoklama aralığı (sn) ve yoklama için uygun an yoksa yeniden bakma aralığı
         static let cameraProbeEvery: TimeInterval = 300
         static let cameraProbeRetry: TimeInterval = 20

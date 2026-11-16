@@ -58,22 +58,40 @@ extension SessionViewModel {
         }
         phase = .answering
         networkMayBeOnCamera = true   // kestirme çalışınca hücresel kapanır; internete dönüş doğrulanana kadar bayrak durur
-        statusNote = "Kamera kontrol ediliyor (hücresel kesiliyor)"
+        let stay = cameraSettings.stayOnWifi
+        statusNote = stay ? "Kamera kontrol ediliyor" : "Kamera kontrol ediliyor (hücresel kesiliyor)"
         let cameraName = cameraSettings.cameraShortcutName.trimmed
         let internetName = settings.internetShortcut.trimmed
-        tlog("[kamera] yoklama: kameraya geçiliyor, kestirme “\(cameraName)”")
-        let outcome = await runShortcutRetryingTransient(name: cameraName)
-        var reachable = false
-        if !Task.isCancelled, phase == .answering, outcome == .success || outcome == .timedOut {
-            let camera = deps.camera
-            reachable = await withTaskCancellationHandler {
+        let camera = deps.camera
+        func probeOnce() async -> Bool {
+            return await withTaskCancellationHandler {
                 await camera.probe()
             } onCancel: {
                 Task { @MainActor in camera.cancel() }
             }
         }
+        var outcome: ShortcutOutcome = .success
+        var reachable = false
+        if stay {
+            // Telefon kameranın Wi-Fi'sindedir: önce doğrudan bakılır; görünmezse kameraya geçiş kestirmesi bir kez çalışır ve yeniden bakılır
+            tlog("[kamera] yoklama (Wi-Fi'de kal): doğrudan bağlanılıyor")
+            reachable = await probeOnce()
+            if !reachable, !Task.isCancelled, phase == .answering {
+                tlog("[kamera] yoklama: kamera görünmedi; kestirme “\(cameraName)” çalıştırılıyor")
+                outcome = await runShortcutRetryingTransient(name: cameraName)
+                if !Task.isCancelled, phase == .answering, outcome == .success || outcome == .timedOut {
+                    reachable = await probeOnce()
+                }
+            }
+        } else {
+            tlog("[kamera] yoklama: kameraya geçiliyor, kestirme “\(cameraName)”")
+            outcome = await runShortcutRetryingTransient(name: cameraName)
+            if !Task.isCancelled, phase == .answering, outcome == .success || outcome == .timedOut {
+                reachable = await probeOnce()
+            }
+        }
         tlog("[kamera] yoklama sonucu: kestirme \(outcome), kamera \(reachable ? "göründü" : "yok")")
-        statusNote = "İnternete geçiliyor (Wi-Fi bırakılıyor)"
+        statusNote = internetNote
         guard !Task.isCancelled, phase == .answering else {
             statusNote = ""
             scheduleCameraProbe(after: Timing.cameraProbeRetry)   // kesinti (kulaklık, arama, onarım): internete dönüşü onarım üstlenir

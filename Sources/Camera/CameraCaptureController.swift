@@ -186,6 +186,10 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
     // MARK: Çekim
 
     func capture() async -> Result<CapturedQuestion, CameraFailure> {
+        return await capture(connectLimit: nil)
+    }
+
+    func capture(connectLimit: TimeInterval?) async -> Result<CapturedQuestion, CameraFailure> {
         guard !running else { return .failure(.captureFailed("çekim zaten sürüyor")) }
         running = true
         cancelled = false
@@ -217,7 +221,7 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
                                                   tzHours: TimeZone.current.secondsFromGMT() / 3600,
                                                   probe: false))
         cameraState = .connecting("Kameraya bağlanılıyor…")
-        var live = await waitUntil(seconds: CameraCaptureController.connectSeconds) { self.isLive }
+        var live = await waitUntil(seconds: connectLimit ?? CameraCaptureController.connectSeconds) { self.isLive }
         if !live, !cancelled, case .connected = cameraState {
             tlog("[kamera] el sıkışıldı, görüntü bekleniyor: \(Int(CameraCaptureController.connectGraceSeconds)) sn ek süre")
             live = await waitUntil(seconds: CameraCaptureController.connectGraceSeconds) { self.isLive }

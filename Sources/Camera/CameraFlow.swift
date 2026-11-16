@@ -121,6 +121,9 @@ protocol CameraCapturing: AnyObject {
     var subject: CaptureSubject { get set }
     /// Kamerayı açar, bağlanır, sesle konumlandırır, soruyu videoya ve fotoğrafa alır ve BİTİNCE kamerayı kapatır (başarısız da olsa).
     func capture() async -> Result<CapturedQuestion, CameraFailure>
+    /// Aynı çekim; kameraya bağlanma beklemesi `connectLimit` sn ile sınırlanır (nil: varsayılan süre). "Wi-Fi'de kal" kipinde telefon zaten kameranın
+    /// ağındadır: bağlanamıyorsa uzun beklenmez, onarım kestirmesine geçilir.
+    func capture(connectLimit: TimeInterval?) async -> Result<CapturedQuestion, CameraFailure>
     /// Süren çekimi iptal eder (kamera kapanır)
     func cancel()
     /// Kameraya ulaşılabiliyor mu: bağlanır, görüntü gelirse doğru döner. Konumlandırma söylenmez, hiçbir şey çekilmez; kamera hemen kapanır.
@@ -130,6 +133,7 @@ protocol CameraCapturing: AnyObject {
 }
 
 extension CameraCapturing {
+    func capture(connectLimit: TimeInterval?) async -> Result<CapturedQuestion, CameraFailure> { return await capture() }
     var lastBattery: CameraBatteryLevel? { return nil }
     func probe() async -> Bool { return false }
 }
