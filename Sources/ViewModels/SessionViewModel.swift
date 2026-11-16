@@ -129,6 +129,8 @@ final class SessionViewModel: ObservableObject {
         static let cameraResetAfter = 2
         /// Sıfırlamadan sonra Bluetooth kulaklığın dönmesi için en çok beklenecek süre (sn): uçak modu kulaklığı da düşürür (günlükte ≈ 25 sn)
         static let cameraResetHeadsetWait: TimeInterval = 45
+        /// Toplu çekim oturumundan sonra kulaklığın (Bluetooth) geri gelmesi için en çok beklenecek süre (sn); oturum boyunca ses yolu değişikliği duraklatma sayılmaz
+        static let seriesHeadsetWait: TimeInterval = 60
         /// Oturum başında kameraya bağlanırken en çok kaç onarım yapılacağı (ilk deneme + 2 onarım = 3 deneme); olmazsa sesle devam edilir ve kamera yoklanır
         static let cameraStartRepairs = 2
         /// Oturum başında ilk bağlanma denemesinde en çok beklenen süre (sn): "Kameraya geç" telefonu kameranın ağına sokamadıysa 40 sn beklenmez,
@@ -439,6 +441,12 @@ final class SessionViewModel: ObservableObject {
     var offlineHeld = false
     /// Telefonda biriken çekimler sırayla gönderiliyor (eskiden yeniye, her biri gönderilip cevabı okunur ve kaydedilir). Toplu gönderimin başında
     /// bir kez "internet tekrar kuruldu" denir, sonunda "tüm bekleyenler gönderildi" denir; ara çekimler için tekrar konuşulmaz.
+    /// Toplu çekimde Gemini'nin bir sayfa için verdiği, henüz okunmamış cevaplar (ilki okunurken kalanlar burada bekler; sırayla okunur)
+    var queuedReplies: [GeminiReply] = []
+    /// Cevapları okunmakta olan sayfa: hepsi duyulunca bekleyenlerden çıkar ("Gönderilen"e taşınır); yarıda kalırsa bekler ve yeniden gönderilir
+    var pageBeingRead: CapturedQuestion?
+    /// O sayfanın bütün cevap cümleleri ("Gönderilen" klasörüne yazılır)
+    var pageSpokenAll: [String] = []
     var drainActive = false
     /// Toplu gönderimin başındaki bekleyen sayısı ve şimdiye dek sıraya giren çekim sayısı ("Bekleyen 3 sorudan ikinci gönderiliyor")
     var drainTotal = 0
@@ -788,6 +796,8 @@ final class SessionViewModel: ObservableObject {
     /// Mikrofonu açar ve yeni soruyu bekler. Eldeki yarım metin ve ses silinir; yalnız `keepPartial` ise (kesinti sonrası, okunan soru ya da
     /// paragraf yarıda kalmışsa) korunur ve devam edilen okuma ona eklenir. `mode`: mikrofonun ne için açıldığı.
     func beginListening(mode: ListenMode = .question, keepPartial: Bool = false) {
+        queuedReplies = []   // dinlemeye dönüldü: yarıda kalan sayfanın kalan cevapları bayatlar (sayfa bekleyende durur, yeniden gönderilir)
+        pageBeingRead = nil
         if mode != .confirmEnd {   // silme / numara düzeltme onayı yalnız onay kipinde geçerlidir; başka kipe geçilince bayat kalmaz
             pendingDelete = nil
             pendingRenumber = nil
@@ -1868,6 +1878,10 @@ final class SessionViewModel: ObservableObject {
                                                         passage: passageMedia)
             }
             guard !Task.isCancelled, phase == .answering else { return }
+            if reply.spoken.isEmpty, reply.number == nil {
+                await finishEmptyPage()   // sayfada soru yok: cevap yok, numara tüketilmez
+                return
+            }
             // Numara önceliği: kullanıcının okuduğu (dikte metninden) > Gemini'nin metinden/sesten okuduğu > sıradaki
             let number = spokenNumber ?? reply.number ?? nextNumber
             let source: QuestionEntry.NumberSource = spokenNumber != nil ? .spoken : (reply.number != nil ? .heard : .sequence)
@@ -1918,6 +1932,12 @@ final class SessionViewModel: ObservableObject {
             refreshReplayAvailability()
             await settleAnnouncements()   // cevap duyulduktan sonra bekleyen uyarılar (şarj, ücretli model…) söylenir
             guard !Task.isCancelled, phase == .speaking else { return }
+            // Toplu çekimde bir sayfanın kalan cevapları: "sonraki soruyu okuyun" denmeden sırayla okunur
+            if pageBeingRead != nil, !queuedReplies.isEmpty {
+                await readNextQueuedReply()
+                return
+            }
+            completeReadPage()
             guard await promptNextQuestion() else { return }   // "Lütfen sonraki soruyu okuyun"; yarıda kesilirse akışı duraklama/onarım sürdürür
             beginListening()
         } catch is CancellationError {

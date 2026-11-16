@@ -36,7 +36,7 @@ final class SessionHarness {
     /// `stayOnWifi`: "Kameranın Wi-Fi'sinde kal" kipi. Varsayılan olarak AÇIKTIR; eski testlerin kestirme sıraları bozulmasın diye burada kapalı, ona ait testler açar.
     /// `connectAtStart`: "Başlatınca kameraya hemen bağlan" ayarı. Varsayılan olarak AÇIKTIR; eski testlerin olay sıraları bozulmasın diye burada kapalı, ona ait testler açar.
     init(shortcutNames: Bool = true, library: AnswerLibrary? = nil, cameraFlow: Bool = false, archive: Bool = false, stayOnWifi: Bool = false,
-         connectAtStart: Bool = false) {
+         connectAtStart: Bool = false, pageSeries: Bool = false) {
         root = makeTempFolder("g526-oturum")
         let captureBox: CaptureStoring
         if archive {
@@ -67,6 +67,8 @@ final class SessionHarness {
         cameraSettings = CameraSettings(defaults: defaults)
         cameraSettings.stayOnWifi = stayOnWifi
         cameraSettings.connectAtStart = connectAtStart
+        // Sayfa bazlı toplu çekim varsayılan olarak açıktır; eski testlerin tek soruluk akışı bozulmasın diye burada kapalı, ona ait testler açar
+        cameraSettings.pageSeries = pageSeries
         if shortcutNames {
             settings.wifiShortcut = "WiFi_Ac"
             settings.cellularShortcut = "Hücresel_Ac"
@@ -120,6 +122,7 @@ final class SessionHarness {
             onShortcut?(name)
         }
         camera.onCapture = { [unowned self] in self.events.append("çekim") }
+        camera.onSeries = { [unowned self] in self.events.append("oturum") }
         camera.onHold = { [unowned self] in self.events.append("bağlantı açıldı") }
         camera.onCloseHeld = { [unowned self] in self.events.append("bağlantı kapandı") }
         answering.onCall = { [unowned self] name in self.events.append(name) }

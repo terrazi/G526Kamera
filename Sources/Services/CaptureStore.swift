@@ -4,6 +4,8 @@ import Foundation
 enum CaptureKind: String {
     case question
     case passage
+    /// Toplu sayfa çekimi: bir çekim bir sayfadır, sayfadaki bütün sorular tek istekte cevaplanır (bekleyen klasöründe soru gibi durur)
+    case page
 }
 
 /// Çekim klasörünün özeti (Ayarlar'da gösterilir)
@@ -165,6 +167,7 @@ final class FileCaptureStore: CaptureStoring {
                 shot.extraInstruction = saved.extraInstruction
                 shot.highResolution = saved.highResolution
                 shot.videoSeconds = saved.videoSeconds
+                shot.isPage = saved.kind == CaptureKind.page.rawValue   // toplu çekimin sayfası: yeniden açılınca da sayfa olarak (tüm sorular) gönderilir
             } else if let created = (try? dir.resourceValues(forKeys: [.creationDateKey]))?.creationDate {
                 shot.date = created
             }

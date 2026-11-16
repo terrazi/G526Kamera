@@ -310,6 +310,18 @@ final class FakeAnswering: Answering {
         return try results.removeFirst().get()
     }
 
+    /// Toplu sayfa çekimi: sırayla verilecek sayfa cevapları (boşsa tek soruluk `results` kullanılır) ve yapılan çağrılar
+    var pageResults: [Result<[GeminiReply], Error>] = []
+    private(set) var pageCalls: [(shot: CapturedQuestion, expectedNumber: Int)] = []
+
+    func answerPage(capture: CapturedQuestion, expectedNumber: Int) async throws -> [GeminiReply] {
+        guard !pageResults.isEmpty else { return [try await answer(capture: capture, expectedNumber: expectedNumber)] }
+        pageCalls.append((capture, expectedNumber))
+        onCall?("sayfa gönderimi")
+        if hold { await withCheckedContinuation { gates.append($0) } }
+        return try pageResults.removeFirst().get()
+    }
+
     func answer(question: String, english: String, expectedNumber: Int, audio: Data?, passage: PassageMedia?) async throws -> GeminiReply {
         calls.append(Call(question: question, english: english, expectedNumber: expectedNumber, audio: audio, passage: passage))
         if hold { await withCheckedContinuation { gates.append($0) } }
@@ -361,6 +373,27 @@ final class FakeCamera: CameraCapturing {
             s.videoBytes = bytes
             s.videoSeconds = 5
         }
+        return s
+    }
+
+    /// Toplu sayfa çekimi: sırayla verilecek oturum sonuçları (boşsa kamera yok), yapılan çağrılar ve oturum başlarken haber verilen kanca
+    var seriesResults: [Result<PageSeries, CameraFailure>] = []
+    private(set) var seriesCalls: [(pages: Int, seconds: Int, limit: TimeInterval?)] = []
+    var onSeries: (() -> Void)?
+
+    func captureSeries(pages: Int, seconds: Int, connectLimit: TimeInterval?) async -> Result<PageSeries, CameraFailure> {
+        seriesCalls.append((pages, seconds, connectLimit))
+        onSeries?()
+        guard !seriesResults.isEmpty else { return .failure(.unavailable) }
+        return seriesResults.removeFirst()
+    }
+
+    /// Bir sayfa çekimi: `isPage` işaretli, 15 fotoğraflık PDF'i varmış gibi
+    static func page(_ tag: UInt8 = 1) -> CapturedQuestion {
+        var s = CapturedQuestion(photo: Data([tag, 2, 3]))
+        s.pdf = Data([tag, 9, 9, 9])
+        s.pageCount = 15
+        s.isPage = true
         return s
     }
 

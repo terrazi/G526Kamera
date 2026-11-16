@@ -545,6 +545,117 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         return .success(shot)
     }
 
+    // MARK: Toplu sayfa çekimi
+
+    /// Sayfa bazlı toplu çekim: bağlanır, hiç konuşmadan `pages` × `seconds` sn ARALIKSIZ çeker. Saniyede bir fotoğraf (o saniyenin en net karesi) alınır;
+    /// sayfa p, p'inci `seconds` saniyelik dilimdir (kullanıcı sayfayı bu dilimlere göre çevirir). Her dilimin fotoğrafları tek PDF olur; video yoktur.
+    /// Kameradan görüntü `lostSeconds` sn kesilirse oturum bırakılır, o ana kadar alınan sayfalar döner (`failure` dolu).
+    func captureSeries(pages: Int, seconds: Int, connectLimit: TimeInterval?) async -> Result<PageSeries, CameraFailure> {
+        closeHeld()
+        guard !running else { return .failure(.captureFailed("çekim zaten sürüyor")) }
+        running = true
+        cancelled = false
+        shooting = false
+        active = true
+        defer {
+            teardown()
+            running = false
+            active = false
+        }
+        guard DiskGuard.level(freeMB: DiskGuard.freeMB()) != .critical else { return .failure(.lowDisk) }
+        guard let uid = CameraUID(settings.uid) else { return .failure(.notConnected) }
+        pipeline.saving = settings.previewOff
+        status("Kameraya bağlanılıyor")
+        lowBattery = CameraLowBatteryWatcher()
+        startClient(uid: uid)
+        var live = await waitUntil(seconds: connectLimit ?? CameraCaptureController.connectSeconds) { self.isLive }
+        if !live, !cancelled, case .connected = cameraState {
+            tlog("[kamera] el sıkışıldı, görüntü bekleniyor: \(Int(CameraCaptureController.connectGraceSeconds)) sn ek süre")
+            live = await waitUntil(seconds: CameraCaptureController.connectGraceSeconds) { self.isLive }
+        }
+        if cancelled { return .failure(.cancelled) }
+        guard live else {
+            switch cameraState {
+            case .connected, .streaming: return .failure(.noFrames)
+            default: return .failure(.notConnected)
+            }
+        }
+        pipeline.guidanceOn = false
+        return await shootSeries(pages: max(1, pages), seconds: max(1, seconds))
+    }
+
+    /// En az bu kadar fotoğrafı olan sayfa tutulur (görüntü kesildiği için yarım kalan sayfa için)
+    static func minPhotos(perPage seconds: Int) -> Int { return max(1, min(3, seconds / 2)) }
+
+    private func shootSeries(pages: Int, seconds: Int) async -> Result<PageSeries, CameraFailure> {
+        shooting = true
+        let total = pages * seconds
+        let options = captureOptions()
+        let engine = pipeline.engine
+        let t0 = ProcessInfo.processInfo.systemUptime
+        var tasks: [Task<Result<CapturedPhoto, CaptureError>, Never>] = []
+        var lostFor = 0
+        var cutAt: Int?
+        tlog("[kamera] toplu çekim başladı: \(pages) sayfa × \(seconds) sn (konuşma ve titreşim yok)")
+        for second in 1...total {
+            if cancelled { break }
+            let page = (second - 1) / seconds + 1
+            status("Sayfa \(page)/\(pages): \((second - 1) % seconds + 1)/\(seconds) sn")
+            let target = t0 + Double(second)
+            while !cancelled {
+                let rest = target - ProcessInfo.processInfo.systemUptime
+                if rest <= 0 { break }
+                try? await Task.sleep(nanoseconds: UInt64(min(rest, 0.25) * 1_000_000_000))
+            }
+            if cancelled { break }
+            lostFor = isLive ? 0 : lostFor + 1
+            if lostFor >= CameraCaptureController.lostSeconds {
+                cutAt = second
+                tlog("[kamera] toplu çekim: görüntü \(lostFor) sn kesildi (\(second). saniye); oturum bırakılıyor")
+                break
+            }
+            let from = target - 1.0
+            tasks.append(Task<Result<CapturedPhoto, CaptureError>, Never> {
+                await withCheckedContinuation { (continuation: CheckedContinuation<Result<CapturedPhoto, CaptureError>, Never>) in
+                    engine.photo(from: from, to: target, reason: "Toplu çekim", options: options) { continuation.resume(returning: $0) }
+                }
+            })
+        }
+        if cancelled { return .failure(.cancelled) }
+        var photosByPage: [[CapturedPhoto]] = Array(repeating: [], count: pages)
+        var failures: [CaptureError] = []
+        for (index, task) in tasks.enumerated() {
+            switch await task.value {
+            case .success(let photo): photosByPage[index / seconds].append(photo)
+            case .failure(let error): failures.append(error)
+            }
+        }
+        if cancelled { return .failure(.cancelled) }
+        let keep = CameraCaptureController.minPhotos(perPage: seconds)
+        var shots: [CapturedQuestion] = []
+        for (number, photos) in photosByPage.enumerated() {
+            guard photos.count >= keep, let best = photos.max(by: { $0.sharpness < $1.sharpness }) else {
+                tlog("[kamera] toplu çekim: \(number + 1). sayfada yalnız \(photos.count) fotoğraf alınabildi; sayfa atlandı")
+                continue
+            }
+            let jpegs = photos.map { $0.jpeg }
+            let pdf = await Task.detached(priority: .userInitiated) { PageDocument.make(jpegs: jpegs) }.value
+            tlog("[kamera] \(number + 1). sayfa: \(photos.count) fotoğraf (\(best.width)×\(best.height)) → PDF \(pdf.map { "\($0.count / 1024) KB" } ?? "kurulamadı")")
+            var shot = CapturedQuestion(photo: best.jpeg)
+            shot.pdf = pdf
+            shot.pageCount = pdf == nil ? 0 : photos.count
+            shot.date = best.date
+            shot.isPage = true
+            shots.append(shot)
+        }
+        guard !shots.isEmpty else {
+            if cutAt != nil || failures.contains(where: { if case .noFrames = $0 { return true } else { return false } }) { return .failure(.noFrames) }
+            return .failure(.captureFailed(failures.first?.message ?? ""))
+        }
+        let failure: CameraFailure? = cutAt != nil ? .noFrames : (shots.count < pages ? .captureFailed("") : nil)
+        return .success(PageSeries(pages: shots, planned: pages, failure: failure))
+    }
+
     // MARK: Yardımcılar
 
     private func waitUntil(seconds: TimeInterval, _ condition: () -> Bool) async -> Bool {

@@ -443,6 +443,41 @@ enum Say {
     /// Bekleyenlerin hepsi sırayla gönderilip cevapları alındıktan sonra: canlı sorulara dönülür
     static let cameraPendingDone = "Bekleyen tüm dosyalar Gemini'ye gönderildi ve cevapları alındı. Canlı sorulara devam edebilirsiniz."
 
+    // MARK: Sürüm 4: sayfa bazlı toplu çekim (bir oturumda birkaç sayfa, çekim boyunca ses ve titreşim yok)
+    static func askCameraSeries(pages: Int, seconds: Int) -> String {
+        return "Kamera oturumu başlasın mı? \(pages) sayfa çekilecek, her sayfa \(seconds) saniye. Evet ya da hayır deyin."
+    }
+    static func askCameraSeriesAfterRecovery(pages: Int, seconds: Int) -> String {
+        return "Bağlantı yeniden onarıldı. " + askCameraSeries(pages: pages, seconds: seconds)
+    }
+    static func askCameraSeriesAgain(pages: Int, seconds: Int) -> String {
+        return "Anlayamadım, ikinci defa soruyorum. " + askCameraSeries(pages: pages, seconds: seconds)
+    }
+    static func askCameraSeriesRepeat(_ attempt: Int, pages: Int, seconds: Int) -> String {
+        let ordinal = attempt >= 3 ? "üçüncü" : "ikinci"
+        return "Cevap vermediniz, \(ordinal) defa soruyorum. " + askCameraSeries(pages: pages, seconds: seconds)
+    }
+    /// Oturum başlamadan, kestirme kulaklığı kapatmadan ÖNCE bir kez söylenir; çekim boyunca hiçbir şey söylenmez
+    static func seriesStarting(pages: Int, seconds: Int) -> String {
+        return "Kamera oturumu başlıyor: \(pages) sayfa, her sayfa \(seconds) saniye. Çekim sessiz sürer, kulaklık kapanacak. Sayfayı her \(seconds) saniyede bir çevirin. Bitince haber vereceğim."
+    }
+    /// Oturum bitti, internet ve kulaklık geldi: kaç sayfa alındı; sayfalar sırayla gönderilir
+    static func seriesDone(taken: Int, planned: Int) -> String {
+        if taken >= planned { return "Çekim bitti. \(taken) sayfa alındı, sayfalar gönderiliyor." }
+        return "Çekim yarıda kesildi. \(planned) sayfadan \(taken) tanesi alındı, alınanlar gönderiliyor."
+    }
+    /// Oturum bitti ama internet gelmedi
+    static func seriesSavedOffline(taken: Int) -> String {
+        return "Çekim bitti, \(taken) sayfa alındı ama internet gelmedi. Sayfalar telefonda saklandı; internet gelince sırayla gönderilecek."
+    }
+    /// Toplu çekimde sıradaki sayfa gönderilirken
+    static func pageSending(index: Int, total: Int) -> String {
+        if total <= 1 { return "Sayfa Gemini'ye gönderiliyor, cevapları bekleyin." }
+        return "\(total) sayfadan \(ordinal(max(index, 1))) Gemini'ye gönderiliyor, cevapları bekleyin."
+    }
+    /// Sayfada Gemini hiç soru bulamadı (boş sayfa, kapak, yönerge); sonraki sayfaya geçilir
+    static let pageNoQuestion = "Bu sayfada soru bulunamadı."
+
     // MARK: Sürüm 4: kamerayla ortak paragraf
     static let askPassageCamera = "Ortak paragraf. Paragrafı kamera ile çekmek ister misiniz? Evet ya da hayır deyin."
     static let askPassageCameraAgain = "Cevap alamadım, ikinci defa soruyorum. Ortak paragrafı kamera ile çekmek ister misiniz? Evet ya da hayır deyin."

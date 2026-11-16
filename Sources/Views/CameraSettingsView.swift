@@ -54,6 +54,14 @@ struct CameraSettingsSections: View {
                 Text("Çekim süresi: soru ya da paragraf başına \(camera.pageVideoSeconds) sn")
             }
             Toggle("Çekim sırasında sesli geri sayım", isOn: $camera.countdown)
+            Toggle("Sayfa bazlı toplu çekim (bir oturumda birkaç sayfa)", isOn: $camera.pageSeries)
+            Stepper(value: $camera.seriesPages, in: CameraSettings.seriesPagesRange) {
+                Text("Bir oturumda \(camera.seriesPages) sayfa")
+            }
+            Stepper(value: $camera.seriesSeconds, in: CameraSettings.seriesSecondsRange) {
+                Text("Her sayfa \(camera.seriesSeconds) sn")
+            }
+            HelpRow("Sayfa bazlı toplu çekim (varsayılan AÇIK): “kamera ile çekmek ister misiniz?” sorusuna “evet” denince tek soru değil bir OTURUM çekilir: varsayılan 5 sayfa, her sayfa 15 sn (toplam 75 sn; 1–10 sayfa, 5–30 sn ayarlanır). Bir çekim bir sayfadır ve sayfadaki bütün sorular cevaplanır. Oturum başlamadan program bir kez söyler (sayfa sayısı, süre); sonra kestirme hücreseli, mikrofonu ve kulaklığı kapatır ve oturum boyunca ne ses ne titreşim olur: her sayfayı kendi sayımınızla (her biri bu kadar saniye) çevirirsiniz. Süre aralıksızdır: sayfa sınırları çekim başından itibaren sabit aralıklardır. Oturum bitince internet ve kulaklık gelir, sayfalar sırayla Gemini'ye gider ve her sayfadaki soruların cevabı numarasıyla okunur; sonra yeni oturum sorulur. Toplu çekimde video gönderilmez: her sayfa saniyede bir fotoğraftan kurulu bir PDF'tir (daha küçük, hücresel veride daha çabuk gider). Kapatırsanız her çekim tek bir sorudur (eski düzen).")
             Toggle("Videoyu da Gemini'ye gönder", isOn: $camera.videoToGemini)
             Toggle("Videoyu yüksek çözünürlükle oku", isOn: $camera.videoHighRes)
             TextField("Gemini'ye ek talimat (isteğe bağlı)", text: $camera.videoQuestion)

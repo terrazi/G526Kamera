@@ -28,6 +28,8 @@ struct CapturedQuestion: Equatable {
     var passageMedia: PassageMedia?
     /// Çekim telefondaki kalıcı klasöre yazıldı (`CaptureStoring`): video dosyası orada durur ve kullanıcı silene kadar SİLİNMEZ
     var archived = false
+    /// Toplu sayfa çekiminin bir sayfası: sayfadaki BÜTÜN sorular cevaplanır (tek soru değil); Gemini'ye sayfa komutuyla gider
+    var isPage = false
 
     /// Gemini'ye satır içi gönderilebilen fotoğraf + video toplamı (bayt). İstek sınırı 20 MB'tır ve veri base64 ile üçte bir şişer
     /// (14 MB → ~18,7 MB); metin ve talimat payı için de yer kalır. Video sığmazsa yalnız fotoğraf gider.
@@ -122,6 +124,14 @@ enum CaptureSubject: Equatable {
     case passage
 }
 
+/// Toplu sayfa çekiminin sonucu: çekilen sayfalar sırayla; `failure` doluysa oturum yarıda kesilmiştir (kalan sayfalar çekilemedi)
+struct PageSeries: Equatable {
+    var pages: [CapturedQuestion]
+    /// Planlanan sayfa sayısı
+    var planned: Int
+    var failure: CameraFailure?
+}
+
 /// Kamerayı açıp soruyu çeken bileşen. Gerçeği `CameraCaptureController` ile çalışır, testler sahtesini kullanır.
 @MainActor
 protocol CameraCapturing: AnyObject {
@@ -139,6 +149,10 @@ protocol CameraCapturing: AnyObject {
     /// Aynı çekim; kameraya bağlanma beklemesi `connectLimit` sn ile sınırlanır (nil: varsayılan süre). "Wi-Fi'de kal" kipinde telefon zaten kameranın
     /// ağındadır: bağlanamıyorsa uzun beklenmez, onarım kestirmesine geçilir.
     func capture(connectLimit: TimeInterval?) async -> Result<CapturedQuestion, CameraFailure>
+    /// Sayfa bazlı toplu çekim: kameraya bağlanır, `pages` × `seconds` sn aralıksız çeker (her saniyenin en net karesi; sayfa p = (p-1)·seconds … p·seconds),
+    /// konuşmaz ve konumlandırma yapmaz, bitince kamerayı kapatır. Bağlanamazsa `.failure`; bağlanıp bir kısım sayfa alındıktan sonra kesilirse
+    /// `.success` ve `failure` dolu döner (alınan sayfalar kaybolmaz).
+    func captureSeries(pages: Int, seconds: Int, connectLimit: TimeInterval?) async -> Result<PageSeries, CameraFailure>
     /// Süren çekimi (ya da açık tutulan bağlantıyı) iptal eder (kamera kapanır)
     func cancel()
     /// Sürüm 4: oturum başlarken kameraya hemen bağlanır; görüntü gelince döner ve bağlantıyı AÇIK bırakır (ana ekrandaki kutuda görüntü akar).
@@ -161,6 +175,7 @@ extension CameraCapturing {
     func holdOpen() async -> Result<Void, CameraFailure> { return await holdOpen(connectLimit: nil) }
     func closeHeld() {}
     func probe() async -> Bool { return false }
+    func captureSeries(pages: Int, seconds: Int, connectLimit: TimeInterval?) async -> Result<PageSeries, CameraFailure> { return .failure(.unavailable) }
 }
 
 /// Kamera yapılandırılmamış oturumlar (ve eski testler) için

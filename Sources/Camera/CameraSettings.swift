@@ -32,6 +32,9 @@ final class CameraSettings: ObservableObject {
         static let guidancePageEdges = "guidancePageEdges"
         static let pageVideoSeconds = "pageVideoSeconds"
         static let countdown = "countdown"
+        static let pageSeries = "pageSeries"
+        static let seriesPages = "seriesPages"
+        static let seriesSeconds = "seriesSeconds"
         static let videoToGemini = "videoToGemini"
         static let videoQuestion = "videoQuestion"
         static let videoHighRes = "videoHighRes"
@@ -106,6 +109,18 @@ final class CameraSettings: ObservableObject {
     /// Her soru ya da paragraf için çekim süresi (2–15 sn, varsayılan 10): video bu kadar sürer, her saniyenin en net karesi bir fotoğraf olur
     /// (10 sn = 10 fotoğraf = tek PDF). Anahtar adı eski sürümden kalmadır.
     @Published var pageVideoSeconds: Int { didSet { defaults.set(pageVideoSeconds, forKey: Key.pageVideoSeconds) } }
+    /// Sayfa bazlı toplu çekim (kullanıcı kararı 2026-11-16): kamera sorusu "evet" olunca BİR OTURUMDA `seriesPages` sayfa, her biri `seriesSeconds` sn çekilir;
+    /// oturum boyunca ses, mikrofon, hücresel ve kulaklık kapalıdır (titreşim ya da ses işareti YOK: sayfayı kullanıcı kendi sayımıyla çevirir).
+    /// Oturumdan sonra sayfalar sırayla gönderilir ve bir sayfadaki bütün soruların cevabı okunur. Kapalıysa her çekim tek sorudur (eski düzen).
+    @Published var pageSeries: Bool { didSet { defaults.set(pageSeries, forKey: Key.pageSeries) } }
+    /// Bir oturumdaki sayfa sayısı (1–10, varsayılan 5)
+    @Published var seriesPages: Int { didSet { defaults.set(seriesPages, forKey: Key.seriesPages) } }
+    /// Oturumdaki her sayfanın süresi (5–30 sn, varsayılan 15)
+    @Published var seriesSeconds: Int { didSet { defaults.set(seriesSeconds, forKey: Key.seriesSeconds) } }
+    static let seriesPagesRange = 1...10
+    static let seriesSecondsRange = 5...30
+    static let defaultSeriesPages = 5
+    static let defaultSeriesSeconds = 15
     /// Çekimde sesli geri sayım: "N saniye boyunca çekim yapabilirsiniz. Başlıyorum." ve N, N-1 … 1 (kullanıcı kararı 2026-11-16)
     @Published var countdown: Bool { didSet { defaults.set(countdown, forKey: Key.countdown) } }
     /// Video Gemini'ye de gönderilir; cevap sesle okunur
@@ -169,6 +184,11 @@ final class CameraSettings: ObservableObject {
         pageVideoSeconds = CameraSettings.clampSeconds(defaults.object(forKey: Key.pageVideoSeconds) as? Int,
                                                        range: VideoRecorder.pageSecondsRange, fallback: VideoRecorder.pageSegmentSeconds)
         countdown = defaults.object(forKey: Key.countdown) as? Bool ?? false   // kullanıcı kararı 2026-11-16: çekim sırasında sürekli konuşma Bluetooth/Wi-Fi çakışmasını artırabilir; varsayılan sessiz
+        pageSeries = defaults.object(forKey: Key.pageSeries) as? Bool ?? true
+        seriesPages = CameraSettings.clampSeconds(defaults.object(forKey: Key.seriesPages) as? Int,
+                                                  range: CameraSettings.seriesPagesRange, fallback: CameraSettings.defaultSeriesPages)
+        seriesSeconds = CameraSettings.clampSeconds(defaults.object(forKey: Key.seriesSeconds) as? Int,
+                                                    range: CameraSettings.seriesSecondsRange, fallback: CameraSettings.defaultSeriesSeconds)
         videoToGemini = defaults.object(forKey: Key.videoToGemini) as? Bool ?? true
         videoQuestion = defaults.string(forKey: Key.videoQuestion) ?? ""
         videoHighRes = defaults.object(forKey: Key.videoHighRes) as? Bool ?? true

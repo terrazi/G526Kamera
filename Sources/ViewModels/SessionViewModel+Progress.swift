@@ -113,7 +113,7 @@ extension SessionViewModel {
         // Telefonda gönderilmemiş bir çekim varsa önce o gönderilir; kamera akışı kesildiyse (offerCamera) evet / hayır yeniden sorulur.
         // İkisini de beginListening yapar; burada yalnız kısa bir cümle söylenir
         if resendablePending != nil || offerCamera { return Continuation(text: Say.recoveredPendingShot, mode: .question, keep: false) }
-        if listenMode == .cameraChoice { return Continuation(text: Say.askCameraAfterRecovery, mode: .cameraChoice, keep: false) }
+        if listenMode == .cameraChoice { return Continuation(text: cameraAskAfterRecovery, mode: .cameraChoice, keep: false) }
         if listenMode == .passageCameraChoice { return Continuation(text: Say.askPassageCameraAfterRecovery, mode: .passageCameraChoice, keep: false) }
         if listenMode == .captureKindChoice { return Continuation(text: Say.askCaptureKindAfterRecovery, mode: .captureKindChoice, keep: false) }
         if listenMode == .nextSectionChoice { return Continuation(text: Say.askNextSectionAfterRecovery(sectionIndex + 1), mode: .nextSectionChoice, keep: false) }

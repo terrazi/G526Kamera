@@ -25,9 +25,15 @@ protocol Answering: AnyObject {
     func answer(question: String, english: String, expectedNumber: Int, audio: Data?, passage: PassageMedia?) async throws -> GeminiReply
     /// Sürüm 4: kamera ile çekilmiş soru (sayfa fotoğrafı + kısa video). Cevap biçimi ve profil zinciri sesle gelen soruyla aynıdır.
     func answer(capture: CapturedQuestion, expectedNumber: Int) async throws -> GeminiReply
+    /// Toplu sayfa çekimi: bir çekim bir sayfadır; sayfadaki BÜTÜN sorular cevaplanır (her soru için bir cevap, Gemini'nin verdiği sırayla)
+    func answerPage(capture: CapturedQuestion, expectedNumber: Int) async throws -> [GeminiReply]
 }
 
 extension Answering {
+    func answerPage(capture: CapturedQuestion, expectedNumber: Int) async throws -> [GeminiReply] {
+        return [try await answer(capture: capture, expectedNumber: expectedNumber)]
+    }
+
     func answer(question: String, english: String, expectedNumber: Int, audio: Data?) async throws -> GeminiReply {
         return try await answer(question: question, english: english, expectedNumber: expectedNumber, audio: audio, passage: nil)
     }
@@ -103,6 +109,47 @@ final class GeminiAnswerService: Answering {
     Cevap metnini şıktan kısaca yaz. Giriş, açıklama, markdown, tırnak ve ek cümle yazma. Emin değilsen en olası şıkkı yaz.
     """
 
+    /// Toplu sayfa çekimi (bir çekim = bir sayfa) için sistem komutu: cevap biçimi aynıdır, ama sayfadaki BÜTÜN sorular, her biri ayrı satırda, numara sırasıyla cevaplanır
+    static let pageSystemPrompt = """
+    Sen bir sınav okuyucu asistansın. Mesajda basılı ya da ekranda gösterilen bir test SAYFASININ görüntüsü var: kamera sayfa üzerinde gezinirken \
+    saniyede bir çekilmiş ardışık fotoğrafların PDF'i (her sayfa bir fotoğraftır) ve (varsa) aynı sürenin kısa VİDEOSU. Sayfada BİRDEN ÇOK soru olabilir.
+
+    Sayfada tam okunabilen BÜTÜN soruları görüntüden oku, her birini çöz ve HER SORU İÇİN AYRI BİR SATIR yaz, soru numarasına göre küçükten büyüğe. \
+    Her satırın biçimi: Soru [numara], [şık sözcüğü], [doğru cevabın metni]. Örnek (iki soru):
+    Soru 4, Denizli, Örgütsel Davranış
+    Soru 5, Adana, Yönetim
+
+    Şıklar: A=Adana, B=Bursa, C=Ceyhan, D=Denizli, E=Erzurum. Şık için HER ZAMAN bu sözcüğü yaz, harf yazma. \
+    Sayfada şıklar A, B, C, D, E harfleriyle basılıdır; hangi harfin hangi sözcüğe denk geldiğini karıştırma.
+
+    PDF'in sayfaları ve video aynı kâğıt sayfasını gösterir. Kamera gezdirildiği için aynı soru farklı konum ve açılarla tekrar tekrar görünür; \
+    bazı karelerde yazının bir bölümü kayık, bulanık ya da parlamalı olabilir. Bütün sayfaları ve videoyu BİRLİKTE değerlendir; her soruyu ve şıklarını \
+    bütün olarak çıkar, en net kareye öncelik ver, okunmayan yeri öbür kareden ya da videodan tamamla. Soru numaralarını soru metninin başından oku \
+    ve aynen yaz; numara okunamıyorsa kullanıcı mesajındaki ipucunu kullan. Aynı soruyu iki kez cevaplama.
+
+    Sayfada birkaç soruya ortak bir paragraf varsa onu oku ve o sorulara paragrafa dayanarak cevap ver. Sayfanın kenarında kesilmiş, numarası \
+    ya da şıkları okunamayan yarım sorular (başı önceki sayfada, sonu sonraki sayfada kalanlar) için satır yazma; sayfa numarası, üst ve alt bilgi soru değildir. \
+    Cevap metnini şıktan kısaca yaz. Giriş, açıklama, markdown, madde işareti, tırnak ve ek cümle yazma: yalnız soru satırları. Emin değilsen en olası şıkkı yaz.
+    Sayfada hiç tam soru yoksa (boş sayfa, kapak, yönerge, yalnız kesik sorular) başka hiçbir şey yazmadan yalnız şunu yaz: SORU YOK
+    """
+
+    /// Sayfa kipi kullanıcı mesajı (görüntü parçalarından sonra gelir)
+    static func pageText(expectedNumber: Int, hasVideo: Bool, extra: String, pages: Int = 0) -> String {
+        var text = "İpucu: sayfadaki ilk sorunun numarası okunamazsa ona Soru \(expectedNumber) de ve sırayla devam et. Numara okunuyorsa sıraya değil okunan numaraya uy."
+        if pages > 0 {
+            text += hasVideo
+                ? "\n\nBu mesajda sayfanın \(pages) sayfalık PDF'i (saniyede bir çekilmiş ardışık fotoğraflar) ve aynı sürenin kısa videosu var. Sayfadaki bütün soruları, her biri ayrı satırda cevapla."
+                : "\n\nBu mesajda sayfanın \(pages) sayfalık PDF'i (saniyede bir çekilmiş ardışık fotoğraflar) var. Sayfadaki bütün soruları, her biri ayrı satırda cevapla."
+        } else {
+            text += hasVideo
+                ? "\n\nBu mesajda sayfanın fotoğrafı ve aynı sayfanın kısa videosu var. Sayfadaki bütün soruları, her biri ayrı satırda cevapla."
+                : "\n\nBu mesajda sayfanın fotoğrafı var. Sayfadaki bütün soruları, her biri ayrı satırda cevapla."
+        }
+        let note = extra.trimmed
+        if !note.isEmpty { text += "\n\nKullanıcının ek talimatı: \(note)" }
+        return text
+    }
+
     static func captureText(expectedNumber: Int, hasVideo: Bool, extra: String, passage: String = "", pages: Int = 0) -> String {
         var text = "İpucu: soru numarası görüntüden okunamazsa bu soruyu Soru \(expectedNumber) say. Numara okunuyorsa sıraya değil okunan numaraya uy."
         if pages > 0 {
@@ -139,7 +186,7 @@ final class GeminiAnswerService: Answering {
     }
 
     /// Çekilen soru için istek gövdesi. Video satır içi gider (≤ 14 MB; büyükse yalnız fotoğraf gider); `fps`: kaydın kare hızı (nil: ayarsız)
-    static func captureBody(_ shot: CapturedQuestion, expectedNumber: Int, fps: Double? = VideoRecorder.fps) throws -> Data {
+    static func captureBody(_ shot: CapturedQuestion, expectedNumber: Int, fps: Double? = VideoRecorder.fps, page: Bool = false) throws -> Data {
         var video: Data?
         if shot.canSendVideo, let url = shot.video { video = try? Data(contentsOf: url) }
         // Google'ın önerisi (video ve görüntü belgeleri): metin istemi görüntü / video parçalarından SONRA gelir
@@ -154,10 +201,12 @@ final class GeminiAnswerService: Answering {
             if let fps = fps { part["videoMetadata"] = ["fps": fps] }
             parts.append(part)
         }
-        parts.append(["text": captureText(expectedNumber: expectedNumber, hasVideo: video != nil, extra: shot.extraInstruction, passage: shot.passageNote,
-                                          pages: shot.pdf == nil ? 0 : max(shot.pageCount, 1))])
+        let pages = shot.pdf == nil ? 0 : max(shot.pageCount, 1)
+        parts.append(["text": page
+            ? pageText(expectedNumber: expectedNumber, hasVideo: video != nil, extra: shot.extraInstruction, pages: pages)
+            : captureText(expectedNumber: expectedNumber, hasVideo: video != nil, extra: shot.extraInstruction, passage: shot.passageNote, pages: pages)])
         var object: [String: Any] = [
-            "systemInstruction": ["parts": [["text": captureSystemPrompt]]],
+            "systemInstruction": ["parts": [["text": page ? pageSystemPrompt : captureSystemPrompt]]],
             "contents": [["role": "user", "parts": parts]]
         ]
         if shot.highResolution { object["generationConfig"] = ["mediaResolution": "MEDIA_RESOLUTION_HIGH"] }
@@ -304,8 +353,37 @@ final class GeminiAnswerService: Answering {
         }
     }
 
-    /// Profil zinciri: istek sırayla her profile gönderilir (kota, sunucu hatası, gecikme, anahtar ya da model sorununda sıradakine geçilir)
+    /// Sayfa cevabı: satır satır cevaplar; model "SORU YOK" derse tek, boş cümleli bir cevap (sayfada soru yok) döner
+    static func parsePage(_ raw: String) -> [AnswerParser.Parsed] {
+        let lines = AnswerParser.parseLines(raw)
+        if !lines.isEmpty { return lines }
+        return AnswerParser.isNoQuestion(raw) ? [AnswerParser.Parsed(number: nil, option: "", text: "", spoken: "")] : []
+    }
+
+    /// Toplu sayfa çekimi: sayfadaki bütün soruların cevabı (kare hızı ayarı reddedilirse ayarsız bir kez daha denenir, `answer(capture:)` gibi)
+    func answerPage(capture: CapturedQuestion, expectedNumber: Int) async throws -> [GeminiReply] {
+        guard !GeminiProfiles.usable(profilesProvider()).isEmpty else { throw GeminiError(Say.noKeyShort, .key) }
+        let body = try GeminiAnswerService.captureBody(capture, expectedNumber: expectedNumber, page: true)
+        do {
+            return try await runChain(body: body, limit: captureLimit, parse: GeminiAnswerService.parsePage)
+        } catch let error as GeminiError where error.status == 400 && error.kind == .http && capture.sendsFrameRate {
+            tlog("[kamera] kare hızı ayarıyla sayfa isteği reddedildi (\(error.message)); ayarsız yeniden deneniyor")
+            return try await runChain(body: try GeminiAnswerService.captureBody(capture, expectedNumber: expectedNumber, fps: nil, page: true),
+                                      limit: captureLimit, parse: GeminiAnswerService.parsePage)
+        }
+    }
+
     private func run(body: Data, limit: TimeInterval) async throws -> GeminiReply {
+        let replies = try await runChain(body: body, limit: limit, parse: { raw in
+            let parsed = AnswerParser.parse(raw)
+            return parsed.spoken.isEmpty ? [] : [parsed]
+        })
+        return replies[0]
+    }
+
+    /// Profil zinciri: istek sırayla her profile gönderilir (kota, sunucu hatası, gecikme, anahtar ya da model sorununda sıradakine geçilir).
+    /// `parse`: model metninden cevap satırları (tek soruda bir, sayfada birkaç); boş dönerse cevap satırı verilmemiş sayılır.
+    private func runChain(body: Data, limit: TimeInterval, parse: (String) -> [AnswerParser.Parsed]) async throws -> [GeminiReply] {
         let usable = GeminiProfiles.usable(profilesProvider())
         guard !usable.isEmpty else { throw GeminiError(Say.noKeyShort, .key) }
         let sequence = order(usable)
@@ -321,13 +399,15 @@ final class GeminiAnswerService: Answering {
                                                        body: GeminiAnswerService.body(body, forModel: profile.model),
                                                        serverRetries: isLast ? GeminiClient.askServerRetries : 0,
                                                        timeout: isLast ? nil : limit)
-                let parsed = AnswerParser.parse(try GeminiAnswerService.replyText(from: object))
-                if parsed.spoken.isEmpty { throw GeminiError("Gemini cevap satırı vermedi.", .empty) }
+                let parsedList = parse(try GeminiAnswerService.replyText(from: object))
+                if parsedList.isEmpty { throw GeminiError("Gemini cevap satırı vermedi.", .empty) }
                 restingUntil[profile.slot] = nil
                 let note = trail.isEmpty ? "" : "Cevap \(profile.name) modelinden geldi: " + trail.joined(separator: " ")
                 let spokenNote = (!profile.free && !failedNames.isEmpty) ? Say.paidModelUsed : ""
-                return GeminiReply(number: parsed.number, option: parsed.option, text: parsed.text,
-                                   spoken: parsed.spoken, model: profile.model, note: note, spokenNote: spokenNote)
+                return parsedList.map { parsed in
+                    GeminiReply(number: parsed.number, option: parsed.option, text: parsed.text,
+                                spoken: parsed.spoken, model: profile.model, note: note, spokenNote: spokenNote)
+                }
             } catch let error as GeminiError {
                 trail.append("\(profile.name) (\(profile.model)): \(error.message)")
                 failedNames.append(profile.name)

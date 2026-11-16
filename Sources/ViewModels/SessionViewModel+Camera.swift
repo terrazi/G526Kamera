@@ -51,7 +51,7 @@ extension SessionViewModel {
             beginListening(mode: .question)
             return
         }
-        guard !Task.isCancelled, await speakNotice(again ? Say.askCameraAgain : Say.askCamera) else {
+        guard !Task.isCancelled, await speakNotice(cameraAskText(again: again)) else {
             offerCamera = true
             return
         }
@@ -84,7 +84,7 @@ extension SessionViewModel {
         work = Task { [weak self] in
             guard let self = self else { return }
             if reply == .yes {
-                await self.askCaptureKind()
+                await self.startCameraSession()
             } else {
                 await self.declineCamera()
             }
@@ -107,7 +107,7 @@ extension SessionViewModel {
     func cameraChoiceSilence(unclear: Bool = false) async {
         cameraReminders += 1
         if cameraReminders < Timing.cameraAsks {
-            let text = unclear ? Say.reask(Say.askCameraAgain, attempt: cameraReminders + 1) : Say.askCameraRepeat(cameraReminders + 1)
+            let text = cameraAskReminder(unclear: unclear, attempt: cameraReminders + 1)
             guard await speakNotice(text) else { return }
             beginListening(mode: .cameraChoice)
         } else {
@@ -119,7 +119,7 @@ extension SessionViewModel {
                 offerCamera = true
                 return
             }
-            await askCaptureKind()
+            await startCameraSession()
         }
     }
 
@@ -359,12 +359,15 @@ extension SessionViewModel {
     func sendShot(_ original: CapturedQuestion) async {
         // Sesle kaydedilmiş ortak paragraf varsa çekilen soruyla birlikte gider (numara görüntüden okunur; paragraf listedeki numaralar için geçerlidir)
         var prepared = original
-        if let context = passage {
+        if let context = passage, !original.isPage {   // toplu çekimde sayfa kendi başınadır: sesle okunmuş paragraf notu eklenmez
             prepared.passageNote = QuestionComposer.cameraNote(passage: context)
             // Paragraf kamerayla çekilmişse görüntüleri de gider (soruinkinden önce; metindeki not sırayı söyler)
             if let media = context.shot, !context.remaining.isEmpty { prepared.passageMedia = PassageMedia(media) }
         }
         let shot = prepared
+        queuedReplies = []   // yeni gönderim: önceki sayfadan kalan cevap yoktur
+        pageBeingRead = nil
+        pageSpokenAll = []
         sendingShotID = shot.id
         defer { sendingShotID = nil }
         phase = .answering
@@ -374,7 +377,8 @@ extension SessionViewModel {
         deps.journal.savePending(nil)
         if settings.spokenProgress {
             // Toplu gönderimde her çekim için hangisinin gönderildiği söylenir (kullanıcı boşlukta kalmaz)
-            speakProgress(drainActive ? Say.cameraDrainSending(index: drainIndex, total: drainTotal)
+            speakProgress(shot.isPage ? Say.pageSending(index: drainIndex, total: drainTotal)
+                          : drainActive ? Say.cameraDrainSending(index: drainIndex, total: drainTotal)
                           : (shot.passageMedia == nil ? Say.cameraSending : Say.cameraSendingWithPassage))
         }
         startAnswerWait()
@@ -391,11 +395,24 @@ extension SessionViewModel {
         var last: GeminiError?
         for attempt in 1...Timing.cameraSendTries {
             do {
-                let reply = try await deps.answering.answer(capture: shot, expectedNumber: expected)
+                let reply: GeminiReply
+                if shot.isPage {
+                    // Toplu çekim: sayfadaki bütün sorular tek istekte cevaplanır. İlki hemen okunur, kalanlar sırayla (bkz. `readNextQueuedReply`);
+                    // sayfa bütün cevaplar duyulunca bekleyenlerden çıkar (`completeReadPage`): yarıda kalırsa kaybolmaz, yeniden gönderilir
+                    let replies = try await deps.answering.answerPage(capture: shot, expectedNumber: expected)
+                    guard let first = replies.first else { throw GeminiError("Gemini cevap satırı vermedi.", .empty) }
+                    queuedReplies = Array(replies.dropFirst())
+                    pageBeingRead = shot
+                    pageSpokenAll = replies.map { $0.spoken }.filter { !$0.isEmpty }
+                    tlog("[sayfa] Gemini sayfa için \(replies.count) cevap verdi")
+                    reply = first
+                } else {
+                    reply = try await deps.answering.answer(capture: shot, expectedNumber: expected)
+                }
                 if Task.isCancelled, case .paused = phase {
                     // Cevap tam kesinti anında geldi: `answer` onu okumadan atar. Çekim telefonda kalır, onarımdan sonra yeniden gönderilir
                     retriedShots.remove(shot.id)
-                } else {
+                } else if !shot.isPage {
                     completePending(shot, answer: reply.spoken)
                 }
                 return reply
@@ -503,7 +520,17 @@ extension SessionViewModel {
     /// Kameraya geçilir ve çekilir. Kameraya bağlanılamazsa (kestirme çalışmadı, kamera yanıt vermedi, görüntü gelmedi) "kamera bağlantısı
     /// onarımı" (Ayarlar'daki Wi-Fi adımı) çalışır ve çekim yeniden denenir; `Timing.cameraRepairs` onarımdan sonra vazgeçilir.
     func captureWithRepair(cameraName: String) async -> Result<CapturedQuestion, CameraFailure> {
-        var result: Result<CapturedQuestion, CameraFailure> = .failure(.notConnected)
+        return await repairLoop(cameraName: cameraName, speaks: true,
+                                operation: { camera, limit in await camera.capture(connectLimit: limit) },
+                                interrupted: { [weak self] shot in self?.saveInterruptedShot(shot) })
+    }
+
+    /// Onarım döngüsünün gövdesi (tek çekim ve toplu çekim ortak kullanır). `operation`: kameraya bağlanıp çekimi yapan iş; `speaks`: kamera
+    /// konuşma ve durum bağlantılarını alır (toplu çekimde konuşma yoktur); `interrupted`: çekim tam kesinti anında bittiyse klasöre yazılır.
+    func repairLoop<T>(cameraName: String, speaks: Bool,
+                       operation: (CameraCapturing, TimeInterval?) async -> Result<T, CameraFailure>,
+                       interrupted: (T) -> Void) async -> Result<T, CameraFailure> {
+        var result: Result<T, CameraFailure> = .failure(.notConnected)
         var repairMissing = false   // onarım kestirmesi telefonda yok ("kestirmesi bulunamadı"): aynı yok kestirme bir daha denenmez
         var onCameraNetwork = false   // kameraya geçiş kestirmesi çalıştı: telefon kameranın Wi-Fi'sindedir, onarım kestirmesi olmasa da kamera yeniden denenir
         let stay = cameraSettings.stayOnWifi   // "Wi-Fi'de kal": ilk denemede kestirme çalışmaz
@@ -551,13 +578,15 @@ extension SessionViewModel {
             var retryWithoutShortcut = false
             if attempt > 0, onCameraNetwork, case .failed = outcome { retryWithoutShortcut = true }
             if outcome == .success || outcome == .timedOut || retryWithoutShortcut {
-                deps.camera.onSay = { [weak self] text in self?.sayGuidance(text) }
-                deps.camera.onSayWait = { [weak self] text in await self?.sayGuidanceAndWait(text) }
+                if speaks {
+                    deps.camera.onSay = { [weak self] text in self?.sayGuidance(text) }
+                    deps.camera.onSayWait = { [weak self] text in await self?.sayGuidanceAndWait(text) }
+                }
                 deps.camera.onStatus = { [weak self] text in self?.statusNote = text }
                 // V3 işi iptal ederse (kulaklık, arama, onarım: `work?.cancel()`) kamera da kapanır; yoksa 70 sn boyunca açık kalırdı
                 let limit: TimeInterval? = stay && attempt == 0 ? Timing.stayConnectSeconds : nil
                 result = await withTaskCancellationHandler {
-                    await camera.capture(connectLimit: limit)
+                    await operation(camera, limit)
                 } onCancel: {
                     Task { @MainActor in camera.cancel() }
                 }
@@ -571,7 +600,7 @@ extension SessionViewModel {
             }
             guard !Task.isCancelled, phase == .answering else {
                 // Çekim tam kesinti anında (kulaklık, arama, onarım) bitmiş olabilir: kaybolmasın diye klasöre yazılır
-                if case .success(let shot) = result { saveInterruptedShot(shot) }
+                if case .success(let shot) = result { interrupted(shot) }
                 return .failure(.cancelled)
             }
             if case .failure(let failure) = result, failure == .notConnected || failure == .noFrames { continue }
