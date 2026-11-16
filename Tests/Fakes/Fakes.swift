@@ -225,6 +225,10 @@ final class FakeHealth: HealthChecking {
         return internet
     }
 
+    /// Telefonda SIM kart var mı (varsayılan: var)
+    var hasCellular = true
+    func hasCellularService() -> Bool { return hasCellular }
+
     func gemini(key: String) async -> GeminiHealth {
         geminiCalls += 1
         geminiKeysAsked.append(key)

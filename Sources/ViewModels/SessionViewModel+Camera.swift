@@ -638,6 +638,12 @@ extension SessionViewModel {
             guard !Task.isCancelled else { return false }
             tlog("[kamera] Wi-Fi'de kal: internet yok; hücresel kestirmesi çalıştırılıyor: “\(shortcut)”")
         }
+        // SIM kart yok: hücresel kestirme internet getirmez, yalnız Wi-Fi'yi kapatır (telefonda başka internet yolu kalmaz). Çalıştırılmaz;
+        // internet yalnız telefonun başka bir Wi-Fi ağına geçmesiyle gelebilir, kısa süre beklenip sonuç bildirilir.
+        if !deps.health.hasCellularService() {
+            tlog("[kamera] telefonda SIM kart yok: “\(shortcut)” çalıştırılmadı (Wi-Fi'yi kapatır, internet getirmez)")
+            return await waitForInternet(seconds: Timing.stayInternetCheck)
+        }
         for attempt in 1...Timing.cameraInternetTries {
             let outcome = await runShortcutRetryingTransient(name: shortcut)
             guard !Task.isCancelled else { return false }
@@ -672,6 +678,10 @@ extension SessionViewModel {
         networkMayBeOnCamera = false
         let name = settings.internetShortcut.trimmed
         guard !name.isEmpty else { return }
+        guard deps.health.hasCellularService() else {
+            tlog("[kamera] test kamera akışı sürerken bitti; telefonda SIM kart yok, internet kestirmesi “\(name)” çalıştırılmadı")
+            return
+        }
         tlog("[kamera] test kamera akışı sürerken bitti; internet kestirmesi çalıştırılıyor: “\(name)”")
         work = Task { [weak self] in
             guard let self = self else { return }
@@ -685,7 +695,13 @@ extension SessionViewModel {
         var waited: TimeInterval = 0
         while !Task.isCancelled {
             if await deps.health.internetReachable() { return true }
-            if waited >= seconds { return false }
+            if waited >= seconds {
+                // Neden internet yok: telefonun Wi-Fi adresi hâlâ varsa kestirme Wi-Fi'yi kapatmamıştır; yoklamanın hata kodu (-1009 = bağlantı yok, -1001 = zaman aşımı)
+                let wifi = LocalNetwork.wifi().map { LocalNetwork.string($0.ip) } ?? "yok"
+                let probe = InternetProbe.lastFailure
+                tlog("[kamera] internet gelmedi (\(Int(waited)) sn beklendi): telefon Wi-Fi adresi \(wifi); yoklama: \(probe.isEmpty ? "ayrıntı yok" : probe)")
+                return false
+            }
             await deps.sleep(2)
             waited += 2
         }

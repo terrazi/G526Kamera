@@ -340,8 +340,17 @@ extension SessionViewModel {
         cancelTimers()
         phase = .recovering(reason)
         statusNote = "Sorun giderilmeye çalışılıyor…"
-        announce(reason == .network ? Say.networkLost : Say.hardwareRepairing)
         let key = settings.primaryKey
+        // SIM kart yoksa hücresel ve sıfırlama Kestirmeleri internet getiremez (biri Wi-Fi'yi kapatır, öbürü dakikalarca uygulamayı askıya alır):
+        // çalıştırılmaz, neden söylenir, internet kendiliğinden (Wi-Fi ile) gelirse onarım biter; gelmezse düzenli aralıkla yeniden bakılır
+        if reason == .network, !deps.health.hasCellularService() {
+            tlog("[onarım] telefonda SIM kart yok: hücresel ve sıfırlama kestirmeleri çalıştırılmadı")
+            statusNote = "Telefonda SIM kart yok; internet için Wi-Fi gerekli"
+            announce(Say.noSimNoInternet)
+            if await verify(.network, key: key) { return .recovered(by: nil) }
+            return .gaveUp
+        }
+        announce(reason == .network ? Say.networkLost : Say.hardwareRepairing)
         return await recovery.recover(reason: reason,
                                       force: force,
                                       verify: { [weak self] reason in await self?.verify(reason, key: key) ?? false },
@@ -405,7 +414,11 @@ extension SessionViewModel {
             warn("onarim", Say.notConfigured)
             pauseAfterFailedRecovery(reason)
         case .gaveUp:
-            warn("onarim", "Kestirmeler sorunu gideremedi; \(Int(Timing.connectionRetry)) saniyede bir yeniden denenecek.")
+            if reason == .network, !deps.health.hasCellularService() {
+                warn("onarim", "\(Say.noSimNoInternet) \(Int(Timing.connectionRetry)) saniyede bir internete bakılacak.")
+            } else {
+                warn("onarim", "Kestirmeler sorunu gideremedi; \(Int(Timing.connectionRetry)) saniyede bir yeniden denenecek.")
+            }
             pauseAfterFailedRecovery(reason)
         }
     }

@@ -23,6 +23,21 @@ enum InternetProbe {
         return await check().online
     }
 
+    private static let failureLock = NSLock()
+    private static var failureText = ""
+    /// Son başarısız yoklamanın nedeni ("gstatic.com hata -1009, …"); başarılı yoklama silmez ama günlükte "internet yok" satırına eklenir
+    static var lastFailure: String {
+        failureLock.lock()
+        defer { failureLock.unlock() }
+        return failureText
+    }
+
+    private static func remember(_ text: String) {
+        failureLock.lock()
+        failureText = text
+        failureLock.unlock()
+    }
+
     /// Üç adres aynı anda denenir; ilk başaran internet var demektir (hepsi susarsa tek bir zaman aşımı kadar beklenir, art arda
     /// değil). Olmazsa kısa neden döner ("gstatic.com hata -1001, …").
     static func check() async -> (online: Bool, detail: String) {
@@ -43,7 +58,9 @@ enum InternetProbe {
             }
             return (false, list)
         }
-        return result.0 ? (true, "") : (false, result.1.joined(separator: ", "))
+        let detail = result.1.joined(separator: ", ")
+        if !result.0 { remember(detail) }
+        return result.0 ? (true, "") : (false, detail)
     }
 
     /// Nabız: üç adrese aynı anda, kısa sınırla; biri cevap verirse yol canlıdır. Başarısızlığın nedeni günlüğe yazılır

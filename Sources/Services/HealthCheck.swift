@@ -18,9 +18,14 @@ protocol HealthChecking: AnyObject {
     func gemini(key: String) async -> GeminiHealth
     /// Nabız: tek hafif yoklama (en çok ~3 sn); yol şu an canlı mı. Gemini anahtarına dokunmaz.
     func quickProbe() async -> Bool
+    /// Telefonda hücresel hizmet (SIM/eSIM) var mı. Yoksa hücresel/sıfırlama Kestirmeleri internet getiremez (Wi-Fi'yi kapatırlar).
+    func hasCellularService() -> Bool
 }
 
 extension HealthChecking {
+    /// Varsayılan: var sayılır (yanlışlıkla "yok" demektense eski davranış korunur)
+    func hasCellularService() -> Bool { return true }
+
     /// Onarım doğrulaması: internet var ve Gemini'ye ulaşılıyor (anahtar sorunu bağlantı sorunu değildir)
     func connectionHealthy(key: String) async -> Bool {
         guard await internetReachable() else { return false }
@@ -50,6 +55,12 @@ final class NetworkHealth: HealthChecking {
 
     func quickProbe() async -> Bool {
         return await InternetProbe.quick()
+    }
+
+    func hasCellularService() -> Bool {
+        let status = CellularService.status()
+        tlog("[sistem] hücresel hizmet: \(status.available ? "var" : "yok (SIM kart yok)") (\(status.detail))")
+        return status.available
     }
 
     func gemini(key: String) async -> GeminiHealth {

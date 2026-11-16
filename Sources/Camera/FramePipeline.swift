@@ -86,7 +86,7 @@ final class FramePipeline {
 
         queue.async {
             let height = CVPixelBufferGetHeight(pixelBuffer)
-            if let result = FrameAnalysis.analyze(pixelBuffer, skipTop: Int(Double(height) * 0.05)) {
+            if let result = FrameAnalysis.analyze(pixelBuffer, skipTop: Int(Double(height) * GuidanceAnalyzer.skipTop)) {
                 self.store.add(buffer: pixelBuffer, time: time,
                                sharpness: result.sharpness, signature: result.signature)
                 self.onAnalyzed?(pixelBuffer, time, result.sharpness)

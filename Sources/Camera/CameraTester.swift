@@ -95,7 +95,11 @@ final class CameraTester: ObservableObject {
             lines.append("🔋 " + level.shortText + " (son görüntü karesinden okundu).")
         }
 
-        // 3) Hücresele geç ve internetin gelmesini bekle
+        // 3) Hücresele geç ve internetin gelmesini bekle. SIM kart yoksa hücresel kestirme internet getirmez, yalnız Wi-Fi'yi kapatır: atlanır
+        if !health.hasCellularService() {
+            lines.append("3/3 Telefonda SIM kart yok: “\(internetName)” kestirmesi çalıştırılmadı (yalnız Wi-Fi'yi kapatırdı). Kamera ağından çıkıp internet olan bir Wi-Fi ağına bağlanın.")
+            return
+        }
         lines.append("3/3 İnternete geçiliyor: “\(internetName)”…")
         let toInternet = await shortcuts.run(name: internetName)
         lines.append(SettingsViewModel.text(for: toInternet))

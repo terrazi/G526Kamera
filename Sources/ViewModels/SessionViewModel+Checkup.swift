@@ -93,6 +93,13 @@ extension SessionViewModel {
         var internetOK = await deps.health.internetReachable()
         guard !Task.isCancelled else { return }
         if !internetOK {
+            // SIM kart yoksa hücresel Kestirme internet getirmez: boş yere onarım döngüsüne girmeden nedeni söyle ve dur
+            if !deps.health.hasCellularService() {
+                tlog("[açılış] internet yok ve telefonda SIM kart yok: onarım Kestirmeleri çalıştırılmadı")
+                setCheck("internet", "İnternet", ok: false, detail: "yok; telefonda SIM kart yok")
+                await failStart(Say.noSimNoInternet)
+                return
+            }
             setCheck("internet", "İnternet", ok: false, detail: "yok; Kestirmelerle düzeltiliyor")
             let result = await performRecovery(.network)
             guard !Task.isCancelled, case .recovering = phase else { return }

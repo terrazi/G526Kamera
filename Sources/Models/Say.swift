@@ -192,6 +192,8 @@ enum Say {
     static let noEnglishDictation = "Telefonda çevrimdışı İngilizce dikte yüklü değil; İngilizce sorular yalnız ses kaydından çözülür. Ayarlar, Genel, Klavye, Dikte bölümünden İngilizce'yi de ekleyip internetteyken bir kez indirin."
     /// Onarım başlarken kulaklıktan söylenen kısa bilgiler
     static let networkLost = "İnternet bağlantısı yok. Test duraklatıldı, bağlantı onarılıyor."
+    /// Telefonda SIM kart yokken internet yoksa: hücresel/sıfırlama Kestirmeleri çalıştırılmaz, neden açıkça söylenir
+    static let noSimNoInternet = "İnternet yok ve telefonda SIM kart yok, hücresel veri kullanılamaz. Telefonu internet olan bir Wi-Fi ağına bağlayın."
     static let hardwareRepairing = "Kulaklık ya da mikrofon sorunu var. Test duraklatıldı, onarılıyor."
     /// Konuşma tanıma düştü; kulaklık ve mikrofon sağlam. Kullanıcı neyin onarıldığını bilsin, sessizlik kesinti gibi görünmesin.
     static let recognizerRestarting = "Konuşma tanıma durdu, yeniden kuruluyor. Kulaklık ve mikrofon sağlam."

@@ -82,12 +82,14 @@ final class CaptureEngine {
             return .failure(.noFrames)
         }
 
-        // Belge denetimi: en net üç kareden ilk "belge" olanı seçilir; hiçbiri belge değilse fotoğraf çekilmez
+        // Belge denetimi: en net üç kareden ilk "belge" olanı seçilir; hiçbiri belge değilse fotoğraf çekilmez.
+        // Ölçüm, ekranda gördüğünüz (çevrilmiş) görüntü üzerinde yapılır: kamera yan/ters takılıysa satırlar
+        // yatay, saat bandı da doğru yerde sayılır (kadraj rehberiyle aynı yöntem).
         if options.documentOnly {
             var chosen: StoredFrame?
             var why = ""
             for frame in ranked.prefix(3) {
-                guard let m = GuidanceAnalyzer.analyze(frame.buffer) else {
+                guard let m = GuidanceAnalyzer.analyze(frame.buffer, orientation: options.enhance.orientation) else {
                     chosen = frame                      // ölçülemeyen kareyi engelleme: sayfa kaybetmektense çek
                     break
                 }
