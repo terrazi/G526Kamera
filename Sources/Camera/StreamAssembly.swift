@@ -16,9 +16,15 @@ final class DrwAssembler {
     private(set) var lostPackets = 0
     private(set) var delivered = 0
 
-    private let maxPending = 48
-    private let maxAhead = 400
-    private let maxWait: TimeInterval = 0.3
+    // Kamera kaybolan paketi kendisi yeniden gönderir (günlükte "tekrar" sayacı). 1080p anahtar kare 60–100+ pakettir: eski sınırlar (48 paket,
+    // 0,3 sn) hatlı Wi-Fi'de anahtar kareyi daha tamamlanmadan düşürüyor, geç gelen yeniden gönderim "tekrar" diye çöpe gidiyor ve çözücü hiç
+    // başlamıyordu (günlük 17:17: paket geliyor, "çözücü hazır" yok). Canlı gecikme burada önemsiz; sabırlı beklenir.
+    static let maxPendingPackets = 600
+    static let maxAheadPackets = 900
+    static let maxWaitSeconds: TimeInterval = 1.5
+    private let maxPending = DrwAssembler.maxPendingPackets
+    private let maxAhead = DrwAssembler.maxAheadPackets
+    private let maxWait: TimeInterval = DrwAssembler.maxWaitSeconds
 
     func reset() {
         expected = nil
@@ -100,6 +106,28 @@ struct VideoFrame {
     let payload: [UInt8]
     /// Bu kareden hemen önce paket kaybı oldu (referans kareler eksik olabilir).
     let lossBefore: Bool
+}
+
+extension VideoFrame {
+    /// Yükün başında anahtar kare işareti var mı: H.264 SPS (7) ya da IDR (5) NAL birimi. Çözücü bunlarsız başlayamaz.
+    var isKeyFrame: Bool {
+        let limit = min(payload.count, 2048)   // SEI / AUD gibi önekler olsa da IDR dilimi ilk 2 KB'ta başlar
+        var i = 0
+        while i + 3 < limit {
+            if payload[i] == 0, payload[i + 1] == 0 {
+                var nal = -1
+                if payload[i + 2] == 1 { nal = i + 3 } else if payload[i + 2] == 0, payload[i + 3] == 1 { nal = i + 4 }
+                if nal >= 0, nal < payload.count {
+                    let type = payload[nal] & 0x1F
+                    if type == 5 || type == 7 { return true }
+                    i = nal
+                    continue
+                }
+            }
+            i += 1
+        }
+        return false
+    }
 }
 
 /// 01AFAFAF + 83 bayt başlık (uzunluk: ofset 79, u32 LE) + yük + F4F3F2F1 çerçevelerini ayıklar.

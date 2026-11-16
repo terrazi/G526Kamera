@@ -81,7 +81,8 @@ final class GeminiAnswerService: Answering {
     /// Sürüm 4: kamera ile çekilen soru için sistem komutu. Cevap biçimi ve şık sözcükleri sesli sorudakiyle aynıdır; fark: soru görüntüden okunur
     /// ve kadrajın kenarlarından yarım görünen komşu sorular yok sayılır (sayfa ortada tek bir soruya konumlandırılmıştır, ama kenar taşabilir).
     static let captureSystemPrompt = """
-    Sen bir sınav okuyucu asistansın. Mesajda basılı bir test sorusunun FOTOĞRAFI ve (varsa) aynı sayfanın kısa VİDEOSU var. \
+    Sen bir sınav okuyucu asistansın. Mesajda basılı ya da ekranda gösterilen bir test sorusunun görüntüsü var: tek bir FOTOĞRAF ya da \
+    kamera soru üzerinde dururken saniyede bir çekilmiş ardışık fotoğrafların PDF'i (her sayfa bir fotoğraftır) ve (varsa) aynı sürenin kısa VİDEOSU. \
     Soruyu görüntüden oku, çöz ve SADECE şu formatta tek satır yanıt ver: Soru [numara], [şık sözcüğü], [doğru cevabın metni]. \
     Örnek: Soru 1, Denizli, Örgütsel Davranış.
 
@@ -92,19 +93,27 @@ final class GeminiAnswerService: Answering {
     görünen başka sorular, şıklar, sütun ya da sayfa parçaları, sayfa numarası, üst ve alt bilgi başka sorulara aittir: bunları YOK SAY, \
     cevaplama, numaralarını kullanma, "soru bölünmüş" gibi bir şey söyleme. Soru tam kadrajda ise sorun yok demektir; hemen cevapla.
 
-    Fotoğraf ve video aynı sayfayı gösterir. Fotoğrafta okunmayan, bulanık ya da parlama yüzünden görünmeyen bir yer varsa videodan \
-    tamamla; ikisi çelişirse net olana güven. Soru numarasını soru metninin başından oku ve aynen yaz; numara okunamıyorsa kullanıcı \
+    PDF'in sayfaları ve video aynı soruyu gösterir. Kullanıcı kamerayı ya da kâğıdı bu sürede gezdirdiği için aynı soru farklı konum ve \
+    açılarla tekrar tekrar görünür; bazı sayfalarda yazının bir bölümü, bir şık ya da soru kökü yarım, kayık, bulanık ya da parlamalı olabilir. \
+    Bütün sayfaları ve videoyu BİRLİKTE değerlendir, soruyu ve şıklarını bütün olarak çıkar; en net sayfaya öncelik ver, bir yer okunmuyorsa \
+    öbür sayfadan ya da videodan tamamla; çelişirse net olana güven. Soru numarasını soru metninin başından oku ve aynen yaz; numara okunamıyorsa kullanıcı \
     mesajındaki ipucunu kullan. Sayfada birkaç soruya ortak bir paragraf varsa onu oku ve ortada görünen soruyu o paragrafa dayanarak yanıtla. \
-    Mesajda ayrıca kullanıcının daha önce çektiği ORTAK PARAGRAFIN fotoğrafı ve videosu da olabilir (mesajdaki not hangi görüntünün paragrafa, hangisinin \
+    Mesajda ayrıca kullanıcının daha önce çektiği ORTAK PARAGRAFIN görüntüleri (PDF ya da fotoğraf) ve videosu da olabilir (mesajdaki not hangi görüntünün paragrafa, hangisinin \
     soruya ait olduğunu söyler): çekilen soru o paragrafın sorularından biriyse paragrafı oradan oku ve soruyu ona dayanarak yanıtla. \
     Cevap metnini şıktan kısaca yaz. Giriş, açıklama, markdown, tırnak ve ek cümle yazma. Emin değilsen en olası şıkkı yaz.
     """
 
-    static func captureText(expectedNumber: Int, hasVideo: Bool, extra: String, passage: String = "") -> String {
+    static func captureText(expectedNumber: Int, hasVideo: Bool, extra: String, passage: String = "", pages: Int = 0) -> String {
         var text = "İpucu: soru numarası görüntüden okunamazsa bu soruyu Soru \(expectedNumber) say. Numara okunuyorsa sıraya değil okunan numaraya uy."
-        text += hasVideo
-            ? "\n\nBu mesajda soru sayfasının fotoğrafı ve aynı sayfanın kısa videosu var. Görüntünün ortasındaki soruyu cevapla; kenarlardan yarım görünen diğer soruları dikkate alma."
-            : "\n\nBu mesajda soru sayfasının fotoğrafı var. Görüntünün ortasındaki soruyu cevapla; kenarlardan yarım görünen diğer soruları dikkate alma."
+        if pages > 0 {
+            text += hasVideo
+                ? "\n\nBu mesajda sorunun \(pages) sayfalık PDF'i (saniyede bir çekilmiş ardışık fotoğraflar) ve aynı sürenin kısa videosu var. Görüntülerin ortasındaki soruyu cevapla; kenarlardan yarım görünen diğer soruları dikkate alma."
+                : "\n\nBu mesajda sorunun \(pages) sayfalık PDF'i (saniyede bir çekilmiş ardışık fotoğraflar) var. Görüntülerin ortasındaki soruyu cevapla; kenarlardan yarım görünen diğer soruları dikkate alma."
+        } else {
+            text += hasVideo
+                ? "\n\nBu mesajda soru sayfasının fotoğrafı ve aynı sayfanın kısa videosu var. Görüntünün ortasındaki soruyu cevapla; kenarlardan yarım görünen diğer soruları dikkate alma."
+                : "\n\nBu mesajda soru sayfasının fotoğrafı var. Görüntünün ortasındaki soruyu cevapla; kenarlardan yarım görünen diğer soruları dikkate alma."
+        }
         let note = extra.trimmed
         if !note.isEmpty { text += "\n\nKullanıcının ek talimatı: \(note)" }
         let shared = passage.trimmed
@@ -112,9 +121,15 @@ final class GeminiAnswerService: Answering {
         return text
     }
 
+    /// Çekimin görüntü parçası: saniyede bir çekilmiş fotoğrafların PDF'i varsa o (application/pdf), yoksa tek fotoğraf (image/jpeg)
+    static func visualPart(photo: Data, pdf: Data?) -> [String: Any] {
+        if let pdf = pdf { return ["inlineData": ["mimeType": "application/pdf", "data": pdf.base64EncodedString()]] }
+        return ["inlineData": ["mimeType": "image/jpeg", "data": photo.base64EncodedString()]]
+    }
+
     /// Kamerayla çekilmiş ortak paragrafın istek parçaları: fotoğraf, sığarsa video. Video okunamazsa (dosya yok) yalnız fotoğraf gider.
     static func passageParts(_ media: PassageMedia, withVideo: Bool, fps: Double?) -> [[String: Any]] {
-        var parts: [[String: Any]] = [["inlineData": ["mimeType": "image/jpeg", "data": media.photo.base64EncodedString()]]]
+        var parts: [[String: Any]] = [visualPart(photo: media.photo, pdf: media.pdf)]
         if withVideo, let url = media.video, let data = try? Data(contentsOf: url) {
             var part: [String: Any] = ["inlineData": ["mimeType": "video/mp4", "data": data.base64EncodedString()]]
             if let fps = fps { part["videoMetadata"] = ["fps": fps] }
@@ -133,13 +148,14 @@ final class GeminiAnswerService: Answering {
         if let media = shot.passageMedia {
             parts.append(contentsOf: passageParts(media, withVideo: shot.canSendPassageVideo, fps: fps))
         }
-        parts.append(["inlineData": ["mimeType": "image/jpeg", "data": shot.photo.base64EncodedString()]])
+        parts.append(visualPart(photo: shot.photo, pdf: shot.pdf))
         if let video = video {
             var part: [String: Any] = ["inlineData": ["mimeType": "video/mp4", "data": video.base64EncodedString()]]
             if let fps = fps { part["videoMetadata"] = ["fps": fps] }
             parts.append(part)
         }
-        parts.append(["text": captureText(expectedNumber: expectedNumber, hasVideo: video != nil, extra: shot.extraInstruction, passage: shot.passageNote)])
+        parts.append(["text": captureText(expectedNumber: expectedNumber, hasVideo: video != nil, extra: shot.extraInstruction, passage: shot.passageNote,
+                                          pages: shot.pdf == nil ? 0 : max(shot.pageCount, 1))])
         var object: [String: Any] = [
             "systemInstruction": ["parts": [["text": captureSystemPrompt]]],
             "contents": [["role": "user", "parts": parts]]
@@ -192,7 +208,7 @@ final class GeminiAnswerService: Answering {
         }
         if let media = passage {
             // Ses kaydı + paragraf fotoğrafı + paragraf videosu 14 MB'ı (base64 ile ~18,7 MB) aşmasın: sığmazsa yalnız fotoğraf gider
-            let used = (audio?.count ?? 0) + media.photo.count
+            let used = (audio?.count ?? 0) + media.visualBytes
             let fits = media.canHaveVideo && used + media.videoBytes <= CapturedQuestion.maxInlineVideoBytes
             parts.append(contentsOf: passageParts(media, withVideo: fits, fps: VideoRecorder.fps))
         }

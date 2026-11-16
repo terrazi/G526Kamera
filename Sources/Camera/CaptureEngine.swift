@@ -71,6 +71,30 @@ final class CaptureEngine {
         return true
     }
 
+    /// Sabit süreli çekimde bir saniyelik pencerenin fotoğrafı: penceredeki EN NET kare alınır. Belge denetimi ve birleştirme yoktur
+    /// (kullanıcı ekranı kadraja sığdıramadığı için kamerayı gezdirir; her saniye bir fotoğraf yeter, ısı ve süre de korunur).
+    /// Kare çağrı anında seçilir (halka tamponda kalmayabilir), işleme sırayla arka planda yürür; çağıran beklemez.
+    func photo(from start: TimeInterval, to end: TimeInterval, reason: String, options: CaptureOptions,
+               completion: @escaping (Result<CapturedPhoto, CaptureError>) -> Void) {
+        var candidates = store.frames(from: start, to: end + 0.05)
+        if candidates.isEmpty, let latest = store.latest, ProcessInfo.processInfo.systemUptime - latest.time < 2 {
+            candidates = [latest]
+        }
+        guard let best = candidates.max(by: { $0.sharpness < $1.sharpness }) else {
+            completion(.failure(.noFrames))
+            return
+        }
+        work.async {
+            guard let rendered = Enhancer.render(buffers: [best.buffer], options: options.enhance) else {
+                completion(.failure(.renderFailed))
+                return
+            }
+            completion(.success(CapturedPhoto(jpeg: rendered.data, date: Date(), sharpness: best.sharpness,
+                                              width: rendered.width, height: rendered.height,
+                                              framesUsed: rendered.used, candidates: candidates.count, reason: reason)))
+        }
+    }
+
     private func process(t0: TimeInterval, reason: String, options: CaptureOptions) -> Result<CapturedPhoto, CaptureError> {
         var candidates = store.frames(from: t0 - options.before, to: t0 + options.after + 0.2)
         if candidates.isEmpty, let latest = store.latest,

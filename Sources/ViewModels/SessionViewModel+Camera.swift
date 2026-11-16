@@ -332,7 +332,7 @@ extension SessionViewModel {
             }
         case .success(let shot):
             rememberShot(shot)
-            tlog("[kamera] çekildi\(isPassage ? " (ortak paragraf)" : ""): fotoğraf \(shot.photo.count / 1024) KB, video \(shot.video == nil ? "yok" : "\(shot.videoBytes / 1024) KB, \(Int(shot.videoSeconds.rounded())) sn"); internet \(online ? "geldi" : "gelmedi")")
+            tlog("[kamera] çekildi\(isPassage ? " (ortak paragraf)" : ""): \(shot.pdf == nil ? "fotoğraf \(shot.photo.count / 1024) KB" : "\(shot.pageCount) fotoğraflık PDF \((shot.pdf?.count ?? 0) / 1024) KB"), video \(shot.video == nil ? "yok" : "\(shot.videoBytes / 1024) KB, \(Int(shot.videoSeconds.rounded())) sn"); internet \(online ? "geldi" : "gelmedi")")
             if isPassage {
                 if online {
                     clearWarning("kamera")
@@ -542,6 +542,7 @@ extension SessionViewModel {
             if attempt > 0, onCameraNetwork, case .failed = outcome { retryWithoutShortcut = true }
             if outcome == .success || outcome == .timedOut || retryWithoutShortcut {
                 deps.camera.onSay = { [weak self] text in self?.sayGuidance(text) }
+                deps.camera.onSayWait = { [weak self] text in await self?.sayGuidanceAndWait(text) }
                 deps.camera.onStatus = { [weak self] text in self?.statusNote = text }
                 // V3 işi iptal ederse (kulaklık, arama, onarım: `work?.cancel()`) kamera da kapanır; yoksa 70 sn boyunca açık kalırdı
                 let limit: TimeInterval? = stay && attempt == 0 ? Timing.stayConnectSeconds : nil
@@ -551,6 +552,7 @@ extension SessionViewModel {
                     Task { @MainActor in camera.cancel() }
                 }
                 deps.camera.onSay = nil
+                deps.camera.onSayWait = nil
                 deps.camera.onStatus = nil
                 await waitForGuidanceSpeech()
             } else {
@@ -786,6 +788,20 @@ extension SessionViewModel {
             self.quietTicks = 0
             self.cameraGuidanceSpeaking = false
         }
+    }
+
+    /// Sıralı cümle (çekim öncesi duyuru): önceki yönlendirme cümlesi bitince söylenir ve bu cümle bitince döner (`sayGuidance` gibi atlanmaz)
+    func sayGuidanceAndWait(_ text: String) async {
+        var waited = 0
+        while cameraGuidanceSpeaking, waited < 25, !Task.isCancelled {
+            await deps.sleep(0.2)
+            waited += 1
+        }
+        guard cameraBusy, !Task.isCancelled else { return }
+        cameraGuidanceSpeaking = true
+        _ = try? await deps.speaker.speak(text, saveAs: nil)
+        quietTicks = 0
+        cameraGuidanceSpeaking = false
     }
 
     func waitForGuidanceSpeech() async {

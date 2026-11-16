@@ -15,8 +15,8 @@ import CoreVideo
 final class VideoRecorder {
     /// Elle başlatılan video kaydı en çok bu kadar sürer (kareler bu süreden sonra yazılmaz)
     static let maxSeconds: TimeInterval = 90
-    /// Sayfa sayfa videoda her sayfanın kaydedilen süresi (sn)
-    static let pageSegmentSeconds = 5
+    /// Soru ya da paragraf başına çekim süresi (sn): varsayılan 10 (kullanıcı kararı 2026-11-16)
+    static let pageSegmentSeconds = 10
     /// Ayarlarda seçilebilen sayfa başına kayıt süresi aralığı (sn)
     static let pageSecondsRange = 2...15
     static let fps: Double = 2

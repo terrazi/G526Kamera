@@ -31,6 +31,7 @@ final class CameraSettings: ObservableObject {
         static let guidanceDescribe = "guidanceDescribe"
         static let guidancePageEdges = "guidancePageEdges"
         static let pageVideoSeconds = "pageVideoSeconds"
+        static let countdown = "countdown"
         static let videoToGemini = "videoToGemini"
         static let videoQuestion = "videoQuestion"
         static let videoHighRes = "videoHighRes"
@@ -102,8 +103,11 @@ final class CameraSettings: ObservableObject {
     @Published var guidancePageEdges: Bool { didSet { defaults.set(guidancePageEdges, forKey: Key.guidancePageEdges) } }
 
     // MARK: Video
-    /// Sayfa sayfa videoda her sayfanın kaydedilen süresi (2–15)
+    /// Her soru ya da paragraf için çekim süresi (2–15 sn, varsayılan 10): video bu kadar sürer, her saniyenin en net karesi bir fotoğraf olur
+    /// (10 sn = 10 fotoğraf = tek PDF). Anahtar adı eski sürümden kalmadır.
     @Published var pageVideoSeconds: Int { didSet { defaults.set(pageVideoSeconds, forKey: Key.pageVideoSeconds) } }
+    /// Çekimde sesli geri sayım: "N saniye boyunca çekim yapabilirsiniz. Başlıyorum." ve N, N-1 … 1 (kullanıcı kararı 2026-11-16)
+    @Published var countdown: Bool { didSet { defaults.set(countdown, forKey: Key.countdown) } }
     /// Video Gemini'ye de gönderilir; cevap sesle okunur
     @Published var videoToGemini: Bool { didSet { defaults.set(videoToGemini, forKey: Key.videoToGemini) } }
     /// Video sorusu (boşsa varsayılan talimat)
@@ -164,6 +168,7 @@ final class CameraSettings: ObservableObject {
 
         pageVideoSeconds = CameraSettings.clampSeconds(defaults.object(forKey: Key.pageVideoSeconds) as? Int,
                                                        range: VideoRecorder.pageSecondsRange, fallback: VideoRecorder.pageSegmentSeconds)
+        countdown = defaults.object(forKey: Key.countdown) as? Bool ?? true
         videoToGemini = defaults.object(forKey: Key.videoToGemini) as? Bool ?? true
         videoQuestion = defaults.string(forKey: Key.videoQuestion) ?? ""
         videoHighRes = defaults.object(forKey: Key.videoHighRes) as? Bool ?? true

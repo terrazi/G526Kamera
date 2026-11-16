@@ -62,6 +62,10 @@ enum CameraSay {
     static let shooting = "Çekiyorum, kamerayı sabit tutun."
     static let forced = "Yine de çekiyorum, kamerayı sabit tutun."
     static let manual = "Çekiyorum, kamerayı sabit tutun."
+    /// Sabit süreli çekimin duyurusu (geri sayım açıkken): süre söylenir, sonra sayılır
+    static func countdownIntro(seconds: Int) -> String { return "\(seconds) saniye boyunca çekim yapabilirsiniz. Başlıyorum." }
+    /// Geri sayımın sayısı: kalan saniye
+    static func countdownNumber(_ remaining: Int) -> String { return "\(remaining)" }
 }
 
 /// Kamera çekimi (CameraClient, H264Decoder, FramePipeline, GuidanceEngine, CaptureEngine, VideoRecorder). Çekim tek bir sorudur ve
@@ -72,6 +76,7 @@ enum CameraSay {
 /// video kaydet → kamerayı kapat. Hücresel/Wi-Fi geçişleri bu sınıfın değil, çağıranın (Kestirmeler) işidir.
 @MainActor
 final class CameraCaptureController: ObservableObject, CameraCapturing {
+    var onSayWait: ((String) async -> Void)?
     var onSay: ((String) -> Void)?
     var onStatus: ((String) -> Void)?
     var subject: CaptureSubject = .question
@@ -241,11 +246,13 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         }
         guard isLive else { return .failure(.noFrames) }
 
-        // 3) Fotoğraf + video
+        // 3) Sabit süreli çekim: her saniyenin en net karesi (fotoğraf) + aynı sürenin videosu
         pipeline.guidanceOn = false
-        switch trigger {
-        case .forced: say(CameraSay.forced)
-        default: say(CameraSay.shooting)
+        if !settings.countdown {
+            switch trigger {
+            case .forced: say(CameraSay.forced)
+            default: say(CameraSay.shooting)
+            }
         }
         return await shoot(reason: trigger == .positioned ? "Sesli konumlandırma" : (trigger == .manual ? "Elle" : "Süre doldu"))
     }
@@ -456,30 +463,52 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         for file in files where file.pathExtension == "mp4" { try? FileManager.default.removeItem(at: file) }
     }
 
-    /// Fotoğraf ve video AYNI ANDA alınır (kareler aynı akıştan): video `pageVideoSeconds` sn sürer, fotoğraf bu sırada çekilir
+    /// Sabit süreli çekim: `pageVideoSeconds` sn boyunca video yazılır ve her saniyenin EN NET karesi bir fotoğraf olur (kareler aynı akıştan,
+    /// ikisi birlikte). 10 sn = 10 fotoğraf: tek PDF'e dizilir, video ayrıca gider. Geri sayım açıksa önce "N saniye boyunca çekim yapabilirsiniz.
+    /// Başlıyorum." söylenir (bitince süre başlar), sonra N, N-1 … 1 sayılır. Kullanıcı kâğıdı kadraja sığdırmak zorunda değildir: kamerayı gezdirir.
     private func shoot(reason: String) async -> Result<CapturedQuestion, CameraFailure> {
         shooting = true
         status("Çekiliyor")
         let wantVideo = settings.videoToGemini
-        let videoSeconds = TimeInterval(settings.pageVideoSeconds)
+        let seconds = max(1, settings.pageVideoSeconds)
+        let countdown = settings.countdown && settings.guidanceVoice
+        if countdown {
+            let intro = CameraSay.countdownIntro(seconds: seconds)
+            if let speak = onSayWait {
+                await speak(intro)   // cümle bitince süre başlar: sayılan saniyeler çekimle aynı anda akar
+            } else {
+                say(intro)
+            }
+        }
+        if cancelled { return .failure(.cancelled) }
         var videoURL: URL?
         if wantVideo {
             let url = CameraCaptureController.newVideoURL()
-            videoRecorder.start(to: url, orientation: settings.imageOrientation, maxSeconds: videoSeconds + 3)
+            videoRecorder.start(to: url, orientation: settings.imageOrientation, maxSeconds: Double(seconds) + 1)
             videoURL = url
         }
-        let started = Date()
         let options = captureOptions()
         let engine = pipeline.engine
-        let photo: Result<CapturedPhoto, CaptureError> = await withCheckedContinuation { continuation in
-            let accepted = engine.capture(reason: reason, options: options) { result in
-                continuation.resume(returning: result)
+        let t0 = ProcessInfo.processInfo.systemUptime
+        var pending: [Task<Result<CapturedPhoto, CaptureError>, Never>] = []
+        for second in 1...seconds {
+            if cancelled { break }
+            status("Çekiliyor: \(second)/\(seconds)")
+            if countdown { say(CameraSay.countdownNumber(seconds - second + 1)) }
+            // saniyenin sonu: o saniyedeki en net kare fotoğraf olur (işleme arka planda sürer, sayım gecikmez)
+            let target = t0 + Double(second)
+            while !cancelled {
+                let rest = target - ProcessInfo.processInfo.systemUptime
+                if rest <= 0 { break }
+                try? await Task.sleep(nanoseconds: UInt64(min(rest, 0.25) * 1_000_000_000))
             }
-            if !accepted { continuation.resume(returning: .failure(.noFrames)) }
-        }
-        if wantVideo {
-            let rest = videoSeconds - Date().timeIntervalSince(started)
-            if rest > 0, !cancelled { try? await Task.sleep(nanoseconds: UInt64(rest * 1_000_000_000)) }
+            if cancelled { break }
+            let from = target - 1.0
+            pending.append(Task<Result<CapturedPhoto, CaptureError>, Never> {
+                await withCheckedContinuation { (continuation: CheckedContinuation<Result<CapturedPhoto, CaptureError>, Never>) in
+                    engine.photo(from: from, to: target, reason: reason, options: options) { continuation.resume(returning: $0) }
+                }
+            })
         }
         var output: VideoRecorder.Output?
         if wantVideo {
@@ -489,26 +518,36 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
                 }
             }
         }
+        var photos: [CapturedPhoto] = []
+        var failures: [CaptureError] = []
+        for task in pending {
+            switch await task.value {
+            case .success(let photo): photos.append(photo)
+            case .failure(let error): failures.append(error)
+            }
+        }
         if cancelled {
             if let url = output?.url ?? videoURL { try? FileManager.default.removeItem(at: url) }
             return .failure(.cancelled)
         }
-        switch photo {
-        case .success(let p):
-            if wantVideo && output == nil { tlog("[kamera] video yazılamadı; yalnız fotoğraf gönderilecek") }
-            tlog("[kamera] fotoğraf \(p.width)×\(p.height), \(p.jpeg.count / 1024) KB; video \(output.map { "\($0.bytes / 1024) KB, \(Int($0.seconds.rounded())) sn" } ?? "yok")")
-            var shot = CapturedQuestion(photo: p.jpeg)
-            shot.date = p.date
-            shot.video = output?.url
-            shot.videoBytes = output?.bytes ?? 0
-            shot.videoSeconds = output?.seconds ?? 0
-            return .success(shot)
-        case .failure(let error):
-            if let url = output?.url { try? FileManager.default.removeItem(at: url) }
-            if case .notDocument = error { return .failure(.noPosition) }
-            if case .noFrames = error { return .failure(.noFrames) }
-            return .failure(.captureFailed(error.message))
+        guard let best = photos.max(by: { $0.sharpness < $1.sharpness }) else {
+            if let url = output?.url ?? videoURL { try? FileManager.default.removeItem(at: url) }
+            if failures.contains(where: { if case .noFrames = $0 { return true } else { return false } }) { return .failure(.noFrames) }
+            return .failure(.captureFailed(failures.first?.message ?? ""))
         }
+        if photos.count < seconds { tlog("[kamera] \(seconds) saniyenin \(photos.count) tanesinde fotoğraf alınabildi (görüntü kesintili)") }
+        let jpegs = photos.map { $0.jpeg }
+        let pdf = await Task.detached(priority: .userInitiated) { PageDocument.make(jpegs: jpegs) }.value
+        if wantVideo && output == nil { tlog("[kamera] video yazılamadı; yalnız fotoğraflar gönderilecek") }
+        tlog("[kamera] \(photos.count) fotoğraf (\(best.width)×\(best.height), toplam \(jpegs.reduce(0) { $0 + $1.count } / 1024) KB) → PDF \(pdf.map { "\($0.count / 1024) KB" } ?? "kurulamadı"); video \(output.map { "\($0.bytes / 1024) KB, \(Int($0.seconds.rounded())) sn" } ?? "yok")")
+        var shot = CapturedQuestion(photo: best.jpeg)
+        shot.pdf = pdf
+        shot.pageCount = pdf == nil ? 0 : photos.count
+        shot.date = best.date
+        shot.video = output?.url
+        shot.videoBytes = output?.bytes ?? 0
+        shot.videoSeconds = output?.seconds ?? 0
+        return .success(shot)
     }
 
     // MARK: Yardımcılar

@@ -107,10 +107,39 @@ final class AssemblyTests: XCTestCase {
         let a = DrwAssembler()
         _ = a.push(index: 0, body: [0], now: 0)
         _ = a.push(index: 5, body: [5], now: 0.0)
-        let out = a.push(index: 6, body: [6], now: 0.5)
+        let early = a.push(index: 6, body: [6], now: 0.5)
+        XCTAssertFalse(early.gapSkipped, "0,5 sn'de vazgeçilmez: kamera kayıp paketi yeniden gönderir")
+        let out = a.push(index: 7, body: [7], now: DrwAssembler.maxWaitSeconds + 0.1)
         XCTAssertTrue(out.gapSkipped)
-        XCTAssertEqual(out.data, [5, 6])
+        XCTAssertEqual(out.data, [5, 6, 7])
         XCTAssertEqual(a.lostPackets, 4)
+    }
+
+    func testALateRetransmissionFillsTheGapAndAKeyFrameSizedRunSurvives() {
+        // 120 paketlik "anahtar kare": ortadaki paket geç gelir (kamera yeniden gönderdi); 48 paketlik eski sınırda bu kare düşerdi
+        let a = DrwAssembler()
+        _ = a.push(index: 100, body: [0], now: 0)
+        var skipped = false
+        for i in 102..<221 {   // 101 eksik
+            let out = a.push(index: UInt16(i), body: [1], now: 0.2)
+            skipped = skipped || out.gapSkipped
+        }
+        XCTAssertFalse(skipped, "119 paket birikse de beklenir")
+        let filled = a.push(index: 101, body: [9], now: 0.9)
+        XCTAssertFalse(filled.gapSkipped)
+        XCTAssertEqual(filled.data.count, 120, "eksik paket gelince 120 paketin hepsi sırayla çıkar")
+        XCTAssertEqual(a.lostPackets, 0)
+        XCTAssertEqual(a.duplicates, 0)
+    }
+
+    func testKeyFrameDetectionSeesSpsAndIdrButNotPFrames() {
+        func frame(_ payload: [UInt8]) -> VideoFrame { return VideoFrame(header: [], payload: payload, lossBefore: false) }
+        XCTAssertTrue(frame([0, 0, 0, 1, 0x67, 1, 2, 0, 0, 0, 1, 0x68, 3, 0, 0, 0, 1, 0x65, 9]).isKeyFrame, "SPS + PPS + IDR")
+        XCTAssertTrue(frame([0, 0, 1, 0x65, 9, 9]).isKeyFrame, "üç baytlık başlangıç kodlu IDR")
+        XCTAssertTrue(frame([0, 0, 0, 1, 0x06, 5, 5, 0, 0, 0, 1, 0x65, 9]).isKeyFrame, "önünde SEI olan IDR")
+        XCTAssertFalse(frame([0, 0, 0, 1, 0x41, 9, 9, 9, 9]).isKeyFrame, "P karesi")
+        XCTAssertFalse(frame([0, 0, 0, 1]).isKeyFrame)
+        XCTAssertFalse(frame([]).isKeyFrame)
     }
 
     private func makeFrame(payload: [UInt8]) -> [UInt8] {

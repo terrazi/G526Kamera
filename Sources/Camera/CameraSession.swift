@@ -44,6 +44,9 @@ final class CameraSession {
     private var rxBuffer = [UInt8](repeating: 0, count: 65535)
     private var lastRx = Date()
     private var lastVideoRx = Date.distantPast
+    /// Bu oturumda anahtar kare (IDR / SPS) geldi mi: gelmeden çözücü başlayamaz
+    private var sawKeyFrame = false
+    private var runStarted = Date()
 
     private(set) var videoPackets = 0
     private(set) var framesDelivered = 0
@@ -113,6 +116,11 @@ final class CameraSession {
         var streamStart = Date()
         var openRetries = 0
         var packetsAtStart = videoPackets
+        runStarted = Date()
+        var keyWaitStart = Date()
+        var keyRetries = 0
+        var lastWifiCheck = Date()
+        var wifiUp = LocalNetwork.wifi() != nil
 
         while !shouldStop {
             pump(for: 0.1)
@@ -123,8 +131,26 @@ final class CameraSession {
                 sock.send(PPPP.packet(PPPP.alive), to: cam)
                 lastKeepalive = now
             }
+            // Kopma anı günlükte görünsün: telefonun Wi-Fi adresi gidip gelirse (kameranın ağından düşme) zamanı yazılır
+            if now.timeIntervalSince(lastWifiCheck) >= 1 {
+                lastWifiCheck = now
+                let up = LocalNetwork.wifi() != nil
+                if up != wifiUp {
+                    wifiUp = up
+                    log("Telefonun Wi-Fi adresi \(up ? "geri geldi" : "KAYBOLDU (kameranın ağından düşmüş)"); \(silenceText(now))")
+                }
+            }
             if now.timeIntervalSince(lastRx) > 6 {
+                log("Kamera 6 sn sustu; \(silenceText(now)); anahtar kare \(sawKeyFrame ? "gelmişti" : "hiç gelmedi"); \(statistics)")
                 return "Kameradan 6 sn cevap gelmedi"
+            }
+            // Paket geliyor ama anahtar kare tamamlanmıyor (görüntü yavaş / kayıplı akış): çözücü hiç başlamaz. Akış yeniden istenir ki kamera
+            // anahtar kareyle yeniden başlasın (yalnız ilk anahtar kareden önce; akan görüntüye dokunulmaz)
+            if !sawKeyFrame, keyRetries < 3, now.timeIntervalSince(keyWaitStart) > 6 {
+                keyRetries += 1
+                log("Anahtar kare gelmiyor (\(Int(now.timeIntervalSince(keyWaitStart))) sn; \(statistics)), OpenVideo yeniden gönderiliyor (k\(keyRetries))")
+                openVideo(userID: userID)
+                keyWaitStart = Date()
             }
             if videoPackets != packetsAtStart {
                 packetsAtStart = videoPackets
@@ -137,6 +163,7 @@ final class CameraSession {
                     openVideo(userID: userID)
                     streamStart = now
                 } else {
+                    log("Görüntü akışı durdu; \(silenceText(now)); anahtar kare \(sawKeyFrame ? "gelmişti" : "hiç gelmedi"); \(statistics)")
                     return "Görüntü akışı durdu"
                 }
             }
@@ -151,6 +178,12 @@ final class CameraSession {
         sock.send(closePacket, to: cam)
         sock.send(PPPP.packet(PPPP.close), to: cam)
         return "Durduruldu"
+    }
+
+    /// Günlük için: son paketten ve son video paketinden beri geçen süre, oturum süresi, Wi-Fi adresi var mı
+    private func silenceText(_ now: Date) -> String {
+        func ago(_ d: Date) -> String { return d == .distantPast ? "hiç" : String(format: "%.1f sn önce", now.timeIntervalSince(d)) }
+        return "son paket \(ago(lastRx)), son video paketi \(ago(lastVideoRx)), oturum \(Int(now.timeIntervalSince(runStarted))) sn, Wi-Fi adresi \(LocalNetwork.wifi() == nil ? "yok" : "var")"
     }
 
     private func openVideo(userID: Int) {
@@ -358,6 +391,10 @@ final class CameraSession {
                 let frames = parser.append(out.data, gapBefore: out.gapSkipped)
                 for f in frames {
                     framesDelivered += 1
+                    if !sawKeyFrame, f.isKeyFrame {
+                        sawKeyFrame = true
+                        log("İlk anahtar kare geldi (\(String(format: "%.1f", Date().timeIntervalSince(runStarted))) sn sonra; \(statistics))")
+                    }
                     onFrame?(f)
                 }
             }
@@ -401,7 +438,8 @@ final class CameraSession {
             replies[name] = obj
             let compact = json.replacingOccurrences(of: "\t", with: "")
                 .replacingOccurrences(of: "\n", with: "")
-            log("Cevap \(name): \(compact.prefix(200))")
+            // Cihaz bilgisi (pil, şarj, sıcaklık gibi alanlar) tam yazılır: kopmaların nedeni için günlükte lazım
+            log("Cevap \(name): \(compact.prefix(name == "GetDevInfo" ? 900 : 200))")
         }
     }
 }

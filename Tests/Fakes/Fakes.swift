@@ -321,6 +321,7 @@ final class FakeAnswering: Answering {
 /// Sürüm 4: kamera çekimini taklit eder
 @MainActor
 final class FakeCamera: CameraCapturing {
+    var onSayWait: ((String) async -> Void)?
     var onSay: ((String) -> Void)?
     var onStatus: ((String) -> Void)?
     /// Her çekimde çekilen şey (soru ya da ortak paragraf) kaydedilir
@@ -344,6 +345,10 @@ final class FakeCamera: CameraCapturing {
     private(set) var isHeld = false
     /// Konumlandırma sırasında söylenmiş gibi yapılacak cümle
     var guidance: String?
+    /// Çekim öncesi duyuru gibi BEKLENEREK söylenecek cümle (gerçek kamerada geri sayım girişi): `onSayWait` ile söylenir, bitince çekim sürer
+    var waitedGuidance: String?
+    /// `onSayWait` cümle bitince döndüğünde kaydedilir (sıra sınaması için)
+    var onWaitedSayDone: (() -> Void)?
     /// Doğruysa çekim `release()` çağrılana (ya da iptal edilene) kadar sürer: uzun süren çekim sınamaları için
     var hold = false
     private var gate: CheckedContinuation<Void, Never>?
@@ -379,6 +384,10 @@ final class FakeCamera: CameraCapturing {
         subjects.append(subject)
         onCapture?()
         if let text = guidance { onSay?(text) }
+        if let text = waitedGuidance {
+            await onSayWait?(text)
+            onWaitedSayDone?()
+        }
         if hold { await withCheckedContinuation { gate = $0 } }
         guard !results.isEmpty else { return .failure(.unavailable) }
         return results.removeFirst()

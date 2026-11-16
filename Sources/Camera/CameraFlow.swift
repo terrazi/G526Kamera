@@ -5,6 +5,11 @@ struct CapturedQuestion: Equatable {
     var id = UUID()
     /// Soru sayfasının fotoğrafı (JPEG)
     var photo: Data
+    /// Çekim süresince saniyede bir alınan fotoğrafların (en net kareler) tek PDF'i; Gemini'ye fotoğraf yerine bu gider. Yoksa (PDF kurulamadı,
+    /// eski çekim) `photo` gider.
+    var pdf: Data?
+    /// PDF'teki sayfa (fotoğraf) sayısı
+    var pageCount = 0
     /// Aynı sayfanın kısa videosu (H.264 MP4); yoksa nil
     var video: URL?
     /// Video dosyasının boyutu (bayt)
@@ -28,16 +33,19 @@ struct CapturedQuestion: Equatable {
     /// (14 MB → ~18,7 MB); metin ve talimat payı için de yer kalır. Video sığmazsa yalnız fotoğraf gider.
     static let maxInlineVideoBytes = 14_000_000
 
-    /// Sorunun videosu gider mi: önce sorunun kendi fotoğrafı ve paragrafın fotoğrafı yer açar, sığarsa video eklenir (soru, paragraftan önceliklidir)
+    /// Gemini'ye giden görüntü verisinin boyutu: PDF varsa o, yoksa tek fotoğraf
+    var visualBytes: Int { return pdf?.count ?? photo.count }
+
+    /// Sorunun videosu gider mi: önce sorunun kendi görüntüsü (PDF ya da fotoğraf) ve paragrafın görüntüsü yer açar, sığarsa video eklenir (soru, paragraftan önceliklidir)
     var canSendVideo: Bool {
         return video != nil && videoBytes > 0
-            && videoBytes + photo.count + (passageMedia?.photo.count ?? 0) <= CapturedQuestion.maxInlineVideoBytes
+            && videoBytes + visualBytes + (passageMedia?.visualBytes ?? 0) <= CapturedQuestion.maxInlineVideoBytes
     }
 
     /// Paragrafın videosu gider mi: yalnız sorunun fotoğraf + videosundan sonra hâlâ yer kalıyorsa
     var canSendPassageVideo: Bool {
         guard let media = passageMedia, media.canHaveVideo else { return false }
-        let used = photo.count + media.photo.count + (canSendVideo ? videoBytes : 0)
+        let used = visualBytes + media.visualBytes + (canSendVideo ? videoBytes : 0)
         return used + media.videoBytes <= CapturedQuestion.maxInlineVideoBytes
     }
 
@@ -59,6 +67,8 @@ struct CapturedQuestion: Equatable {
 /// Kamerayla çekilmiş ortak paragrafın Gemini'ye giden görüntüleri (fotoğraf + kısa video)
 struct PassageMedia: Equatable {
     var photo: Data
+    /// Paragraf çekiminin PDF'i (varsa fotoğraf yerine o gider)
+    var pdf: Data?
     var video: URL?
     var videoBytes: Int
     /// Aynı çekim mi (fotoğraf baytlarını karşılaştırmak yerine kimlik)
@@ -66,12 +76,14 @@ struct PassageMedia: Equatable {
 
     init(_ shot: CapturedQuestion) {
         photo = shot.photo
+        pdf = shot.pdf
         video = shot.video
         videoBytes = shot.videoBytes
         id = shot.id
     }
 
     var canHaveVideo: Bool { return video != nil && videoBytes > 0 }
+    var visualBytes: Int { return pdf?.count ?? photo.count }
 }
 
 /// Kamera çekimi neden olmadı
@@ -117,6 +129,9 @@ protocol CameraCapturing: AnyObject {
     var onSay: ((String) -> Void)? { get set }
     /// Ekranda görünen kısa durum satırı ("Kameraya bağlanılıyor", "Sayfa kadrajda"…)
     var onStatus: ((String) -> Void)? { get set }
+    /// Sıralı söylenecek cümle (çekim öncesi duyuru): önceki cümle bitince söylenir ve BU cümle bitince döner. `onSay` gibi atlanmaz.
+    /// Atanmamışsa (testler, kamera yok) duyuru `onSay` ile söylenir ve beklenmez.
+    var onSayWait: ((String) async -> Void)? { get set }
     /// Neyin çekildiği: konumlandırma cümleleri buna göre söylenir ("Soruyu kadraja alın" / "Paragrafı kadraja alın"). Her çekimden önce ayarlanır.
     var subject: CaptureSubject { get set }
     /// Kamerayı açar, bağlanır, sesle konumlandırır, soruyu videoya ve fotoğrafa alır ve BİTİNCE kamerayı kapatır (başarısız da olsa).
@@ -151,6 +166,7 @@ extension CameraCapturing {
 /// Kamera yapılandırılmamış oturumlar (ve eski testler) için
 @MainActor
 final class NoCamera: CameraCapturing {
+    var onSayWait: ((String) async -> Void)?
     var onSay: ((String) -> Void)?
     var onStatus: ((String) -> Void)?
     var subject: CaptureSubject = .question

@@ -67,7 +67,7 @@ final class NoCaptureStore: CaptureStoring {
 
 /// Dosya sistemindeki klasör: `Documents/Cekimler` (Dosyalar uygulamasında "Bu iPhone'da > Sesli Kontrol > Cekimler").
 ///
-///     Cekimler/Bekleyen/<tarih>_<kimlik>/foto.jpg, video.mp4, bilgi.json
+///     Cekimler/Bekleyen/<tarih>_<kimlik>/foto.jpg (en net kare), sayfalar.pdf (saniyede bir fotoğraf), video.mp4, bilgi.json
 ///     Cekimler/Gonderilen/…      (cevap.txt da yazılır)
 ///     Cekimler/Gonderilemeyen/…  (neden.txt da yazılır)
 ///     Cekimler/Paragraf/…        (ortak paragraf çekimleri)
@@ -127,6 +127,7 @@ final class FileCaptureStore: CaptureStoring {
         do {
             try fm.createDirectory(at: dir, withIntermediateDirectories: true)
             try shot.photo.write(to: dir.appendingPathComponent("foto.jpg"), options: .atomic)
+            if let pdf = shot.pdf { try pdf.write(to: dir.appendingPathComponent("sayfalar.pdf"), options: .atomic) }
         } catch {
             try? fm.removeItem(at: dir)   // yarım kalmış boş klasör bırakılmaz
             tlog("[çekim klasörü] çekim yazılamadı, bellekte tutuluyor: \(error.localizedDescription)")
@@ -140,7 +141,7 @@ final class FileCaptureStore: CaptureStoring {
         stored.archived = true
         write(info(for: stored, kind: kind, state: kind == .passage ? "paragraf" : "bekliyor"), to: dir)
         folders[stored.id] = dir
-        tlog("[çekim klasörü] çekim kaydedildi (\(bucket.rawValue)): fotoğraf \(stored.photo.count / 1024) KB\(stored.video == nil ? "" : ", video \(stored.videoBytes / 1024) KB")")
+        tlog("[çekim klasörü] çekim kaydedildi (\(bucket.rawValue)): fotoğraf \(stored.photo.count / 1024) KB\(stored.pdf == nil ? "" : ", PDF \(stored.pageCount) sayfa \((stored.pdf?.count ?? 0) / 1024) KB")\(stored.video == nil ? "" : ", video \(stored.videoBytes / 1024) KB")")
         return stored
     }
 
@@ -153,6 +154,10 @@ final class FileCaptureStore: CaptureStoring {
                 continue
             }
             var shot = CapturedQuestion(photo: photo)
+            if let pdf = try? Data(contentsOf: dir.appendingPathComponent("sayfalar.pdf")), !pdf.isEmpty {
+                shot.pdf = pdf
+                shot.pageCount = PageDocument.pageCount(of: pdf)
+            }
             let saved = readInfo(in: dir)
             if let saved = saved {
                 shot.id = UUID(uuidString: saved.id) ?? shot.id

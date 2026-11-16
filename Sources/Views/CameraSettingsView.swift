@@ -51,12 +51,13 @@ struct CameraSettingsSections: View {
     private var videoSection: some View {
         AccordionSection(id: "video", title: "Video kaydı") {
             Stepper(value: $camera.pageVideoSeconds, in: VideoRecorder.pageSecondsRange) {
-                Text("Soru videosu: sayfa başına \(camera.pageVideoSeconds) sn")
+                Text("Çekim süresi: soru ya da paragraf başına \(camera.pageVideoSeconds) sn")
             }
+            Toggle("Sesli geri sayım", isOn: $camera.countdown)
             Toggle("Videoyu da Gemini'ye gönder", isOn: $camera.videoToGemini)
             Toggle("Videoyu yüksek çözünürlükle oku", isOn: $camera.videoHighRes)
             TextField("Gemini'ye ek talimat (isteğe bağlı)", text: $camera.videoQuestion)
-            HelpRow("Program soruyu sesle konumlandırır; konum uygun olunca soruyu ayardaki süre kadar (varsayılan 5 sn, 2–15) videoya yazar ve bir fotoğraf çeker. Video saniyede 2 kare yazılır; tahmini boyut: 30 sn ≈ 4,5–8 MB, 90 sn ≈ 14–24 MB. Fotoğraf ve video birlikte satır içi gider; toplamı 14 MB'ı aşarsa (soru başına 15 sn'lik video bile genellikle 3 MB'ın altındadır) yalnız fotoğraf gönderilir. “Videoyu da gönder” kapalıyken yalnız fotoğraf gider. “Yüksek çözünürlük” küçük yazı için önerilir. Ek talimat, programın kendi talimatının sonuna eklenir (programın talimatı kadrajdaki yarım görünen komşu soruların yok sayılmasını da içerir). Değişiklik bir sonraki çekimden itibaren geçerlidir.")
+            HelpRow("Çekim süresi (varsayılan 10 sn, 2–15): kamera her soru ya da paragraf için bu kadar çeker. Her saniyenin en net karesi bir fotoğraf olur (10 sn = 10 fotoğraf); fotoğraflar tek PDF'e dizilir ve aynı sürenin küçük bir videosuyla birlikte Gemini'ye gider. Video H.264 / MP4, ses yok, saniyede 2 kare, yaklaşık 1,2 Mbit/sn: 10 sn ≈ 1,5 MB; her cihazda açılır. “Sesli geri sayım” açıkken program “10 saniye boyunca çekim yapabilirsiniz. Başlıyorum.” der ve 10, 9, 8 … 1 diye sayar; ekranı ya da kâğıdı bu sürede kameranın önünde gezdirin. Sesle konumlandırma açıksa çekimden önce konum beklenir; kapalıysa geri sayım hemen başlar. PDF ve video birlikte satır içi gider; toplamı 14 MB'ı aşarsa yalnız PDF gönderilir. “Videoyu da gönder” kapalıyken yalnız PDF gider. “Yüksek çözünürlük” küçük yazı için önerilir. Ek talimat, programın kendi talimatının sonuna eklenir (programın talimatı kadrajdaki yarım görünen komşu soruların yok sayılmasını da içerir). Değişiklik bir sonraki çekimden itibaren geçerlidir.")
         }
     }
 
