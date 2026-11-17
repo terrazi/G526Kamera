@@ -190,6 +190,10 @@ extension SessionViewModel {
     /// dinlenirken); `keepText`: bu metin korunarak dinlenir. Cevap sayılmaz, sayaçlar ve bekleyen işler (tutulan soru, paragraf taslağı) değişmez.
     func performInfo(_ command: VoiceCommand, question: String, keepText: Bool) {
         let mode = listenMode
+        if command == .camera(.trial) {
+            performTrial(mode: mode)   // uzun iş (bir oturum süresi): bilgi komutu gibi kısa söylenip dinlemeye dönülmez (bkz. `SessionViewModel+Trial`)
+            return
+        }
         closeListening()
         attemptFails = 0
         clearWarning("duyulan")

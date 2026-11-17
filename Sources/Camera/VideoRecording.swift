@@ -51,6 +51,9 @@ final class VideoRecorder {
     private var frames = 0
     private var failed: String?
     private var limit: TimeInterval = VideoRecorder.maxSeconds
+    /// Bu kaydın saniyedeki kare sayısı ve bit hızı üst sınırı (`start` ayarlar; yalnızca `queue` üzerinde kullanılır)
+    private var rate: Double = VideoRecorder.fps
+    private var bitrateCap: Double = VideoRecorder.maxBitrate
 
     /// Şu anki yarım saniyelik pencerenin şimdiye dek gelen en net karesi (yalnızca `queue` üzerinde).
     private struct Candidate {
@@ -60,18 +63,26 @@ final class VideoRecorder {
     }
     private var pending: Candidate?
 
+    /// Deneme çekimi videosu (kullanıcı kararı 2026-11-17): kullanıcı el hareketine ve mesafeye bakacağı için saniyede 8 kare, üst sınır 2,5 Mbit/sn
+    /// (75 sn ≈ 23 MB)
+    static let trialFps: Double = 8
+    static let trialMaxBitrate: Double = 2_500_000
+
     /// Hedef bit hızı (bit/sn): çözünürlükle orantılı, alt ve üst sınırlı.
-    static func bitrate(width: Int, height: Int) -> Int {
+    static func bitrate(width: Int, height: Int, fps: Double = VideoRecorder.fps, maxBitrate: Double = VideoRecorder.maxBitrate) -> Int {
         let raw = Double(width * height) * fps * bitsPerPixel
         return Int(min(max(raw, minBitrate), maxBitrate))
     }
 
     /// Kaydı hazırlar; dosya ilk kare gelince, kare boyutuna göre açılır.
     /// `orientation`: video dosyasına yalnız oynatma dönüşümü yazılır (kareler çevrilmez; ısınma yok).
-    func start(to url: URL, orientation: ImageOrientation = .normal, maxSeconds: TimeInterval = VideoRecorder.maxSeconds) {
+    func start(to url: URL, orientation: ImageOrientation = .normal, maxSeconds: TimeInterval = VideoRecorder.maxSeconds,
+               fps: Double = VideoRecorder.fps, maxBitrate: Double = VideoRecorder.maxBitrate) {
         queue.sync {
             self.discardWriter()
             self.limit = maxSeconds
+            self.rate = max(1, fps)
+            self.bitrateCap = maxBitrate
             self.orientation = orientation
             self.fileURL = url
             self.firstTime = 0
@@ -123,7 +134,7 @@ final class VideoRecorder {
                 done(.failure(.writer(message)))
                 return
             }
-            let seconds = min(self.lastPTS + 1.0 / VideoRecorder.fps, self.limit)
+            let seconds = min(self.lastPTS + 1.0 / self.rate, self.limit)
             let count = self.frames
             inp.markAsFinished()
             w.endSession(atSourceTime: CMTime(seconds: seconds, preferredTimescale: 600))
@@ -175,7 +186,7 @@ final class VideoRecorder {
         let t = time - firstTime
         // süre sınırı: bundan sonraki kareler hiç yazılmaz
         if t < 0 || t >= limit { return }
-        let window = Int(t * VideoRecorder.fps)
+        let window = Int(t * rate)
         if let p = pending {
             if window < p.window { return }          // geç gelen eski kare
             if window > p.window {
@@ -197,7 +208,7 @@ final class VideoRecorder {
             waited += 1
         }
         guard inp.isReadyForMoreMediaData else { return }
-        let t = Double(c.window) / VideoRecorder.fps
+        let t = Double(c.window) / rate
         if ad.append(c.buffer, withPresentationTime: CMTime(seconds: t, preferredTimescale: 600)) {
             frames += 1
             lastPTS = t
@@ -214,11 +225,11 @@ final class VideoRecorder {
         do {
             let w = try AVAssetWriter(outputURL: url, fileType: .mp4)
             let compression: [String: Any] = [
-                AVVideoAverageBitRateKey: VideoRecorder.bitrate(width: width, height: height),
+                AVVideoAverageBitRateKey: VideoRecorder.bitrate(width: width, height: height, fps: rate, maxBitrate: bitrateCap),
                 AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel,
-                AVVideoMaxKeyFrameIntervalKey: Int(VideoRecorder.fps),
+                AVVideoMaxKeyFrameIntervalKey: Int(rate),
                 AVVideoMaxKeyFrameIntervalDurationKey: 1.0,
-                AVVideoExpectedSourceFrameRateKey: Int(VideoRecorder.fps)
+                AVVideoExpectedSourceFrameRateKey: Int(rate)
             ]
             let settings: [String: Any] = [
                 AVVideoCodecKey: AVVideoCodecType.h264,
@@ -244,7 +255,7 @@ final class VideoRecorder {
             writer = w
             input = inp
             adaptor = ad
-            tlog("[video] kayıt açıldı: \(width)x\(height), \(VideoRecorder.bitrate(width: width, height: height) / 1000) kbit/sn")
+            tlog("[video] kayıt açıldı: \(width)x\(height), saniyede \(Int(rate)) kare, \(VideoRecorder.bitrate(width: width, height: height, fps: rate, maxBitrate: bitrateCap) / 1000) kbit/sn")
             return true
         } catch {
             failed = error.localizedDescription

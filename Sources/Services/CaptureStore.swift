@@ -18,13 +18,15 @@ struct CaptureFolderSummary: Equatable {
     var unsendable = 0
     /// Ortak paragraf çekimleri
     var passages = 0
+    /// Deneme çekimleri (Gemini'ye hiç gönderilmeyenler; video + PDF + rapor)
+    var trials = 0
     /// Klasörün telefonda kapladığı yer (bayt)
     var bytes: Int64 = 0
 
-    var total: Int { return pending + sent + unsendable + passages }
+    var total: Int { return pending + sent + unsendable + passages + trials }
 
     /// Gönderilmiş sayılanlar (soru çekimleri + paragraf çekimleri): "Gönderilenleri sil" bunları siler
-    var deletableSent: Int { return sent + passages }
+    var deletableSent: Int { return sent + passages + trials }
 
     var sizeText: String {
         if bytes < 1_000_000 { return "\(bytes / 1000) KB" }
@@ -32,7 +34,8 @@ struct CaptureFolderSummary: Equatable {
     }
 
     var text: String {
-        return "Bekleyen \(pending), gönderilen \(sent), gönderilemeyen \(unsendable), paragraf \(passages) · \(sizeText)"
+        let trialText = trials > 0 ? ", deneme \(trials)" : ""
+        return "Bekleyen \(pending), gönderilen \(sent), gönderilemeyen \(unsendable), paragraf \(passages)\(trialText) · \(sizeText)"
     }
 }
 
@@ -43,6 +46,9 @@ protocol CaptureStoring: AnyObject {
     /// Çekimi kalıcı klasöre yazar; videosu varsa dosya oraya TAŞINIR. Dönen çekimin `video` adresi yeni yerdir ve `archived` doğrudur.
     /// Yazılamazsa (yer yok…) çekim olduğu gibi döner: bellekte ve eski yerinde kalır, kaybolmaz.
     func keep(_ shot: CapturedQuestion, kind: CaptureKind) -> CapturedQuestion
+    /// Deneme çekimini `Cekimler/Deneme` klasörüne yazar (video.mp4 taşınır, sayfalar.pdf, foto.jpg, rapor.txt). Gemini'ye GİTMEZ, "Bekleyen"e girmez.
+    /// Yazılan klasör döner; yazılamazsa nil (geçici video silinir).
+    @discardableResult func keepTrial(_ shot: CapturedQuestion, report: String) -> URL?
     /// Önceki çalışmalardan kalan, gönderilmemiş soru çekimleri (en eskiden yeniye)
     func restorePending() -> [CapturedQuestion]
     /// Çekim Gemini'ye gönderildi: "Bekleyen"den "Gönderilen"e taşınır; cevap yanına yazılır
@@ -63,6 +69,10 @@ protocol CaptureStoring: AnyObject {
 /// Çekimleri saklamayan bileşen (kamera akışı olmayan oturumlar ve eski testler): çekim bellekte kalır, gönderilince video dosyası silinir
 final class NoCaptureStore: CaptureStoring {
     func keep(_ shot: CapturedQuestion, kind: CaptureKind) -> CapturedQuestion { return shot }
+    func keepTrial(_ shot: CapturedQuestion, report: String) -> URL? {
+        if let video = shot.video { try? FileManager.default.removeItem(at: video) }
+        return nil
+    }
     func restorePending() -> [CapturedQuestion] { return [] }
     func markSent(_ shot: CapturedQuestion, answer: String) {}
     func markUnsendable(_ shot: CapturedQuestion, reason: String) {}
@@ -79,8 +89,11 @@ final class NoCaptureStore: CaptureStoring {
 ///     Cekimler/Gonderilen/…      (cevap.txt da yazılır)
 ///     Cekimler/Gonderilemeyen/…  (neden.txt da yazılır)
 ///     Cekimler/Paragraf/…        (ortak paragraf çekimleri)
+///     Cekimler/Deneme/…          (deneme çekimleri: video.mp4, sayfalar.pdf, foto.jpg, rapor.txt; Gemini'ye hiç gitmez)
 final class FileCaptureStore: CaptureStoring {
     static let rootName = "Cekimler"
+    /// Deneme çekimlerinin klasörü. Bölüm (`Bucket`) DEĞİL: bekleyen/gönderilen akışına hiç karışmaz, yalnız özet ve silme bunu da sayar.
+    static let trialName = "Deneme"
 
     enum Bucket: String, CaseIterable {
         case pending = "Bekleyen"
@@ -127,6 +140,10 @@ final class FileCaptureStore: CaptureStoring {
         return root.appendingPathComponent(bucket.rawValue, isDirectory: true)
     }
 
+    var trialRoot: URL {
+        return root.appendingPathComponent(FileCaptureStore.trialName, isDirectory: true)
+    }
+
     // MARK: Yazma
 
     func keep(_ shot: CapturedQuestion, kind: CaptureKind) -> CapturedQuestion {
@@ -151,6 +168,26 @@ final class FileCaptureStore: CaptureStoring {
         folders[stored.id] = dir
         tlog("[çekim klasörü] çekim kaydedildi (\(bucket.rawValue)): fotoğraf \(stored.photo.count / 1024) KB\(stored.pdf == nil ? "" : ", PDF \(stored.pageCount) sayfa \((stored.pdf?.count ?? 0) / 1024) KB")\(stored.video == nil ? "" : ", video \(stored.videoBytes / 1024) KB")")
         return stored
+    }
+
+    func keepTrial(_ shot: CapturedQuestion, report: String) -> URL? {
+        let dir = trialRoot.appendingPathComponent(FileCaptureStore.folderName(for: shot), isDirectory: true)
+        do {
+            try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+            try shot.photo.write(to: dir.appendingPathComponent("foto.jpg"), options: .atomic)
+            if let pdf = shot.pdf { try pdf.write(to: dir.appendingPathComponent("sayfalar.pdf"), options: .atomic) }
+            if !report.isEmpty { try report.write(to: dir.appendingPathComponent("rapor.txt"), atomically: true, encoding: .utf8) }
+        } catch {
+            try? fm.removeItem(at: dir)
+            if let video = shot.video { try? fm.removeItem(at: video) }
+            tlog("[çekim klasörü] deneme çekimi yazılamadı: \(error.localizedDescription)")
+            return nil
+        }
+        if let video = shot.video, fm.fileExists(atPath: video.path) {
+            if !relocate(video, to: dir.appendingPathComponent("video.mp4")) { tlog("[çekim klasörü] deneme videosu taşınamadı") }
+        }
+        tlog("[çekim klasörü] deneme çekimi kaydedildi (\(FileCaptureStore.trialName)): PDF \(shot.pageCount) sayfa, video \(shot.videoBytes / 1024) KB")
+        return dir
     }
 
     func restorePending() -> [CapturedQuestion] {
@@ -218,15 +255,18 @@ final class FileCaptureStore: CaptureStoring {
             }
             for item in items { result.bytes += folderSize(item) }
         }
+        let trialItems = subfolders(of: trialRoot)
+        result.trials = trialItems.count
+        for item in trialItems { result.bytes += folderSize(item) }
         return result
     }
 
     func deleteSent() -> Int {
-        return remove([.sent, .passage])
+        return remove([.sent, .passage], trials: true)
     }
 
     func deleteAll() -> Int {
-        return remove(Bucket.allCases)
+        return remove(Bucket.allCases, trials: true)
     }
 
     /// Çekimin zamanı: bilgi.json'daki tarih; yoksa klasör adındaki tarih ("2026-11-15-223912_ab12cd34", eski sürümlerde "20261115-223912_ab12cd34");
@@ -252,6 +292,10 @@ final class FileCaptureStore: CaptureStoring {
                 found.append(dir)
             }
         }
+        for dir in subfolders(of: trialRoot) {
+            if let cutoff = cutoff, captureDate(of: dir) < cutoff { continue }
+            found.append(dir)
+        }
         return found
     }
 
@@ -269,10 +313,15 @@ final class FileCaptureStore: CaptureStoring {
         return removed
     }
 
-    private func remove(_ buckets: [Bucket]) -> Int {
+    private func remove(_ buckets: [Bucket], trials: Bool = false) -> Int {
         var count = 0
         for bucket in buckets {
             for dir in subfolders(of: url(of: bucket)) {
+                if (try? fm.removeItem(at: dir)) != nil { count += 1 }
+            }
+        }
+        if trials {
+            for dir in subfolders(of: trialRoot) {
                 if (try? fm.removeItem(at: dir)) != nil { count += 1 }
             }
         }

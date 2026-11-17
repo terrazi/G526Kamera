@@ -30,6 +30,8 @@ struct CapturedQuestion: Equatable {
     var archived = false
     /// Toplu sayfa çekiminin bir sayfası: sayfadaki BÜTÜN sorular cevaplanır (tek soru değil); Gemini'ye sayfa komutuyla gider
     var isPage = false
+    /// Çekimde telefonun yazı tanımasının gördüğü soru numaraları (artan): cevaplar okunduktan sonra görünüp cevaplanamayanlar söylenir
+    var seenNumbers: [Int] = []
 
     /// Gemini'ye satır içi gönderilebilen fotoğraf + video toplamı (bayt). İstek sınırı 20 MB'tır ve veri base64 ile üçte bir şişer
     /// (14 MB → ~18,7 MB); metin ve talimat payı için de yer kalır. Video sığmazsa yalnız fotoğraf gider.
@@ -134,6 +136,10 @@ struct PageSeries: Equatable {
     /// Seçilen karelerde okunan yazı var mı. false: telefonun yazı tanıması hiçbir karede yazı okuyamadı (küçük, eğik, bulanık yazı); en net kareler yine de
     /// Gemini'ye gider (o daha iyi okur), kullanıcıya bu söylenir
     var readable = true
+    /// Çekimin teşhisi (bulanık / çok yakın / yazı yok / numara boşluğu); sorun yoksa söyleyecek bir şey çıkmaz
+    var diagnosis: CaptureDiagnosis?
+    /// Deneme çekiminin raporu (rapor.txt); gerçek çekimde boş
+    var report = ""
 }
 
 /// Kamerayı açıp soruyu çeken bileşen. Gerçeği `CameraCaptureController` ile çalışır, testler sahtesini kullanır.
@@ -157,6 +163,12 @@ protocol CameraCapturing: AnyObject {
     /// kamerayı kapatır. Tek sınır süredir (sayfa sayısı yok); bütün fotoğraflar TEK PDF olur. Bağlanamazsa `.failure`; bağlanıp bir kısım fotoğraf
     /// alındıktan sonra kesilirse `.success` ve `failure` dolu döner (alınanlar kaybolmaz).
     func captureSeries(seconds: Int, connectLimit: TimeInterval?) async -> Result<PageSeries, CameraFailure>
+    /// Deneme çekimi (kullanıcı kararı 2026-11-17): toplu çekimle AYNI yoldan `seconds` sn çeker ama ayrıca video kaydeder; sonuç Gemini'ye GÖNDERİLMEZ,
+    /// çağıran klasöre yazar. Bitince kamera kapanır. `PageSeries.shot.video` videodur, `report` rapordur.
+    func captureTrial(seconds: Int, connectLimit: TimeInterval?) async -> Result<PageSeries, CameraFailure>
+    /// Kadraj kontrolü: hazır bekleyen (canlı) kamerada kısa süre taze kareler toplanır, en netinin yazısı okunur. Çekim yapılmaz, bağlantı açık kalır.
+    /// Kamera hazır değilse nil.
+    func checkView() async -> ViewCheck?
     /// Süren çekimi (ya da açık tutulan bağlantıyı) iptal eder (kamera kapanır)
     func cancel()
     /// Sürüm 4: oturum başlarken kameraya hemen bağlanır; görüntü gelince döner ve bağlantıyı AÇIK bırakır (ana ekrandaki kutuda görüntü akar).
@@ -190,6 +202,8 @@ extension CameraCapturing {
     var phoneHasWiFiAddress: Bool { return true }
     func probe() async -> Bool { return false }
     func captureSeries(seconds: Int, connectLimit: TimeInterval?) async -> Result<PageSeries, CameraFailure> { return .failure(.unavailable) }
+    func captureTrial(seconds: Int, connectLimit: TimeInterval?) async -> Result<PageSeries, CameraFailure> { return .failure(.unavailable) }
+    func checkView() async -> ViewCheck? { return nil }
 }
 
 /// Kamera yapılandırılmamış oturumlar (ve eski testler) için

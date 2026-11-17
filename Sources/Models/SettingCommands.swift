@@ -46,6 +46,10 @@ enum CameraAction: Equatable {
     case examType(ExamType)
     /// "Sınav türü ne": şu anki tür söylenir
     case examTypeAsk
+    /// "Deneme çekimi": hazır bekleyen kamerayla bir oturum süresi çekilir ve video + PDF + rapor telefondaki klasöre yazılır; Gemini'ye GİTMEZ
+    case trial
+    /// "Kadraj kontrolü": hazır bekleyen kameranın o anki görüntüsüne kısa bir bakış; yazı okunuyor mu, bulanık mı, sesle söylenir (çekim başlamaz)
+    case viewCheck
 }
 
 extension VoiceCommand {
@@ -122,7 +126,37 @@ extension VoiceCommand {
     static func parseSetting(_ raw: [String]) -> VoiceCommand? {
         // Tanıyıcı "RAM'i", "Wi-Fi", "interneti" gibi sözcüklerde kesme işareti ya da tire yazabilir: sözcük içindeki işaretler atılır ("ram'i" → "rami")
         let all = raw.map { $0.filter { $0 != "'" && $0 != "’" && $0 != "-" } }.filter { !$0.isEmpty }
-        return parseReport(all) ?? parseVolume(all) ?? parseExamType(all) ?? parseCameraSetting(all)
+        return parseReport(all) ?? parseVolume(all) ?? parseExamType(all) ?? parseTrial(all) ?? parseViewCheck(all) ?? parseCameraSetting(all)
+    }
+
+    // MARK: Deneme çekimi ve kadraj kontrolü
+
+    static let trialWords: Set<String> = ["deneme", "denemesi", "denemeyi"]
+    static let shootNouns: Set<String> = ["cekim", "cekimi", "cekimini", "cekimine", "cekimde"]
+    static let trialVerbs: Set<String> = ["yap", "yapin", "yapalim", "baslat", "baslatin", "baslayalim", "basla", "olsun", "cek", "cekin", "cekelim", "baslasin"]
+    static let viewCheckVerbs: Set<String> = ["yap", "yapin", "yapalim", "baslat", "baslatin"]
+    static let viewCheckWords: Set<String> = [
+        "kontrol", "kontrolu", "kontrolunu", "denetle", "denetleme", "test", "testi", "bak", "bakalim", "dene", "deneyelim",
+        "nasil", "nasildir", "iyi", "uygun", "yeterli"
+    ]
+
+    /// "Deneme çekimi", "deneme çekimi yap", "deneme çekimini başlat": metnin TAMAMI deneme + çekim sözcüklerinden oluşur. "Denemeyi bitir" gibi sınav sözleri
+    /// çekim sözcüğü içermediği için komut olmaya devam eder (`parse` sonundaki "deneme" konu sözcüğü).
+    static func parseTrial(_ raw: [String]) -> VoiceCommand? {
+        guard raw.count >= 2, raw.count <= 6 else { return nil }
+        let words = raw.filter { !SpokenWords.exactly($0, settingPolite) }
+        guard words.count >= 2 else { return nil }
+        guard settingKnown(words, [trialWords, shootNouns, trialVerbs]), settingHas(words, trialWords), settingHas(words, shootNouns) else { return nil }
+        return .camera(.trial)
+    }
+
+    /// "Kadraj kontrolü", "kadrajı kontrol et", "kadraj nasıl", "kadraj iyi mi": kadraj sözcüğü ve bir kontrol sözcüğü. "Kadrajı dikey yap" ayar komutu kalır.
+    static func parseViewCheck(_ raw: [String]) -> VoiceCommand? {
+        guard raw.count >= 2, raw.count <= 6 else { return nil }
+        let words = raw.filter { !SpokenWords.exactly($0, settingPolite) }
+        guard words.count >= 2 else { return nil }
+        guard settingKnown(words, [frameNouns, viewCheckWords, viewCheckVerbs]), settingHas(words, frameNouns), settingHas(words, viewCheckWords) else { return nil }
+        return .camera(.viewCheck)
     }
 
     /// "Kamera sorusu olmasın": "olmasın" olumsuzlama listesinde olduğu için (`isNegated`) komut çözümünden ÖNCE, yalnız bu kalıp için ayrıca ele alınır:

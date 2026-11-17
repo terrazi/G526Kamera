@@ -72,7 +72,8 @@ final class AppEnvironment: ObservableObject {
         self.camera = camera
         self.cameraController = cameraController
         self.cameraTester = CameraTester(camera: cameraController, shortcuts: shortcuts, health: health, settings: settings,
-                                         cameraSettings: camera, sessionActive: { [weak session] in session?.phase.isRunning ?? false })
+                                         cameraSettings: camera, captureStore: captureStore,
+                                         sessionActive: { [weak session] in session?.phase.isRunning ?? false })
         self.session = session
         self.folderStore = folderStore
         self.settingsModel = SettingsViewModel(settings: settings, shortcuts: shortcuts, folder: folderStore,

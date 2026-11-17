@@ -7,6 +7,7 @@ struct ContentView: View {
     @EnvironmentObject private var settingsModel: SettingsViewModel
     @EnvironmentObject private var camera: CameraSettings
     @EnvironmentObject private var cameraController: CameraCaptureController
+    @EnvironmentObject private var tester: CameraTester
     @State private var showSettings = false
     @State private var confirmEnd = false
     /// "Programı kapat" düğmesine dokununca açılan yuvarlak, basılı tutmalı kapatma düğmesi görünüyor mu
@@ -382,6 +383,8 @@ struct ContentView: View {
                 Button("Başlat") { session.start() }
                     .buttonStyle(.borderedProminent)
                     .tint(.green)
+                    .disabled(tester.running)   // deneme çekimi sürerken telefon kameranın ağındadır
+                trialButton
                 Button("Cevapları Tekrarla") { session.startReplay() }
                     .buttonStyle(.bordered)
                     .disabled(!session.canReplay)
@@ -417,6 +420,36 @@ struct ContentView: View {
         }
         .frame(maxWidth: .infinity)
     }
+
+    /// Deneme çekimi (kullanıcı kararı 2026-11-17): kamera gerçek çekimdeki gibi bir oturum süresi çeker, video + PDF + rapor telefondaki Deneme klasörüne yazılır,
+    /// Gemini'ye hiçbir şey gitmez. Kullanıcı videoya ve rapora bakıp kamerayı tutuş biçimini düzeltir.
+    @ViewBuilder private var trialButton: some View {
+        Button(tester.running && tester.showsTrial ? "Deneme çekiliyor…" : "Deneme çekimi (\(cameraSettingsSeconds) sn)") {
+            Task { await tester.runTrial() }
+        }
+        .buttonStyle(.bordered)
+        .disabled(tester.running)
+        if tester.running && tester.showsTrial {
+            Button("Denemeyi durdur") { tester.stop() }
+                .buttonStyle(.bordered)
+            if !tester.progress.isEmpty {
+                Text(tester.progress).font(.footnote).foregroundColor(.secondary)
+            }
+        }
+        if tester.showsTrial, !tester.lines.isEmpty {
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(Array(tester.lines.enumerated()), id: \.offset) { _, line in
+                    Text(line)
+                        .font(.footnote)
+                        .foregroundColor(line.hasPrefix("✗") ? .orange : .secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private var cameraSettingsSeconds: Int { return camera.seriesSeconds }
 
     private var inputPicker: some View {
         VStack(alignment: .leading, spacing: 6) {

@@ -335,6 +335,61 @@ final class SeriesSelectionTests: XCTestCase {
         XCTAssertEqual(outcome.readable, 2)
     }
 
+    /// Çekimin teşhisi (kullanıcı kararı 2026-11-17): yazı tanımadan geçen pencerelerin sayısı, okunanlar, netliğin ortancası ve görülen soru numaraları
+    /// toplayıcıdan çıkar; hiçbir karede yazı okunmuyorsa ve görüntü bulanıksa "bulanık / çok yakın" denir
+    func testTheDiagnosisOfASessionWithNoReadableTextAndABlurryViewSaysBlurry() async {
+        let t0 = 5000.0
+        let sharpness: [Double] = [20, 30, 25, 10, 40, 35]
+        let collector = SeriesCollector(start: t0, maxPending: 1000, minPages: 3, reader: { _ in TextScore() },
+                                        renderer: { buffer in (data: Data([UInt8(self.id(of: buffer))]), width: 10, height: 10) })
+        for window in 0..<6 {
+            collector.offer(buffer: buffer(id: window + 1), time: t0 + Double(window) * 0.5 + 0.1, sharpness: sharpness[window],
+                            signature: [UInt8](repeating: UInt8(20 + 40 * window), count: 576))
+        }
+        let outcome = await collector.finish()
+        XCTAssertEqual(outcome.diagnosis.windows, 6)
+        XCTAssertEqual(outcome.diagnosis.readableWindows, 0)
+        XCTAssertEqual(outcome.diagnosis.medianSharpness, 27.5, accuracy: 0.001)
+        XCTAssertEqual(outcome.diagnosis.hint, .blurry)
+        XCTAssertEqual(outcome.diagnosis.spoken, CaptureSay.blurry)
+        XCTAssertEqual(outcome.stats.readable, 0)
+    }
+
+    func testTheDiagnosisCollectsTheSeenQuestionNumbersAndFindsTheSkippedOne() async {
+        let t0 = 5500.0
+        let numbers: [Int: Int] = [1: 11, 2: 12, 3: 14]
+        let collector = SeriesCollector(start: t0, maxPending: 1000, minPages: 0, reader: { buffer in
+            var t = TextScore()
+            t.chars = SeriesSelection.minChars + 300
+            t.confidence = 0.9
+            t.questionNumbers = [numbers[self.id(of: buffer)] ?? 0]
+            return t
+        }, renderer: { buffer in (data: Data([UInt8(self.id(of: buffer))]), width: 10, height: 10) })
+        for window in 0..<3 {
+            collector.offer(buffer: buffer(id: window + 1), time: t0 + Double(window) * 0.5 + 0.1, sharpness: 300,
+                            signature: [UInt8](repeating: UInt8(20 + 80 * window), count: 576))
+        }
+        let outcome = await collector.finish()
+        XCTAssertEqual(outcome.diagnosis.questionNumbers, [11, 12, 14])
+        XCTAssertEqual(outcome.diagnosis.missingNumbers, [13])
+        XCTAssertEqual(outcome.diagnosis.hint, .good)
+        XCTAssertEqual(outcome.diagnosis.spoken, CaptureSay.missingSeen([13]))
+        XCTAssertEqual(outcome.stats.readable, 3)
+        XCTAssertEqual(outcome.stats.weak, 0)
+    }
+
+    func testWithoutTextRecognitionNothingIsDiagnosed() async {
+        let t0 = 5800.0
+        let collector = SeriesCollector(start: t0, maxPending: 1000, minPages: 2, reader: { _ in nil },
+                                        renderer: { buffer in (data: Data([UInt8(self.id(of: buffer))]), width: 10, height: 10) })
+        collector.offer(buffer: buffer(id: 1), time: t0 + 0.1, sharpness: 5, signature: [UInt8](repeating: 20, count: 576))
+        collector.offer(buffer: buffer(id: 2), time: t0 + 0.6, sharpness: 6, signature: [UInt8](repeating: 200, count: 576))
+        let outcome = await collector.finish()
+        XCTAssertEqual(outcome.diagnosis.windows, 0, "Yazı tanıma çalışmadı: karar verilemez")
+        XCTAssertEqual(outcome.diagnosis.hint, .good)
+        XCTAssertEqual(outcome.diagnosis.spoken, "")
+    }
+
     func testFramesAfterFinishAreIgnored() async {
         let t0 = 4000.0
         let collector = SeriesCollector(start: t0, maxPending: 1000, reader: { _ in nil }, renderer: { _ in (data: Data([1]), width: 10, height: 10) })

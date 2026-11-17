@@ -464,6 +464,13 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         return folder.appendingPathComponent("soru-\(Int(Date().timeIntervalSince1970))-\(UUID().uuidString.prefix(6)).mp4")
     }
 
+    /// Deneme çekiminin geçici video adresi (klasöre taşınınca burada kalmaz)
+    static func newTrialVideoURL() -> URL {
+        let folder = videoFolder
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return folder.appendingPathComponent("deneme-\(Int(Date().timeIntervalSince1970))-\(UUID().uuidString.prefix(6)).mp4")
+    }
+
     /// Uygulama açılırken önceki çalışmadan kalan videolar silinir: bekleyen çekim listesi bellekte durur, uygulama kapanınca dosyalar sahipsiz kalırdı
     static func purgeLeftoverVideos() {
         let files = (try? FileManager.default.contentsOfDirectory(at: videoFolder, includingPropertiesForKeys: nil)) ?? []
@@ -564,6 +571,30 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
     /// kullanıcı sayfaları kendi hızında gösterir (biri 3 sn, biri 8 sn); bütün oturumun fotoğrafları TEK PDF olur, video yoktur.
     /// Kameradan görüntü `seriesLostSeconds` sn kesilirse oturum bırakılır, o ana kadar alınan fotoğraflar döner (`failure` dolu).
     func captureSeries(seconds: Int, connectLimit: TimeInterval?) async -> Result<PageSeries, CameraFailure> {
+        return await runSeries(seconds: seconds, connectLimit: connectLimit, trial: false)
+    }
+
+    /// Deneme çekimi: toplu çekimin aynısı, ek olarak video kaydedilir (el hareketi ve mesafe izlensin); sonuç Gemini'ye gönderilmez (çağıran klasöre yazar)
+    func captureTrial(seconds: Int, connectLimit: TimeInterval?) async -> Result<PageSeries, CameraFailure> {
+        return await runSeries(seconds: seconds, connectLimit: connectLimit, trial: true)
+    }
+
+    /// Kadraj kontrolü (Başla'dan önce): hazır bekleyen canlı kamerada 1,5 sn taze kare toplanır, en netinin yazısı okunur. Çekim yapılmaz.
+    func checkView() async -> ViewCheck? {
+        guard holdingLive, !shooting else { return nil }
+        let from = ProcessInfo.processInfo.systemUptime
+        try? await Task.sleep(nanoseconds: 1_500_000_000)
+        guard holdingLive, !shooting else { return nil }
+        let fresh = pipeline.store.frames(from: from, to: ProcessInfo.processInfo.systemUptime + 1)
+        guard let best = fresh.max(by: { $0.sharpness < $1.sharpness }) else { return ViewCheck(frames: 0, sharpness: 0, text: nil) }
+        let orientation = settings.imageOrientation
+        let buffer = best.buffer
+        let text = await Task.detached(priority: .userInitiated) { SeriesTextReader.read(buffer, orientation: orientation) }.value
+        tlog("[kamera] kadraj kontrolü: \(fresh.count) taze kare, en net kare netlik \(Int(best.sharpness.rounded())), \(text.map { $0.summary } ?? "yazı tanıma yok")")
+        return ViewCheck(frames: fresh.count, sharpness: best.sharpness, text: text)
+    }
+
+    private func runSeries(seconds: Int, connectLimit: TimeInterval?, trial: Bool) async -> Result<PageSeries, CameraFailure> {
         // "Başla" denince kamera zaten bağlı ve görüntü akıyorsa (hazır bekleme, bkz. `holdOpen`) o bağlantı kullanılır: yeniden bağlanma yoktur,
         // süre hemen başlar. Bağlantı kopmuşsa kapatılır ve baştan bağlanılır.
         let adopted = holdingLive
@@ -597,13 +628,13 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
             guard live else { return .failure(connectFailure()) }
         }
         pipeline.guidanceOn = false
-        return await shootSeries(seconds: max(1, seconds))
+        return await shootSeries(seconds: max(1, seconds), trial: trial)
     }
 
     /// Kameranın verdiği HER kare ölçülür; 0,5 sn'lik pencerelerin en net karesi yazı tanımadan geçer, okunabilenler PDF'e girer (bkz. `SeriesSelection`).
     /// Yazı tanıma yalnız sıralama yardımcısıdır, hiçbir kareyi veto etmez: okunan kare azsa en net kareler eklenir, çekim "okunamadı" diye çöpe gitmez
     /// (kare geldiyse PDF kurulur, telefondaki klasöre yazılır ve Gemini'ye gider; hiç soru yoksa Gemini "soru yok" der).
-    private func shootSeries(seconds: Int) async -> Result<PageSeries, CameraFailure> {
+    private func shootSeries(seconds: Int, trial: Bool = false) async -> Result<PageSeries, CameraFailure> {
         shooting = true
         let total = seconds
         let options = captureOptions()
@@ -625,9 +656,17 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
             pipeline.seriesSink = nil
             pipeline.fullRate = false
         }
+        var videoURL: URL?
+        if trial {
+            // Deneme çekimi: aynı kareler ayrıca videoya yazılır (saniyede 8 kare; kullanıcı el hareketini ve mesafeyi izler)
+            let url = CameraCaptureController.newTrialVideoURL()
+            videoRecorder.start(to: url, orientation: settings.imageOrientation, maxSeconds: Double(total) + 1,
+                                fps: VideoRecorder.trialFps, maxBitrate: VideoRecorder.trialMaxBitrate)
+            videoURL = url
+        }
         var lostFor = 0
         var cutAt: Int?
-        tlog("[kamera] toplu çekim başladı: \(seconds) sn (konuşma ve titreşim yok; her kare ölçülür, \(SeriesSelection.window) sn'lik pencerelerin en iyisi yazı tanımadan geçer)")
+        tlog("[kamera] \(trial ? "deneme çekimi" : "toplu çekim") başladı: \(seconds) sn (konuşma ve titreşim yok; her kare ölçülür, \(SeriesSelection.window) sn'lik pencerelerin en iyisi yazı tanımadan geçer)")
         for second in 1...total {
             if cancelled { break }
             status("Çekim: \(second)/\(total) sn")
@@ -646,15 +685,32 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
             }
         }
         pipeline.seriesSink = nil
-        if cancelled { return .failure(.cancelled) }
+        if cancelled {
+            if trial { videoRecorder.cancel() }
+            return .failure(.cancelled)
+        }
+        var videoOutput: VideoRecorder.Output?
+        if trial {
+            videoOutput = await withCheckedContinuation { (continuation: CheckedContinuation<VideoRecorder.Output?, Never>) in
+                videoRecorder.finish { result in
+                    if case .success(let out) = result { continuation.resume(returning: out) } else { continuation.resume(returning: nil) }
+                }
+            }
+        }
         let outcome = await collector.finish()
-        if cancelled { return .failure(.cancelled) }
+        if cancelled {
+            if let url = videoOutput?.url ?? videoURL { try? FileManager.default.removeItem(at: url) }
+            return .failure(.cancelled)
+        }
         let stats = outcome.stats
         let elapsed = max(1.0, ProcessInfo.processInfo.systemUptime - t0)
         let rawFrames = max(0, pipeline.framesSeen - rawBefore)
         tlog("[kamera] toplu çekim özeti: kameradan \(rawFrames) kare geldi (≈\(Int((Double(rawFrames) / elapsed).rounded()))/sn), \(stats.offered) kare ölçüldü (≈\(Int((Double(stats.offered) / elapsed).rounded()))/sn), \(stats.windows) pencere: \(stats.weak) tanesinin yazısı okunamadı (zayıf aday), \(stats.busySkipped) atlandı, \(stats.merged) tekrar birleşti, \(stats.kept) aday → \(outcome.items.count) fotoğraf (\(outcome.readable) tanesi okunan); yazı tanıma \(stats.read) kez çalıştı, \(stats.readFailed) kez çalışmadı; görülen soru numaraları: \(outcome.questionNumbers.map { String($0) }.joined(separator: ","))")
         // Kare geldiği halde hiç aday çıkmadıysa (hepsinin fotoğrafı oluşturulamadı) ya da görüntü baştan kesildiyse çekim yoktur
-        guard let best = outcome.items.max(by: { $0.rank < $1.rank }) else { return .failure(.noFrames) }
+        guard let best = outcome.items.max(by: { $0.rank < $1.rank }) else {
+            if let url = videoOutput?.url ?? videoURL { try? FileManager.default.removeItem(at: url) }
+            return .failure(.noFrames)
+        }
         if outcome.readable == 0 { tlog("[kamera] toplu çekim: hiçbir karede yazı okunamadı; en net \(outcome.items.count) kare yine de gönderilecek (yazı tanıma zayıf kalmış olabilir)") }
         // Seçilen fotoğraflar zaman sırasıyla TEK PDF olur; toplam bütçeyi aşarsa fotoğraflar yeniden sıkıştırılır
         let raw = outcome.items.map { $0.jpeg }
@@ -668,9 +724,16 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         shot.pageCount = pdf == nil ? 0 : outcome.items.count
         shot.date = Date()
         shot.isPage = true
+        shot.seenNumbers = outcome.questionNumbers
+        shot.video = videoOutput?.url
+        shot.videoBytes = videoOutput?.bytes ?? 0
+        shot.videoSeconds = videoOutput?.seconds ?? 0
+        if trial { tlog("[kamera] deneme çekimi: video \(videoOutput.map { "\($0.bytes / 1024) KB, \(Int($0.seconds.rounded())) sn" } ?? "yazılamadı")") }
+        let report = trial ? outcome.diagnosis.report(seconds: Int(elapsed.rounded()), measured: stats.offered, selected: outcome.items.count, readable: outcome.readable) : ""
         // Görüntü akışı kesildiyse oturum yarımdır (planlanan süre dolmadı); değilse "planlanan" = seçilen fotoğraf sayısı: seçim süreyle değil kaliteyle yapılır
         let failure: CameraFailure? = cutAt != nil ? .noFrames : nil
-        return .success(PageSeries(shot: shot, planned: cutAt != nil ? total : outcome.items.count, failure: failure, readable: outcome.readable > 0))
+        return .success(PageSeries(shot: shot, planned: cutAt != nil ? total : outcome.items.count, failure: failure, readable: outcome.readable > 0,
+                                  diagnosis: outcome.diagnosis, report: report))
     }
 
     // MARK: Yardımcılar

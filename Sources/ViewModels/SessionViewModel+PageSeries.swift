@@ -118,7 +118,8 @@ extension SessionViewModel {
         if case .success(let series) = result {
             let kept = deps.captureStore.keep(shapedShot(series.shot, isPassage: false), kind: .page)
             keepPending(kept)
-            result = .success(PageSeries(shot: kept, planned: series.planned, failure: series.failure, readable: series.readable))
+            result = .success(PageSeries(shot: kept, planned: series.planned, failure: series.failure, readable: series.readable,
+                                         diagnosis: series.diagnosis, report: series.report))
         }
         var cameraGaveUp = false
         if case .failure(let failure) = result, failure == .notConnected || failure == .noFrames, !Task.isCancelled, phase == .answering {
@@ -162,7 +163,10 @@ extension SessionViewModel {
             tlog("[kamera] toplu çekim bitti: \(taken)/\(series.planned) fotoğraflık PDF\(series.failure.map { "; kesilme nedeni: \($0.message)" } ?? ""); internet \(online ? "geldi" : "gelmedi")")
             if online {
                 clearWarning("kamera")
-                guard await speakNotice(Say.seriesDone(taken: taken, planned: series.planned, readable: series.readable)) else { return }   // kesildi: PDF bekliyor, onarımdan sonra gönderilir
+                // Çekimin teşhisi (bulanık, çok yakın, yazı yok, görünmeyen numaralar) aynı cümlede söylenir: kullanıcı bir sonraki çekimi buna göre düzeltir
+                let advice = series.diagnosis?.spoken ?? ""
+                let done = Say.seriesDone(taken: taken, planned: series.planned, readable: series.readable) + (advice.isEmpty ? "" : " " + advice)
+                guard await speakNotice(done) else { return }   // kesildi: PDF bekliyor, onarımdan sonra gönderilir
                 // PDF bekleyenlerdedir: dinleme açılırken gönderilir (bkz. `beginListening`, `sendPendingShots`); cevaplar okunur, bitince yeni oturum sorulur
                 armCameraOffer()
                 beginListening()
@@ -208,6 +212,7 @@ extension SessionViewModel {
         queuedReplies = []
         completePending(page, answer: pageSpokenAll.joined(separator: "\n"))
         pageSpokenAll = []
+        pageReplyNumbers = []
     }
 
     /// Gemini sayfada soru bulamadı: satır listeden çıkar (numara tüketilmez), kullanıcıya söylenir, sıradaki sayfaya / dinlemeye geçilir

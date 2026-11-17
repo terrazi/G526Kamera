@@ -21,6 +21,7 @@ extension SessionViewModel {
         case .volume(let action): return LiveReply(text: await changeVolume(action))
         case .camera(.examType(let type)): return await changeExamType(type, mode: mode)   // çekim sürerken de söylenebilir (bkz. `SessionViewModel+ExamType`)
         case .camera(.examTypeAsk): return LiveReply(text: Say.examTypeAnswer(settings.examType))
+        case .camera(.viewCheck): return LiveReply(text: await viewCheckText())
         case .camera(let action): return changeCameraSetting(action, mode: mode)
         default: return LiveReply(text: Say.nothingToRepeat)
         }
@@ -211,6 +212,8 @@ extension SessionViewModel {
             return LiveReply(text: Say.cameraPreview(on: on, already: already))
         case .examType, .examTypeAsk:
             return LiveReply(text: Say.examTypeAnswer(settings.examType))   // `liveReply` bunları önceden ele alır
+        case .trial, .viewCheck:
+            return LiveReply(text: CaptureSay.viewNotReady)   // deneme çekimini `performInfo`, kadraj kontrolünü `liveReply` önceden ele alır
         }
     }
 }

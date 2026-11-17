@@ -396,6 +396,7 @@ extension SessionViewModel {
         queuedReplies = []   // yeni gönderim: önceki sayfadan kalan cevap yoktur
         pageBeingRead = nil
         pageSpokenAll = []
+        pageReplyNumbers = []
         sendingShotID = shot.id
         defer { sendingShotID = nil }
         phase = .answering
@@ -432,6 +433,7 @@ extension SessionViewModel {
                     queuedReplies = Array(replies.dropFirst())
                     pageBeingRead = shot
                     pageSpokenAll = replies.map { $0.spoken }.filter { !$0.isEmpty }
+                    pageReplyNumbers = replies.compactMap { $0.number }
                     tlog("[sayfa] Gemini sayfa için \(replies.count) cevap verdi")
                     reply = first
                 } else {

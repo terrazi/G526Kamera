@@ -461,6 +461,8 @@ final class SessionViewModel: ObservableObject {
     var pageBeingRead: CapturedQuestion?
     /// O sayfanın bütün cevap cümleleri ("Gönderilen" klasörüne yazılır)
     var pageSpokenAll: [String] = []
+    /// O sayfanın cevaplarındaki soru numaraları (Gemini'nin okuduğu): cevapların okunması bitince atlanan sorular söylenir (bkz. `pageMissingNote`)
+    var pageReplyNumbers: [Int] = []
     var drainActive = false
     /// Toplu gönderimin başındaki bekleyen sayısı ve şimdiye dek sıraya giren çekim sayısı ("Bekleyen 3 sorudan ikinci gönderiliyor")
     var drainTotal = 0
@@ -813,6 +815,7 @@ final class SessionViewModel: ObservableObject {
     func beginListening(mode: ListenMode = .question, keepPartial: Bool = false) {
         queuedReplies = []   // dinlemeye dönüldü: yarıda kalan sayfanın kalan cevapları bayatlar (sayfa bekleyende durur, yeniden gönderilir)
         pageBeingRead = nil
+        pageReplyNumbers = []
         if mode != .confirmEnd {   // silme / numara düzeltme onayı yalnız onay kipinde geçerlidir; başka kipe geçilince bayat kalmaz
             pendingDelete = nil
             pendingRenumber = nil
@@ -1959,7 +1962,13 @@ final class SessionViewModel: ObservableObject {
                 await readNextQueuedReply()
                 return
             }
+            // Toplu çekimde cevaplar bitti: atlanan sorular varsa söylenir (sayfa sıfırlanmadan önce hesaplanır); söylenirken kesilirse sayfa zaten tamamlanmıştır
+            let missingNote = pageMissingNote()
             completeReadPage()
+            if !missingNote.isEmpty {
+                guard await speakNotice(missingNote) else { return }
+                guard !Task.isCancelled, phase == .speaking else { return }
+            }
             guard await promptNextQuestion() else { return }   // "Lütfen sonraki soruyu okuyun"; yarıda kesilirse akışı duraklama/onarım sürdürür
             beginListening()
         } catch is CancellationError {

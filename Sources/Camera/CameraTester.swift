@@ -14,6 +14,10 @@ final class CameraTester: ObservableObject {
     @Published private(set) var lines: [String] = []
     /// Deneme çekiminin fotoğrafı (ekranda küçük resim olarak gösterilir: kadraj ve netlik gözle görülsün). Hiçbir yere gönderilmez, dosyası silinir.
     @Published private(set) var lastPhoto: Data?
+    /// Son çalışma ana ekrandaki "Deneme çekimi" miydi (satırlar ana ekranda gösterilir; Ayarlar'daki sınama satırları karışmasın)
+    @Published private(set) var showsTrial = false
+    /// Deneme çekiminin süren aşaması ("Çekim: 12/75 sn"); çalışma bitince boş
+    @Published private(set) var progress = ""
 
     /// İnternetin gelmesi için en çok bu kadar yoklanır (2 sn arayla)
     static let internetPolls = 15
@@ -24,12 +28,13 @@ final class CameraTester: ObservableObject {
     private let health: HealthChecking
     private let settings: AppSettings
     private let cameraSettings: CameraSettings
+    private let captureStore: CaptureStoring
     private let sessionActive: () -> Bool
     private let sleep: (TimeInterval) async -> Void
     private var stopped = false
 
     init(camera: CameraCapturing, shortcuts: ShortcutRunning, health: HealthChecking, settings: AppSettings,
-         cameraSettings: CameraSettings, sessionActive: @escaping () -> Bool,
+         cameraSettings: CameraSettings, captureStore: CaptureStoring = NoCaptureStore(), sessionActive: @escaping () -> Bool,
          sleep: @escaping (TimeInterval) async -> Void = { seconds in
              try? await Task.sleep(nanoseconds: UInt64(max(0, seconds) * 1_000_000_000))
          }) {
@@ -38,6 +43,7 @@ final class CameraTester: ObservableObject {
         self.health = health
         self.settings = settings
         self.cameraSettings = cameraSettings
+        self.captureStore = captureStore
         self.sessionActive = sessionActive
         self.sleep = sleep
     }
@@ -67,6 +73,7 @@ final class CameraTester: ObservableObject {
         }
         running = true
         stopped = false
+        showsTrial = false
         lines = []
         lastPhoto = nil
         defer { running = false }
@@ -95,7 +102,72 @@ final class CameraTester: ObservableObject {
             lines.append("🔋 " + level.shortText + " (son görüntü karesinden okundu).")
         }
 
-        // 3) Hücresele geç ve internetin gelmesini bekle. SIM kart yoksa hücresel kestirme internet getirmez, yalnız Wi-Fi'yi kapatır: atlanır
+        await backToInternet(internetName: internetName)
+    }
+
+    /// Deneme çekimi (ana ekrandaki düğme, kullanıcı kararı 2026-11-17): sınavdaki gibi kameraya geçilir ve bir oturum süresi (Ayarlar > Toplu çekim süresi)
+    /// çekilir; kareler ayrıca videoya yazılır. Video + PDF + rapor telefondaki `Cekimler/Deneme` klasörüne yazılır, Gemini'ye GİTMEZ, soru numarası
+    /// tüketilmez. Sonra internete dönülür. Kullanıcı videodan elinin hareketini ve kameranın sayfaya uzaklığını izler, raporda ölçüleri görür.
+    func runTrial() async {
+        guard !running else { return }
+        guard !sessionActive() else {
+            lines = ["Sınav sürerken deneme çekimi yapılmaz: önce testi bitirin."]
+            showsTrial = true
+            return
+        }
+        let cameraName = cameraSettings.cameraShortcutName.trimmed
+        let internetName = settings.internetShortcut.trimmed
+        var missing: [String] = []
+        if CameraUID(cameraSettings.uid) == nil { missing.append("kamera adı (UID)") }
+        if cameraName.isEmpty { missing.append("“Kameraya geç” kestirmesinin adı") }
+        if internetName.isEmpty { missing.append("“Hücresele geç” kestirmesinin adı") }
+        guard missing.isEmpty else {
+            lines = ["Önce şunları yazın (Ayarlar > Kamera): " + missing.joined(separator: ", ") + "."]
+            showsTrial = true
+            return
+        }
+        running = true
+        stopped = false
+        showsTrial = true
+        lines = []
+        lastPhoto = nil
+        progress = ""
+        defer {
+            running = false
+            progress = ""
+        }
+        let seconds = cameraSettings.seriesSeconds
+
+        lines.append("1/3 Kameraya geçiliyor: “\(cameraName)”…")
+        let toCamera = await shortcuts.run(name: cameraName)
+        lines.append(SettingsViewModel.text(for: toCamera))
+
+        if !stopped {
+            lines.append("2/3 Deneme çekimi: \(seconds) sn. Sayfaları gerçek çekimdeki gibi gösterin (iOS yerel ağ izni sorarsa “İzin ver”e basın)…")
+            camera.onStatus = { [weak self] text in self?.progress = text }
+            let result = await camera.captureTrial(seconds: seconds, connectLimit: nil)
+            camera.onStatus = nil
+            switch result {
+            case .success(let series):
+                lastPhoto = series.shot.photo
+                let video = series.shot.video == nil ? "video yazılamadı" : "video \(series.shot.videoBytes / 1024) KB"
+                if captureStore.keepTrial(series.shot, report: series.report) != nil {
+                    lines.append("✓ Deneme bitti: \(series.shot.pageCount) sayfalık PDF, \(video). Telefonda Dosyalar > Sesli Kontrol > Cekimler > Deneme klasörüne yazıldı (Gemini'ye gönderilmedi).")
+                    lines.append(contentsOf: series.report.split(separator: "\n", omittingEmptySubsequences: true).dropFirst().map(String.init))
+                } else {
+                    lines.append("✗ Deneme çekimi klasöre yazılamadı (yer kalmamış olabilir).")
+                }
+                if series.failure != nil { lines.append("⚠ Görüntü akışı yarıda kesildi; çekim eksik.") }
+            case .failure(let failure):
+                lines.append("✗ " + failure.message + CameraTester.hint(for: failure))
+            }
+        }
+
+        await backToInternet(internetName: internetName)
+    }
+
+    /// 3) Hücresele geç ve internetin gelmesini bekle. SIM kart yoksa hücresel kestirme internet getirmez, yalnız Wi-Fi'yi kapatır: atlanır
+    private func backToInternet(internetName: String) async {
         if !health.hasCellularService() {
             lines.append("3/3 Telefonda SIM kart yok: “\(internetName)” kestirmesi çalıştırılmadı (yalnız Wi-Fi'yi kapatırdı). Kamera ağından çıkıp internet olan bir Wi-Fi ağına bağlanın.")
             return

@@ -409,12 +409,37 @@ final class FakeCamera: CameraCapturing {
         return seriesResults.removeFirst()
     }
 
+    /// Deneme çekimi: sırayla verilecek sonuçlar (boşsa kamera yok), yapılan çağrılar. Gerçek kamerada olduğu gibi hazır bekleyen bağlantı devralınır ve kapanır.
+    var trialResults: [Result<PageSeries, CameraFailure>] = []
+    private(set) var trialCalls: [(seconds: Int, limit: TimeInterval?)] = []
+    private(set) var trialHeldAtStart: [Bool] = []
+    var onTrial: (() -> Void)?
+
+    func captureTrial(seconds: Int, connectLimit: TimeInterval?) async -> Result<PageSeries, CameraFailure> {
+        trialCalls.append((seconds, connectLimit))
+        trialHeldAtStart.append(holdingLive)
+        isHeld = false
+        onTrial?()
+        guard !trialResults.isEmpty else { return .failure(.unavailable) }
+        return trialResults.removeFirst()
+    }
+
+    /// Kadraj kontrolü: sırayla verilecek sonuçlar (boşsa nil: kamera hazır değil) ve yapılan çağrı sayısı
+    var viewChecks: [ViewCheck?] = []
+    private(set) var viewCheckCalls = 0
+
+    func checkView() async -> ViewCheck? {
+        viewCheckCalls += 1
+        return viewChecks.isEmpty ? nil : viewChecks.removeFirst()
+    }
+
     /// Toplu çekimin tek PDF'i: `isPage` işaretli, `photos` fotoğraflık PDF'i varmış gibi
-    static func page(_ tag: UInt8 = 1, photos: Int = 75) -> CapturedQuestion {
+    static func page(_ tag: UInt8 = 1, photos: Int = 75, seen: [Int] = []) -> CapturedQuestion {
         var s = CapturedQuestion(photo: Data([tag, 2, 3]))
         s.pdf = Data([tag, 9, 9, 9])
         s.pageCount = photos
         s.isPage = true
+        s.seenNumbers = seen
         return s
     }
 

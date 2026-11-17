@@ -283,6 +283,8 @@ final class SeriesCollector {
         /// Yazı tanıma çalıştı / çalışmadı
         var read = 0
         var readFailed = 0
+        /// Yazısı okunabilen pencere
+        var readable = 0
         /// Yazısı okunamayan (bulanık, küçük, eğik ya da boş) pencere: elenmez, zayıf aday olarak havuza girer
         var weak = 0
         /// Yazı tanıma yetişemediği için atlanan pencere
@@ -300,6 +302,8 @@ final class SeriesCollector {
         var stats: Stats
         /// Karelerde görülen soru numaraları (günlük için)
         var questionNumbers: [Int]
+        /// Çekimin teşhisi: bulanık / çok yakın / yazı yok / numara boşluğu (bkz. `CaptureDiagnosis`)
+        var diagnosis: CaptureDiagnosis
     }
 
     private let lock = NSLock()
@@ -309,6 +313,8 @@ final class SeriesCollector {
     private var pending = 0
     private var finished = false
     private var numbers = Set<Int>()
+    /// Yazı tanımadan geçen pencere kazananlarının netliği (teşhis için)
+    private var sharpnesses: [Double] = []
     private let start: TimeInterval
     private let queue = DispatchQueue(label: "g526.series", qos: .userInitiated)
     private let reader: Reader
@@ -369,7 +375,8 @@ final class SeriesCollector {
         lock.lock()
         if let text = text {
             stats.read += 1
-            if !text.isReadable { stats.weak += 1 }
+            sharpnesses.append(frame.sharpness)
+            if text.isReadable { stats.readable += 1 } else { stats.weak += 1 }
         } else {
             stats.readFailed += 1
             stats.weak += 1
@@ -418,7 +425,11 @@ final class SeriesCollector {
         var result = stats
         result.merged = pool.merged
         let chosen = pool.selected(minPages: minPages)
-        return Outcome(items: chosen, readable: chosen.filter { $0.isUseful }.count, stats: result, questionNumbers: numbers.sorted())
+        let seen = numbers.sorted()
+        // Yazı tanıma hiç çalışmadıysa (read == 0) teşhis konmaz: pencere sayısı 0 kalır
+        let diagnosis = CaptureDiagnosis(windows: result.read, readableWindows: result.readable,
+                                         medianSharpness: CaptureDiagnosis.median(sharpnesses), questionNumbers: seen)
+        return Outcome(items: chosen, readable: chosen.filter { $0.isUseful }.count, stats: result, questionNumbers: seen, diagnosis: diagnosis)
     }
 
     /// Açık pencereyi kapatır, bekleyen işlerin bitmesini bekler ve sonucu verir. Bundan sonra gelen kareler yok sayılır.

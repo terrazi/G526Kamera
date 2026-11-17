@@ -147,10 +147,11 @@ struct CameraSettingsSections: View {
                     Task { await tester.run() }
                 }
             }
-            ForEach(Array(tester.lines.enumerated()), id: \.offset) { _, line in
+            // Ana ekrandaki "Deneme çekimi"nin satırları orada gösterilir; burada yalnız bu sınamanın satırları
+            ForEach(Array((tester.showsTrial ? [] : tester.lines).enumerated()), id: \.offset) { _, line in
                 Text(line).font(.footnote).fixedSize(horizontal: false, vertical: true)
             }
-            if let data = tester.lastPhoto, let image = UIImage(data: data) {
+            if !tester.showsTrial, let data = tester.lastPhoto, let image = UIImage(data: data) {
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFit()
