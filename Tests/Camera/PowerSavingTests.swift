@@ -18,15 +18,20 @@ final class PowerSavingTests: XCTestCase {
         return buffer
     }
 
+    /// Kuyruktaki bütün kareler analiz edilene kadar bekler (en çok 10 sn). Sabit uyku yavaş CI makinelerinde kareyi birikme sınırına takıp sayıyı bozuyordu.
+    private func drain(_ pipeline: FramePipeline) {
+        let deadline = Date().addingTimeInterval(10)
+        while pipeline.analysisBacklog > 0 && Date() < deadline { usleep(5_000) }
+    }
+
     private func analyzedCount(saving: Bool, fullRate: Bool = false) -> Int {
         let pipeline = FramePipeline()
         pipeline.saving = saving
         pipeline.fullRate = fullRate
         for i in 0..<10 {
             pipeline.handle(planarBuffer(), time: Double(i))
-            usleep(80_000)      // analiz kuyruğu boşalsın (birikme sınırına takılmasın)
+            drain(pipeline)     // analiz kuyruğu boşalsın (birikme sınırına takılmasın)
         }
-        usleep(300_000)
         return pipeline.store.frames(from: -1, to: 100).count
     }
 

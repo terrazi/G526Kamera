@@ -85,6 +85,13 @@ final class FramePipeline {
         engine = CaptureEngine(store: store)
     }
 
+    /// Analiz kuyruğunda bekleyen kare sayısı (testler kuyruğun boşalmasını sabit süre yerine bununla bekler)
+    var analysisBacklog: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return backlog
+    }
+
     func handle(_ pixelBuffer: CVPixelBuffer, time: TimeInterval) {
         let power = saving
         if !power { renderer.enqueue(pixelBuffer) }
