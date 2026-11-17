@@ -21,6 +21,7 @@ struct SettingsView: View {
                 geminiProfilesSection
                 sectionsSection
                 folderSection
+                CleanupSection()
                 readingSection
                 replaySection
                 voiceScreenSection

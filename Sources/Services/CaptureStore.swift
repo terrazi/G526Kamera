@@ -54,6 +54,10 @@ protocol CaptureStoring: AnyObject {
     @discardableResult func deleteSent() -> Int
     /// Bütün çekimleri siler (bekleyenler dahil); silinen sayısı döner. Yalnız kullanıcı istediğinde çağrılır.
     @discardableResult func deleteAll() -> Int
+    /// `cutoff`'tan sonra çekilmiş çekimlerin sayısı, hangi bölümde olursa olsun (nil: hepsi). Ayarlar > Eski kayıtları sil
+    func count(since cutoff: Date?) -> Int
+    /// `cutoff`'tan sonra çekilmiş çekimleri siler (bekleyenler dahil; nil: hepsi); silinen sayısı döner. Yalnız kullanıcı istediğinde çağrılır.
+    @discardableResult func delete(since cutoff: Date?) -> Int
 }
 
 /// Çekimleri saklamayan bileşen (kamera akışı olmayan oturumlar ve eski testler): çekim bellekte kalır, gönderilince video dosyası silinir
@@ -65,6 +69,8 @@ final class NoCaptureStore: CaptureStoring {
     func summary() -> CaptureFolderSummary { return CaptureFolderSummary() }
     func deleteSent() -> Int { return 0 }
     func deleteAll() -> Int { return 0 }
+    func count(since cutoff: Date?) -> Int { return 0 }
+    func delete(since cutoff: Date?) -> Int { return 0 }
 }
 
 /// Dosya sistemindeki klasör: `Documents/Cekimler` (Dosyalar uygulamasında "Bu iPhone'da > Sesli Kontrol > Cekimler").
@@ -221,6 +227,43 @@ final class FileCaptureStore: CaptureStoring {
 
     func deleteAll() -> Int {
         return remove(Bucket.allCases)
+    }
+
+    /// Çekimin zamanı: bilgi.json'daki tarih; yoksa klasör adındaki tarih ("20261115-223912_ab12cd34"); o da yoksa klasörün oluşturulma tarihi.
+    /// Hiçbiri okunamazsa en eski sayılır (süreli aralıklarda silinmez, yalnız "tümü"nde silinir).
+    private func captureDate(of dir: URL) -> Date {
+        if let saved = readInfo(in: dir) { return Date(timeIntervalSince1970: saved.date) }
+        let stamp = dir.lastPathComponent.split(separator: "_", maxSplits: 1).first.map(String.init) ?? ""
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        if let named = formatter.date(from: stamp) { return named }
+        return (try? dir.resourceValues(forKeys: [.creationDateKey]))?.creationDate ?? .distantPast
+    }
+
+    private func captureFolders(since cutoff: Date?) -> [URL] {
+        var found: [URL] = []
+        for bucket in Bucket.allCases {
+            for dir in subfolders(of: url(of: bucket)) {
+                if let cutoff = cutoff, captureDate(of: dir) < cutoff { continue }
+                found.append(dir)
+            }
+        }
+        return found
+    }
+
+    func count(since cutoff: Date?) -> Int {
+        return captureFolders(since: cutoff).count
+    }
+
+    func delete(since cutoff: Date?) -> Int {
+        var removed = 0
+        for dir in captureFolders(since: cutoff) {
+            if (try? fm.removeItem(at: dir)) != nil { removed += 1 }
+        }
+        folders = folders.filter { fm.fileExists(atPath: $0.value.path) }
+        tlog("[çekim klasörü] kullanıcı isteğiyle \(removed) çekim silindi (\(cutoff == nil ? "tümü" : "aralıktakiler"))")
+        return removed
     }
 
     private func remove(_ buckets: [Bucket]) -> Int {

@@ -68,6 +68,11 @@ Ayarlar bölümleri **akordiyon** gibidir: açılışta yalnız başlıklar gör
   cevapları o testin numaralarıyla kaydedilir). **Hiçbir çekim kendiliğinden silinmez**; ayarlardaki "Gönderilenleri sil" ve "Tümünü
   sil (bekleyenler dahil)" düğmeleri onay sorar ve test sürerken çalışmaz. Ayarlar bölümü kaç çekim olduğunu ve kapladığı yeri gösterir.
   Telefonda yer azalırsa çekim klasöre yazılamayabilir; o çekim bellekte tutulur ama test biterse gönderilemez (ekranda yazılır).
+- **Eski kayıtları sil (Ayarlar > Eski kayıtları sil):** "Eski kayıtları ve dosyaları sil" seçeneğini işaretleyince program hangi kayıtların
+  silineceğini sorar: **Son 1 saat, Son 6 saat, Son 24 saat, Tüm kayıtlar** (her birinin yanında silinecek sayı yazar; "Vazgeç" ile çıkılır).
+  Seçilen süre içinde **başlamış** sınav kayıtları (kayıt klasöründeki cevap sesleri ve cevaplar.txt) ile Cekimler klasöründeki çekimler
+  (bekleyenler dahil; bekleyenlerin cevabı artık alınamaz) silinir. Kayıt klasöründeki başka dosya ve klasörlere dokunulmaz. Geri alınamaz;
+  test sürerken kapalıdır. Seçenek işlemden sonra kendiliğinden kapanır.
 - **Telefon sesi:** "Otomatik" en kaliteli kurulu Türkçe sesi seçer; isterseniz listeden başka ses seçin. Ana ekrandaki **Sesi dene**
   seçtiğiniz sesi kulaklıktan dinletir.
 - **Uyarıları sesli söyle:** (açık gelir) ekrana yazılan her uyarı kulaklıktan da kısaca söylenir: internet koptu, mikrofon yok, onarım başarısız, şarj azaldı, yedek modelden cevap geldi… (hangi modelin cevapladığı söylenmez; yalnız cevap diğer modeller yanıt vermeyince ÜCRETLİ modelden gelirse “Ücretli modelden cevaplandı” denir. Sunucunun uzun, çoğu İngilizce hata metni ve açıklamalar yalnız ekranda yazar, hiç okunmaz). Yalnız Bluetooth kulaklıktan çalar (kulaklık yoksa hiçbir şey çalınmaz; ses telefondan çıkmaz). Soru okunurken ya da cevap beklenirken araya girmez: duraklama ve onarım anlarında hemen, aksi hâlde cevap duyulduktan sonra söylenir. Aynı cümle 5 dakika içinde tekrar etmez.

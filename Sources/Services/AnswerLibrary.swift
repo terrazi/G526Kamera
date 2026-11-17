@@ -12,7 +12,8 @@ struct AnswerLibrary {
 
     private let resolver: () -> Resolution
     private let refresher: () -> Void
-    private let fileManager: FileManager
+    /// Temizlik uzantısı (`Cleanup.swift`) de kullanır
+    let fileManager: FileManager
 
     /// Köklerin kullanılacağı klasör
     var root: URL { return resolver().url }

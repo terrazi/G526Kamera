@@ -134,7 +134,10 @@ extension SessionViewModel {
             return
         }
         watchedTicks += 1
-        guard let limit = Timing.stuckLimit(for: phase, camera: cameraBusy || sendingShot), Double(watchedTicks) * Timing.sentinelTick >= limit else { return }
+        // Cevap okunuyor: söylenen cevap henüz duyulmadıysa (`unheard`) ya da PDF'in cevapları sırayla okunuyorsa (`pageBeingRead`)
+        let reading = unheard != nil || pageBeingRead != nil
+        guard let limit = Timing.stuckLimit(for: phase, camera: cameraBusy || sendingShot, readingAnswer: reading),
+              Double(watchedTicks) * Timing.sentinelTick >= limit else { return }
         unstick(limit)
     }
 

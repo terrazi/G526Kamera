@@ -110,6 +110,8 @@ final class SessionViewModel: ObservableObject {
         static let heartbeatEveryTicks = 10
         /// Kamera akışı sürerken "cevap hazırlanıyor" aşamasının takılma sınırına eklenen süre (sn)
         static let cameraStuckExtra: TimeInterval = 600
+        /// Cevap okunurken gözcünün takıldı sayması için bekleme sınırı (sn): kullanıcı kararı 2026-11-17. Diğer konuşmalarda sınır 180 sn'dir.
+        static let answerSpeakingLimit: TimeInterval = 300
         /// Beklenmedik kapanma: bu süre (sn) içinde bu kadar kez olursa otomatik başlatma durdurulur (açılış döngüsü)
         static let loopWindow: TimeInterval = 120
         static let loopLimit = 3
@@ -172,11 +174,12 @@ final class SessionViewModel: ObservableObject {
         /// Sınırlar, aşamanın kendi en uzun meşru süresinin üstündedir (örn. Gemini zincirinin en kötü sessiz bekleyişi ~10 dk).
         /// `camera`: Sürüm 4 kamera akışı sürüyor. Akış "cevap hazırlanıyor" aşamasında geçer: kestirmeler (30 sn ×2 ×3 deneme), kameraya bağlanma
         /// (40 sn) ve konumlandırma (30 sn) Gemini bekleyişinin önüne eklenir; bu süre ayrıca tanınır (en kötü durum ~450 sn).
-        static func stuckLimit(for phase: SessionPhase, camera: Bool = false) -> TimeInterval? {
+        /// `readingAnswer`: Gemini'nin cevabı okunuyor (tek cevap ya da PDF'in cevapları): uzun cevaplar ve cevaplar arası boşluk için `answerSpeakingLimit` tanınır.
+        static func stuckLimit(for phase: SessionPhase, camera: Bool = false, readingAnswer: Bool = false) -> TimeInterval? {
             switch phase {
             case .checking: return 240 + (camera ? cameraStuckExtra : 0)   // açılışta kameraya bağlanma (kestirmeler + 3 deneme) bu sınırı aşabilir
             case .answering: return 660 + (camera ? cameraStuckExtra : 0)
-            case .speaking: return 180
+            case .speaking: return readingAnswer ? answerSpeakingLimit : 180
             case .recovering: return 360
             default: return nil
             }

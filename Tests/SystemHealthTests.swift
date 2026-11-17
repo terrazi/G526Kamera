@@ -182,6 +182,31 @@ final class SystemHealthTests: XCTestCase {
         XCTAssertNotNil(T.stuckLimit(for: .checking))
     }
 
+    func testReadingAnAnswerMayTakeFiveMinutesOtherSpeechThree() {
+        XCTAssertEqual(T.answerSpeakingLimit, 300, "Cevap okunurken gözcü sınırı 300 sn")
+        XCTAssertEqual(T.stuckLimit(for: .speaking), 180, "Diğer konuşmalarda sınır 180 sn")
+        XCTAssertEqual(T.stuckLimit(for: .speaking, readingAnswer: true), 300)
+        XCTAssertEqual(T.stuckLimit(for: .answering, readingAnswer: true), T.stuckLimit(for: .answering), "Yalnız konuşma aşaması uzar")
+    }
+
+    func testAnAnswerBeingReadIsNotRestartedBeforeFiveMinutes() async {
+        let h = makeHarness()
+        h.answering.results = [.success(FakeAnswering.reply(1))]
+        _ = await h.startListening()
+        h.speaker.hold = true   // cevap okunuyor, bitmiyor
+        h.ask("Birinci soru")
+        let reading = await waitUntil { h.vm.phase == .speaking && h.vm.unheard != nil }
+        XCTAssertTrue(reading, "\(h.vm.phase)")
+        h.scheduler.advance(by: 250)   // eski sınır (180 sn) çoktan aşıldı
+        XCTAssertEqual(h.vm.phase, .speaking)
+        XCTAssertEqual(h.vm.stuckTrips, 0, "Cevap okunurken 300 sn dolmadan yeniden kurulmaz")
+        h.scheduler.advance(by: 60)
+        let tripped = await waitUntil { h.vm.stuckTrips >= 1 }
+        XCTAssertTrue(tripped, "300 sn'yi aşan okuma takılma sayılır")
+        h.speaker.hold = false
+        h.speaker.release()
+    }
+
     func testListeningForHoursIsNotAStall() async {
         let h = makeHarness()
         _ = await h.startListening()
