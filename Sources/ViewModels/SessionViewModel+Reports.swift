@@ -97,7 +97,7 @@ extension SessionViewModel {
     private func cameraReport() -> String {
         let c = cameraSettings
         return Say.reportCamera(configured: cameraConfigured, ask: settings.askCamera, highQuality: c.streamQuality == 1, vertical: c.guidanceFrame == 1,
-                                orientation: c.imageOrientation, guidance: c.guidanceEnabled, pageSeconds: c.pageVideoSeconds, video: c.videoToGemini,
+                                orientation: c.imageOrientation, guidance: c.guidanceEnabled, seriesGuidance: c.seriesGuidance, pageSeconds: c.pageVideoSeconds, video: c.videoToGemini,
                                 enhancement: c.enhancement, preview: !c.previewOff, pending: pendingShots.count, battery: deps.camera.lastBattery)
     }
 
@@ -196,10 +196,17 @@ extension SessionViewModel {
             tlog("[ayar] görüntü yönü: \(orientation.title)")
             return LiveReply(text: Say.cameraOrientation(orientation, already: already))
         case .guidance(let on):
-            let already = c.guidanceEnabled == on
+            // Düz "konumlandırmayı aç / kapat": tek soru yönlendirmesi ile toplu çekimdeki destek birlikte değişir (hangisi kullanılıyorsa o işler)
+            let already = c.guidanceEnabled == on && c.seriesGuidance == on
             c.guidanceEnabled = on
-            tlog("[ayar] sesle konumlandırma: \(on ? "açık" : "kapalı")")
+            c.seriesGuidance = on
+            tlog("[ayar] sesle konumlandırma: \(on ? "açık" : "kapalı") (tek soru ve toplu çekim)")
             return LiveReply(text: Say.cameraGuidance(on: on, already: already))
+        case .seriesGuidance(let on):
+            let already = c.seriesGuidance == on
+            c.seriesGuidance = on
+            tlog("[ayar] toplu çekimde sesli konumlandırma: \(on ? "açık" : "kapalı")")
+            return LiveReply(text: Say.cameraSeriesGuidance(on: on, already: already))
         case .enhancement(let level):
             let already = c.enhancement == level
             c.enhancement = level

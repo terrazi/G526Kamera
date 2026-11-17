@@ -36,8 +36,10 @@ enum CameraAction: Equatable {
     /// Kadraj yönü: dikey (tam sayfa) ya da yatay
     case frame(vertical: Bool)
     case orientation(ImageOrientation)
-    /// Sesle konumlandırma
+    /// Sesle konumlandırma ("konumlandırmayı aç / kapat"): hem tek soru yönlendirmesi hem toplu çekimdeki sesli konumlandırma desteği
     case guidance(Bool)
+    /// Yalnız toplu çekimdeki sesli konumlandırma desteği ("toplu çekimde konumlandırmayı aç", "konumlandırma desteğini kapat")
+    case seriesGuidance(Bool)
     /// 0 kapalı, 1 hafif, 2 güçlü
     case enhancement(Int)
     /// Canlı önizleme açık mı
@@ -321,6 +323,9 @@ extension VoiceCommand {
     static let orientationNormal: Set<String> = ["normal", "duz"]
     static let guidanceNouns: Set<String> = ["konumlandirma", "konumlandirmayi", "konumlandirmasi", "yonlendirme", "yonlendirmeyi", "yonlendirmesi"]
     static let guidanceExtras: Set<String> = ["sesle", "sesli"]
+    /// "Toplu çekimde konumlandırmayı aç", "konumlandırma desteğini kapat": yalnız toplu çekim desteğini seçen sözcükler
+    static let seriesGuidanceMarkers: Set<String> = ["toplu", "seri", "seride", "destek", "destegi", "destegini", "destekli"]
+    static let seriesGuidanceExtras: Set<String> = ["cekim", "cekimde", "cekimi", "cekimin", "cekimlerde"]
     static let enhanceNouns: Set<String> = ["iyilestirme", "iyilestirmeyi", "iyilestirmesi"]
     static let enhanceLight: Set<String> = ["hafif", "hafifce"]
     static let enhanceStrong: Set<String> = ["guclu", "kuvvetli"]
@@ -386,6 +391,12 @@ extension VoiceCommand {
             if settingHas(words, orientationLeft) { choices.append(.left90) }
             if settingHas(words, orientationNormal) { choices.append(.normal) }
             if choices.count == 1, let only = choices.first { return .camera(.orientation(only)) }
+            return nil
+        }
+        // Toplu çekimde sesli konumlandırma desteği: "toplu çekimde konumlandırmayı aç", "konumlandırma desteğini kapat"
+        if settingKnown(words, [guidanceNouns, guidanceExtras, seriesGuidanceMarkers, seriesGuidanceExtras, onWords, offWords, filler]),
+           settingHas(words, guidanceNouns), settingHas(words, seriesGuidanceMarkers) {
+            if let on = direction(words) { return .camera(.seriesGuidance(on)) }
             return nil
         }
         // Sesle konumlandırma

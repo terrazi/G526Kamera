@@ -37,6 +37,8 @@ final class SettingCommandTests: XCTestCase {
         (.camera(.orientation(.normal)), ["görüntüyü normal yap", "görüntü yönünü normal yap", "görüntü yönünü düz yap"]),
         (.camera(.guidance(true)), ["sesle konumlandırmayı aç", "sesli yönlendirmeyi aç", "yönlendirmeyi aç", "konumlandırmayı aç", "sesle yönlendirme açık olsun"]),
         (.camera(.guidance(false)), ["sesle konumlandırmayı kapat", "sesli yönlendirmeyi kapat", "yönlendirmeyi kapat", "konumlandırmayı kapat", "yönlendirme kapalı olsun"]),
+        (.camera(.seriesGuidance(true)), ["toplu çekimde konumlandırmayı aç", "toplu çekimde sesle konumlandırmayı aç", "toplu çekim konumlandırması açık olsun", "konumlandırma desteğini aç", "sesli konumlandırma desteğini aç", "toplu çekimde yönlendirme açık olsun"]),
+        (.camera(.seriesGuidance(false)), ["toplu çekimde konumlandırmayı kapat", "toplu çekimde sesle konumlandırmayı kapat", "konumlandırma desteğini kapat", "sesli konumlandırma desteğini kapat", "toplu çekimde yönlendirme kapalı olsun", "konumlandırma desteği kapalı olsun"]),
         (.camera(.enhancement(0)), ["iyileştirmeyi kapat", "fotoğraf iyileştirmeyi kapat", "iyileştirme kapalı olsun"]),
         (.camera(.enhancement(1)), ["iyileştirmeyi hafif yap", "iyileştirmeyi aç", "iyileştirme hafif olsun"]),
         (.camera(.enhancement(2)), ["iyileştirmeyi güçlü yap", "iyileştirme güçlü olsun"]),
@@ -418,6 +420,42 @@ final class SettingCommandTests: XCTestCase {
 
     // MARK: Kamera ayarları
 
+    /// Düz "konumlandırmayı aç / kapat" hem tek soru yönlendirmesini hem toplu çekimdeki desteği değiştirir; "toplu çekimde …" ve "… desteğini …" yalnız desteği
+    func testThePlainPositioningCommandsSwitchBothAndTheSeriesOnesOnlyTheSupport() async {
+        let h = SessionHarness()
+        _ = await h.startListening()
+        let c = h.cameraSettings
+        XCTAssertFalse(c.seriesGuidance, "Varsayılan: kapalı")
+        var said = await command(h, "konumlandırmayı aç")
+        XCTAssertEqual(said, "Sesle konumlandırma açıldı. Toplu çekimde de kamera sizi sesle yönlendirecek.")
+        XCTAssertTrue(c.guidanceEnabled)
+        XCTAssertTrue(c.seriesGuidance)
+        said = await command(h, "konumlandırmayı aç")
+        XCTAssertEqual(said, "Sesle konumlandırma zaten açık.")
+        said = await command(h, "toplu çekimde konumlandırmayı kapat")
+        XCTAssertEqual(said, "Toplu çekimde sesli konumlandırma kapatıldı. Çekim sırasında sessiz kalınacak.")
+        XCTAssertFalse(c.seriesGuidance)
+        XCTAssertTrue(c.guidanceEnabled, "Tek soru yönlendirmesine dokunulmaz")
+        said = await command(h, "toplu çekimde konumlandırmayı kapat")
+        XCTAssertEqual(said, "Toplu çekimde sesli konumlandırma zaten kapalı.")
+        said = await command(h, "konumlandırma desteğini aç")
+        XCTAssertEqual(said, "Toplu çekimde sesli konumlandırma açıldı. Çekim sürerken kamera kadrajı sesle tarif edecek.")
+        XCTAssertTrue(c.seriesGuidance)
+        said = await command(h, "konumlandırmayı kapat")
+        XCTAssertEqual(said, "Sesle konumlandırma kapatıldı. Kamera sizi yönlendirmeyecek.")
+        XCTAssertFalse(c.guidanceEnabled)
+        XCTAssertFalse(c.seriesGuidance, "Düz kapatma desteği de kapatır")
+    }
+
+    func testTheCameraReportTellsWhetherThePositioningSupportIsOn() {
+        let on = Say.reportCamera(configured: true, ask: true, highQuality: true, vertical: false, orientation: .normal, guidance: true, seriesGuidance: true,
+                                  pageSeconds: 8, video: true, enhancement: 1, preview: true, pending: 0)
+        XCTAssertTrue(on.contains("Toplu çekimde sesli konumlandırma desteği açık."), on)
+        let off = Say.reportCamera(configured: true, ask: true, highQuality: true, vertical: false, orientation: .normal, guidance: true,
+                                   pageSeconds: 8, video: true, enhancement: 1, preview: true, pending: 0)
+        XCTAssertTrue(off.contains("Toplu çekimde sesli konumlandırma desteği kapalı."), off)
+    }
+
     func testCameraSettingsAreAppliedAndSpoken() async {
         let h = SessionHarness()
         _ = await h.startListening()
@@ -446,8 +484,9 @@ final class SettingCommandTests: XCTestCase {
         XCTAssertEqual(said, "Sesle konumlandırma kapatıldı. Kamera sizi yönlendirmeyecek.")
         XCTAssertFalse(c.guidanceEnabled)
         said = await command(h, "yönlendirmeyi aç")
-        XCTAssertEqual(said, "Sesle konumlandırma açıldı.")
+        XCTAssertEqual(said, "Sesle konumlandırma açıldı. Toplu çekimde de kamera sizi sesle yönlendirecek.")
         XCTAssertTrue(c.guidanceEnabled)
+        XCTAssertTrue(c.seriesGuidance, "Düz komut toplu çekimdeki desteği de açar")
         said = await command(h, "iyileştirmeyi güçlü yap")
         XCTAssertEqual(said, "Fotoğraf iyileştirme güçlü yapıldı.")
         XCTAssertEqual(c.enhancement, 2)

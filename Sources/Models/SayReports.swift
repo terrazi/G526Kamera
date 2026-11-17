@@ -77,9 +77,9 @@ extension Say {
 
     /// Kamera ve görüntü ayarlarının özeti
     static func reportCamera(configured: Bool, ask: Bool, highQuality: Bool, vertical: Bool, orientation: ImageOrientation, guidance: Bool,
-                             pageSeconds: Int, video: Bool, enhancement: Int, preview: Bool, pending: Int, battery: CameraBatteryLevel? = nil) -> String {
+                             seriesGuidance: Bool = false, pageSeconds: Int, video: Bool, enhancement: Int, preview: Bool, pending: Int, battery: CameraBatteryLevel? = nil) -> String {
         var parts = ["Görüntü kalitesi \(highQuality ? "yüksek" : "düşük"), kadraj \(vertical ? "dikey" : "yatay"), görüntü yönü \(orientation.spoken)."]
-        parts.append("Sesle konumlandırma \(guidance ? "açık" : "kapalı").")
+        parts.append("Sesle konumlandırma \(guidance ? "açık" : "kapalı"). Toplu çekimde sesli konumlandırma desteği \(seriesGuidance ? "açık" : "kapalı").")
         parts.append("Soru videosu sayfa başına \(pageSeconds) saniye" + (video ? ", Gemini'ye de gönderiliyor." : ", Gemini'ye gönderilmiyor."))
         parts.append("Fotoğraf iyileştirme \(enhancementName(enhancement)). Canlı önizleme \(preview ? "açık" : "kapalı").")
         parts.append("Her soruda kamera sorusu \(ask ? "açık" : "kapalı").")
@@ -191,7 +191,13 @@ extension Say {
     }
     static func cameraGuidance(on: Bool, already: Bool) -> String {
         if already { return "Sesle konumlandırma zaten \(on ? "açık" : "kapalı")." }
-        return on ? "Sesle konumlandırma açıldı." : "Sesle konumlandırma kapatıldı. Kamera sizi yönlendirmeyecek."
+        return on ? "Sesle konumlandırma açıldı. Toplu çekimde de kamera sizi sesle yönlendirecek." : "Sesle konumlandırma kapatıldı. Kamera sizi yönlendirmeyecek."
+    }
+    /// Yalnız toplu çekimdeki sesli konumlandırma desteği
+    static func cameraSeriesGuidance(on: Bool, already: Bool) -> String {
+        if already { return "Toplu çekimde sesli konumlandırma zaten \(on ? "açık" : "kapalı")." }
+        return on ? "Toplu çekimde sesli konumlandırma açıldı. Çekim sürerken kamera kadrajı sesle tarif edecek."
+                  : "Toplu çekimde sesli konumlandırma kapatıldı. Çekim sırasında sessiz kalınacak."
     }
     static func cameraEnhancement(_ level: Int, already: Bool) -> String {
         let name = enhancementName(level)
