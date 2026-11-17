@@ -546,6 +546,24 @@ final class PageSeriesTests: XCTestCase {
         XCTAssertTrue(text.contains("Şıklar küçük yazılmış"))
     }
 
+    /// Kamera soruyu tek karede göstermeyebilir: kök bir karede, şıklar sonrakinde. Gemini'ye parçaları örtüşen satırlardan birleştirmesi söylenir
+    func testThePagePromptTellsGeminiToStitchQuestionsSplitAcrossFrames() throws {
+        let body = try GeminiAnswerService.captureBody(FakeCamera.page(1), expectedNumber: 1, page: true)
+        let object = try JSONSerialization.jsonObject(with: body) as! [String: Any]
+        let system = (((object["systemInstruction"] as! [String: Any])["parts"] as! [[String: Any]])[0]["text"] as! String)
+        XCTAssertTrue(system.contains("BÖLÜNMÜŞ SORULAR"))
+        XCTAssertTrue(system.contains("KISMEN ÖRTER"), "Ardışık karelerin birbirini örttüğü söylenir")
+        XCTAssertTrue(system.contains("çıpa"), "Ortak satır ve şık harfleri birleştirme çıpasıdır")
+        XCTAssertTrue(system.contains("YALNIZ aynı soruya ait parçaları"), "Komşu sorular birbirine karıştırılmaz")
+        XCTAssertTrue(system.contains("tahmin yürütme"), "Birleştirmeye rağmen eksik kalan soru için satır yazılmaz")
+        XCTAssertFalse(system.contains("saniyede bir çekilmiş"), "Kareler artık her saniyeden değil, seçilmiş net karelerdir")
+        let contents = object["contents"] as! [[String: Any]]
+        let parts = contents[0]["parts"] as! [[String: Any]]
+        let text = parts.last?["text"] as? String ?? ""
+        XCTAssertTrue(text.contains("birkaç kareye bölünmüş olabilir"))
+        XCTAssertTrue(text.contains("zaman sırasıyla"))
+    }
+
     // MARK: Süre tek sınır, cevaplar arası 2 sn
 
     func testTheSessionAnnouncementTalksOnlyAboutTheDuration() {

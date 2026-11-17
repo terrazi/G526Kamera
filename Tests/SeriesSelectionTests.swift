@@ -89,13 +89,15 @@ final class SeriesSelectionTests: XCTestCase {
 
     // MARK: Havuz
 
-    private func item(_ id: UInt8, time: Double, quality chars: Int, words: [String]? = nil, sharpness: Double = 100, signature: [UInt8] = [UInt8](repeating: 100, count: 576)) -> SeriesItem {
+    private func item(_ id: UInt8, time: Double, quality chars: Int, words: [String]? = nil, options: String = "", sharpness: Double = 100,
+                      signature: [UInt8] = [UInt8](repeating: 100, count: 576)) -> SeriesItem {
         var text: TextScore?
         if let words = words {
             var t = TextScore()
             t.chars = chars
             t.confidence = 1
             t.words = Set(words)
+            t.options = Set(options)
             text = t
         }
         return SeriesItem(time: time, jpeg: Data([id]), width: 1920, height: 1080, sharpness: sharpness, text: text, signature: signature)
@@ -111,6 +113,43 @@ final class SeriesSelectionTests: XCTestCase {
         pool.add(item(3, time: 3, quality: 200, words: pageA))   // aynı görünüm, daha kötü
         XCTAssertEqual(pool.items.map { $0.jpeg.first }, [2])
         XCTAssertEqual(pool.merged, 2)
+    }
+
+    /// Kamera bir sorunun üzerinde yavaş kayarken ardışık kareler çok benzer olur; sonrakinde yeni bir şık (E) belirmişse o kare "tekrar" diye atılmaz
+    func testAFrameThatShowsANewOptionIsNeverMergedAwayAsARepeat() {
+        let stem = pageA
+        var pool = SeriesPool()
+        pool.add(item(1, time: 1, quality: 300, words: stem, options: "ABCD"))
+        pool.add(item(2, time: 2, quality: 200, words: stem, options: "BCDE"))   // aynı yazı, ama E görünüyor; A görünmüyor
+        XCTAssertEqual(pool.items.map { $0.jpeg.first }, [1, 2], "İkisinin de ötekinde olmayan içeriği var: ikisi de kalır")
+        XCTAssertEqual(pool.merged, 0)
+    }
+
+    func testAFrameThatShowsEverythingTheKeptOneShowsAndMoreReplacesIt() {
+        var pool = SeriesPool()
+        pool.add(item(1, time: 1, quality: 300, words: pageA, options: "AB"))
+        pool.add(item(2, time: 2, quality: 100, words: pageA, options: "ABC"))   // daha az net ama daha çok içerik
+        XCTAssertEqual(pool.items.map { $0.jpeg.first }, [2])
+    }
+
+    func testASharperFrameThatShowsLessDoesNotReplaceTheOneThatShowsMore() {
+        var pool = SeriesPool()
+        pool.add(item(1, time: 1, quality: 100, words: pageA, options: "ABCDE"))
+        pool.add(item(2, time: 2, quality: 400, words: pageA, options: "AB"))
+        XCTAssertEqual(pool.items.map { $0.jpeg.first }, [1], "E şıkkı yalnız birincide görünüyor")
+    }
+
+    func testManyNewWordsAlsoCountAsNewContent() {
+        var pool = SeriesPool()
+        let base = (0..<40).map { "base\($0)" }
+        let more = base + (0..<8).map { "extra\($0)" }
+        pool.add(item(1, time: 1, quality: 300, words: base, options: "AB"))
+        pool.add(item(2, time: 2, quality: 200, words: more, options: "AB"))   // aynı şıklar ama 8 yeni kelime (yeni satırlar): aynı görünüm, ama fazlasını gösteriyor
+        XCTAssertEqual(pool.items.map { $0.jpeg.first }, [2], "Yeni kare ötekinin tamamını ve fazlasını içeriyor")
+        var other = SeriesPool()
+        other.add(item(1, time: 1, quality: 300, words: base, options: "AB"))
+        other.add(item(2, time: 2, quality: 200, words: base + (0..<3).map { "noise\($0)" }, options: "AB"))   // birkaç kelimelik OKR gürültüsü yeni içerik sayılmaz
+        XCTAssertEqual(other.items.map { $0.jpeg.first }, [1])
     }
 
     func testDifferentTextIsKeptEvenWhenTheFrameSignaturesLookTheSame() {

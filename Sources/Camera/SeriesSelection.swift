@@ -17,6 +17,8 @@ enum SeriesSelection {
     static let sameWords = 0.75
     /// Yazısı okunamayan iki adayın imza farkı bunun altındaysa aynı görünüm sayılır (yedek ölçüt)
     static let sameSignature = 2.5
+    /// Bir kare, ötekinde olmayan en az bu kadar kelime gösteriyorsa "yeni içerik" taşır (OKR gürültüsü birkaç kelimeyi oynatır)
+    static let newWords = 8
     /// Havuzda en çok bu kadar kare tutulur (bellek ve PDF boyutu)
     static let maxFrames = 60
     /// Son elemede en iyi puanın bu oranının altındakiler atılır
@@ -192,10 +194,35 @@ struct SeriesPool {
         return FrameAnalysis.difference(a.signature, b.signature) < SeriesSelection.sameSignature
     }
 
+    /// `a`, `b`'nin gösterdiği her şeyi gösteriyor mu: `b`'de görülen şık harflerinin ve soru numaralarının hepsi `a`'da da var ve `b`'nin `a`'da olmayan
+    /// kelime sayısı az. Kamera yavaş kayarken ardışık kareler çok benzer olur ama sonrakinde yeni bir şık (ör. E) belirmiş olabilir; böyle bir kare
+    /// "tekrar" diye atılmaz (bölünmüş soruyu birleştirebilmek için). Yazısı okunmamış karelerde denetim yapılmaz (true).
+    static func covers(_ a: SeriesItem, _ b: SeriesItem) -> Bool {
+        guard let ta = a.text, let tb = b.text else { return true }
+        return ta.options.isSuperset(of: tb.options)
+            && ta.questionNumbers.isSuperset(of: tb.questionNumbers)
+            && tb.words.subtracting(ta.words).count < SeriesSelection.newWords
+    }
+
     mutating func add(_ item: SeriesItem) {
         if let last = items.last, SeriesPool.sameView(last, item) {
-            merged += 1
-            if item.quality > last.quality { items[items.count - 1] = item }
+            let keptCovers = SeriesPool.covers(last, item)
+            let newCovers = SeriesPool.covers(item, last)
+            if keptCovers && newCovers {
+                // Aynı içerik: en iyisi kalır
+                merged += 1
+                if item.quality > last.quality { items[items.count - 1] = item }
+            } else if newCovers {
+                // Yeni kare ötekinin gösterdiği her şeyi ve fazlasını gösteriyor: onun yerini alır
+                merged += 1
+                items[items.count - 1] = item
+            } else if keptCovers {
+                // Yeni karede yeni bir şey yok
+                merged += 1
+            } else {
+                // İkisinin de ötekinde olmayan içeriği var (kamera kaydı): ikisi de kalır
+                items.append(item)
+            }
         } else {
             items.append(item)
         }
