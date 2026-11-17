@@ -93,6 +93,7 @@ final class StreamMeterTests: XCTestCase {
     }
 }
 
+@MainActor
 final class StreamChoiceTests: XCTestCase {
     func testAutomaticKeepsTodaysBehaviour() {
         XCTAssertEqual(CameraCaptureController.streamChoice(quality: 1, series: true).stream, 1)
@@ -159,6 +160,7 @@ final class StreamOverrideSettingTests: XCTestCase {
     }
 }
 
+@MainActor
 final class SurveyHighlightsTests: XCTestCase {
     private let text = [
         "Kameranın cevaplarında pil / şarj alanı bulunamadı.",
