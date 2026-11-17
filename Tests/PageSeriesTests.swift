@@ -567,6 +567,26 @@ final class PageSeriesTests: XCTestCase {
                        "Her cevap soru numarası, şık sözcüğü ve doğru şıkkın metniyle, sırayla okunur")
     }
 
+    func testReadingManyAnswersInARowIsNeverMistakenForAStuckSession() async {
+        let h = harness(seriesResults: [series()],
+                        pageReplies: [.success([FakeAnswering.reply(1), FakeAnswering.reply(2), FakeAnswering.reply(3)])])
+        h.speaker.holdWhen = { $0.hasPrefix("Soru 1,") || $0.hasPrefix("Soru 2,") }
+        _ = await h.startListening()
+        reply(h, "başla")
+        let first = await waitUntil(45) { h.speaker.spoken.contains { $0.hasPrefix("Soru 1,") } }
+        XCTAssertTrue(first, "\(h.speaker.spoken)")
+        h.vm.watchedTicks = 100_000   // gözcü sınırını çoktan aşmış gibi: uzun okuma sürüyor
+        h.speaker.release()
+        let second = await waitUntil(45) { h.speaker.spoken.contains { $0.hasPrefix("Soru 2,") } }
+        XCTAssertTrue(second, "\(h.speaker.spoken)")
+        XCTAssertEqual(h.vm.watchedTicks, 0, "Her cevap kendi süresini alır: art arda okunan cevaplar toplamda takılma sayılmaz")
+        XCTAssertEqual(h.vm.stuckTrips, 0)
+        h.speaker.holdWhen = nil
+        h.speaker.release()
+        let done = await waitUntil(45) { h.vm.answers.count == 3 }
+        XCTAssertTrue(done, "\(h.speaker.spoken)")
+    }
+
     func testASingleAnswerHasNoGap() async {
         let h = harness(seriesResults: [series()], pageReplies: [.success([FakeAnswering.reply(1)])])
         _ = await h.startListening()

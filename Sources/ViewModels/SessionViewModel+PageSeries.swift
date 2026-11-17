@@ -187,6 +187,9 @@ extension SessionViewModel {
     func readNextQueuedReply() async {
         guard !queuedReplies.isEmpty else { return }
         let next = queuedReplies.removeFirst()
+        // Cevaplar art arda okunurken aşama hep "konuşma"dır (araya giren "cevap hazırlanıyor" gözcünün nabzına denk gelmez); sayaç sıfırlanmazsa
+        // 75 cevaplık PDF'in okunması 180 sn'yi aşınca gözcü "takıldı" sanıp oturumu yeniden kurar ve cevaplar baştan okunurdu. Her cevap kendi süresini alır.
+        watchedTicks = 0
         phase = .answering
         beginEntry(text: Say.cameraEntryText, withAudio: false, number: next.number)
         await answer(question: Say.cameraEntryText, audio: nil, spokenNumber: nil, fetch: { next })
