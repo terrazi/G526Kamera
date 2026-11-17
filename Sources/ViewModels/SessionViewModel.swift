@@ -443,6 +443,8 @@ final class SessionViewModel: ObservableObject {
     var sendingShot: Bool { return sendingShotID != nil }
     var cameraReminders = 0
     var cameraGuidanceSpeaking = false
+    /// Kadraj koçunun, önceki cümle sürerken gelen EN SON cümlesi: önceki bitince söylenir (eskiyse atılır). Üst üste konuşma olmaz, yeni sayfanın cümlesi kaybolmaz.
+    var coachPending: (text: String, time: Date)?
     /// Kullanıcı "hayır" dedi ya da kamera akışı olmadı: bu soru sesle okunur, aynı soru için kamera yeniden sorulmaz
     var cameraOfferSuppressed = false
     /// Çekilmiş ama internet olmadığı için gönderilememiş sorular (en eskisi önce, sırayla gönderilir). Dosyaları telefondaki kalıcı

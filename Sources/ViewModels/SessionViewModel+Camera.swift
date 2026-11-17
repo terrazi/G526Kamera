@@ -926,15 +926,34 @@ extension SessionViewModel {
     }
 
     /// Toplu çekim ve deneme çekimi sırasında kadraj koçunun cümlesi (Ayarlar > "Toplu çekimde sesli konumlandırma", kullanıcı kararı 2026-11-17):
-    /// çekim sürerken (cevap aşaması) kulaklıktan söylenir. Önceki cümle bitmediyse bu cümle atlanır: konuşma üst üste binmez, çekim hiç beklemez.
+    /// çekim sürerken (cevap aşaması) kulaklıktan söylenir. Önceki cümle bitmediyse bu cümle beklemeye alınır (yalnız en sonuncusu, yenisi eskisinin yerine
+    /// geçer): konuşma üst üste binmez, çekim hiç beklemez; bekleyen cümle `coachPendingMaxAge` saniyeden eskiyse (sayfa çoktan değişmiştir) atılır.
     func sayCoach(_ text: String) {
-        guard phase == .answering, !cameraGuidanceSpeaking else { return }
+        guard phase == .answering else { return }
+        if cameraGuidanceSpeaking {
+            coachPending = (text: text, time: deps.now())
+            return
+        }
+        speakCoach(text)
+    }
+
+    /// Bekleyen koç cümlesi bu süreden (sn) eskiyse söylenmez
+    static let coachPendingMaxAge: TimeInterval = 6
+
+    private func speakCoach(_ text: String) {
         cameraGuidanceSpeaking = true
         Task { [weak self] in
             guard let self = self else { return }
             _ = try? await self.deps.speaker.speak(text, saveAs: nil)
             self.quietTicks = 0
             self.cameraGuidanceSpeaking = false
+            if let pending = self.coachPending {
+                self.coachPending = nil
+                if self.phase == .answering, self.cameraSettings.seriesGuidance,
+                   self.deps.now().timeIntervalSince(pending.time) <= SessionViewModel.coachPendingMaxAge {
+                    self.speakCoach(pending.text)
+                }
+            }
         }
     }
 
@@ -947,6 +966,7 @@ extension SessionViewModel {
     /// Çekim bitince koç susturulur; söylenmekte olan son cümle bitene kadar beklenir (internete dönüş kestirmeleri sesi kesmesin)
     func detachCoach(from camera: CameraCapturing) async {
         camera.onSay = nil
+        coachPending = nil   // süre doldu: bekleyen cümle söylenmez
         await waitForGuidanceSpeech()
     }
 

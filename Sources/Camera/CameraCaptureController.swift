@@ -148,6 +148,10 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
     private var coachLines: (lines: ViewLines, time: TimeInterval)?
     private var coachOCRBusy = false
     private var coachOCRTime: TimeInterval = -100
+    /// Her kamera hareketinde artar: hareketten önce başlamış satır okumasının sonucu (önceki sayfa) atılır
+    private var coachMoveEpoch = 0
+    /// Kâğıt kenarı algılaması çekim sırasında açık: düzgün kadraj cümlesi (tam / üst yarı / alt yarı) kenarlar gelene kadar bekler
+    private var coachExpectsEdges = false
     /// Satır tarifi için yazı tanıma en sık bu aralıkla (sn) yapılır; sonucun geçerlilik süresi de
     static let coachOCRGap: TimeInterval = 2.5
     static let coachLinesMaxAge: TimeInterval = 4
@@ -550,7 +554,11 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         coachOCRBusy = false
         coachOCRTime = -100
         pipeline.guidanceOrientation = settings.imageOrientation
-        pipeline.pageEdgesOn = false
+        // Sayfanın üç durumu (tam sayfa, üst yarı, alt yarı) kâğıt kenarlarından bilinir (Vision): kamera durunca seyrek çalışır (bkz. `PageEdgeTracker`).
+        // Pil tasarrufunda (önizleme kapalı) boru hattı kenar ölçmez; o zaman yalnız yazı ölçümüyle sürer.
+        coachMoveEpoch = 0
+        coachExpectsEdges = settings.guidancePageEdges && !settings.previewOff
+        pipeline.pageEdgesOn = settings.guidancePageEdges
         coachOn = true
         pipeline.guidanceOn = true
         tlog("[kamera] kadraj koçu açık (toplu çekimde sesli konumlandırma)")
@@ -566,31 +574,39 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
 
     private func coachSample(_ sample: FramePipeline.GuidanceSample) {
         guard coachOn, !cancelled, isLive else { return }
+        if sample.stillFor < coach.config.movingBelow {
+            // Kamera oynuyor (sayfa değişiyor olabilir): önceki görünümün satırları geçersiz, süren okumanın sonucu atılacak, durunca hemen okunur
+            if coachLines != nil || coachOCRBusy { coachMoveEpoch &+= 1 }
+            coachLines = nil
+            coachOCRTime = -100
+        }
         if sample.stillFor >= coach.config.stillNeeded, !coachOCRBusy, sample.time - coachOCRTime >= CameraCaptureController.coachOCRGap {
-            requestCoachLines(at: sample.time)
+            requestCoachLines(at: sample.time, stillFor: sample.stillFor)
         }
         var lines: ViewLines?
         if let cached = coachLines, sample.time - cached.time <= CameraCaptureController.coachLinesMaxAge { lines = cached.lines }
         if let text = coach.step(metrics: sample.metrics, lines: lines, time: sample.time, stillFor: sample.stillFor,
-                                 guidance: coachConfig, sharpFloor: coachSharpFloor) {
+                                 guidance: coachConfig, sharpFloor: coachSharpFloor, expectEdges: coachExpectsEdges) {
             sayCoach(text)
         }
     }
 
-    /// En taze karenin satırları arka planda okunur (kamera durgunken, seyrek); sonuç koçun sonraki değerlendirmelerinde kullanılır
-    private func requestCoachLines(at time: TimeInterval) {
+    /// Kamera durduktan sonraki kareler arasından en netinin satırları arka planda okunur (seyrek); sonuç koçun sonraki değerlendirmelerinde kullanılır.
+    /// Okuma sürerken kamera yeniden oynarsa sonuç atılır (başka sayfaya ait olabilir).
+    private func requestCoachLines(at time: TimeInterval, stillFor: TimeInterval) {
         let now = ProcessInfo.processInfo.systemUptime
-        let fresh = pipeline.store.frames(from: now - 1.0, to: now + 1)
+        let fresh = pipeline.store.frames(from: now - min(max(stillFor - 0.1, 0.2), 1.0), to: now + 1)
         guard let best = fresh.max(by: { $0.sharpness < $1.sharpness }) else { return }
         coachOCRBusy = true
         coachOCRTime = time
+        let epoch = coachMoveEpoch
         let buffer = best.buffer
         let orientation = settings.imageOrientation
         Task { [weak self] in
             let lines = await Task.detached(priority: .utility) { ViewLinesReader.read(buffer, orientation: orientation) }.value
             guard let self = self else { return }
             self.coachOCRBusy = false
-            if let lines = lines, self.coachOn { self.coachLines = (lines: lines, time: time) }
+            if let lines = lines, self.coachOn, epoch == self.coachMoveEpoch { self.coachLines = (lines: lines, time: time) }
         }
     }
 

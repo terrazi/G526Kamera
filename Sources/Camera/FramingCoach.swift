@@ -89,23 +89,23 @@ struct ViewLines: Equatable {
         return result
     }
 
-    /// "Üstte A ile başlıyor, altta B ile bitiyor." Satır bilgisi yoksa nil.
+    /// Üst taraf: "Üstte A ile başlıyor." ya da üst satır kesikse "Üst satır yarım kalıyor; ilk tam satır A ile başlıyor."
+    var startsText: String? {
+        let phrase = starts.map { $0.phrase }.joined(separator: ", ")
+        if topCut { return starts.isEmpty ? "Üst satır yarım kalıyor." : "Üst satır yarım kalıyor; ilk tam satır " + phrase + " ile başlıyor." }
+        return starts.isEmpty ? nil : "Üstte " + phrase + " ile başlıyor."
+    }
+
+    /// Alt taraf: "Altta B ile bitiyor." ya da alt satır kesikse "Alt satır yarım kalıyor; son tam satır B ile bitiyor."
+    var endsText: String? {
+        let phrase = ends.map { $0.phrase }.joined(separator: ", ")
+        if bottomCut { return ends.isEmpty ? "Alt satır yarım kalıyor." : "Alt satır yarım kalıyor; son tam satır " + phrase + " ile bitiyor." }
+        return ends.isEmpty ? nil : "Altta " + phrase + " ile bitiyor."
+    }
+
+    /// "Üstte A ile başlıyor. Altta B ile bitiyor." Satır bilgisi yoksa nil.
     var coverage: String? {
-        var parts: [String] = []
-        if topCut {
-            parts.append("Üst satır yarım kalıyor.")
-        } else if !starts.isEmpty {
-            parts.append("Üstte " + starts.map { $0.phrase }.joined(separator: ", ") + " ile başlıyor.")
-        }
-        if bottomCut {
-            if ends.isEmpty {
-                parts.append("Alt satır yarım kalıyor.")
-            } else {
-                parts.append("Alt satır yarım kalıyor; son tam satır " + ends.map { $0.phrase }.joined(separator: ", ") + " ile bitiyor.")
-            }
-        } else if !ends.isEmpty {
-            parts.append("Altta " + ends.map { $0.phrase }.joined(separator: ", ") + " ile bitiyor.")
-        }
+        let parts = [startsText, endsText].compactMap { $0 }
         return parts.isEmpty ? nil : parts.joined(separator: " ")
     }
 }
@@ -139,27 +139,85 @@ enum ViewLinesReader {
 /// Koçun bir değerlendirmesi: ne durumda ve ne söylenecek
 struct FramingNote: Equatable {
     enum Kind: String, Equatable {
-        case noText, blurry, glare, cutLeft, cutRight, shiftLeft, shiftRight, tooWide, tooSmall, emptyTop, good
+        case noText, blurry, glare, cutLeft, cutRight, shiftLeft, shiftRight, tooWide, tooSmall, emptyTop, middle
+        /// Düzeltme gerekmiyor: `good` kâğıt kenarı bilinmiyorken; `goodFull` tam sayfa, `goodUpper` üst yarı, `goodLower` alt yarı
+        case good, goodFull, goodUpper, goodLower
+
+        var isGood: Bool { return self == .good || self == .goodFull || self == .goodUpper || self == .goodLower }
     }
     var kind: Kind
     var text: String
 
-    /// Kullanıcıdan bir şey isteyen (düzeltme) değerlendirme mi; `good` değil
-    var isCorrection: Bool { return kind != .good }
+    /// Kullanıcıdan bir şey isteyen (düzeltme) değerlendirme mi
+    var isCorrection: Bool { return !kind.isGood }
+}
+
+/// Sayfanın kadrajdaki konumu (kâğıt kenarları, Apple Vision): üç durum vardır (kullanıcı kararı 2026-11-17).
+/// `full`: dört kenar da kadrajın içinde, boşluklu. `upperHalf`: üst, sol ve sağ kenar boş, alt kenardan sayfa devam ediyor (alttaki sorunun bir bölümü
+/// girmiş olabilir). `lowerHalf`: alt, sol ve sağ kenar boş, üst kenardan sayfa devam ediyor. `middle`: üst ve alt kenar ikisi de kadraj dışında
+/// (sayfanın ortasından bir dilim); bu bir düzeltme sebebidir.
+enum PageLayout: Equatable {
+    case full, upperHalf, lowerHalf, middle
+}
+
+struct PageLayoutReading: Equatable {
+    var layout: PageLayout
+    /// Kâğıdın kadraj dışına taşan sol / sağ kenarları (yazı tam görünse bile kâğıt yandan taşabilir)
+    var cutSides: [PageEdges.Side]
+    /// Dört kenar da belirgin boşlukla kadrajın içinde
+    var allClear: Bool
 }
 
 /// Toplu çekimde sesli konumlandırma DESTEĞİ (kullanıcı kararı 2026-11-17, Ayarlar > "Toplu çekimde sesli konumlandırma"): çekimi başlatmaz ya da
 /// bitirmez, yalnız kadrajın durumunu kısa cümlelerle söyler: hangi kenar kesik, sağa / sola kayma, yakın ve bulanıksa uzaklaşma, yazı küçükse
-/// yaklaşma, üstte boşluk varsa aşağı kaydırma; düzeltme gerekmiyorsa üstte ve altta hangi satırla başlayıp bittiği.
+/// yaklaşma, üstte boşluk varsa aşağı kaydırma; düzeltme gerekmiyorsa sayfanın hangi durumda göründüğü (tam sayfa, üst yarı, alt yarı) ve yarım
+/// görünümde kesik kenardan hangi satırın başlayıp bittiği.
 /// Ölçüler tek soru çekimindeki yönlendirmeyle aynıdır (`GuidanceAdvisor`); farkı: dikey kesik bir sorun sayılmaz (sayfa kadrajdan büyüktür,
-/// toplu çekimde yukarıdan aşağı kaydırılır), bunun yerine satır tarifi verilir.
+/// toplu çekimde yukarıdan aşağı kaydırılır), bunun yerine sayfanın konumu ve satır tarifi verilir.
 enum FramingCoach {
     /// Yazının üst kenarı kadrajın bu oranından aşağıdaysa üst taraf boştur (kamera sayfanın üstünde kalmış)
     static let emptyTopLimit = 0.42
     /// Yazının alt kenarı kadrajın bu oranından yukarıdaysa alt taraf boştur (yalnız bilgi verilir: sayfa sonu olabilir)
     static let emptyBottomLimit = 0.55
 
-    static func note(_ m: PageMetrics, lines: ViewLines?, config c: GuidanceConfig = GuidanceConfig(), sharpFloor: Double = 0.45) -> FramingNote {
+    /// Kâğıt kenarlarından sayfanın durumu; kenarlar bilinmiyorsa (ölçülmedi, güvenilmez, yazıya yapışık) ya da üst / alt kenar belirsizse nil
+    static func layout(_ m: PageMetrics) -> PageLayoutReading? {
+        guard let e = GuidanceScene.usableEdges(m) else { return nil }
+        let layout: PageLayout
+        switch (e.state(.top), e.state(.bottom)) {
+        case (.clear, .clear): layout = .full
+        case (.clear, .cut): layout = .upperHalf
+        case (.cut, .clear): layout = .lowerHalf
+        case (.cut, .cut): layout = .middle
+        default: return nil
+        }
+        let sides = [PageEdges.Side.left, PageEdges.Side.right].filter { e.state($0) == .cut }
+        return PageLayoutReading(layout: layout, cutSides: sides, allClear: e.allClear)
+    }
+
+    /// "Tam sayfa görünüyor, dört kenar boş." / "Sayfanın üst yarısı görünüyor, üst, sol ve sağ kenar boş." (ayrıntılıysa kesik kenar açıklaması da eklenir)
+    static func layoutText(_ r: PageLayoutReading, verbose: Bool) -> String {
+        var sideCut = ""
+        if !r.cutSides.isEmpty {
+            let words = r.cutSides.map { $0.word }.joined(separator: " ve ")
+            sideCut = " " + String(words.prefix(1)).uppercased() + String(words.dropFirst()) + " kenarı kadrajın dışında kalıyor."
+        }
+        switch r.layout {
+        case .full:
+            return (r.allClear ? "Tam sayfa görünüyor, dört kenar boş." : "Tam sayfa görünüyor.") + sideCut
+        case .upperHalf:
+            if !r.cutSides.isEmpty { return "Sayfanın üst yarısı görünüyor." + sideCut }
+            return "Sayfanın üst yarısı görünüyor, üst, sol ve sağ kenar boş." + (verbose ? " Alt kenardan alttaki sorunun bir bölümü giriyor olabilir." : "")
+        case .lowerHalf:
+            if !r.cutSides.isEmpty { return "Sayfanın alt yarısı görünüyor." + sideCut }
+            return "Sayfanın alt yarısı görünüyor, alt, sol ve sağ kenar boş." + (verbose ? " Üst kenardan üstteki sorunun bir bölümü giriyor olabilir." : "")
+        case .middle:
+            return "Sayfanın ortası görünüyor, üst ve alt kenar kadraj dışında."
+        }
+    }
+
+    static func note(_ m: PageMetrics, lines: ViewLines?, config c: GuidanceConfig = GuidanceConfig(), sharpFloor: Double = 0.45,
+                     verbose: Bool = false) -> FramingNote {
         let d = GuidanceAdvisor.decide(m, config: c, sharpFloor: sharpFloor)
         switch d.advice {
         case .noText:
@@ -187,9 +245,29 @@ enum FramingCoach {
         case .ok:
             break
         }
-        // Düzeltme gerekmiyor
+        // Düzeltme gerekmiyor: sayfanın üç durumdan hangisinde göründüğü kâğıt kenarlarından bilinir
+        let reading = layout(m)
+        if let reading = reading, reading.layout == .middle {
+            return FramingNote(kind: .middle, text: layoutText(reading, verbose: verbose) + " Tam sayfa için uzaklaşın; yarım sayfa için kamerayı yukarı ya da aşağı kaydırın.")
+        }
         if m.y0 - c.topBand > emptyTopLimit {
             return FramingNote(kind: .emptyTop, text: "Yazı kadrajın alt yarısında, üst taraf boş. Kamerayı biraz aşağı kaydırın.")
+        }
+        if let reading = reading {
+            // Yarım görünümde kesik kenardan hangi satırın başlayıp bittiği söylenir; tam sayfada satır tarifine gerek yoktur
+            var parts = [layoutText(reading, verbose: verbose)]
+            let kind: FramingNote.Kind
+            switch reading.layout {
+            case .upperHalf:
+                kind = .goodUpper
+                if let text = lines?.endsText { parts.append(text) }
+            case .lowerHalf:
+                kind = .goodLower
+                if let text = lines?.startsText { parts.append(text) }
+            default:
+                kind = .goodFull
+            }
+            return FramingNote(kind: kind, text: parts.joined(separator: " "))
         }
         var parts: [String] = []
         if m.y1 < emptyBottomLimit { parts.append("Yazı kadrajın üst yarısında, alt taraf boş.") }
@@ -198,18 +276,17 @@ enum FramingCoach {
         return FramingNote(kind: .good, text: parts.joined(separator: " "))
     }
 
-    /// "Kadraj kontrolü" için tam tarif: kaç sayfa görünüyor ve hangisi kesik, varsa düzeltme, satır tarifi. Yazı yoksa yalnız nedeni.
+    /// "Kadraj kontrolü" için tam tarif: kaç sayfa görünüyor ve hangisi kesik, varsa düzeltme, sayfanın durumu, satır tarifi. Yazı yoksa yalnız nedeni.
     static func describe(_ m: PageMetrics, lines: ViewLines?, config c: GuidanceConfig = GuidanceConfig(), sharpFloor: Double = 0.45) -> String {
-        let n = note(m, lines: lines, config: c, sharpFloor: sharpFloor)
+        let n = note(m, lines: lines, config: c, sharpFloor: sharpFloor, verbose: true)
         guard m.hasText, n.kind != .noText else { return n.text }
         var parts: [String] = []
-        if let scene = GuidanceScene.describe(GuidanceScene.parts(m, config: c), edges: GuidanceScene.usableEdges(m)) { parts.append(scene) }
-        if n.isCorrection {
-            parts.append(n.text)
-            if let coverage = lines?.coverage { parts.append(coverage) }
-        } else {
-            parts.append(n.text)
-        }
+        let scenes = GuidanceScene.parts(m, config: c)
+        // Sayfanın durumu zaten söyleniyorsa ("Tam sayfa görünüyor…") tek sayfa cümlesi tekrarlanmaz
+        let layoutSaid = [FramingNote.Kind.goodFull, .goodUpper, .goodLower, .middle].contains(n.kind)
+        if !(layoutSaid && scenes.count == 1), let scene = GuidanceScene.describe(scenes, edges: GuidanceScene.usableEdges(m)) { parts.append(scene) }
+        parts.append(n.text)
+        if n.isCorrection, n.kind != .middle, let coverage = lines?.coverage { parts.append(coverage) }
         return parts.joined(separator: " ")
     }
 
@@ -222,10 +299,15 @@ enum FramingCoach {
 
 /// Koçun konuşma zamanlaması (saf mantık): kamera durgunlaşınca ve aynı değerlendirme ardışık iki ölçümde çıkınca söyler; aynı cümleyi sık tekrarlamaz,
 /// aynı düzeltmeyi en çok üç kez söyler (ısrar edilmez), "tamam"ı düzeltmeden sonra bir kez söyler, düzgün kadrajda yalnız görünüm değişince yeniden anlatır.
+/// YENİ SAYFA (kullanıcı kararı 2026-11-17: gösterilen her sayfa için yardım yeniden başlar): kamera hareket edip yeniden durunca görünümün satır
+/// sözcükleri öncekiyle büyük ölçüde örtüşmüyorsa (ya da okunamadıysa) sayaçlar, tekrar aralıkları ve "tamam" durumu sıfırlanır; ilk değerlendirme hemen söylenir.
+/// Aynı sayfada küçük bir kaydırma (düzeltme denemesi) örtüşmeyi bozmaz: o zaman sayaçlar sürer.
 struct FramingCoachTimer {
     struct Config {
         /// Kamera bu süredir durgunsa değerlendirilir
         var stillNeeded: TimeInterval = 0.45
+        /// Durgunluk bundan kısaysa kamera oynuyor sayılır (sayfa değişmiş olabilir)
+        var movingBelow: TimeInterval = 0.15
         /// İki konuşma arası en az süre
         var speakGap: TimeInterval = 3.5
         /// Aynı değerlendirmenin yeniden söylenme aralığı
@@ -234,6 +316,14 @@ struct FramingCoachTimer {
         var stable = 2
         /// Aynı düzeltme art arda en çok kaç kez söylenir
         var maxSameCorrection = 3
+        /// Hareketten sonra satırlar okunana kadar en çok bu kadar beklenir (sayfa değişti mi diye bakılır); sonra yeni sayfa sayılır
+        var lineWait: TimeInterval = 2.5
+        /// Kâğıt kenarları bekleniyorsa (ayar açık) düzgün kadraj cümlesi için durgunluk en az bu kadar sürmeli: üç durum (tam / üst / alt) kenarlardan bilinir
+        var edgeWait: TimeInterval = 1.2
+        /// Sözcük örtüşmesi bundan azsa görünüm yeni sayfadır
+        var sameView = 0.4
+        /// Sayfa karşılaştırmasında bundan kısa sözcükler ("ve", "bir", "için") sayılmaz
+        var minWordLength = 4
     }
 
     var config = Config()
@@ -244,6 +334,9 @@ struct FramingCoachTimer {
     private var sameCount = 0
     private var lastWords: Set<String> = []
     private var correctionPending = false
+    private var moved = false
+    private var viewWords: Set<String> = []
+    private var waitingSince: TimeInterval?
 
     mutating func reset() {
         candidate = nil
@@ -253,17 +346,66 @@ struct FramingCoachTimer {
         sameCount = 0
         lastWords = []
         correctionPending = false
+        moved = false
+        viewWords = []
+        waitingSince = nil
     }
 
-    /// Söylenecek cümle ya da nil
+    /// Görünümün kimliği: ilk ve son tam satırın sözcükleri (küçük harf, kısa sözcükler atılır)
+    static func viewSignature(_ lines: ViewLines?, minLength: Int = 4) -> Set<String> {
+        guard let lines = lines else { return [] }
+        let all = (lines.starts + lines.ends).flatMap { ViewLines.words($0.words) }
+        return Set(all.map { $0.lowercased() }.filter { $0.count >= minLength })
+    }
+
+    /// Yeni sayfa: önceki sayfanın konuşma durumu unutulur (konuşma arası `speakGap` korunur: cümleler üst üste binmez)
+    private mutating func startNewView() {
+        candidate = nil
+        consecutive = 0
+        lastKind = nil
+        sameCount = 0
+        lastWords = []
+        correctionPending = false
+    }
+
+    /// Söylenecek cümle ya da nil. `expectEdges`: kâğıt kenarı algılaması açık; düzgün kadraj cümlesi kenarlar gelene kadar bekler
     mutating func step(metrics m: PageMetrics, lines: ViewLines?, time: TimeInterval, stillFor: TimeInterval,
-                       guidance c: GuidanceConfig = GuidanceConfig(), sharpFloor: Double = 0.45) -> String? {
+                       guidance c: GuidanceConfig = GuidanceConfig(), sharpFloor: Double = 0.45, expectEdges: Bool = false) -> String? {
+        if stillFor < config.movingBelow {
+            moved = true
+            waitingSince = nil
+            candidate = nil
+            consecutive = 0
+            return nil
+        }
         guard stillFor >= config.stillNeeded else {
             candidate = nil
             consecutive = 0
             return nil
         }
+        if moved {
+            if lines == nil {
+                let since = waitingSince ?? time
+                waitingSince = since
+                if time - since < config.lineWait { return nil }   // satırlar okunana kadar: sayfa değişti mi bilinmiyor
+            }
+            let words = FramingCoachTimer.viewSignature(lines, minLength: config.minWordLength)
+            let same = !words.isEmpty && !viewWords.isEmpty && FramingCoach.overlap(words, viewWords) >= config.sameView
+            if !same { startNewView() }
+            viewWords = words
+            moved = false
+            waitingSince = nil
+        } else {
+            // Durgun görünümün kimliği güncel tutulur: hareket başlayınca "önceki görünüm" budur
+            let words = FramingCoachTimer.viewSignature(lines, minLength: config.minWordLength)
+            if !words.isEmpty { viewWords = words }
+        }
         let note = FramingCoach.note(m, lines: lines, config: c, sharpFloor: sharpFloor)
+        if expectEdges, note.kind == .good, stillFor < config.edgeWait {
+            candidate = nil
+            consecutive = 0
+            return nil
+        }
         if note.kind == candidate {
             consecutive += 1
         } else {
@@ -273,7 +415,7 @@ struct FramingCoachTimer {
         guard consecutive >= config.stable, time - lastTime >= config.speakGap else { return nil }
         let changed = note.kind != lastKind
         var words: Set<String> = []
-        if note.kind == .good {
+        if note.kind.isGood {
             words = Set((lines?.ends ?? []).flatMap { ViewLines.words($0.words).map { $0.lowercased() } })
             if !changed {
                 // Aynı düzgün kadraj: yalnız görünüm değiştiyse (alttaki satır başka) ve aralık dolduysa yeniden anlatılır
@@ -287,7 +429,7 @@ struct FramingCoachTimer {
             sameCount += 1
         }
         var text = note.text
-        if note.kind == .good && correctionPending { text = "Tamam. " + text }
+        if note.kind.isGood && correctionPending { text = "Tamam. " + text }
         correctionPending = note.isCorrection
         lastKind = note.kind
         lastTime = time
