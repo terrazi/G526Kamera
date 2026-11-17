@@ -152,11 +152,16 @@ extension SessionViewModel {
         switch action {
         case .askQuestion(let on):
             if settings.askCamera == on { return LiveReply(text: Say.cameraAskAlready(on)) }
-            settings.askCamera = on
+            // Sınav türü komutlarıyla aynı kural: kapatmak sesli, açmak hibrit sınavdır ve yalnız bu sınavın kalanı için geçerlidir
+            // (sonraki sınav Ayarlar'daki başlangıç türüyle başlar)
+            settings.examType = on ? (settings.examType.usesCamera ? settings.examType : .hybrid) : .voice
             let choice = !on && (mode == .cameraChoice || mode == .passageCameraChoice || mode == .captureKindChoice)
             if !on { offerCamera = false }
-            tlog("[ayar] her soruda kamera sorusu: \(on ? "açık" : "kapalı")")
-            return LiveReply(text: Say.cameraAskChanged(on: on, configured: cameraConfigured, leavingChoice: choice), leaveCameraChoice: choice)
+            // Toplu çekimde hazır bekleyen kamera varsa sesliye geçerken kapanır ve internete dönülür (yoksa soru Gemini'ye gidemezdi)
+            let releasing = !on && (deps.camera.holding || networkMayBeOnCamera)
+            tlog("[ayar] her soruda kamera sorusu: \(on ? "açık" : "kapalı") (sınav türü: \(settings.examType.spoken))")
+            let text = Say.cameraAskChanged(on: on, configured: cameraConfigured, leavingChoice: choice) + (releasing ? " Kameradan çıkılıyor, internete geçiliyor." : "")
+            return LiveReply(text: text, leaveCameraChoice: choice, releaseCamera: releasing)
         case .quality(let high):
             let value = high ? 1 : 2
             let already = c.streamQuality == value

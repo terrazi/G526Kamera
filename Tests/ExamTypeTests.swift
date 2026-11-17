@@ -224,6 +224,32 @@ final class ExamTypeTests: XCTestCase {
         XCTAssertEqual(h.settings.examType, .voice)
     }
 
+    /// Eski "kamera sorusunu kapat" komutu da sınav türü kuralına uyar: yalnız bu sınav sesli olur, sonraki sınav Ayarlar'daki tiple başlar
+    func testTheOldCameraQuestionCommandOnlyChangesThisExam() async {
+        let h = harness(.hybrid)
+        _ = await h.startListening()
+        XCTAssertEqual(h.vm.listenMode, .cameraChoice)
+        let before = h.speaker.spoken.count
+        say(h, "kamera sorusunu kapat")
+        let left = await waitUntil(45) { h.speaker.spoken.count == before + 1 && h.vm.listenMode == .question && h.vm.phase == .listening }
+        XCTAssertTrue(left, "\(h.speaker.spoken)")
+        XCTAssertEqual(h.settings.examType, .voice)
+        XCTAssertEqual(h.settings.examTypeDefault, .hybrid, "Sonraki sınav yine Ayarlar'daki tiple başlar")
+    }
+
+    func testTurningTheCameraQuestionOffWhileTheSeriesCameraWaitsAlsoReturnsToTheInternet() async {
+        let h = harness(.camera, pageSeries: true)
+        _ = await h.startListening()
+        XCTAssertTrue(h.camera.holding)
+        say(h, "kamera sorusunu kapat")
+        let voice = await waitUntil(45) { h.vm.listenMode == .question && h.vm.phase == .listening && !h.camera.holding }
+        XCTAssertTrue(voice, "\(h.speaker.spoken) \(h.events)")
+        XCTAssertEqual(h.speaker.spoken.last, Say.cameraAskChanged(on: false, configured: true, leavingChoice: true) + " Kameradan çıkılıyor, internete geçiliyor.")
+        XCTAssertTrue(h.health.internet, "İnternete dönüldü")
+        XCTAssertEqual(h.settings.examType, .voice)
+        XCTAssertEqual(h.settings.examTypeDefault, .camera)
+    }
+
     // MARK: Yeni sınav
 
     /// Bir sınav yapılıp bitirilir; sınav sırasında tür sesle değiştirilmiştir. Yeni oturumda "önceki kayıt mı, yeni sınav mı" sorulur.
