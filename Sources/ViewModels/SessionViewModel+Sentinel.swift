@@ -163,6 +163,14 @@ extension SessionViewModel {
         case .listening, .paused(.noConnection): break
         default: return
         }
+        // Toplu çekim: kamera hazır bekliyor, internet BİLEREK kapalı (telefon kameranın Wi-Fi'sinde, uçak modu / hücresel kapalı). Yoklama hiçbir şey öğretmez
+        // (sonucu zaten alarm sayılmaz), yalnız kameranın internetsiz ağına boşuna istek yollar ve hücresel yola denenince iOS "hücresel veri kapalı" uyarısını
+        // ekrana getirir (17.11.2026 günlüğü: -1009, "hücresel bağlanılamadı"). Bu yüzden bu sürede nabız yoklaması yapılmaz.
+        if seriesCameraReady {
+            netPulse = .down
+            netFails = 0
+            return
+        }
         netProbeBusy = true
         Task { [weak self] in
             guard let self = self else { return }

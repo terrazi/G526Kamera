@@ -16,7 +16,7 @@ struct DiagnosticsView: View {
             HStack {
                 Button(copied ? "Kopyalandı" : "Günlüğü kopyala") {
                     // Dosyadan okunur: uygulama kapanıp yeniden açıldıysa önceki çalışmanın sonu da gelir (kapanma nedeni orada aranır)
-                    ClipboardFlag().copyLog(ClipboardFlag.logText(info: info, lines: log.recentLines(maxLines: 800)))
+                    ClipboardFlag().copyLogForPaste(ClipboardFlag.logText(info: info, lines: log.recentLines(maxLines: 800)))
                     copied = true
                 }
                 Spacer()

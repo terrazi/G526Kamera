@@ -354,6 +354,23 @@ final class PageSeriesTests: XCTestCase {
         XCTAssertEqual(CameraSettings(defaults: defaults).lapelOffSeconds, 3, "Alt sınır")
     }
 
+    /// 17.11.2026 günlüğü: kamera "Başla"yı beklerken her 5 sn'de internet yoklaması gidiyordu; hücresel yol denenince iOS "hücresel veri kapalı" uyarısı çıkıyordu
+    func testNoInternetProbeIsSentWhileTheCameraWaitsForStart() async {
+        let h = harness(seriesResults: [], pageReplies: [])
+        h.settings.instantDetection = true
+        _ = await h.startListening()
+        XCTAssertTrue(h.camera.holding)
+        XCTAssertEqual(h.vm.phase, .listening)
+        let before = h.health.quickCalls
+        h.scheduler.advance(by: Double(T.netBeatEvery) * T.sentinelTick * 4 + 0.1)
+        await Task.yield()
+        await Task.yield()
+        XCTAssertEqual(h.health.quickCalls, before, "Kamera hazır beklerken internet BİLEREK kapalı: nabız yoklaması gönderilmez")
+        XCTAssertEqual(h.vm.netPulse, .down)
+        XCTAssertTrue(h.camera.holding)
+        XCTAssertEqual(h.vm.phase, .listening, "Yoklama olmaması hiçbir onarımı başlatmaz")
+    }
+
     func testTheOldAnnouncementIsUsedWhenTheCameraIsNotWaiting() async {
         // Hazır bekleyen bağlantı koptuysa (kamera bağlı değil) eski düzen: duyuru, kestirme, bağlanma
         let h = harness(seriesResults: [series()], pageReplies: [.success([FakeAnswering.reply(1)])])

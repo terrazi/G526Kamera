@@ -154,6 +154,7 @@ final class AppEnvironment: ObservableObject {
         tlog("[uygulama] öne geldi")
         isActive = true
         syncDimming()
+        journal.syncCloseGuard(releasingPasteHold: true)   // günlük yapıştırıldı sayılır: işaret kalkar, pano yalnız günlük olur
         starter.apply(enabled: settings.startEnabled, minutes: settings.startMinutes)
         session.recheckHardware()
         session.refreshInputs()

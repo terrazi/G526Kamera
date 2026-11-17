@@ -258,6 +258,18 @@ final class ClipboardFlag {
         }
     }
 
+    /// "Günlüğü kopyala" düğmesi: günlüğün ALTINA kapanma işareti de eklenir ve işaret bu etiketle tutulur. Kullanıcı günlüğü başka uygulamaya yapıştırmak için
+    /// ana ekrana çıkacaktır; panoda işaret yoksa Kestirmeler otomasyonu programı hemen geri açar (17.11.2026: "ana ekrana gelemiyor, program yeniden açılıyor").
+    /// Oturum olayları bu işareti silmez; uygulama yeniden öne gelince ya da açılışta silinir ve pano yalnız günlük olarak kalır.
+    static let pasteHold = "GUNLUK-YAPISTIRMA"
+
+    func copyLogForPaste(_ text: String) {
+        copyLog(text)
+        guard logOnBoard else { return }
+        set(ClipboardFlag.closed)
+        defaults.set(ClipboardFlag.pasteHold, forKey: ClipboardFlag.nameKey)
+    }
+
     /// Pano şu an bizim kopyaladığımız günlüğü taşıyor mu (başkası panoyu değiştirmediyse sayaç aynıdır)
     private var logOnBoard: Bool {
         return defaults.object(forKey: ClipboardFlag.logCountKey) != nil && defaults.integer(forKey: ClipboardFlag.logCountKey) == changeCount()
@@ -350,9 +362,11 @@ final class RunJournal: RunJournaling {
 
     /// Pano işaretini ayara göre eşitler: engel açıkken işaret kalkar, kapalıyken KAPALI işareti yerinde durur (kullanıcı panoyu değiştirdiyse yeniden yazılır;
     /// panodaki kopyalanmış günlük korunur). Kestirmeye geçerken (`away`) ve düğmeyle kapatırken (`closing`) işarete dokunulmaz.
-    func syncCloseGuard() {
+    func syncCloseGuard(releasingPasteHold: Bool = false) {
         if away || closing { return }
         if closeGuardEnabled() {
+            // Günlük yeni kopyalandıysa işaret, kullanıcı başka uygulamaya geçip yapıştırana kadar kalır (program geri açılmasın)
+            if !releasingPasteHold, case let .marker(name) = clipboard.state(), name == ClipboardFlag.pasteHold { return }
             clipboard.clearIfOurs()
         } else if clipboard.state() != .marker(ClipboardFlag.closed) {
             clipboard.set(ClipboardFlag.closed)

@@ -349,6 +349,38 @@ final class ScreenAndClipboardTests: XCTestCase {
         try? FileManager.default.removeItem(at: file)
     }
 
+    /// 17.11.2026: günlük kopyalandıktan sonra ana ekrana çıkılınca otomasyon programı hemen geri açıyordu; günlük yapıştırılamıyordu
+    func testCopyingTheLogLetsTheProgramBeLeftWithoutBeingPulledBackAndTheHoldEndsWhenItComesBack() {
+        let board = RelaunchTests.FakePasteboard()
+        let file = tempLogFile()
+        let defaults = freshDefaults()
+        let journal = RunJournal(defaults: defaults, previousLog: [], clipboard: logFlag(board, defaults: defaults, file: file))
+        _ = journal.beginRun()
+        logFlag(board, defaults: defaults, file: file).copyLogForPaste(sampleLog)
+        XCTAssertTrue(board.value.hasPrefix(sampleLog), "Yapıştırılan şey günlüktür")
+        XCTAssertTrue(board.value.contains(ClipboardFlag.closed), "Otomasyon işareti görür: ana ekrana çıkınca program geri açılmaz")
+        journal.setSessionOpen(true)   // oturum olayları işareti silmez
+        journal.syncCloseGuard()       // uygulamadan çıkış
+        XCTAssertTrue(board.value.hasPrefix(sampleLog))
+        XCTAssertTrue(board.value.contains(ClipboardFlag.closed), "Günlük yapıştırılana kadar işaret yerinde")
+        journal.syncCloseGuard(releasingPasteHold: true)   // program yeniden öne geldi
+        XCTAssertEqual(board.value, sampleLog, "İşaret kalkar, pano yalnız günlük olur: sonraki kapanmayı otomasyon geri açar")
+        try? FileManager.default.removeItem(at: file)
+    }
+
+    func testTheCopiedLogMarkerIsAlsoClearedAtTheNextLaunch() {
+        let board = RelaunchTests.FakePasteboard()
+        let file = tempLogFile()
+        let defaults = freshDefaults()
+        let first = RunJournal(defaults: defaults, previousLog: [], clipboard: logFlag(board, defaults: defaults, file: file))
+        _ = first.beginRun()
+        logFlag(board, defaults: defaults, file: file).copyLogForPaste(sampleLog)
+        let second = RunJournal(defaults: defaults, previousLog: [], clipboard: logFlag(board, defaults: defaults, file: file))
+        _ = second.beginRun()
+        XCTAssertEqual(board.value, sampleLog, "Yeniden açılışta işaret silinir, günlük kalır")
+        try? FileManager.default.removeItem(at: file)
+    }
+
     func testTheCloseGuardIsOnByDefaultAndSaved() {
         let defaults = UserDefaults(suiteName: "g526.engel.\(UUID().uuidString)")!
         let fresh = AppSettings(defaults: defaults)

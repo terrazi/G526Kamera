@@ -10,10 +10,13 @@ import Foundation
 extension SessionViewModel {
     /// Çekimden ÖNCE çağrılır. Ayar kapalıysa hemen true döner. Dönen false: duyuru kesildi ya da iş iptal edildi (çekim başlamaz).
     func muteLapelForCapture() async -> Bool {
-        guard cameraSettings.muteLapel else { return true }
+        guard cameraSettings.muteLapel else {
+            tlog("[ses yolu] çekim başlıyor (yaka mikrofonu kapatma ayarı kapalı): \(AudioRouting.describe(deps.route.snapshot()))")
+            return true
+        }
         let seconds = cameraSettings.lapelOffSeconds
         AudioRouting.builtInMicAllowed = true
-        tlog("[ses yolu] çekim için yaka mikrofonu kapatılıyor (2,4 GHz parazit): uyarı söylenir, \(seconds) sn beklenir; telefonun kendi mikrofonu geçici kabul edilir")
+        tlog("[ses yolu] çekim için yaka mikrofonu kapatılıyor (2,4 GHz parazit): uyarı söylenir, \(seconds) sn beklenir; telefonun kendi mikrofonu geçici kabul edilir; şimdiki yol: \(AudioRouting.describe(deps.route.snapshot()))")
         statusNote = "Yaka mikrofonunu kapatın"
         guard await speakNotice(Say.lapelOff(seconds: seconds)) else {
             AudioRouting.builtInMicAllowed = false

@@ -134,6 +134,7 @@ Uygulama kapanıp açıldığında ya da "Testi bitir"den sonra yeniden başlat�
 metin kopyalayın (ya da bir sözcük seçip kopyalayın), sonra kaydırarak kapatmayı deneyin.
 Günlüğü kopyaladıktan sonra **"Programı kapat"** ile kapatırsanız ya da program kestirmeye geçerse, kapanma işareti günlüğün **sonuna satır olarak eklenir**
 (günlüğün yerine yazılmaz): yapıştırınca günlük gelir, son satırı `SESLIKONTROL-KAPALI` olur. Panoya kendiniz başka bir şey kopyalarsanız işaret eskisi gibi tek başına yazılır.
+**Günlüğü kopyalayıp başka uygulamaya geçmek:** "Günlüğü kopyala" günlüğün sonuna `SESLIKONTROL-KAPALI` satırını da ekler; böylece ana ekrana çıkınca otomasyon programı geri açmaz, günlüğü yapıştırabilirsiniz. Program yeniden öne gelince ya da açılınca bu satır silinir.
 **Kapanma engeli ayarı:** Ayarlar > Başlama saati > "Kapanma engeli". Açıkken (varsayılan) yukarıdaki düzen çalışır: yalnız "Programı kapat" ile kapanır, başka kapanmayı otomasyon geri açar.
 Kapalıyken program `SESLIKONTROL-KAPALI` işaretini panoda hep yerinde tutar (açılışta, ayarı kapatınca, uygulamadan her çıkışta); otomasyon hiçbir kapanmada geri açmaz.
 **Çekimde yaka mikrofonu:** Ayarlar > Kamera > Video kaydı > "Çekimde yaka mikrofonunu kapat" (varsayılan açık, bekleme 8 sn). "Başla" deyince program "Yaka mikrofonunu kapatın" der,
