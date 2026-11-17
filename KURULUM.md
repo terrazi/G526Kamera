@@ -121,6 +121,10 @@ Uygulama kapanıp açıldığında ya da "Testi bitir"den sonra yeniden başlat�
   (en çok 3 sözcük) sesce en çok benzeyen seçeneği alır ("yeli" → yeni, "evat" → evet). Olumsuzluk, komut ya da iki seçeneğe de benzeyen söz seçilmez, soru yeniden sorulur.
   **Testi bitirme ve silme komutları hiçbir zaman tahminle seçilmez**: "Bitir" aynen duyulmalıdır.
 - Cevap vermezseniz bir kez hatırlatılır; yine olmazsa önceki kayıt 12 saatten **yeniyse devam**, eskiyse yeni sınav sayılır.
+
+**Kopyalanan günlük ve "kapanırsa yeniden aç" otomasyonu:** otomasyon panoda `SESLIKONTROL-` yazısı görürse uygulamayı geri açmaz. "Günlüğü kopyala" bu yüzden metindeki
+`SESLIKONTROL-` önekini `SESLIKONTROL:` yapar. Programın dışından (ör. önceki bir sürümün kopyaladığı günlük) panoda bu yazı kalmışsa, kapanma engellenmez: panoya başka bir
+metin kopyalayın (ya da bir sözcük seçip kopyalayın), sonra kaydırarak kapatmayı deneyin.
 - Beklenmedik kapanmadan sonra (çökme, iOS kapattı) soru sorulmaz: kaldığı yerden otomatik sürer. Önceki kayıtta hiç cevap yoksa da soru sorulmaz.
 - **Soru numarası okunmadıysa sor:** (açık gelir) Soruyu okuyup "Cevapla" dediniz ama numara söylemediyseniz program "Lütfen okuduğunuz sorunun numarasını söyleyin" der. "Yedi" ya da "soru yedi" demeniz yeter; numara sorunun başına yazılıp Gemini'ye öyle gider. Bilmiyorsanız "sıradaki" deyin, sıradaki numara verilir. Hiç söylemezseniz iki kez hatırlatılır, sonra sıradaki numarayla gönderilir (soru kaybolmaz). Kapalıyken numara sorulmaz, sıradaki numara verilir.
 - **Gemini beklerken bilgi ver:** (açık gelir) "Cevapla" deyince kulaklıktan "Soru başarıyla alınıp Gemini'ye gönderildi, cevap bekleniyor" denir; cevap uzarsa 15 saniyede bir "Cevap bekleniyor" denir. Gemini **3 dakikada** cevap vermezse bekleme bırakılır, "soruyu tekrar okuyun" denir ve dinlemeye dönülür. Kapalıyken bu anonslar ve 3 dakikalık sınır yoktur.

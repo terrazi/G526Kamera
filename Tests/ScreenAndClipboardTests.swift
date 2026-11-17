@@ -241,4 +241,20 @@ final class RouteRawLogTests: XCTestCase {
         XCTAssertFalse(verdict.headphonesOK, "Çıkışların hepsi kulaklık olmalı (KURAL 1): biri başka yerse güvenli sayılmaz")
         XCTAssertTrue(verdict.micOK)
     }
+
+    /// 17.11.2026: "Günlüğü kopyala" panoyu günlükle doldurdu; günlükteki "pano işareti: SESLIKONTROL-KAPALI" satırları Kestirmeler otomasyonunun
+    /// "pano SESLIKONTROL- içeriyorsa dur" koşulunu sağladı ve uygulama yukarı kaydırılarak kapatılınca geri açılmadı
+    func testACopiedLogNeverContainsTheAutomationMarker() {
+        let lines = ["00:33:57.685 [açılış] pano işareti: SESLIKONTROL-KAPALI (otomasyon açmaz); önceki çalışmada oturum kapalıydı",
+                     "00:35:40.938 [açılış] pano işareti: seslikontrol-onarim (otomasyon açmaz)",
+                     "00:33:58.658 [açılış] otomasyon uygulamayı yeniden açtı (seslikontrol://yeniden)"]
+        let copied = ClipboardFlag.logText(info: "Sürüm: abc · SESLIKONTROL-ONARIM", lines: lines)
+        XCTAssertFalse(copied.lowercased().contains("seslikontrol-"), "Kopyalanan günlük işaret önekini taşımaz")
+        XCTAssertTrue(copied.contains("SESLIKONTROL:KAPALI"), "Metin okunur kalır")
+        XCTAssertTrue(copied.contains("seslikontrol://yeniden"), "Adres örnekleri bozulmaz")
+        XCTAssertTrue(copied.contains("00:33:57.685 [açılış] pano işareti"))
+        XCTAssertEqual(ClipboardFlag.defused("serbest metin"), "serbest metin")
+        XCTAssertFalse(ClipboardFlag.defused(ClipboardFlag.closed).hasPrefix(ClipboardFlag.prefix))
+        XCTAssertFalse(ClipboardFlag.defused(ClipboardFlag.repair).lowercased().contains(ClipboardFlag.prefix.lowercased()))
+    }
 }

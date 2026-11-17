@@ -224,6 +224,18 @@ final class ClipboardFlag {
         self.changeCount = changeCount
     }
 
+    /// Panoya kopyalanacak serbest metinden (günlük) işaret önekini çıkarır. Kestirmeler otomasyonu "pano SESLIKONTROL- içeriyorsa dur" der; kopyalanan
+    /// günlükteki "pano işareti: SESLIKONTROL-KAPALI" satırları da bu koşulu sağlar ve pano o metinle dolu kaldıkça uygulama yukarı kaydırılarak
+    /// kapatılınca otomasyon onu geri AÇMAZ (17.11.2026: günlük kopyalandıktan sonra kapanma engellenemedi). Önekin tire'si iki noktayla değişir.
+    static func defused(_ text: String) -> String {
+        return text.replacingOccurrences(of: prefix, with: "SESLIKONTROL:", options: .caseInsensitive)
+    }
+
+    /// "Günlüğü kopyala" ile panoya konan metin: cihaz özeti ve günlük satırları, işaret öneki çıkarılmış olarak (`defused`)
+    static func logText(info: String, lines: [String]) -> String {
+        return defused(info + "\n\n" + lines.joined(separator: "\n"))
+    }
+
     /// İşareti panoya yazar ve o andaki değişim sayacını saklar (sonradan başkası panoyu değiştirirse anlaşılsın diye)
     func set(_ marker: String) {
         write(marker)
