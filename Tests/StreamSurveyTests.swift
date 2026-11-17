@@ -188,7 +188,7 @@ final class SurveyHighlightsTests: XCTestCase {
     func testNoQueryTextSaysTheQueryDidNotRun() {
         let lines = CameraCaptureController.probeHighlights("")
         XCTAssertEqual(lines.count, 1)
-        XCTAssertTrue(lines[0].contains("sorgu yapılamadı"))
+        XCTAssertTrue(lines[0].contains("bilgi sorgusu yapılamadı"), lines[0])
     }
 
     func testLongAnswersAreCutForTheScreen() {
