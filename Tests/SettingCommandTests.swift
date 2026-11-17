@@ -116,10 +116,17 @@ final class SettingCommandTests: XCTestCase {
         for word in ["Sesi aç", "Sesi kıs", "Kamera sorusunu kapat", "Genel rapor"] {
             XCTAssertTrue(ListenHints.choice.strings.contains(word), word)
         }
+        // Başla beklenirken (kamera seçimi kipi) söylenen yeni komutlar
+        for word in ["Kadraj kontrolü", "Konumlandırmayı aç", "Konumlandırmayı kapat", "Konumlandırma desteğini aç", "Konumlandırma desteğini kapat"] {
+            XCTAssertTrue(ListenHints.choice.strings.contains(word), word)
+            XCTAssertTrue(ListenHints.dictation.strings.contains(word), word)
+        }
         XCTAssertLessThanOrEqual(OnDeviceSpeechListener.contextualStrings.count, 100)
         XCTAssertTrue(Say.helpCommands.contains("genel rapor"))
         XCTAssertTrue(Say.helpCommands.contains("Sesi aç"))
         XCTAssertTrue(Say.helpCommands.contains("kamera sorusunu kapat"))
+        XCTAssertTrue(Say.helpCommands.contains("konumlandırma desteğini aç"))
+        XCTAssertTrue(Say.helpCommands.contains("kadraj kontrolü"))
     }
 
     // MARK: Söylenen cümleler

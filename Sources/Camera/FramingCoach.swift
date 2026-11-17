@@ -197,19 +197,17 @@ enum FramingCoach {
 
     /// "Tam sayfa görünüyor, dört kenar boş." / "Sayfanın üst yarısı görünüyor, üst, sol ve sağ kenar boş." (ayrıntılıysa kesik kenar açıklaması da eklenir)
     static func layoutText(_ r: PageLayoutReading, verbose: Bool) -> String {
-        var sideCut = ""
-        if !r.cutSides.isEmpty {
-            let words = r.cutSides.map { $0.word }.joined(separator: " ve ")
-            sideCut = " " + String(words.prefix(1)).uppercased() + String(words.dropFirst()) + " kenarı kadrajın dışında kalıyor."
-        }
+        // Kâğıt yandan taşıyorsa "dört kenar boş" denmez: "sağ kenarı kadrajın dışında kalıyor" / "sol ve sağ kenarları kadrajın dışında kalıyor"
+        let sideClause = r.cutSides.isEmpty ? "" : r.cutSides.map { $0.word }.joined(separator: " ve ") + (r.cutSides.count == 1 ? " kenarı" : " kenarları") + " kadrajın dışında kalıyor"
         switch r.layout {
         case .full:
-            return (r.allClear ? "Tam sayfa görünüyor, dört kenar boş." : "Tam sayfa görünüyor.") + sideCut
+            if !r.cutSides.isEmpty { return "Sayfanın üstü ve altı görünüyor; " + sideClause + "." }
+            return r.allClear ? "Tam sayfa görünüyor, dört kenar boş." : "Tam sayfa görünüyor."
         case .upperHalf:
-            if !r.cutSides.isEmpty { return "Sayfanın üst yarısı görünüyor." + sideCut }
+            if !r.cutSides.isEmpty { return "Sayfanın üst yarısı görünüyor; " + sideClause + "." }
             return "Sayfanın üst yarısı görünüyor, üst, sol ve sağ kenar boş." + (verbose ? " Alt kenardan alttaki sorunun bir bölümü giriyor olabilir." : "")
         case .lowerHalf:
-            if !r.cutSides.isEmpty { return "Sayfanın alt yarısı görünüyor." + sideCut }
+            if !r.cutSides.isEmpty { return "Sayfanın alt yarısı görünüyor; " + sideClause + "." }
             return "Sayfanın alt yarısı görünüyor, alt, sol ve sağ kenar boş." + (verbose ? " Üst kenardan üstteki sorunun bir bölümü giriyor olabilir." : "")
         case .middle:
             return "Sayfanın ortası görünüyor, üst ve alt kenar kadraj dışında."
@@ -320,6 +318,8 @@ struct FramingCoachTimer {
         var lineWait: TimeInterval = 2.5
         /// Kâğıt kenarları bekleniyorsa (ayar açık) düzgün kadraj cümlesi için durgunluk en az bu kadar sürmeli: üç durum (tam / üst / alt) kenarlardan bilinir
         var edgeWait: TimeInterval = 1.2
+        /// Bir sayfada (görünümde) en çok bu kadar cümle söylenir: ölçüm gürültüsü kulaklıkta sürekli konuşmaya dönüşmesin (yeni sayfada sıfırlanır)
+        var maxPerView = 8
         /// Sözcük örtüşmesi bundan azsa görünüm yeni sayfadır
         var sameView = 0.4
         /// Sayfa karşılaştırmasında bundan kısa sözcükler ("ve", "bir", "için") sayılmaz
@@ -337,6 +337,7 @@ struct FramingCoachTimer {
     private var moved = false
     private var viewWords: Set<String> = []
     private var waitingSince: TimeInterval?
+    private var spokenInView = 0
 
     mutating func reset() {
         candidate = nil
@@ -349,6 +350,7 @@ struct FramingCoachTimer {
         moved = false
         viewWords = []
         waitingSince = nil
+        spokenInView = 0
     }
 
     /// Görünümün kimliği: ilk ve son tam satırın sözcükleri (küçük harf, kısa sözcükler atılır)
@@ -366,6 +368,7 @@ struct FramingCoachTimer {
         sameCount = 0
         lastWords = []
         correctionPending = false
+        spokenInView = 0
     }
 
     /// Söylenecek cümle ya da nil. `expectEdges`: kâğıt kenarı algılaması açık; düzgün kadraj cümlesi kenarlar gelene kadar bekler
@@ -406,13 +409,19 @@ struct FramingCoachTimer {
             consecutive = 0
             return nil
         }
+        // Sayfa durumu bilinmişken kenarlar bir an belirsizleşirse ("Kadraj uygun.") geri düşülmez: ölçüm gürültüsüyle iki cümle arasında gidip gelinmesin
+        if note.kind == .good, let last = lastKind, last.isGood, last != .good {
+            candidate = nil
+            consecutive = 0
+            return nil
+        }
         if note.kind == candidate {
             consecutive += 1
         } else {
             candidate = note.kind
             consecutive = 1
         }
-        guard consecutive >= config.stable, time - lastTime >= config.speakGap else { return nil }
+        guard consecutive >= config.stable, time - lastTime >= config.speakGap, spokenInView < config.maxPerView else { return nil }
         let changed = note.kind != lastKind
         var words: Set<String> = []
         if note.kind.isGood {
@@ -434,6 +443,7 @@ struct FramingCoachTimer {
         lastKind = note.kind
         lastTime = time
         lastWords = words
+        spokenInView += 1
         return text
     }
 }

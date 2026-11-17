@@ -107,7 +107,8 @@ enum ListenHints: Equatable {
             return ["Evet", "Hayır", "Tamam", "Devam", "Devam et", "Tekrar", "Tekrar oku", "Bitir", "Testi bitir", "Vazgeç", "Yeni sınav",
                     "Önceki kayıt", "Önceki kayıttan devam", "Cevapları tekrarla", "Çek", "Çekelim", "Çekmek istiyorum", "Kamerayla", "Çekmiyorum", "Sesle okurum", "Başla", "Başlayalım",
                     "Tekrarla", "Son cevabı tekrarla", "Soruyu iptal et", "Paragrafı iptal et", "Anlamadım", "Duyamadım", "Bir daha söyle", "Yeniden söyle", "Tekrar söyle", "Yardım",
-                    "Sesi aç", "Sesi kıs", "Kamera sorusunu kapat", "Genel rapor", "Şarj durumu", "İnternet raporu"]
+                    "Sesi aç", "Sesi kıs", "Kamera sorusunu kapat", "Genel rapor", "Şarj durumu", "İnternet raporu",
+                    "Kadraj kontrolü", "Konumlandırmayı aç", "Konumlandırmayı kapat", "Konumlandırma desteğini aç", "Konumlandırma desteğini kapat"]
         case .number:
             return ["Soru", "Sıradaki", "Cevapları tekrarla", "Soruyu iptal et", "Anlamadım", "Bir daha söyle"] + ListenHints.numberWords + ListenHints.ordinals
         case .targets:
@@ -204,6 +205,7 @@ final class OnDeviceSpeechListener: SpeechListening {
         "İnternet raporu", "Mikrofon durumu", "Kulaklık durumu", "Ses durumu", "Kamera durumu", "Şarj durumu", "Isınma durumu", "Ram durumu", "Genel rapor",
         "Sesi aç", "Sesi kıs", "Sesi yüzde elli yap", "Kamera sorusunu kapat", "Kamera sorusunu aç", "Görüntü kalitesini yüksek yap", "Kadrajı dikey yap",
         "Videoyu gönderme", "Önizlemeyi kapat",
+        "Kadraj kontrolü", "Konumlandırmayı aç", "Konumlandırmayı kapat", "Konumlandırma desteğini aç", "Konumlandırma desteğini kapat",
         // Sayılar (iki sözcüklü sayılar bunlardan kurulur) ve sıra sayıları
         "bir", "iki", "üç", "dört", "beş", "altı", "yedi", "sekiz", "dokuz", "on", "yirmi", "otuz", "kırk", "elli", "altmış", "yetmiş",
         "seksen", "doksan", "yüz",

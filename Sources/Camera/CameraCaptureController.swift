@@ -544,7 +544,8 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         return (c, floors[min(max(settings.guidanceSharpness, 0), 2)])
     }
 
-    /// Toplu çekim başlarken: koç açılır. Sürekli kâğıt algılaması (Vision) ağırdır, açılmaz; koç yazı ölçüsünü ve satırları kullanır.
+    /// Toplu çekim başlarken: koç açılır. Yazı ölçüsü ve satırlar her zaman kullanılır; kâğıt kenarları (Vision, ağır) yalnız "kâğıt kenarlarını algıla" ayarı
+    /// açıksa ve kamera durgunken seyrek ölçülür.
     private func startCoach() {
         let g = coachGuidanceConfig()
         coachConfig = g.config
