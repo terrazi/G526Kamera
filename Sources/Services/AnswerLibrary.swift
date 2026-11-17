@@ -41,26 +41,27 @@ struct AnswerLibrary {
 
     // MARK: Klasör adları
 
-    /// Her sınav oturumunun kendi üst klasörünün adı: yerel saatle yıl, ay, gün, saat, dakika, saniye ("20261115223912")
+    /// Her sınav oturumunun kendi üst klasörünün adı: yerel saatle yıl-ay-gün-saatdakikasaniye ("2026-11-15-223912")
     static func folderName(for date: Date, calendar: Calendar = .current) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.calendar = Calendar(identifier: .gregorian)
         formatter.timeZone = calendar.timeZone
-        formatter.dateFormat = "yyyyMMddHHmmss"
+        formatter.dateFormat = "yyyy-MM-dd-HHmmss"
         return formatter.string(from: date)
     }
 
-    /// "20261115223912" → (ad, 1); aynı saniyede ikinci açılış "20261115223912_2" → (ad, 2). Eski sürümlerin gün adları ("2026-11-13",
-    /// "2026-11-13_2") de tanınır (önceki kayıtlar kaybolmasın); başka ad nil
+    /// "2026-11-15-223912" → (ad, 1); aynı saniyede ikinci açılış "2026-11-15-223912_2" → (ad, 2). Eski sürümlerin adları da tanınır (önceki
+    /// kayıtlar kaybolmasın): bitişik "20261115223912" ve gün adı "2026-11-13" (ile "_2" gibi ekleri); başka ad nil
     static func parseFolderName(_ name: String) -> (day: String, part: Int)? {
-        guard name.range(of: "^(\\d{14}|\\d{4}-\\d{2}-\\d{2})(_\\d+)?$", options: .regularExpression) != nil else { return nil }
+        guard name.range(of: "^(\\d{4}-\\d{2}-\\d{2}-\\d{6}|\\d{14}|\\d{4}-\\d{2}-\\d{2})(_\\d+)?$", options: .regularExpression) != nil else { return nil }
         let pieces = name.split(separator: "_", maxSplits: 1).map(String.init)
         let part = pieces.count > 1 ? (Int(pieces[1]) ?? 1) : 1
         return (pieces[0], part)
     }
 
-    /// Klasörleri zamana göre sıralamak için anahtar: eski gün adı o günün gece yarısı sayılır ("2026-11-13" → "20261113000000")
+    /// Klasörleri zamana göre sıralamak için anahtar: rakamlar alınır, yani her üç biçim de aynı sıraya girer; eski gün adı o günün gece yarısı
+    /// sayılır ("2026-11-13" → "20261113000000")
     static func sortKey(_ day: String) -> String {
         let digits = day.filter { $0.isNumber }
         return digits.count == 8 ? digits + "000000" : digits
@@ -152,7 +153,7 @@ struct AnswerLibrary {
 
     // MARK: Klasör işlemleri
 
-    /// Yeni sınav oturumu için kendi üst klasörünü açar (adı o anın tarihi ve saati: "20261115223912"). Hiç dosya içermeyen önceki boş oturum
+    /// Yeni sınav oturumu için kendi üst klasörünü açar (adı o anın tarihi ve saati: "2026-11-15-223912"). Hiç dosya içermeyen önceki boş oturum
     /// klasörleri (açılıp cevap alınmadan kapananlar) silinir; aynı saniyede açılmış, içinde cevap olan bir klasör varsa ezilmesin diye "_2", "_3" … açılır.
     func newSessionFolder(for date: Date, calendar: Calendar = .current) throws -> URL {
         removeEmptySessionFolders()
@@ -173,7 +174,7 @@ struct AnswerLibrary {
     func removeEmptySessionFolders() {
         let names = (try? fileManager.contentsOfDirectory(atPath: root.path)) ?? []
         for name in names {
-            guard name.range(of: "^\\d{14}(_\\d+)?$", options: .regularExpression) != nil else { continue }
+            guard name.range(of: "^(\\d{4}-\\d{2}-\\d{2}-\\d{6}|\\d{14})(_\\d+)?$", options: .regularExpression) != nil else { continue }
             let url = root.appendingPathComponent(name, isDirectory: true)
             if holdsNoFiles(url) { try? fileManager.removeItem(at: url) }
         }

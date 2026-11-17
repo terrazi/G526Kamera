@@ -82,6 +82,30 @@ final class CleanupWindowTests: XCTestCase {
         XCTAssertNil(AnswerLibrary.startDate(ofFolderNamed: "deneme.txt"))
     }
 
+    /// Yeni ad "2026-11-15-223912", önceki sürümün adı "20261115223912", en eski gün adı "2026-11-13": üçü de başladıkları ana göre bulunur
+    func testFoldersOfAllThreeNameStylesAreFoundByTheirStartTime() {
+        let root = makeTempFolder("g526-temizlik-adlar")
+        let calendar = Calendar.current
+        func date(_ day: Int, _ hour: Int, _ minute: Int, _ second: Int) -> Date {
+            return calendar.date(from: DateComponents(year: 2026, month: 11, day: day, hour: hour, minute: minute, second: second))!
+        }
+        XCTAssertEqual(AnswerLibrary.startDate(ofFolderNamed: "2026-11-15-223912"), date(15, 22, 39, 12))
+        XCTAssertEqual(AnswerLibrary.startDate(ofFolderNamed: "2026-11-15-223912_2"), date(15, 22, 39, 12))
+        XCTAssertEqual(AnswerLibrary.startDate(ofFolderNamed: "20261115223912"), date(15, 22, 39, 12))
+        XCTAssertEqual(AnswerLibrary.startDate(ofFolderNamed: "2026-11-13"), date(13, 0, 0, 0))
+        XCTAssertNil(AnswerLibrary.startDate(ofFolderNamed: "2026-11-15-2239"))
+        XCTAssertNil(AnswerLibrary.startDate(ofFolderNamed: "2026-11-15-223912_x"))
+
+        for name in [AnswerLibrary.folderName(for: date(15, 22, 39, 12)), "20261115223913", "2026-11-13", "2026-11-14-090000"] {
+            try? fm.createDirectory(at: root.appendingPathComponent(name), withIntermediateDirectories: true)
+        }
+        let library = AnswerLibrary(root: root)
+        XCTAssertEqual(library.examFolders(since: date(15, 0, 0, 0)).map { $0.lastPathComponent }.sorted(), ["2026-11-15-223912", "20261115223913"])
+        XCTAssertEqual(library.examFolders(since: nil).count, 4)
+        XCTAssertEqual(library.deleteExamFolders(since: date(14, 0, 0, 0)), 3, "14 Kasım 09:00 ve 15 Kasım'daki iki klasör silinir")
+        XCTAssertEqual(names(root), ["2026-11-13"])
+    }
+
     func testTheCountsExplainWhatWillBeDeleted() {
         XCTAssertEqual(CleanupCounts(exams: 2, captures: 5).text, "2 sınav kaydı, 5 çekim")
         XCTAssertEqual(CleanupCounts().text, "kayıt yok")
@@ -153,6 +177,28 @@ final class CleanupCaptureTests: XCTestCase {
         for bucket in FileCaptureStore.Bucket.allCases {
             XCTAssertTrue(fm.fileExists(atPath: store.url(of: bucket).path), "Bölüm klasörleri kalır")
         }
+    }
+
+    /// Çekim klasörleri de sınav klasörleri gibi "yıl-ay-gün-saatdakikasaniye_kimlik" adını alır; önceki sürümün "20261115-223912_kimlik" adları okunur
+    func testCaptureFoldersAreNamedByDateAndTimeAndOldNamesStillWork() {
+        let kept = store.keep(shot(minutesAgo: 30), kind: .question)
+        let dirs = (try? fm.contentsOfDirectory(at: store.url(of: .pending), includingPropertiesForKeys: nil)) ?? []
+        XCTAssertEqual(dirs.count, 1)
+        guard let dir = dirs.first else { return }
+        let name = dir.lastPathComponent
+        XCTAssertNotNil(name.range(of: "^\\d{4}-\\d{2}-\\d{2}-\\d{6}_[0-9A-Fa-f]{8}$", options: .regularExpression), name)
+        XCTAssertEqual(name, "\(AnswerLibrary.folderName(for: kept.date))_\(kept.id.uuidString.prefix(8))")
+
+        // Önceki sürümün adı ve bilgi dosyası yok: tarih adın kendisinden okunur
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        let oldName = "\(formatter.string(from: kept.date))_\(kept.id.uuidString.prefix(8))"
+        let oldDir = dir.deletingLastPathComponent().appendingPathComponent(oldName, isDirectory: true)
+        XCTAssertNotNil(try? fm.moveItem(at: dir, to: oldDir))
+        try? fm.removeItem(at: oldDir.appendingPathComponent("bilgi.json"))
+        XCTAssertEqual(store.count(since: now.addingTimeInterval(-3_600)), 1, "Eski adlı klasörün tarihi okunur")
+        XCTAssertEqual(store.count(since: now.addingTimeInterval(60)), 0)
     }
 
     func testTheCaptureTimeIsReadFromTheFolderNameWhenTheInfoFileIsGone() {

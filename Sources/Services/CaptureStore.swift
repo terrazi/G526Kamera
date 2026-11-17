@@ -229,15 +229,18 @@ final class FileCaptureStore: CaptureStoring {
         return remove(Bucket.allCases)
     }
 
-    /// Çekimin zamanı: bilgi.json'daki tarih; yoksa klasör adındaki tarih ("20261115-223912_ab12cd34"); o da yoksa klasörün oluşturulma tarihi.
+    /// Çekimin zamanı: bilgi.json'daki tarih; yoksa klasör adındaki tarih ("2026-11-15-223912_ab12cd34", eski sürümlerde "20261115-223912_ab12cd34");
+    /// o da yoksa klasörün oluşturulma tarihi.
     /// Hiçbiri okunamazsa en eski sayılır (süreli aralıklarda silinmez, yalnız "tümü"nde silinir).
     private func captureDate(of dir: URL) -> Date {
         if let saved = readInfo(in: dir) { return Date(timeIntervalSince1970: saved.date) }
         let stamp = dir.lastPathComponent.split(separator: "_", maxSplits: 1).first.map(String.init) ?? ""
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyyMMdd-HHmmss"
-        if let named = formatter.date(from: stamp) { return named }
+        for format in ["yyyy-MM-dd-HHmmss", "yyyyMMdd-HHmmss"] {
+            formatter.dateFormat = format
+            if let named = formatter.date(from: stamp) { return named }
+        }
         return (try? dir.resourceValues(forKeys: [.creationDateKey]))?.creationDate ?? .distantPast
     }
 
@@ -280,11 +283,11 @@ final class FileCaptureStore: CaptureStoring {
 
     // MARK: Yardımcılar
 
-    /// Klasör adı: çekim tarihi + kimliğin ilk 8 hanesi (alfabetik sıra = zaman sırası)
+    /// Klasör adı: çekim tarihi (yıl-ay-gün-saatdakikasaniye) + kimliğin ilk 8 hanesi ("2026-11-15-223912_ab12cd34")
     static func folderName(for shot: CapturedQuestion) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        formatter.dateFormat = "yyyy-MM-dd-HHmmss"
         return "\(formatter.string(from: shot.date))_\(shot.id.uuidString.prefix(8))"
     }
 

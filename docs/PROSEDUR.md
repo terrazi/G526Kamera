@@ -106,7 +106,7 @@ Bu belge, programın sesle nasıl işlemesi gerektiğini adım adım yazar; her 
    kaydedildi." ve test biter. Anlaşılmazsa ya da sessizlikte "ikinci", sonra "üçüncü defa soruyorum" denir; yine olmazsa varsayılan: bitirme isteğiyle gelindiyse test tamamlanır,
    yalnız tekrar istendiyse teste devam edilir. (Ayar: "Testi bitirince cevapları oku", açık; kapalıysa onaydan sonra test doğrudan tamamlanır.)
 5a. **Sınav bölümleri (Ayarlar > Sınav bölümleri).** En çok 4 bölüm açılır, her birinin soru sayısı (en çok 100) yazılır; böylece program sınavdan önce her bölümün kaç soru olduğunu bilir.
-   Sınav başlarken "1. bölüme başlıyorum. Bu bölümde N soru var." denir. Her sınav oturumu üst klasörünü yıl-ay-gün-saat-dakika-saniye adıyla alır (ör. `20261115223912`);
+   Sınav başlarken "1. bölüme başlıyorum. Bu bölümde N soru var." denir. Her sınav oturumu üst klasörünü yıl-ay-gün-saatdakikasaniye adıyla alır (ör. `2026-11-15-223912`; önceki sürümlerin `20261115223912` adlı klasörleri de tanınır);
    bölümlü sınavda cevaplar bu klasörün içindeki `bolum_1`, `bolum_2`… klasörlerine yazılır (her bölümde numara 1'den başlar, bölümler birbirini ezmez). **"Bölümü tamamla"**
    (ya da "bölümü bitir") denince onay istenir; evet → o bölümün cevapları okunur, menüde **Bitir** denince "N cevap, cevapsız: …" söylenir ve
    "Yeni bir bölüm ile devam etmek ister misiniz, yoksa testi tamamlayalım mı?" diye sorulur. **Evet** → "2. bölüme başlıyorum" (numara 1'den), **hayır / testi tamamla** → test biter.

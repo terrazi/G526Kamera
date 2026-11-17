@@ -50,14 +50,19 @@ struct CleanupCounts: Equatable {
 }
 
 extension AnswerLibrary {
-    /// Sınav klasörünün başladığı an: "20261115223912" (yerel saat) ya da eski sürümlerin gün adı ("2026-11-13", o günün başı). Başka ad nil.
+    /// Sınav klasörünün başladığı an: "2026-11-15-223912" (yerel saat), eski bitişik ad "20261115223912" ya da eski sürümlerin gün adı
+    /// ("2026-11-13", o günün başı). Başka ad nil.
     static func startDate(ofFolderNamed name: String, calendar: Calendar = .current) -> Date? {
         guard let parsed = parseFolderName(name) else { return nil }
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.calendar = Calendar(identifier: .gregorian)
         formatter.timeZone = calendar.timeZone
-        formatter.dateFormat = parsed.day.contains("-") ? "yyyy-MM-dd" : "yyyyMMddHHmmss"
+        switch parsed.day.count {
+        case 17: formatter.dateFormat = "yyyy-MM-dd-HHmmss"
+        case 10: formatter.dateFormat = "yyyy-MM-dd"
+        default: formatter.dateFormat = "yyyyMMddHHmmss"
+        }
         return formatter.date(from: parsed.day)
     }
 
