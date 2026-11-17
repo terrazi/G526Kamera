@@ -114,7 +114,12 @@ Ekrandaki "Okunuyor: sorunuz bitince Cevapla deyin" notu, okunan metin varken g�
 Uygulama kapanıp açıldığında ya da "Testi bitir"den sonra yeniden başlatıldığında, önceki klasörde cevap varsa program **"Önceki kayıtta N cevap var, sıradaki soru M. Devam mı, yeni sınav mı?"** diye sorar:
 
 - **"Devam"** (ya da "önceki kayıttan devam", "kaldığı yerden"): aynı klasör, numaralama kaldığı yerden sürer; önceki cevaplar yüklenir ("Son cevabı tekrarla" onlardan okur).
-- **"Yeni"** (ya da "yeni sınav", "baştan"): yeni klasör açılır, numara 1'den başlar; eski cevapların üzerine yazılmaz.
+- **"Yeni"** (ya da "yeni sınav", "baştan"): yeni klasör açılır, numara 1'den başlar; eski cevapların üzerine yazılmaz. Telefonda önceki sınavdan kalmış gönderilmemiş
+  (ya da cevapları tam dinlenmemiş) çekimler varsa, yeni sınavın numaralarına karışmasın diye gönderim sırasından çıkarılır ("Önceki sınavdan kalan N çekim … ayrıldı" denir);
+  silinmezler, telefonda `Cekimler/Gonderilemeyen` klasöründe durur. "Devam" derseniz bu çekimler sırayla gönderilmeye devam eder.
+- **Esnek anlama:** program bir sözcüğü tam duymasa da iki seçenekli zararsız sorularda (önceki kayıt / yeni sınav, kamera evet / hayır, yeni bölüm, devam / tekrar) kısa söze
+  (en çok 3 sözcük) sesce en çok benzeyen seçeneği alır ("yeli" → yeni, "evat" → evet). Olumsuzluk, komut ya da iki seçeneğe de benzeyen söz seçilmez, soru yeniden sorulur.
+  **Testi bitirme ve silme komutları hiçbir zaman tahminle seçilmez**: "Bitir" aynen duyulmalıdır.
 - Cevap vermezseniz bir kez hatırlatılır; yine olmazsa önceki kayıt 12 saatten **yeniyse devam**, eskiyse yeni sınav sayılır.
 - Beklenmedik kapanmadan sonra (çökme, iOS kapattı) soru sorulmaz: kaldığı yerden otomatik sürer. Önceki kayıtta hiç cevap yoksa da soru sorulmaz.
 - **Soru numarası okunmadıysa sor:** (açık gelir) Soruyu okuyup "Cevapla" dediniz ama numara söylemediyseniz program "Lütfen okuduğunuz sorunun numarasını söyleyin" der. "Yedi" ya da "soru yedi" demeniz yeter; numara sorunun başına yazılıp Gemini'ye öyle gider. Bilmiyorsanız "sıradaki" deyin, sıradaki numara verilir. Hiç söylemezseniz iki kez hatırlatılır, sonra sıradaki numarayla gönderilir (soru kaybolmaz). Kapalıyken numara sorulmaz, sıradaki numara verilir.

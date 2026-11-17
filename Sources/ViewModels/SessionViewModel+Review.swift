@@ -33,6 +33,40 @@ extension SessionViewModel {
         return nil
     }
 
+    /// Önce aynen (katı) anlama: en iyi okuma ve tanıyıcının alternatif okumaları. Anlaşılmazsa, zararsız iki seçenekli sorularda duyulan söze
+    /// en çok benzeyen seçenek alınır (`SpokenWords.closestOption`). Önce bütün okumalar aynen denendiği için bulanık eşleşme aynen tanınan
+    /// bir okumanın önüne geçmez. `log` yalnız cevabı gerçekten uygulayan çağrıda açılır (ara denetimler günlüğü doldurmasın).
+    func interpretClosely<T>(_ strict: (String) -> T?, closest: (String) -> T?, what: String, log: Bool) -> T? {
+        if let value = interpret(strict) { return value }
+        for text in [accumulator.text] + alternativeTexts() {
+            if let value = closest(text) {
+                if log { tlog("[duyulan] en yakın seçenek alındı (\(what)): \"\(text)\"") }
+                return value
+            }
+        }
+        return nil
+    }
+
+    /// "Önceki kayıttan devam mı, yeni sınav mı" cevabı
+    func heardStart(log: Bool = false) -> SpokenReply.Start? {
+        return interpretClosely(SpokenReply.start, closest: SpokenReply.closestStart, what: "önceki kayıt / yeni sınav", log: log)
+    }
+
+    /// Kamera sorusunun (tek soru ya da paragraf) evet / hayır cevabı
+    func heardCameraChoice(log: Bool = false) -> SpokenReply.YesNo? {
+        return interpretClosely(SpokenReply.cameraChoice, closest: SpokenReply.closestCameraChoice, what: "kamera evet / hayır", log: log)
+    }
+
+    /// "Yeni bölüm mü, testi tamamlayalım mı" cevabı (testi bitirme yönü yalnız aynen duyulursa)
+    func heardNextSection(log: Bool = false) -> SpokenReply.NextSection? {
+        return interpretClosely(SpokenReply.nextSection, closest: SpokenReply.closestNextSection, what: "yeni bölüm", log: log)
+    }
+
+    /// "Devam, Tekrar ya da Bitir" cevabı (bitirme yalnız aynen duyulursa)
+    func heardReview(log: Bool = false) -> SpokenReply.Review? {
+        return interpretClosely(SpokenReply.review, closest: SpokenReply.closestReview, what: "devam / tekrar", log: log)
+    }
+
     /// En iyi okumadaki tek bir sözcüğü alternatifiyle değiştirerek kurulan metinler. Alternatif sözcükler, eldeki metnin tamamını
     /// kapsamıyorsa (uzun metin, birleştirilmiş bölümler) hizalanamaz ve boş döner.
     func alternativeTexts() -> [String] {
@@ -140,7 +174,7 @@ extension SessionViewModel {
 
     /// "Devam", "Tekrar" ya da "Bitir" denince
     func fireReview() {
-        guard let reply = interpret(SpokenReply.review) else { return }
+        guard let reply = heardReview(log: true) else { return }
         clearWarning("duyulan")
         closeListening()
         accumulator.clear()

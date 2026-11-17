@@ -1034,13 +1034,13 @@ final class SessionViewModel: ObservableObject {
             guard interpret(SpokenReply.yesNo) != nil else { scheduleChoiceUnclear(); return }
             delay = Timing.numberConfirm
         case .startChoice:
-            guard interpret(SpokenReply.start) != nil else { scheduleChoiceUnclear(); return }
+            guard heardStart() != nil else { scheduleChoiceUnclear(); return }
             delay = Timing.numberConfirm
         case .reviewMenu:
-            guard interpret(SpokenReply.review) != nil else { scheduleChoiceUnclear(); return }
+            guard heardReview() != nil else { scheduleChoiceUnclear(); return }
             delay = Timing.numberConfirm
         case .passageCameraChoice:
-            if interpret(SpokenReply.cameraChoice) != nil {
+            if heardCameraChoice() != nil {
                 delay = Timing.numberConfirm
             } else if spokenCommand() != nil {
                 // Kamera sorusundaki gibi: V3'ün sesli komutları ("testi bitir", "cevapları tekrarla", "paragrafı iptal et"…) burada da çalışır
@@ -1051,7 +1051,7 @@ final class SessionViewModel: ObservableObject {
                 return
             }
         case .cameraChoice:
-            if interpret(SpokenReply.cameraChoice) != nil {
+            if heardCameraChoice() != nil {
                 delay = Timing.numberConfirm
             } else if spokenCommand() != nil {
                 // Her soruda kamera sorusu sorulduğu için V3'ün sesli komutları ("testi bitir", "cevapları tekrarla", "son cevabı tekrarla")
@@ -1074,7 +1074,7 @@ final class SessionViewModel: ObservableObject {
                 return
             }
         case .nextSectionChoice:
-            guard interpret(SpokenReply.nextSection) != nil else { scheduleChoiceUnclear(); return }
+            guard heardNextSection() != nil else { scheduleChoiceUnclear(); return }
             delay = Timing.numberConfirm
         }
         confirmTask = deps.scheduler.after(delay) { [weak self] in self?.fireTrigger() }
@@ -1450,12 +1450,12 @@ final class SessionViewModel: ObservableObject {
         guard phase == .listening, [ListenMode.confirmEnd, .startChoice, .reviewMenu, .cameraChoice, .passageCameraChoice, .captureKindChoice, .nextSectionChoice].contains(listenMode) else { return }
         let heard = accumulator.text
         if listenMode == .confirmEnd, interpret(SpokenReply.yesNo) != nil { return }
-        if listenMode == .startChoice, interpret(SpokenReply.start) != nil { return }
-        if listenMode == .reviewMenu, interpret(SpokenReply.review) != nil { return }
-        if listenMode == .cameraChoice, interpret(SpokenReply.cameraChoice) != nil || spokenCommand() != nil { return }
-        if listenMode == .passageCameraChoice, interpret(SpokenReply.cameraChoice) != nil || spokenCommand() != nil { return }
+        if listenMode == .startChoice, heardStart() != nil { return }
+        if listenMode == .reviewMenu, heardReview() != nil { return }
+        if listenMode == .cameraChoice, heardCameraChoice() != nil || spokenCommand() != nil { return }
+        if listenMode == .passageCameraChoice, heardCameraChoice() != nil || spokenCommand() != nil { return }
         if listenMode == .captureKindChoice, interpret(SpokenReply.captureKind) != nil || spokenCommand() != nil { return }
-        if listenMode == .nextSectionChoice, interpret(SpokenReply.nextSection) != nil { return }
+        if listenMode == .nextSectionChoice, heardNextSection() != nil { return }
         tlog("[komut] cevap anlaşılamadı; duyulan: \"\(heard)\"")
         warn("duyulan", "Duyulan: “\(heard)”. Cevap anlaşılamadı.")
         work = Task { [weak self] in await self?.choiceSilence(unclear: true) }
@@ -1523,7 +1523,7 @@ final class SessionViewModel: ObservableObject {
 
     /// "Önceki kayıttan devam mı, yeni sınav mı?" sorusuna cevap
     private func fireStartChoice() {
-        guard let reply = interpret(SpokenReply.start) else { return }
+        guard let reply = heardStart(log: true) else { return }
         clearWarning("duyulan")
         closeListening()
         phase = .speaking
@@ -1537,6 +1537,7 @@ final class SessionViewModel: ObservableObject {
         choiceOffer = nil
         choiceReminders = 0
         var goOn = continuePrevious
+        var setAside = 0
         if !goOn {
             do {
                 // Yeni sınav kendi klasörünü alır (adı o anın tarihi ve saati); bölüm ayarlıysa 1. bölümle başlanır
@@ -1549,6 +1550,7 @@ final class SessionViewModel: ObservableObject {
                 saveLocation()
                 carry = nil
                 tlog("[açılış] yeni sınav seçildi: yeni klasör, numara 1")
+                setAside = setAsideLeftoverShots()   // eski sınavın PDF'leri yeni sınavın numaralarına karışmasın
             } catch {
                 goOn = true
                 warn("klasor", "Yeni klasör açılamadı: \(error.localizedDescription). Önceki kayıttan devam ediliyor.")
@@ -1565,6 +1567,7 @@ final class SessionViewModel: ObservableObject {
         armCameraOffer()   // Sürüm 4: önceki kayıttan devam da olsa yeni sınav da olsa ilk soru için kamera sorulur
         let camera = cameraQuestionWillBeAsked
         var text = goOn ? Say.continuingPrevious(next: nextNumber, camera: camera) : (camera ? Say.startingNewCamera : Say.startingNew)
+        if setAside > 0 { text += " " + Say.leftoverShotsSetAside(count: setAside) }
         if sectionIndex > 0 {
             // Bölümlü sınav: yeni sınavda ilk bölüme başlandığı, önceki kayıttan devamda hangi bölümde olunduğu söylenir
             text += " " + (goOn ? Say.sectionHere(sectionIndex, questions: sectionQuestionCount) : Say.sectionStart(sectionIndex, questions: sectionQuestionCount))

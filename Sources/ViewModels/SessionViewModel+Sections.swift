@@ -75,7 +75,7 @@ extension SessionViewModel {
 
     /// "Yeni bir bölüm ile devam etmek ister misiniz, yoksa testi tamamlayalım mı?" sorusuna cevap
     func fireNextSection() {
-        guard let reply = interpret(SpokenReply.nextSection) else { return }
+        guard let reply = heardNextSection(log: true) else { return }
         clearWarning("duyulan")
         closeListening()
         accumulator.clear()

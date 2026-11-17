@@ -84,7 +84,7 @@ extension SessionViewModel {
     }
 
     func fireCameraChoice() {
-        guard let reply = interpret(SpokenReply.cameraChoice) else { return }
+        guard let reply = heardCameraChoice(log: true) else { return }
         clearWarning("duyulan")
         closeListening()
         listenMode = .question   // seçim yapıldı: bundan sonraki bir onarım "evet / hayır"ı yeniden sormaz, bekleyen çekimi gönderir
@@ -199,7 +199,7 @@ extension SessionViewModel {
 
     /// "Ortak paragrafı kamera ile çekmek ister misiniz?" sorusuna cevap: evet kamerayla çeker, hayır V3'teki gibi sesle okutur
     func firePassageCameraChoice() {
-        guard let reply = interpret(SpokenReply.cameraChoice) else { return }
+        guard let reply = heardCameraChoice(log: true) else { return }
         clearWarning("duyulan")
         closeListening()
         // Seçim yapıldı: bundan sonraki bir onarım "evet / hayır"ı yeniden sormaz. Evet: çekim sürerken kip önemsizdir; hayır: paragraf kipi korunur
@@ -739,6 +739,22 @@ extension SessionViewModel {
         pendingShots = stored
         retriedShots.removeAll()
         if !stored.isEmpty { tlog("[kamera] telefondaki klasörden \(stored.count) bekleyen çekim geri yüklendi; sırayla gönderilecek") }
+    }
+
+    /// "Yeni sınav" seçildi: önceki sınavdan telefonda kalan çekimler (gönderilememiş ya da cevapları tam dinlenmemiş PDF'ler) yeni sınavın
+    /// soru numaralarına karışmasın diye gönderim sırasından çıkarılır. Aksi hâlde eski PDF önce gider, cevapları yeni sınavın 1., 2., 3. sorusu
+    /// diye okunur ve yeni sınavın cevaplarını ezer (bu numaranın önceki cevabı yenisiyle değiştirilir). Çekimler SİLİNMEZ: telefonda
+    /// Cekimler > Gonderilemeyen klasörüne taşınır, nedeni yanına yazılır. "Önceki kayıttan devam" seçilirse bunlar sırayla gönderilmeye devam eder.
+    /// Ayrılan çekim sayısı döner.
+    @discardableResult
+    func setAsideLeftoverShots() -> Int {
+        let leftovers = pendingShots
+        guard !leftovers.isEmpty else { return 0 }
+        for shot in leftovers {
+            shelvePending(shot, reason: "Yeni sınav seçildi; önceki sınavdan kalan çekim yeni sınava karışmasın diye gönderilmedi.")
+        }
+        tlog("[kamera] yeni sınav seçildi: önceki sınavdan kalan \(leftovers.count) çekim gönderim sırasından çıkarıldı (telefonda Gonderilemeyen klasöründe)")
+        return leftovers.count
     }
 
     /// Test bitti: gönderilemeyen çekimler SİLİNMEZ. Telefondaki klasörde durur ve bir sonraki testte (internet varsa) sırayla gönderilir;

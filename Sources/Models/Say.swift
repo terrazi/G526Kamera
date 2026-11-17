@@ -51,6 +51,10 @@ enum Say {
     }
     static let startingNew = "Yeni sınav başladı. İlk soruyu okuyabilirsiniz."
     static let startingNewCamera = "Yeni sınav başladı."
+    /// Yeni sınav seçilince önceki sınavdan telefonda kalan çekimler gönderim sırasından çıkarılır (silinmez)
+    static func leftoverShotsSetAside(count: Int) -> String {
+        return "Önceki sınavdan kalan \(count) çekim yeni sınava karışmasın diye ayrıldı; telefonda duruyor."
+    }
     // MARK: Cevapları okuma ("cevapları tekrarla", "testi bitir" onayından sonra)
 
     /// Okuma başlarken: bitirme isteğiyle geldiyse test henüz bitmemiştir, cevaplar okununca ne yapılacağı sorulacaktır
