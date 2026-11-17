@@ -243,7 +243,7 @@ extension VoiceCommand {
     ]
     /// "Sınav türü ne", "hangi sınav türü": tür sözcüğü ve soru sözcüğü (yalnız "sınav nedir" gibi soru metinleri komut sayılmasın)
     static let examKindNouns: Set<String> = ["turu", "turun", "turunu", "tipi", "tipini", "kipi", "modu", "modunu", "cesidi", "cesidini"]
-    static let examKindAsk: Set<String> = ["ne", "nedir", "neydi", "hangi", "hangisi", "hangisidir", "nasil", "soyle", "soyler", "soyleyin", "oku", "okur", "okuyun", "mevcut", "simdi", "su", "an", "suan", "kac"]
+    static let examKindAsk: Set<String> = ["ne", "nedir", "neydi", "hangi", "hangisi", "hangisidir", "nasil", "soyle", "soyler", "soyleyin", "oku", "okur", "okuyun", "mevcut", "simdi", "su", "an", "anki", "suan", "suanki", "kac"]
 
     /// "Sesli sınav başlat", "hibrit sınava geç", "görüntülü sınavla devam et", "sınavı sesli yap", "kamera sınavı", "sınav türü ne". Metnin TAMAMI bu
     /// sözcüklerden oluşmalı, tam olarak bir tür sözü ve bir sınav sözcüğü içermelidir.

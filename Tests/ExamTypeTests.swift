@@ -144,11 +144,12 @@ final class ExamTypeTests: XCTestCase {
         XCTAssertEqual(h.settings.examTypeDefault, .camera, "Yalnız bu sınav sesli olur; sonraki sınav ayardaki türle başlar")
         XCTAssertEqual(h.camera.captures, 0)
         XCTAssertTrue(h.shortcuts.runs.isEmpty, "Hiçbir bağlantı değişmez")
+        let before = h.speaker.spoken.count   // başlangıçtaki kamera sorusu geçmişte kalır; komuttan sonrası denetlenir
         h.ask("Soru 1. A seçeneği Adana")
         let answered = await waitUntil(45) { h.vm.answers.count == 1 && h.vm.listenMode == .question && h.vm.phase == .listening }
         XCTAssertTrue(answered, "\(h.speaker.spoken)")
         XCTAssertEqual(h.answering.calls.count, 1, "Soru sesle gitti")
-        XCTAssertFalse(h.speaker.spoken.contains(Say.askCameraOnly), "Cevaptan sonra kamera sorulmaz: sınavın kalanı sesli")
+        XCTAssertFalse(h.speaker.spoken.dropFirst(before).contains(Say.askCameraOnly), "Cevaptan sonra kamera sorulmaz: sınavın kalanı sesli")
         XCTAssertEqual(h.camera.captures, 0)
     }
 
@@ -277,11 +278,12 @@ final class ExamTypeTests: XCTestCase {
     func testContinuingThePreviousRecordKeepsTheTypeOfTheExam() async {
         let h = harness(.hybrid)
         await previousExamChangedToVoice(h)
+        let before = h.speaker.spoken.count   // ilk sınavdaki kamera sorusu geçmişte kalır; "Devam"dan sonrası denetlenir
         say(h, "Devam")
         let on = await waitUntil(45) { h.vm.listenMode == .question && h.vm.phase == .listening }
         XCTAssertTrue(on, "\(h.speaker.spoken)")
         XCTAssertEqual(h.settings.examType, .voice, "Kaldığı yerden devam: tür de aynı kalır")
-        XCTAssertFalse(h.speaker.spoken.contains(Say.askCamera), "Sesli sınav sürüyor: kamera sorulmaz")
+        XCTAssertFalse(h.speaker.spoken.dropFirst(before).contains(Say.askCamera), "Sesli sınav sürüyor: kamera sorulmaz")
     }
 
     func testAnExamTypeChosenAtTheStartQuestionSurvivesTheNewExamChoice() async {
@@ -290,10 +292,11 @@ final class ExamTypeTests: XCTestCase {
         h.settings.examType = .hybrid
         let said = await command(h, "sesli sınav başlat", mode: .startChoice)
         XCTAssertEqual(said, Say.examTypeChanged(.voice, configured: true, leavingChoice: false, releasing: false, keepsQuestion: false))
+        let before = h.speaker.spoken.count   // ilk sınavdaki kamera sorusu geçmişte kalır; "yeni sınav"dan sonrası denetlenir
         say(h, "yeni sınav")
         let on = await waitUntil(45) { h.vm.listenMode == .question && h.vm.phase == .listening }
         XCTAssertTrue(on, "\(h.speaker.spoken)")
         XCTAssertEqual(h.settings.examType, .voice, "Başlangıç sorusunda sesle seçilen tür \"yeni sınav\" ile bozulmaz")
-        XCTAssertFalse(h.speaker.spoken.contains(Say.askCamera))
+        XCTAssertFalse(h.speaker.spoken.dropFirst(before).contains(Say.askCamera))
     }
 }
