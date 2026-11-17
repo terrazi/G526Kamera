@@ -68,11 +68,27 @@ extension SessionViewModel {
         // Kamera hazır bekliyorsa (bağlı, görüntü akıyor) süre HEMEN başlar: "Başladı." denir, cümle bitince çekim sürer. Hazır değilse (bağlantı kopmuş)
         // eski düzen: duyuru kestirmeden ÖNCE söylenir (kestirme kulaklığı kapatabilir) ve oturum boyunca hiçbir şey söylenmez
         // Yaka mikrofonu kameranın Wi-Fi'sini bozduğu için çekimden önce kapatılır (Ayarlar > Kamera); ayar kapalıysa hemen geçilir
-        defer { AudioRouting.builtInMicAllowed = false }
+        defer { AudioRouting.builtInMicAllowed = false; leavePhoneMic() }
         guard await muteLapelForCapture() else {
             tlog("[kamera] yaka mikrofonu uyarısı kesildi; çekim başlamadı, onarımdan sonra yeniden sorulacak")
             offerCamera = true
             return
+        }
+        // Kamera "Başla"dan SONRA açılır (kullanıcı kararı 2026-11-17): "Kamera açılıyor." denir, kameraya geçilir; görüntü gelip kulaklık dönünce aşağıda
+        // "Başladı." denir ve süre başlar. Başarısızlık (kamera açılamadı, kesinti) `prepareSeriesCamera` içinde söylenir ve işlenir
+        if seriesAfterGo, !deps.camera.holding {
+            guard await speakNotice(Say.seriesConnecting) else {
+                tlog("[kamera] kamera açılış duyurusu kesildi; kamera açılmadı, onarımdan sonra yeniden sorulacak")
+                offerCamera = true
+                return
+            }
+            let prepared = await prepareSeriesCamera()
+            cameraBusy = true   // `prepareSeriesCamera` bitince bayrağı kapatır; oturum sürüyor
+            guard prepared else { return }
+            guard !Task.isCancelled, phase == .answering else {
+                offerCamera = true
+                return
+            }
         }
         let ready = deps.camera.holding
         guard await speakNotice(ready ? Say.seriesGo : Say.seriesStarting(seconds: seconds)) else {
@@ -107,7 +123,7 @@ extension SessionViewModel {
             }
             camera.onStatus = nil
             await detachCoach(from: camera)
-            if case .failure(let failure) = result, failure == .notConnected || failure == .noFrames, !Task.isCancelled, phase == .answering {
+            if case .failure(let failure) = result, failure == .notConnected || failure == .noFrames, !Task.isCancelled, phase == .answering, !seriesAfterGo {
                 // Bekleyen bağlantı kopmuştu ve aynı Wi-Fi'de yeni bağlantı da kurulamadı: süre HİÇ başlamadı. Onarım döngüsünde süre sessizce başlatılmaz
                 // (kullanıcı ne zaman başladığını bilemez, boşuna sayfa gösterir); kamera baştan hazırlanır ve "Başla" yeniden beklenir
                 tlog("[kamera] hazır bekleyen bağlantıyla çekilemedi (\(failure.message)); süre başlamadı, kamera yeniden hazırlanıp \"Başla\" yeniden beklenecek")

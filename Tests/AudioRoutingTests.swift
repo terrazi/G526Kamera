@@ -36,6 +36,18 @@ final class AudioRoutingTests: XCTestCase {
         XCTAssertFalse(verdict(out: [.builtInSpeaker], in: [.builtInMic]).isSafe, "Çıkış kuralı (yalnız Bluetooth kulaklık) değişmez")
     }
 
+    /// 17.11.2026: kamera çalışırken telefonun mikrofonu OTOMATİK seçilir; yalnız o sürede geçerli sayılır
+    func testThePhonesMicIsAcceptedOnlyWhileItIsAutomaticallyChosenForTheCamera() {
+        XCTAssertFalse(verdict(out: [.bluetoothA2DP], in: [.builtInMic]).micOK, "Varsayılan: telefonun kendi mikrofonu geçersiz")
+        AudioRouting.phoneMicInUse = true
+        defer { AudioRouting.phoneMicInUse = false }
+        XCTAssertTrue(verdict(out: [.bluetoothA2DP], in: [.builtInMic]).isSafe)
+        XCTAssertTrue(verdict(out: [.bluetoothA2DP], in: [.usbAudio]).isSafe, "Alıcı yola geri girerse de geçerli")
+        XCTAssertFalse(verdict(out: [.bluetoothA2DP], in: [.bluetoothHFP]).micOK, "Bluetooth mikrofon yine geçersiz")
+        XCTAssertFalse(verdict(out: [.bluetoothA2DP], in: []).micOK, "Giriş hiç yoksa yine geçersiz")
+        XCTAssertFalse(verdict(out: [.builtInSpeaker], in: [.builtInMic]).isSafe, "Çıkış kuralı (yalnız Bluetooth kulaklık) değişmez")
+    }
+
     func testPhoneSpeakerIsNeverSafe() {
         let v = verdict(out: [.builtInSpeaker], in: [.usbAudio])
         XCTAssertFalse(v.headphonesOK)

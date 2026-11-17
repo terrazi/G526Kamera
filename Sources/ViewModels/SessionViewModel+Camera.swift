@@ -56,7 +56,7 @@ extension SessionViewModel {
             return
         }
         // Toplu çekim: talimattan ÖNCE kamera hazırlanır (kameranın Wi-Fi'sine geçilir, bağlanılır); "Başla" denince süre hemen başlar
-        if seriesMode {
+        if seriesMode, !seriesAfterGo {   // kamera "Başla"dan sonra açılıyorsa burada hazırlanmaz (bkz. `runPageSeries`)
             guard await prepareSeriesCamera() else { return }
             guard !Task.isCancelled else { offerCamera = true; return }
         }

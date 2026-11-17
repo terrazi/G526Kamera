@@ -79,6 +79,24 @@ final class FakeRoute: AudioRouteProviding {
         }
     }
 
+    /// Telefonun mikrofonu kipi: açılınca giriş telefonun mikrofonuna geçer (iOS gibi yol bildirimi gelir), kapanınca önceki yol döner
+    private(set) var builtInModeCalls: [Bool] = []
+    private var routeBeforeBuiltIn: RouteSnapshot?
+    /// Kipi kapatınca yol harici mikrofona dönsün mü (false: alıcı çıkmış ya da yola girmiyor gibi, yol telefonun mikrofonunda kalır)
+    var returnsToExternalOnBuiltInOff = true
+    func setBuiltInInputMode(_ on: Bool) {
+        builtInModeCalls.append(on)
+        if on {
+            routeBeforeBuiltIn = routeBeforeBuiltIn ?? current
+            var snapshot = current
+            snapshot.inputs = [.builtInMic]
+            change(to: snapshot)
+        } else if let before = routeBeforeBuiltIn {
+            routeBeforeBuiltIn = nil
+            if returnsToExternalOnBuiltInOff { change(to: before) }
+        }
+    }
+
     /// Bağlı mikrofonlar (varsayılan: Lightning alıcı) ve seçim denemeleri
     var inputs: [InputChoice] = [InputChoice(uid: "lightning", name: "Boya Mikrofon", port: .usbAudio, isCurrent: true)]
     private(set) var selectedUIDs: [String] = []

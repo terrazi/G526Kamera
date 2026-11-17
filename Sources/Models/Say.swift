@@ -460,8 +460,10 @@ enum Say {
     // MARK: Sürüm 4: sayfa bazlı toplu çekim (bir oturumda birkaç sayfa, çekim boyunca ses ve titreşim yok)
     /// Hazır bekleme (kamera bağlı, telefon kameranın Wi-Fi'sinde, hücresel kapalı): talimat beklenir, "Başla" deyince süre hemen başlar
     static func askCameraSeries(seconds: Int) -> String {
-        return "Kamera oturumu için talimatınızı bekliyorum. Başla deyince \(seconds) saniyelik süreniz başlayacak."
+        return "Kamera oturumu için talimatınızı bekliyorum. Başla deyince kamera açılacak; Başladı diyince \(seconds) saniyelik süreniz başlayacak."
     }
+    /// "Başla" denince, kamera açılmadan önce (kamera "Başla"dan sonra açılır; kameraya geçişte kulaklık kısa süre düşebilir)
+    static let seriesConnecting = "Kamera açılıyor."
     /// Açılışta kameraya bağlanıldıktan sonra tek anonsta: hazırım + talimat (soru sonra ayrıca sorulmaz)
     static let seriesReadyLead = "Ben hazırım, kamera bağlandı."
     static func readySeries(seconds: Int) -> String {

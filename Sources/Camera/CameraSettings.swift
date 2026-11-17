@@ -38,6 +38,7 @@ final class CameraSettings: ObservableObject {
         static let seriesSeconds = "seriesTotalSeconds"
         static let muteLapel = "muteLapel"
         static let lapelOffSeconds = "lapelOffSeconds"
+        static let phoneMic = "phoneMic"
         static let videoToGemini = "videoToGemini"
         static let videoQuestion = "videoQuestion"
         static let videoHighRes = "videoHighRes"
@@ -138,9 +139,18 @@ final class CameraSettings: ObservableObject {
     @Published var seriesSeconds: Int { didSet { defaults.set(seriesSeconds, forKey: Key.seriesSeconds) } }
     static let seriesSecondsRange = 15...150
     static let defaultSeriesSeconds = 75
-    /// Çekimde yaka mikrofonu kapatılsın mı (kullanıcı kararı 2026-11-17: BOYA yaka mikrofonu 2,4 GHz ile çalışır, kameranın Wi-Fi'sini bozuyor; yazılım vericiyi
-    /// kapatamaz, kullanıcı kapatır). "Başla" denince program "Yaka mikrofonunu kapatın" der, `lapelOffSeconds` bekler, "Başladı" der ve çekim başlar;
-    /// çekim bitince "Yaka mikrofonunu açın" der. Bu sürede telefonun kendi mikrofonu geçerli sayılır. Toplu çekim ve deneme çekimi için geçerlidir.
+    /// Kamera çalışırken program girişi OTOMATİK telefonun kendi mikrofonuna alır (kullanıcı kararı 2026-11-17: yaka mikrofonunu program devre dışı bıraksın,
+    /// el ile kapatılmasın). "Başla" denince (kamera açılmadan hemen önce) geçilir, çekim bitip internete dönülünce yaka mikrofonuna dönülür; "Başla"yı yaka
+    /// mikrofonu duyar. Yaka mikrofonu alıcısı takılı kalır ve vericinin 2,4 GHz radyosu açık kalır (iOS bunları kapatmaya izin vermez); yalnız ses girişi
+    /// değişir. Toplu çekim için geçerlidir.
+    @Published var phoneMic: Bool { didSet { defaults.set(phoneMic, forKey: Key.phoneMic) } }
+    /// Kamera "Başla"dan SONRA açılır (kullanıcı kararı 2026-11-17: hazır beklerken açık tutulan kamera bağlantısı yaka mikrofonunun parazitiyle kopuyordu).
+    /// "Başla" denince: "Kamera açılıyor", kameraya geçilir, görüntü gelince "Başladı" ve süre başlar. Ayarlarda GÖRÜNMEZ ve kaydedilmez: eski hazır bekleme
+    /// düzeni (açılışta kameraya bağlanıp "Başla"yı beklemek) kullanıcı isteğiyle kapalıdır; yalnız sınamalar onu denemek için kapatır.
+    var cameraAfterGo = true
+    /// Çekimde yaka mikrofonunu KULLANICI kapatsın mı (yazılım vericiyi kapatamaz). "Başla" denince program "Yaka mikrofonunu kapatın" der, `lapelOffSeconds` bekler,
+    /// "Başladı" der ve çekim başlar; çekim bitince "Yaka mikrofonunu açın" der. Bu sürede telefonun kendi mikrofonu geçerli sayılır. Varsayılan KAPALI
+    /// (otomatik geçiş `phoneMic` varken el ile kapatmaya gerek yoktur). Toplu çekim ve deneme çekimi için geçerlidir.
     @Published var muteLapel: Bool { didSet { defaults.set(muteLapel, forKey: Key.muteLapel) } }
     /// "Başla"dan çekimin başlamasına kadar yaka mikrofonunu kapatmak için tanınan süre (3–30 sn, varsayılan 8)
     @Published var lapelOffSeconds: Int { didSet { defaults.set(lapelOffSeconds, forKey: Key.lapelOffSeconds) } }
@@ -215,7 +225,8 @@ final class CameraSettings: ObservableObject {
         pageSeries = defaults.object(forKey: Key.pageSeries) as? Bool ?? true
         seriesSeconds = CameraSettings.clampSeconds(defaults.object(forKey: Key.seriesSeconds) as? Int,
                                                     range: CameraSettings.seriesSecondsRange, fallback: CameraSettings.defaultSeriesSeconds)
-        muteLapel = defaults.object(forKey: Key.muteLapel) as? Bool ?? true
+        phoneMic = defaults.object(forKey: Key.phoneMic) as? Bool ?? true
+        muteLapel = defaults.object(forKey: Key.muteLapel) as? Bool ?? false
         lapelOffSeconds = CameraSettings.clampSeconds(defaults.object(forKey: Key.lapelOffSeconds) as? Int,
                                                       range: CameraSettings.lapelOffSecondsRange, fallback: CameraSettings.defaultLapelOffSeconds)
         videoToGemini = defaults.object(forKey: Key.videoToGemini) as? Bool ?? true

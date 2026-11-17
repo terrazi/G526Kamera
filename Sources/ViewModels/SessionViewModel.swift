@@ -135,6 +135,8 @@ final class SessionViewModel: ObservableObject {
         static let seriesHeadsetWait: TimeInterval = 60
         /// Çekim bitince "Yaka mikrofonunu açın" dendikten sonra alıcının ses yoluna girmesi için en çok beklenen süre
         static let lapelBackWait: TimeInterval = 15
+        /// Telefonun mikrofonu seçilince yola girmesi için en çok beklenen süre (sn)
+        static let phoneMicSettle: TimeInterval = 2
         /// Oturum başında kameraya bağlanırken en çok kaç onarım yapılacağı (ilk deneme + 2 onarım = 3 deneme); olmazsa sesle devam edilir ve kamera yoklanır
         static let cameraStartRepairs = 2
         /// Oturum başında ilk bağlanma denemesinde en çok beklenen süre (sn): "Kameraya geç" telefonu kameranın ağına sokamadıysa 40 sn beklenmez,
@@ -322,6 +324,8 @@ final class SessionViewModel: ObservableObject {
     /// Arada tek kelime tanınmadan art arda yapılan donanım onarımı sayısı
     var hardwareRecoveries = 0
     var work: Task<Void, Never>?
+    /// Telefonun mikrofonu kipi kapatılırken yaka mikrofonu alıcısının yola girmesini bekleyen görev (bkz. SessionViewModel+PhoneMic)
+    var phoneMicSettleTask: Task<Void, Never>?
     var confirmTask: ScheduledTask?
     var offlineCheck: ScheduledTask?
     var hardwareGrace: ScheduledTask?

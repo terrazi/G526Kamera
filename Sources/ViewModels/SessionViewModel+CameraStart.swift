@@ -10,7 +10,9 @@ extension SessionViewModel {
     /// Dönen değer: false → açılış kesildi (iptal, durum değişti); açılış kontrolü yol dönünce baştan yapılır.
     func connectCameraAtStart() async -> Bool {
         // Toplu çekim açıksa her zaman: program DİREKT kameraya geçer ("Başlatınca kameraya hemen bağlan" ayarına bakılmaz)
-        guard cameraSettings.connectAtStart || cameraSettings.pageSeries, resume == nil, cameraStartConnected == nil, cameraOfferAvailable else { return true }
+        // Kamera "Başla"dan sonra açılıyorsa (toplu çekim, kullanıcı kararı 2026-11-17) açılışta kameraya HİÇ bağlanılmaz: kamera yalnız çekimde açıktır
+        let wanted = seriesAfterGo ? false : (cameraSettings.connectAtStart || cameraSettings.pageSeries)
+        guard wanted, resume == nil, cameraStartConnected == nil, cameraOfferAvailable else { return true }
         let cameraName = cameraSettings.cameraShortcutName.trimmed
         let camera = deps.camera
         cameraBusy = true   // kamera akışı sürüyor: takılma gözcüsü uzun sınır tanır; iş iptal edilirse kamera da kapanır

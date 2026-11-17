@@ -10,8 +10,10 @@ import Foundation
 extension SessionViewModel {
     /// Çekimden ÖNCE çağrılır. Ayar kapalıysa hemen true döner. Dönen false: duyuru kesildi ya da iş iptal edildi (çekim başlamaz).
     func muteLapelForCapture() async -> Bool {
+        // Telefonun mikrofonu OTOMATİK seçilir (Ayarlar > Kamera; bkz. SessionViewModel+PhoneMic); yaka mikrofonunu el ile kapatma uyarısı ayrı bir ayardır
+        await enterPhoneMic()
         guard cameraSettings.muteLapel else {
-            tlog("[ses yolu] çekim başlıyor (yaka mikrofonu kapatma ayarı kapalı): \(AudioRouting.describe(deps.route.snapshot()))")
+            tlog("[ses yolu] çekim başlıyor (yaka mikrofonunu el ile kapatma uyarısı kapalı; telefonun mikrofonu \(AudioRouting.phoneMicInUse ? "seçili" : "seçilmedi")): \(AudioRouting.describe(deps.route.snapshot()))")
             return true
         }
         let seconds = cameraSettings.lapelOffSeconds
@@ -33,16 +35,20 @@ extension SessionViewModel {
     }
 
     /// Alıcı (Lightning/USB mikrofon) ses yolunda görünüyor mu
-    private var lapelReceiverInRoute: Bool {
+    var lapelReceiverInRoute: Bool {
         return deps.route.snapshot().inputs.contains(where: { AudioRouting.externalMicPorts.contains($0) })
     }
 
     /// Çekim bitti (internet ve kulaklık geldi): yaka mikrofonunun açılması istenir. Telefonun kendi mikrofonu bu çağrının sonunda yeniden geçersiz olur;
     /// alıcı ses yoluna girmemişse en çok `Timing.lapelBackWait` sn beklenir (yoksa dinlemeye geçerken "mikrofon yok" duraklaması çıkardı).
     func releaseLapelAfterCapture() async {
-        guard AudioRouting.builtInMicAllowed else { return }
+        guard AudioRouting.builtInMicAllowed else {
+            leavePhoneMic()   // yalnız otomatik geçiş varsa: söylenecek bir şey yok, giriş yaka mikrofonuna döner
+            return
+        }
         let wasAnswering = phase == .answering
         _ = await speakNotice(Say.lapelOn)
+        leavePhoneMic()
         var waited = 0.0
         while !lapelReceiverInRoute, waited < Timing.lapelBackWait, !Task.isCancelled {
             await Task.yield()

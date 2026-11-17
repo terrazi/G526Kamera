@@ -75,6 +75,11 @@ final class SessionHarness {
         cameraSettings.pageSeries = pageSeries
         cameraSettings.muteLapel = false   // yaka mikrofonu uyarıları yalnız ilgili sınamalarda açılır (diğerlerinde söylenen cümle dizisi değişmesin)
         AudioRouting.builtInMicAllowed = false
+        // Telefonun mikrofonu otomatik seçimi varsayılan olarak açıktır; ses yolu olayları ve günlük satırları değişmesin diye burada kapalı, ona ait sınamalar açar
+        cameraSettings.phoneMic = false
+        AudioRouting.phoneMicInUse = false
+        // Kamera "Başla"dan sonra açılır (varsayılan); sınamaların çoğu eski hazır bekleme düzeniyle yazıldı, burada kapalı, yeni düzenin sınamaları açar
+        cameraSettings.cameraAfterGo = false
         if shortcutNames {
             settings.wifiShortcut = "WiFi_Ac"
             settings.cellularShortcut = "Hücresel_Ac"

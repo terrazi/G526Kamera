@@ -1,5 +1,6 @@
 import XCTest
 import UIKit
+import AVFoundation
 @testable import G526CameraDrive
 
 /// Toplu çekim (kullanıcı kararı 2026-11-16): oturumun tek sınırı süredir (75 sn), sayfa sayısı yoktur; çekim boyunca ses ve titreşim yok,
@@ -97,7 +98,7 @@ final class PageSeriesTests: XCTestCase {
         XCTAssertEqual(h.vm.phase, .listening)
         XCTAssertEqual(h.speaker.spoken.count, 1)
         let said = h.speaker.spoken.first ?? ""
-        XCTAssertTrue(said.contains("Başla deyince 75 saniyelik süreniz başlayacak"), "Süre söylenir: \(said)")
+        XCTAssertTrue(said.contains("Başladı diyince 75 saniyelik süreniz başlayacak"), "Süre söylenir: \(said)")
         XCTAssertEqual(h.camera.seriesCalls.count, 0, "Komut gelmeden süre başlamaz")
         XCTAssertEqual(h.answering.pageCalls.count, 0)
     }
@@ -338,20 +339,98 @@ final class PageSeriesTests: XCTestCase {
         XCTAssertFalse(h.sleepLog.entries.contains { $0.seconds == 8 })
     }
 
-    func testTheLapelSettingsDefaultToOnWithEightSecondsAndAreClampedAndSaved() {
+    func testTheLapelSettingsDefaultToOffWithEightSecondsAndAreClampedAndSaved() {
         let defaults = UserDefaults(suiteName: "g526.yaka.\(UUID().uuidString)")!
         let fresh = CameraSettings(defaults: defaults)
-        XCTAssertTrue(fresh.muteLapel)
+        XCTAssertFalse(fresh.muteLapel, "El ile kapatma uyarısı varsayılan kapalı: telefonun mikrofonuna otomatik geçilir")
+        XCTAssertTrue(fresh.phoneMic, "Telefonun mikrofonuna otomatik geçiş varsayılan açık")
+        XCTAssertTrue(fresh.cameraAfterGo, "Kamera \"Başla\"dan sonra açılır")
         XCTAssertEqual(fresh.lapelOffSeconds, 8)
-        fresh.muteLapel = false
+        fresh.muteLapel = true
+        fresh.phoneMic = false
         fresh.lapelOffSeconds = 12
         let reloaded = CameraSettings(defaults: defaults)
-        XCTAssertFalse(reloaded.muteLapel, "Kalıcı")
+        XCTAssertTrue(reloaded.muteLapel, "Kalıcı")
+        XCTAssertFalse(reloaded.phoneMic, "Kalıcı")
         XCTAssertEqual(reloaded.lapelOffSeconds, 12)
         defaults.set(999, forKey: "lapelOffSeconds")
         XCTAssertEqual(CameraSettings(defaults: defaults).lapelOffSeconds, 30, "Üst sınır")
         defaults.set(0, forKey: "lapelOffSeconds")
         XCTAssertEqual(CameraSettings(defaults: defaults).lapelOffSeconds, 3, "Alt sınır")
+    }
+
+    // MARK: Kamera "Başla"dan sonra açılır ve telefonun mikrofonu otomatik seçilir (17.11.2026)
+
+    /// "Başla"dan sonra açılan yeni düzen (sınama düzeneğinde varsayılan kapalıdır: eski hazır bekleme testleri onunla yazıldı)
+    private func afterGoHarness(seriesResults: [Result<PageSeries, CameraFailure>], replies: [Result<[GeminiReply], Error>], phoneMic: Bool) -> SessionHarness {
+        let h = harness(seriesResults: seriesResults, pageReplies: replies)
+        h.cameraSettings.cameraAfterGo = true
+        h.cameraSettings.phoneMic = phoneMic
+        return h
+    }
+
+    func testTheCameraStaysClosedUntilStartThenOpensAndTheStartWordComesWhenItIsUp() async {
+        let h = afterGoHarness(seriesResults: [series()], replies: [.success([FakeAnswering.reply(1), FakeAnswering.reply(2)])], phoneMic: false)
+        _ = await h.startListening()
+        XCTAssertEqual(h.events, [], "\"Başla\"dan önce kameraya geçilmez ve bağlanılmaz")
+        XCTAssertFalse(h.camera.holding, "Kamera kapalı")
+        XCTAssertTrue(h.health.internet, "Kamera kapalı: internet açık")
+        XCTAssertEqual(h.vm.listenMode, .cameraChoice, "Talimat beklenir")
+        XCTAssertEqual(h.speaker.spoken.last, Say.askCameraSeries(seconds: 75))
+        reply(h, "başla")
+        let done = await waitUntil(45) { h.vm.answers.count == 2 && self.questionOpen(h) }
+        XCTAssertTrue(done, "\(h.speaker.spoken)")
+        XCTAssertEqual(Array(h.events.prefix(4)), ["kestirme:Kameraya_Gec", "kestirme:Bluetooth_Yenile", "bağlantı açıldı", "oturum"],
+                       "\"Başla\" denince kameraya geçilir, kulaklık için Bluetooth açılır, bağlanılır ve çekilir")
+        XCTAssertEqual(h.shortcuts.runs.filter { $0 == "Kameraya_Gec" }.count, 1, "Sıradaki talimat için kamera önceden açılmaz")
+        XCTAssertFalse(h.camera.holding, "Oturum bitince kamera kapalı")
+        XCTAssertEqual(h.camera.seriesHeldAtStart, [true], "Çekim açılan bağlantıyla başladı")
+        let spoken = h.speaker.spoken
+        guard let opening = spoken.firstIndex(of: Say.seriesConnecting), let go = spoken.firstIndex(of: Say.seriesGo) else {
+            return XCTFail("\(spoken)")
+        }
+        XCTAssertLessThan(opening, go, "Önce \"Kamera açılıyor.\", görüntü gelince \"Başladı.\"")
+        XCTAssertEqual(spoken.last, Say.askCameraSeries(seconds: 75), "Bitince sıradaki talimat sorulur")
+        XCTAssertEqual(h.route.builtInModeCalls, [], "Telefonun mikrofonu ayarı kapalıyken giriş değişmez")
+    }
+
+    func testThePhonesMicIsChosenRightAfterStartAndTheLapelMicIsBackAfterTheCapture() async {
+        let h = afterGoHarness(seriesResults: [series()], replies: [.success([FakeAnswering.reply(1)])], phoneMic: true)
+        var phoneMicDuringCapture = false
+        var routeDuringCapture: [AVAudioSession.Port] = []
+        h.camera.onSeries = {
+            phoneMicDuringCapture = AudioRouting.phoneMicInUse
+            routeDuringCapture = h.route.current.inputs
+        }
+        _ = await h.startListening()
+        XCTAssertEqual(h.route.builtInModeCalls, [], "\"Başla\"yı yaka mikrofonu duyar: ondan önce giriş değişmez")
+        XCTAssertFalse(AudioRouting.phoneMicInUse)
+        reply(h, "başla")
+        let done = await waitUntil(45) { h.vm.answers.count == 1 && self.questionOpen(h) }
+        XCTAssertTrue(done, "\(h.speaker.spoken)")
+        XCTAssertEqual(h.route.builtInModeCalls, [true, false], "\"Başla\"dan sonra telefonun mikrofonuna, çekim bitince yaka mikrofonuna")
+        XCTAssertTrue(phoneMicDuringCapture, "Çekim sırasında telefonun mikrofonu geçerli sayılır")
+        XCTAssertEqual(routeDuringCapture, [.builtInMic], "Çekim sırasında giriş telefonun mikrofonudur (alıcı takılı kalsa da)")
+        XCTAssertFalse(AudioRouting.phoneMicInUse, "Çekim bitince telefonun mikrofonu yeniden geçersiz")
+        XCTAssertEqual(h.route.current, FakeRoute.good, "Giriş yaka mikrofonuna döndü")
+        XCTAssertEqual(h.vm.routeVerdict?.isSafe, true, "Hiçbir anda \"yaka mikrofonu yok\" duraklaması çıkmadı")
+        XCTAssertFalse(h.speaker.spoken.contains(Say.lapelOff(seconds: 8)), "El ile kapatma uyarısı söylenmez")
+        XCTAssertFalse(h.speaker.spoken.contains(Say.lapelOn))
+    }
+
+    func testACameraThatCannotBeOpenedAfterStartReadsAloudAndTheLapelMicComesBack() async {
+        let h = afterGoHarness(seriesResults: [], replies: [], phoneMic: true)
+        h.camera.holdResults = Array(repeating: .failure(.notConnected), count: T.cameraRepairs + 1)
+        _ = await h.startListening()
+        reply(h, "başla")
+        let fallen = await waitUntil(60) { h.vm.listenMode == .question && h.vm.phase == .listening }
+        XCTAssertTrue(fallen, "\(h.speaker.spoken)")
+        let released = await waitUntil(5) { !AudioRouting.phoneMicInUse }
+        XCTAssertTrue(released, "Kamera açılamasa da telefonun mikrofonu bırakılır")
+        XCTAssertEqual(h.route.builtInModeCalls, [true, false])
+        XCTAssertEqual(h.camera.seriesCalls.count, 0, "Süre hiç başlamadı")
+        XCTAssertTrue(h.speaker.spoken.contains(Say.cameraFailed(.notConnected, down: true, minutes: h.settings.cameraCheckMinutes)))
+        XCTAssertTrue(h.health.internet, "Telefon kameranın Wi-Fi'sinde kalmaz")
     }
 
     /// 17.11.2026 günlüğü: kamera "Başla"yı beklerken her 5 sn'de internet yoklaması gidiyordu; hücresel yol denenince iOS "hücresel veri kapalı" uyarısı çıkıyordu
@@ -665,7 +744,7 @@ final class PageSeriesTests: XCTestCase {
 
     func testTheSessionAnnouncementTalksOnlyAboutTheDuration() {
         let ask = Say.askCameraSeries(seconds: 75)
-        XCTAssertTrue(ask.contains("Başla deyince 75 saniyelik süreniz başlayacak"), "Talimat: komut ve süre")
+        XCTAssertTrue(ask.contains("Başladı diyince 75 saniyelik süreniz başlayacak"), "Talimat: komut ve süre")
         XCTAssertFalse(ask.contains("Evet"), "Evet / hayır sorulmaz: talimat beklenir")
         XCTAssertEqual(Say.seriesGo, "Başladı.")
         let starting = Say.seriesStarting(seconds: 75)

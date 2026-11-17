@@ -48,11 +48,17 @@ enum AudioRouting {
     /// Bluetooth mikrofon yine geçersizdir.
     static var builtInMicAllowed = false
 
+    /// Kamera çalışırken telefonun kendi mikrofonu OTOMATİK seçildiğinde (Ayarlar > Kamera > "Kamera çalışırken telefonun mikrofonunu kullan"; kullanıcı kararı
+    /// 2026-11-17: yaka mikrofonunu program devre dışı bıraksın) açıktır: yaka mikrofonu alıcısı takılı kalsa da giriş telefonun mikrofonudur ve bu geçerli
+    /// sayılır. Kamera işi bitince kapanır (bkz. SessionViewModel+PhoneMic). Bluetooth mikrofon yine geçersizdir.
+    static var phoneMicInUse = false
+
     static func verdict(_ snapshot: RouteSnapshot) -> RouteVerdict {
         let outputs = snapshot.outputs
         let inputs = snapshot.inputs
         let headphonesOK = !outputs.isEmpty && outputs.allSatisfy { headphonePorts.contains($0) }
-        let micOK = !inputs.isEmpty && inputs.allSatisfy { externalMicPorts.contains($0) || (builtInMicAllowed && $0 == .builtInMic) }
+        let builtInOK = builtInMicAllowed || phoneMicInUse
+        let micOK = !inputs.isEmpty && inputs.allSatisfy { externalMicPorts.contains($0) || (builtInOK && $0 == .builtInMic) }
         return RouteVerdict(headphonesOK: headphonesOK, micOK: micOK, hint: hint(outputs: outputs, headphonesOK: headphonesOK))
     }
 
@@ -111,8 +117,12 @@ protocol AudioRouteProviding: AnyObject {
     var onMediaServicesReset: (@MainActor () -> Void)? { get set }
     func configure() throws
     func snapshot() -> RouteSnapshot
-    /// Harici mikrofon varsa girişi ona sabitler (Bluetooth kulaklığın kendi mikrofonuna düşmesin)
+    /// Harici mikrofon varsa girişi ona sabitler (Bluetooth kulaklığın kendi mikrofonuna düşmesin). Telefonun mikrofonu kipi açıksa (aşağıda)
+    /// girişi telefonun kendi mikrofonuna sabitler
     func preferExternalInput()
+    /// Telefonun kendi mikrofonu kipi (kamera çalışırken): açılınca giriş telefonun mikrofonuna sabitlenir ve yaka mikrofonu alıcısı takılı olsa da
+    /// kullanılmaz; kapanınca harici mikrofon yeniden tercih edilir. Alıcının 2,4 GHz radyosunu kapatmaz (iOS buna izin vermez), yalnız girişi değiştirir.
+    func setBuiltInInputMode(_ on: Bool)
     /// Bağlı girişler (mikrofonlar)
     func availableInputs() -> [InputChoice]
     /// Kullanıcı bir mikrofon seçti: yalnız harici mikrofon seçilebilir; seçim hatırlanır ve sonraki yol değişikliklerinde de tercih edilir
@@ -140,6 +150,8 @@ final class AudioSessionGuard: AudioRouteProviding {
     private var chosenInputUID: String?
     /// Harici mikrofon yola girmediği için tercihin art arda kaç kez yeniden verildiği (sınırsız yol bildirimi döngüsü olmasın)
     private var reassertCount = 0
+    /// Telefonun kendi mikrofonu kipi açık mı (bkz. `setBuiltInInputMode`)
+    private var builtInMode = false
     /// Son okumada giriş yoldan değil tercihten varsayıldı mı (günlüğe yalnız değişince yazılır)
     private var assumedInput = false
     private var observer: NSObjectProtocol?
@@ -190,7 +202,8 @@ final class AudioSessionGuard: AudioRouteProviding {
         let route = session.currentRoute
         var inputs = route.inputs.map { $0.portType }
         var assumed = false
-        if inputs.isEmpty, let preferred = session.preferredInput, AudioRouting.externalMicPorts.contains(preferred.portType),
+        if inputs.isEmpty, let preferred = session.preferredInput,
+           AudioRouting.externalMicPorts.contains(preferred.portType) || (builtInMode && preferred.portType == .builtInMic),
            (session.availableInputs ?? []).contains(where: { $0.uid == preferred.uid }) {
             inputs = [preferred.portType]
             assumed = true
@@ -202,7 +215,39 @@ final class AudioSessionGuard: AudioRouteProviding {
         return RouteSnapshot(outputs: route.outputs.map { $0.portType }, inputs: inputs)
     }
 
+    func setBuiltInInputMode(_ on: Bool) {
+        guard builtInMode != on else { return }
+        builtInMode = on
+        reassertCount = 0
+        tlog("[ses yolu] giriş kipi: \(on ? "telefonun kendi mikrofonu (yaka mikrofonu alıcısı takılı kalsa da kullanılmaz)" : "harici mikrofon")")
+        preferExternalInput()
+        let route = session.currentRoute.inputs.map { $0.portName }.joined(separator: ", ")
+        tlog("[ses yolu] giriş tercihi verildi; iOS'un gösterdiği giriş: \(route.isEmpty ? "henüz yok" : route)")
+    }
+
+    /// Telefonun kendi mikrofonunu tercih eder (kipi açıkken `preferExternalInput` bunu çağırır). Tercih verilmişse ve mikrofon yoldaysa dokunmaz;
+    /// yolda değilse birkaç kez yeniden verir (iOS yol değişince tercihi düşürebilir); sınırsız yol bildirimi döngüsü olmasın diye en çok 3 kez.
+    private func preferBuiltInInput() {
+        guard let builtIn = (session.availableInputs ?? []).first(where: { $0.portType == .builtInMic }) else { return }
+        if session.preferredInput?.uid == builtIn.uid {
+            if session.currentRoute.inputs.contains(where: { $0.uid == builtIn.uid }) {
+                reassertCount = 0
+                return
+            }
+            guard reassertCount < 3 else { return }
+            reassertCount += 1
+            try? session.setPreferredInput(nil)
+            try? session.setPreferredInput(builtIn)
+            return
+        }
+        try? session.setPreferredInput(builtIn)
+    }
+
     func preferExternalInput() {
+        if builtInMode {
+            preferBuiltInInput()
+            return
+        }
         let externals = (session.availableInputs ?? []).filter { AudioRouting.externalMicPorts.contains($0.portType) }
         // Kullanıcının seçtiği mikrofon takılıysa o, değilse ilk harici mikrofon
         let external = externals.first(where: { $0.uid == chosenInputUID }) ?? externals.first
@@ -234,10 +279,12 @@ final class AudioSessionGuard: AudioRouteProviding {
     func selectInput(uid: String) -> Bool {
         guard let input = (session.availableInputs ?? []).first(where: { $0.uid == uid }),
               AudioRouting.externalMicPorts.contains(input.portType) else { return false }
-        do {
-            try session.setPreferredInput(input)
-        } catch {
-            return false
+        if !builtInMode {   // telefonun mikrofonu kipinde seçim yalnız hatırlanır; kip kapanınca uygulanır
+            do {
+                try session.setPreferredInput(input)
+            } catch {
+                return false
+            }
         }
         chosenInputUID = uid
         defaults.set(uid, forKey: AudioSessionGuard.chosenInputKey)

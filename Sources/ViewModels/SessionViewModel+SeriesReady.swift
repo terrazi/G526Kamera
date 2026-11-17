@@ -11,6 +11,12 @@ extension SessionViewModel {
         return cameraSettings.pageSeries && cameraOfferAvailable
     }
 
+    /// Toplu çekimde kamera "Başla"dan SONRA açılır (kullanıcı kararı 2026-11-17): açılışta kameraya bağlanılmaz, talimat beklenirken kamera kapalıdır, internet
+    /// açıktır; "Başla" denince kameraya geçilir (bkz. `runPageSeries`). Hazır bekleme düzeni (aşağıdaki `seriesCameraReady`) bu durumda hiç kurulmaz.
+    var seriesAfterGo: Bool {
+        return cameraSettings.pageSeries && cameraSettings.cameraAfterGo
+    }
+
     /// Kamera hazır bekliyor: toplu çekim açık ve kamera bağlantısı açık tutuluyor (telefon kameranın ağında, internet bilerek kapalı)
     var seriesCameraReady: Bool {
         return cameraSettings.pageSeries && deps.camera.holding
