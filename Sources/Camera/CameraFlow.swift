@@ -169,6 +169,11 @@ protocol CameraCapturing: AnyObject {
     /// Kadraj kontrolü: hazır bekleyen (canlı) kamerada kısa süre taze kareler toplanır, en netinin yazısı okunur. Çekim yapılmaz, bağlantı açık kalır.
     /// Kamera hazır değilse nil.
     func checkView() async -> ViewCheck?
+    /// Son oturumun akış ölçümü özeti ("akış 1: 1920×1080, 9.0 kare/sn, 2100 kbit/sn …"); yeterli kare gelmediyse nil. Kamera kapanınca yazılır.
+    var lastStreamSummary: String? { get }
+    /// Akış denemesi (kullanıcı kararı 2026-11-17): 1, 2 ve 3 numaralı akışlar sırayla açılır, her birinin gerçek boyutu / kare hızı / bitrate'i ölçülür ve
+    /// kameranın YALNIZ OKUMA bilgi komutları (pozlama dahil) sorgulanır. Çekim yapılmaz, hiçbir ayar değiştirilmez. Sonuç satırlarını döndürür.
+    func surveyStreams() async -> [String]
     /// Süren çekimi (ya da açık tutulan bağlantıyı) iptal eder (kamera kapanır)
     func cancel()
     /// Sürüm 4: oturum başlarken kameraya hemen bağlanır; görüntü gelince döner ve bağlantıyı AÇIK bırakır (ana ekrandaki kutuda görüntü akar).
@@ -204,6 +209,8 @@ extension CameraCapturing {
     func captureSeries(seconds: Int, connectLimit: TimeInterval?) async -> Result<PageSeries, CameraFailure> { return .failure(.unavailable) }
     func captureTrial(seconds: Int, connectLimit: TimeInterval?) async -> Result<PageSeries, CameraFailure> { return .failure(.unavailable) }
     func checkView() async -> ViewCheck? { return nil }
+    var lastStreamSummary: String? { return nil }
+    func surveyStreams() async -> [String] { return ["Kamera yok: akış denenemedi."] }
 }
 
 /// Kamera yapılandırılmamış oturumlar (ve eski testler) için

@@ -101,6 +101,46 @@ final class CameraTester: ObservableObject {
         if let level = camera.lastBattery {
             lines.append("🔋 " + level.shortText + " (son görüntü karesinden okundu).")
         }
+        if let stream = camera.lastStreamSummary { lines.append("Akış ölçümü: " + stream) }
+
+        await backToInternet(internetName: internetName)
+    }
+
+    /// Akış denemesi (Ayarlar > Kamera > "Akış denemesi", kullanıcı kararı 2026-11-17): sınavdaki gibi kameraya geçilir, 1 / 2 / 3 numaralı akışlar sırayla
+    /// açılıp gerçek boyutları, kare hızları ve bitrate'leri ölçülür; kameranın yalnız okuma bilgi komutları (pozlama dahil) sorgulanır. Hiçbir ayar
+    /// değiştirilmez, hiçbir şey kaydedilmez ya da gönderilmez; sonuç ekrana ve günlüğe yazılır. Sonra internete dönülür.
+    func runStreamSurvey() async {
+        guard !running else { return }
+        guard !sessionActive() else {
+            lines = ["Sınav sürerken akış denenmez: önce testi bitirin."]
+            return
+        }
+        let cameraName = cameraSettings.cameraShortcutName.trimmed
+        let internetName = settings.internetShortcut.trimmed
+        var missing: [String] = []
+        if CameraUID(cameraSettings.uid) == nil { missing.append("kamera adı (UID)") }
+        if cameraName.isEmpty { missing.append("“Kameraya geç” kestirmesinin adı") }
+        if internetName.isEmpty { missing.append("“Hücresele geç” kestirmesinin adı") }
+        guard missing.isEmpty else {
+            lines = ["Önce şunları yazın: " + missing.joined(separator: ", ") + "."]
+            return
+        }
+        running = true
+        stopped = false
+        showsTrial = false
+        lines = []
+        lastPhoto = nil
+        defer { running = false }
+
+        lines.append("1/3 Kameraya geçiliyor: “\(cameraName)”…")
+        let toCamera = await shortcuts.run(name: cameraName)
+        lines.append(SettingsViewModel.text(for: toCamera))
+
+        if !stopped {
+            lines.append("2/3 Akışlar deneniyor (3 akış × yaklaşık \(Int(CameraCaptureController.surveySeconds)) sn ve kamera bilgi sorgusu; 1 dakika kadar sürer). iOS yerel ağ izni sorarsa “İzin ver”e basın…")
+            let results = await camera.surveyStreams()
+            lines.append(contentsOf: results)
+        }
 
         await backToInternet(internetName: internetName)
     }
@@ -158,6 +198,7 @@ final class CameraTester: ObservableObject {
                     lines.append("✗ Deneme çekimi klasöre yazılamadı (yer kalmamış olabilir).")
                 }
                 if series.failure != nil { lines.append("⚠ Görüntü akışı yarıda kesildi; çekim eksik.") }
+                if let stream = camera.lastStreamSummary { lines.append("Akış ölçümü: " + stream) }
             case .failure(let failure):
                 lines.append("✗ " + failure.message + CameraTester.hint(for: failure))
             }

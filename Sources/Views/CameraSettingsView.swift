@@ -32,6 +32,13 @@ struct CameraSettingsSections: View {
                 Text("Yüksek 1920×1080").tag(1)
                 Text("Düşük 640×360").tag(2)
             }
+            Picker("Çekim akışı (deneme)", selection: $camera.streamOverride) {
+                Text("Otomatik (şimdiki gibi)").tag(0)
+                Text("Akış 1 – ana (1920×1080)").tag(1)
+                Text("Akış 2 – alt (640×360)").tag(2)
+                Text("Akış 3 – bilinmiyor, denenecek").tag(3)
+            }
+            HelpRow("Çekim akışı: “Otomatik” bırakırsanız hiçbir şey değişmez (toplu çekimde akış 1; eski tek soru çekiminde yukarıdaki Görüntü ayarı). 1, 2 ya da 3 seçerseniz HER çekim o akışla yapılır; “Görüntü” ayarı o zaman yok sayılır. Kameranın üç akışı var; akış 3'ün ne verdiği bilinmiyor. Hangi akışın gerçekte ne verdiği (boyut, saniyedeki kare, bitrate) her çekimin sonunda günlüğe “akış ölçümü” satırı olarak yazılır; Deneme çekimi ve Kamerayı dene satırlarında da görünür. Düşük çözünürlüklü akışlarda soru yazısı okunmayabilir: yalnız deneme içindir, deneme bitince “Otomatik”e dönün.")
             Picker("Kadraj yönü", selection: $camera.guidanceFrame) {
                 Text("Yatay").tag(0)
                 Text("Dikey (tam sayfa)").tag(1)
@@ -147,6 +154,10 @@ struct CameraSettingsSections: View {
                     Task { await tester.run() }
                 }
             }
+            Button("Akış denemesi (1, 2, 3 ölç)") {
+                Task { await tester.runStreamSurvey() }
+            }
+            .disabled(tester.running)
             // Ana ekrandaki "Deneme çekimi"nin satırları orada gösterilir; burada yalnız bu sınamanın satırları
             ForEach(Array((tester.showsTrial ? [] : tester.lines).enumerated()), id: \.offset) { _, line in
                 Text(line).font(.footnote).fixedSize(horizontal: false, vertical: true)
@@ -159,6 +170,7 @@ struct CameraSettingsSections: View {
                     .accessibilityLabel("Deneme çekiminin fotoğrafı")
             }
             HelpRow("Sınavdaki adımları sırayla yürütür: “Kameraya geç” kestirmesi, kameraya bağlanıp bir çekim (hiçbir yere gönderilmez, silinir), “Hücresele geç” kestirmesi ve internetin gelmesi. Kamera ilk kez açılırken iOS “yerel ağ” izni sorar: sınavda bu kutuyla uğraşmamak için sınavdan önce bir kez deneyip “İzin ver”e basın. Kestirmelerin Wi-Fi ile hücreseli gerçekten değiştirip değiştirmediği ve kameranın ağına kendiliğinden bağlanıp bağlanmadığı da burada görülür. Kamerayı çalıştırın ve bir sayfayı kadraja tutun; sınama en çok bir buçuk dakika sürer. Çekilen deneme fotoğrafı altta küçük resim olarak görünür (kadraj ve netlik gözle denetlenir; fotoğraf hiçbir yere gönderilmez).")
+            HelpRow("Akış denemesi: “Kameraya geç” kestirmesinden sonra kameranın 1, 2 ve 3 numaralı akışlarını sırayla açar ve her birini yaklaşık 8 sn ölçer: gerçek görüntü boyutu, saniyedeki kare sayısı ve bitrate. İlk bağlantıda kameranın yalnız okuma bilgi komutlarını da sorgular (pozlama bilgisi dahil) ve cevapları ekrana ile günlüğe yazar. Kameranın hiçbir ayarını değiştirmez, hiçbir şey kaydetmez ya da göndermez. Bir akış açılmazsa “görüntü gelmedi” yazar. Sonra “Hücresele geç” kestirmesiyle internete döner; yaklaşık 1–2 dakika sürer.")
         }
     }
 }

@@ -426,6 +426,15 @@ final class CameraSession {
         onProbe?(lines.joined(separator: "\n"))
     }
 
+    /// Günlüğe yazılacak cevabın en çok kaç karakteri: cihaz bilgisi tam, kamera ayarı / pozlama bilgileri (akış denemesinde bakılan) uzun, gerisi kısa
+    static func replyLogLimit(for name: String) -> Int {
+        switch name {
+        case "GetDevInfo": return 900
+        case "GetDevExInfo", "GetDevVideoInfo", "GetDevStream": return 600
+        default: return 200
+        }
+    }
+
     private func processCommandBytes(_ bytes: [UInt8]) {
         cmdBytes.append(contentsOf: bytes)
         let extracted = PPPP.mykjExtract(from: cmdBytes)
@@ -440,7 +449,7 @@ final class CameraSession {
             let compact = json.replacingOccurrences(of: "\t", with: "")
                 .replacingOccurrences(of: "\n", with: "")
             // Cihaz bilgisi (pil, şarj, sıcaklık gibi alanlar) tam yazılır: kopmaların nedeni için günlükte lazım
-            log("Cevap \(name): \(compact.prefix(name == "GetDevInfo" ? 900 : 200))")
+            log("Cevap \(name): \(compact.prefix(CameraSession.replyLogLimit(for: name)))")
         }
     }
 }

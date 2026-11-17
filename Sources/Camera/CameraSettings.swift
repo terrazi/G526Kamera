@@ -10,6 +10,7 @@ final class CameraSettings: ObservableObject {
         static let cameraIP = "cameraIP"
         static let cameraPassword = "cameraPassword"   // Keychain
         static let streamQuality = "streamQuality"
+        static let streamOverride = "streamOverride"
         static let jpegQuality = "jpegQuality"
         static let enhancement = "enhancement"
         static let deskew = "deskew"
@@ -55,6 +56,10 @@ final class CameraSettings: ObservableObject {
     @Published var cameraPassword: String { didSet { Keychain.set(cameraPassword, for: Key.cameraPassword) } }
     /// 1 = Yüksek (1920x1080), 2 = Düşük (640x360)
     @Published var streamQuality: Int { didSet { defaults.set(streamQuality, forKey: Key.streamQuality) } }
+    /// Çekimde kullanılacak kamera akışı (deneme için, kullanıcı kararı 2026-11-17): 0 = otomatik (toplu çekimde akış 1, eski çekimde `streamQuality`),
+    /// 1 / 2 / 3 = o akış her çekimde. Akış 3'ün ne verdiği bilinmiyordu; ölçüm günlüğe yazılır.
+    @Published var streamOverride: Int { didSet { defaults.set(streamOverride, forKey: Key.streamOverride) } }
+    static let streamOverrideRange = 0...3
 
     // MARK: Fotoğraf
     @Published var jpegQuality: Double { didSet { defaults.set(jpegQuality, forKey: Key.jpegQuality) } }
@@ -143,6 +148,8 @@ final class CameraSettings: ObservableObject {
         cameraIP = defaults.string(forKey: Key.cameraIP) ?? ""
         cameraPassword = Keychain.get(Key.cameraPassword) ?? "123456"
         streamQuality = defaults.object(forKey: Key.streamQuality) as? Int ?? 1
+        let savedOverride = defaults.object(forKey: Key.streamOverride) as? Int ?? 0
+        streamOverride = min(max(savedOverride, CameraSettings.streamOverrideRange.lowerBound), CameraSettings.streamOverrideRange.upperBound)
 
         jpegQuality = defaults.object(forKey: Key.jpegQuality) as? Double ?? 0.92
         enhancement = defaults.object(forKey: Key.enhancement) as? Int ?? 1

@@ -376,6 +376,19 @@ final class FakeCamera: CameraCapturing {
         return s
     }
 
+    /// Son oturumun akış ölçümü özeti ("Kamerayı dene" / "Deneme çekimi" satırlarında gösterilir)
+    var lastStreamSummary: String?
+    /// Akış denemesi: verilecek satırlar ve yapılan çağrı sayısı
+    var surveyLines: [String] = ["akış 1: 1920×1080, 9.0 kare/sn, 2100 kbit/sn (72 kare, 8.0 sn, 2 anahtar kare)"]
+    private(set) var surveyCalls = 0
+    var onSurvey: (() -> Void)?
+
+    func surveyStreams() async -> [String] {
+        surveyCalls += 1
+        onSurvey?()
+        return surveyLines
+    }
+
     /// Toplu sayfa çekimi: sırayla verilecek oturum sonuçları (boşsa kamera yok), yapılan çağrılar ve oturum başlarken haber verilen kanca
     var seriesResults: [Result<PageSeries, CameraFailure>] = []
     private(set) var seriesCalls: [(seconds: Int, limit: TimeInterval?)] = []

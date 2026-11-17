@@ -28,6 +28,24 @@ final class DecodeClock {
     }
 }
 
+/// Kamera iş parçacığından gelen bilgi sorgusu metni (kilitli)
+final class ProbeTextBox {
+    private let lock = NSLock()
+    private var text = ""
+
+    func set(_ value: String) {
+        lock.lock()
+        text = value
+        lock.unlock()
+    }
+
+    var value: String {
+        lock.lock()
+        defer { lock.unlock() }
+        return text
+    }
+}
+
 /// Telefonun boş yer koruması: çok azalınca çekim başlamaz (dolu disk video yazamaz, telefonu da yavaşlatır)
 enum DiskGuard {
     static let lowMB = 1500
@@ -114,6 +132,10 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
     private let decodeClock = DecodeClock()
     private let batteryMonitor = CameraBatteryMonitor()
     private var lowBattery = CameraLowBatteryWatcher()
+    /// Akışın gerçek boyutu / kare hızı / bitrate ölçümü (günlüğe "akış ölçümü" diye yazılır)
+    private let meter = StreamMeter()
+    /// Son oturumun akış ölçümü özeti (kamera kapanınca yazılır; yeterli kare gelmediyse boş): "Kamerayı dene" ve "Deneme çekimi" satırlarında gösterilir
+    private(set) var lastStreamSummary: String?
 
     private enum Trigger { case positioned, forced, manual, lost, cancelled }
     private var waiter: CheckedContinuation<Trigger, Never>?
@@ -134,8 +156,10 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         let clock = self.decodeClock
         let recorder = self.videoRecorder
         let decoder = self.decoder
+        let meter = self.meter
         decoder.onDecoded = { pixelBuffer, time in
             clock.mark()
+            meter.addDecoded(width: CVPixelBufferGetWidth(pixelBuffer), height: CVPixelBufferGetHeight(pixelBuffer))
             pipeline.handle(pixelBuffer, time: time)
         }
         // Video kaydı kareleri netlik puanıyla alır: her yarım saniyeden en net kare yazılır
@@ -144,6 +168,7 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         }
         let monitor = self.batteryMonitor
         client.onFrame = { [weak self] frame in
+            meter.addFrame(bytes: frame.payload.count, keyFrame: frame.isKeyFrame, at: ProcessInfo.processInfo.systemUptime)
             decoder.submit(frame)
             if let level = monitor.feed(header: frame.header, now: ProcessInfo.processInfo.systemUptime) {
                 Task { @MainActor in self?.batteryChanged(level) }
@@ -180,6 +205,7 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         }
         switch state {
         case .connecting, .reconnecting:
+            meter.reset()
             decoder.reset()
             pipeline.reset()
             decodeClock.clear()
@@ -286,28 +312,113 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         return live && !cancelled
     }
 
-    /// İstenecek video akışı: 1 = ana akış (1920×1080), 2 = alt akış (640×360). Toplu çekim açıkken ayardan bağımsız hep ana akış: 640×360'ta soru
-    /// yazısı okunmaz (kullanıcı kararı 2026-11-17: kameranın verebildiği en çok kare 1080p alınır, en iyileri seçilir)
-    static func streamChoice(quality: Int, series: Bool) -> (state: Int, stream: Int) {
+    /// İstenecek video akışı: 1 = ana akış (1920×1080), 2 = alt akış (640×360). `override` (Ayarlar > "Çekim akışı", 0 = otomatik) 1, 2 ya da 3 ise
+    /// HER ZAMAN o akış istenir (deneme için; kullanıcı kararı 2026-11-17). Otomatikte toplu çekim açıkken ayardan bağımsız hep ana akış: 640×360'ta soru
+    /// yazısı okunmaz (kullanıcı kararı 2026-11-17: kameranın verebildiği en çok kare 1080p alınır, en iyileri seçilir).
+    /// `state` LookCam'deki "seviye": akış 1 → 1, akış 2 ve 3 → 2 (LookCam kalite penceresi: HD = akış 1 / seviye 1, SD = akış 2 / seviye 2, VGA = akış 3 / seviye 2).
+    static func streamChoice(quality: Int, series: Bool, override: Int = 0) -> (state: Int, stream: Int) {
+        switch override {
+        case 1: return (state: 1, stream: 1)
+        case 2: return (state: 2, stream: 2)
+        case 3: return (state: 2, stream: 3)
+        default: break
+        }
         if quality == 2 && !series { return (state: 2, stream: 2) }
         return (state: 1, stream: 1)
     }
 
+    // MARK: Akış denemesi
+
+    /// Denenecek akışlar sırayla: (seviye, akış). LookCam'in kalite penceresindeki HD / SD / VGA ile aynı eşleme.
+    static let surveyChoices: [(state: Int, stream: Int)] = [(1, 1), (2, 2), (2, 3)]
+    /// Her akışta, görüntü gelince bu kadar sn ölçülür
+    static let surveySeconds: TimeInterval = 8
+    /// İki akış arasında kameraya soluk aldırılır (hemen yeniden bağlanınca eski oturum açık kalabiliyor: günlükte "connectNum: 2")
+    static let surveyPause: TimeInterval = 1.5
+
+    /// Akış denemesi (kullanıcı kararı 2026-11-17): 1, 2 ve 3 numaralı akışlar sırayla açılır; her birinin gerçek boyutu, kare hızı ve bitrate'i ölçülür.
+    /// İlk bağlantıda kameranın YALNIZ OKUMA bilgi komutları da sorgulanır (pozlama bilgisi `GetDevExInfo` dahil); cevaplar günlüğe "sorgu:" satırlarıyla
+    /// yazılır. Kameranın hiçbir ayarı DEĞİŞTİRİLMEZ. Sonuç satırları ekranda gösterilir; çekim yapılmaz, hiçbir şey kaydedilmez.
+    func surveyStreams() async -> [String] {
+        closeHeld()
+        guard !running, CameraUID(settings.uid) != nil else {
+            return ["Akış denemesi yapılamadı: çekim sürüyor ya da kamera adı (UID) yazılı değil."]
+        }
+        running = true
+        cancelled = false
+        shooting = false
+        active = true
+        let probeText = ProbeTextBox()
+        client.onProbe = { text in probeText.set(text) }
+        defer {
+            client.onProbe = nil
+            teardown()
+            running = false
+            active = false
+        }
+        pipeline.saving = true
+        guard let uid = CameraUID(settings.uid) else { return [] }
+        var lines: [String] = []
+        for (index, choice) in CameraCaptureController.surveyChoices.enumerated() {
+            if cancelled { break }
+            if index > 0 { try? await Task.sleep(nanoseconds: UInt64(CameraCaptureController.surveyPause * 1_000_000_000)) }
+            status("Akış \(choice.stream) deneniyor")
+            startClient(uid: uid, choice: choice, probe: index == 0)
+            // İlk akışta bilgi sorgusu da yapılır (≈10 sn), görüntü onun ardından gelir: bağlanma süresi kadar beklenir
+            let limit = index == 0 ? CameraCaptureController.connectSeconds : CameraCaptureController.probeSeconds
+            let live = await waitUntil(seconds: limit) { self.isLive }
+            if live && !cancelled {
+                meter.begin(stream: choice.stream)   // ölçüm görüntü gelince başlar (bağlanma süresi kare hızını düşürmesin)
+                _ = await waitUntil(seconds: CameraCaptureController.surveySeconds) { false }
+            }
+            let reached = live && !cancelled
+            teardown()   // ölçümü günlüğe yazar ve `lastStreamSummary`'ye koyar; kamera bu akış için kapanır
+            if cancelled { break }
+            if !reached {
+                lines.append("akış \(choice.stream): \(Int(limit)) sn içinde görüntü gelmedi (kamera bu akışı vermiyor olabilir).")
+            } else if let summary = lastStreamSummary {
+                lines.append(summary)
+            } else {
+                lines.append("akış \(choice.stream): görüntü geldi ama ölçülemeyecek kadar az kare geldi.")
+            }
+        }
+        if !cancelled { lines.append(contentsOf: CameraCaptureController.probeHighlights(probeText.value)) }
+        for line in lines { tlog("[kamera] akış denemesi: " + line) }
+        return lines
+    }
+
+    /// Bilgi sorgusunun cevap satırlarından ekranda gösterilecekler: pozlama, video ve akış bilgisi (hepsi günlükte de var).
+    /// Sorgu hiç çalışmadıysa (ilk akışın görüntüsü gelmedi) bunu söyler.
+    static func probeHighlights(_ text: String) -> [String] {
+        let wanted = ["GetDevExInfo", "GetDevVideoInfo", "GetDevStream"]
+        let all = text.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
+        guard !all.isEmpty else { return ["Kamera bilgi sorgusu yapılamadı (ilk akışın görüntüsü gelmedi)."] }
+        return wanted.compactMap { name in
+            guard let line = all.first(where: { $0.hasPrefix(name + ":") }) else { return nil }
+            return "Kamera cevabı · " + (line.count > 320 ? String(line.prefix(320)) + "…" : line)
+        }
+    }
+
     /// Kameraya bağlanır (görüntü kareleri akmaya başlar): kare belleği ve ölçümler sıfırlanır, bağlantı kurulur
-    private func startClient(uid: CameraUID) {
+    /// `choice`: istenecek akış (boşsa ayarlardan); `probe`: görüntü açılınca kameranın bilgi komutlarını da sorgular (yalnız okuma)
+    private func startClient(uid: CameraUID, choice: (state: Int, stream: Int)? = nil, probe: Bool = false) {
         decoder.reset()
         pipeline.reset()
         decodeClock.clear()
         batteryMonitor.reset()
         handshakeAt = nil
-        let quality = CameraCaptureController.streamChoice(quality: settings.streamQuality, series: settings.pageSeries)
+        lastStreamSummary = nil
+        let quality = choice ?? CameraCaptureController.streamChoice(quality: settings.streamQuality, series: settings.pageSeries,
+                                                                      override: settings.streamOverride)
+        meter.begin(stream: quality.stream)
+        tlog("[kamera] istenen akış: \(quality.stream) (seviye \(quality.state))" + (choice == nil && settings.streamOverride != 0 ? ", Ayarlar'dan seçildi" : ""))
         client.start(config: CameraSession.Config(uid: uid,
                                                   password: settings.cameraPassword,
                                                   manualIP: settings.cameraIP.trimmed,
                                                   videoState: quality.state,
                                                   videoStream: quality.stream,
                                                   tzHours: TimeZone.current.secondsFromGMT() / 3600,
-                                                  probe: false))
+                                                  probe: probe))
         cameraState = .connecting("Kameraya bağlanılıyor…")
     }
 
@@ -801,6 +912,13 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         if cameraState != .stopped {
             // Her oturumun sonunda kamera pili günlüğe yazılır: bağlantı sorunlarının düşük pille birlikte gelip gelmediği görülsün
             tlog("[kamera] oturum özeti: \((cameraBattery ?? lastBattery)?.shortText ?? "kamera pili okunamadı"), görüntü \(isLive ? "akıyordu" : "akmıyordu")")
+        }
+        // Akışın gerçek boyutu / kare hızı / bitrate'i her oturumun sonunda günlüğe yazılır (hangi akışın ne verdiği günlükten okunur).
+        // Sayaç yazılınca sıfırlanır: teardown ikinci kez çalışırsa aynı satır tekrar yazılmaz.
+        if let measured = StreamReport.text(meter.snapshot()) {
+            tlog("[kamera] akış ölçümü: " + measured)
+            lastStreamSummary = measured
+            meter.reset()
         }
         timeoutTask?.cancel()
         timeoutTask = nil
