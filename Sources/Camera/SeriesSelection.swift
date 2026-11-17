@@ -21,6 +21,9 @@ enum SeriesSelection {
     static let sameSignature = 2.5
     /// Bir kare, ötekinde olmayan en az bu kadar kelime gösteriyorsa "yeni içerik" taşır (OKR gürültüsü birkaç kelimeyi oynatır)
     static let newWords = 8
+    /// Kamera bu kadar sn durgun kaldıktan sonra gelen kare "durgun an" karesidir: hareket bulanıklığı yoktur, kodlayıcı görüntüyü tazelemiştir
+    /// (kullanıcı kararı 2026-11-17: durgun anlara öncelik). Pencerede durgun kare varsa, hareketliler ne kadar net ölçülürse ölçülsün, o kazanır
+    static let minStill: TimeInterval = 0.3
     /// Havuzda en çok bu kadar kare tutulur (bellek ve PDF boyutu)
     static let maxFrames = 60
     /// Son elemede en iyi puanın bu oranının altındakiler atılır
@@ -288,6 +291,9 @@ final class SeriesCollector {
         /// Blok sınırı ölçüsü (bkz. `FrameAnalysis.blockiness`); 1 civarı sağlam
         var blockiness = 1.0
         var damaged: Bool { return blockiness > FrameAnalysis.damagedBlockiness }
+        /// Kamera bu kareden önce kaç sn durgundu (bir önceki kareyle imza farkı `FramePipeline.stillDiff` altında kaldığı süre)
+        var stillFor: TimeInterval = 0
+        var still: Bool { return stillFor >= SeriesSelection.minStill }
     }
 
     struct Stats: Equatable {
@@ -311,6 +317,8 @@ final class SeriesCollector {
         /// Bozuk (bloklaşmış) ölçülen kare ve penceredeki en iyi karesi bile bozuk olan pencere
         var damagedFrames = 0
         var damagedWindows = 0
+        /// Penceredeki en iyi kare kamera durgunken gelmişse (durgun an) sayılır
+        var stillWindows = 0
     }
 
     struct Outcome {
@@ -331,6 +339,9 @@ final class SeriesCollector {
     private var pending = 0
     private var finished = false
     private var numbers = Set<Int>()
+    /// Durgunluk ölçümü için bir önceki karenin imzası ve kameranın son hareket ettiği an
+    private var lastSignature: [UInt8]?
+    private var lastMoveTime: TimeInterval = 0
     /// Yazı tanımadan geçen pencere kazananlarının netliği (teşhis için)
     private var sharpnesses: [Double] = []
     private let start: TimeInterval
@@ -360,10 +371,20 @@ final class SeriesCollector {
             return
         }
         stats.offered += 1
-        let frame = Frame(buffer: buffer, time: time, sharpness: sharpness, signature: signature, blockiness: blockiness)
+        // Durgunluk: önceki kareyle fark eşiği aşınca kamera hareket ediyor sayılır (imza karşılaştırılamazsa da hareketli sayılır)
+        if let previous = lastSignature, FrameAnalysis.difference(previous, signature) <= FramePipeline.stillDiff {
+            // durgun: son hareket anı değişmez
+        } else {
+            lastMoveTime = time
+        }
+        lastSignature = signature
+        let frame = Frame(buffer: buffer, time: time, sharpness: sharpness, signature: signature, blockiness: blockiness,
+                          stillFor: max(0, time - lastMoveTime))
         if frame.damaged { stats.damagedFrames += 1 }
-        // Bozuk kare bloklardaki keskin kenarlar yüzünden yapay olarak çok net ölçülür: pencerede sağlam kare varsa o kazanır
-        let score = frame.damaged ? sharpness - 1_000_000 : sharpness
+        // Pencere kazananı: önce sağlam ve durgun an karesi, sonra sağlam hareketli kare, en son bozuk kare; aynı sınıfta en net olan.
+        // (Bozuk kare bloklardaki keskin kenarlar yüzünden yapay olarak çok net ölçülür; hareketli kare bulanık olma eğilimindedir.)
+        let tier = frame.damaged ? 0.0 : (frame.still ? 2.0 : 1.0)
+        let score = tier * 1_000_000 + sharpness
         let closed = windows.offer(time: time, sharpness: score, payload: frame)
         lock.unlock()
         if let closed = closed { submit(closed) }
@@ -396,6 +417,7 @@ final class SeriesCollector {
         let damaged = frame.damaged
         lock.lock()
         if damaged { stats.damagedWindows += 1 }
+        if frame.still && !damaged { stats.stillWindows += 1 }
         if let text = text {
             stats.read += 1
             // Bozuk karenin netliği ve soru numaraları (karışık yazı) teşhise ve numara listesine katılmaz
@@ -425,7 +447,7 @@ final class SeriesCollector {
         let wasMerged = pool.merged > mergedBefore
         lock.unlock()
         let verdict = damaged ? "BOZUK kare (bloklaşmış), yalnız sağlam kare yetmezse alınır" : (item.isUseful ? "alındı" : "zayıf aday (okunamadı)")
-        log("[seri] \(stamp(frame.time)): \(wasMerged ? "aynı görünüm, en iyisi kaldı" : verdict) (net \(sharp), blok \(String(format: "%.2f", frame.blockiness)), \(text.map { $0.summary } ?? "yazı tanıma yok"))")
+        log("[seri] \(stamp(frame.time)): \(wasMerged ? "aynı görünüm, en iyisi kaldı" : verdict) (net \(sharp), blok \(String(format: "%.2f", frame.blockiness)), durgun \(String(format: "%.1f", frame.stillFor)) sn, \(text.map { $0.summary } ?? "yazı tanıma yok"))")
         finishOne()
     }
 
