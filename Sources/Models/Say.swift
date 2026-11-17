@@ -343,7 +343,7 @@ enum Say {
 
     // MARK: Bilgi ve düzeltme komutları ("yardım", "ne duydun", "son cümleyi sil", "durum", "cevapsız soruları söyle")
     /// Her komut yaptığını ya da yapamadığını kısaca söyler
-    static let helpCommands = "Komutlar: Cevapla ya da Gönder, soruyu gönderir. Testi bitir. Cevapları tekrarla. Son cevabı tekrarla. Soruyu iptal et. Soruyu atla. Son soruyu sil. Paragrafı iptal et. Ortak paragraf. Son cümleyi sil. Ne duydun. Durum. Cevapsız soruları söyle. Raporlar için internet, mikrofon, kulaklık, ses, kamera, şarj, ısı ya da ram durumu deyin; hepsi için genel rapor deyin. Sesi aç ya da sesi kıs deyin. Kamera ayarları için kamera sorusunu kapat, görüntü kalitesini yüksek yap ya da kadrajı dikey yap deyin. Duyamadığınız her şeyi bir daha söyle diyerek tekrarlatabilirsiniz."
+    static let helpCommands = "Komutlar: Cevapla ya da Gönder, soruyu gönderir. Testi bitir. Cevapları tekrarla. Son cevabı tekrarla. Soruyu iptal et. Soruyu atla. Son soruyu sil. Paragrafı iptal et. Ortak paragraf. Son cümleyi sil. Ne duydun. Durum. Cevapsız soruları söyle. Raporlar için internet, mikrofon, kulaklık, ses, kamera, şarj, ısı ya da ram durumu deyin; hepsi için genel rapor deyin. Sesi aç ya da sesi kıs deyin. Kamera ayarları için kamera sorusunu kapat, görüntü kalitesini yüksek yap ya da kadrajı dikey yap deyin. Sınav türü için sesli sınav başlat, hibrit sınav başlat ya da görüntülü sınav başlat deyin; sınav türü ne diye sorabilirsiniz. Duyamadığınız her şeyi bir daha söyle diyerek tekrarlatabilirsiniz."
     /// "Ne duydun": soru metni yoksa
     static let nothingHeard = "Henüz bir şey duymadım."
     /// "Ne duydun" soru dinlenmediği bir anda söylendi (evet/hayır, numara, menü…)
@@ -400,6 +400,16 @@ enum Say {
     static let askCamera = "Bu soruyu kamera ile çekip göndermek ister misiniz? Evet ya da hayır deyin."
     static let askCameraAfterRecovery = "Bağlantı yeniden onarıldı. Bu soruyu kamera ile çekip göndermek ister misiniz? Evet ya da hayır deyin."
     static let askCameraAgain = "Anlayamadım, ikinci defa soruyorum. Bu soruyu kamera ile çekip göndermek ister misiniz? Evet ya da hayır deyin."
+    // Görüntülü sınav (kamera sorusu yok): sıradaki soru için kamera hazırdır; "hayır" sesle okumaya geçirmez, sesli ya da hibrit sınav komutu gerekir
+    static let askCameraOnly = "Sıradaki soru için kamera hazır. Başlamak için başla deyin. Sesle okumak için sesli sınav başlat deyin."
+    static let askCameraOnlyAfterRecovery = "Bağlantı yeniden onarıldı. " + askCameraOnly
+    static let askCameraOnlyAgain = "Anlayamadım, ikinci defa soruyorum. " + askCameraOnly
+    static func askCameraOnlyRepeat(_ attempt: Int) -> String {
+        let ordinal = attempt >= 3 ? "üçüncü" : "ikinci"
+        return "Cevap vermediniz, \(ordinal) defa soruyorum. " + askCameraOnly
+    }
+    /// Görüntülü sınavda "hayır" denirse
+    static let cameraOnlyStays = "Görüntülü sınavdasınız. Hazır olduğunuzda başla deyin. Sesle okumak için sesli sınav başlat ya da hibrit sınav başlat deyin."
     static let readyCamera = "Ben hazırım, sistem kontrol edildi ve problem yok."
     /// Kamera sorusu açık ama kamera adı ya da kestirme adları yazılmamış: sessizce V3'e dönülmez, kullanıcıya söylenir
     static let readyCameraMissing = "Ben hazırım, sistem kontrol edildi. Kamera ayarları eksik olduğu için sorular sesle okunacak."

@@ -6,6 +6,9 @@ extension SessionViewModel {
         deps.library.prepare()
         checkSystemAtStart()
         sectionPlan = settings.sectionPlan   // sınav boyunca bu oturumun başındaki ayar geçerlidir
+        // Devam edilecek kayıt yoksa yeni bir sınav başlıyor: tür ayardaki başlangıç türüdür (önceki sınavda sesle değiştirilmiş tür onunla biter).
+        // Kapanmadan sonra devamda ve önceki kayıt sorulacaksa şu anki tür korunur ("yeni sınav" denince sıfırlanır).
+        if resume == nil, rememberedSession() == nil { await startNewExamType() }
         // Sürüm 4: "Başlat"a basılınca kameraya HEMEN bağlanılır (kulaklık ve mikrofon beklenmeden; görüntü ana ekranda akar). İnternete geçmeden önce kapanır (2b).
         guard await connectCameraAtStart() else { return }
         do {

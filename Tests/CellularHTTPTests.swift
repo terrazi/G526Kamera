@@ -417,17 +417,25 @@ final class CellularHTTPSocketTests: XCTestCase {
     }
 
     func testAnUnreachablePortReportsUnavailableBecauseNothingWasSent() async throws {
-        let server = LoopbackServer()
-        try server.start()
-        let closed = url(server, "/")
-        server.stop()
-        do {
-            _ = try await CellularHTTP.perform(URLRequest(url: closed), body: nil, options: options(connect: 3))
-            XCTFail("bağlanılamamalıydı")
-        } catch is CellularUnavailable {
-            // beklenen: istek hiç gitmedi, çağıran normal yola düşebilir
-        } catch {
-            XCTFail("CellularUnavailable beklenirdi: \(error)")
+        // Kapatılan sunucunun kapı numarasını başka bir dinleyici (aynı makinedeki başka bir süreç) hemen alabilir; o zaman bağlantı kurulup hemen
+        // kopar (-1005) ve bu test ortam yüzünden kırmızı olurdu. Böyle bir rastlantıda yeni bir kapı numarasıyla en çok 3 kez denenir.
+        for attempt in 1...3 {
+            let server = LoopbackServer()
+            try server.start()
+            let closed = url(server, "/")
+            server.stop()
+            do {
+                _ = try await CellularHTTP.perform(URLRequest(url: closed), body: nil, options: options(connect: 3))
+                XCTFail("bağlanılamamalıydı")
+                return
+            } catch is CellularUnavailable {
+                return   // beklenen: istek hiç gitmedi, çağıran normal yola düşebilir
+            } catch let error as URLError where error.code == .networkConnectionLost && attempt < 3 {
+                continue   // kapı numarasını başka biri aldı
+            } catch {
+                XCTFail("CellularUnavailable beklenirdi: \(error)")
+                return
+            }
         }
     }
 

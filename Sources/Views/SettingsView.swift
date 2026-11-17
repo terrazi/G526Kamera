@@ -250,11 +250,19 @@ struct SettingsView: View {
         .onAppear { model.refreshFolderStatus() }
     }
 
+    /// Seçim hem yeni sınavın başlangıç türünü hem şu anki türü değiştirir (ayarlardan seçilen hemen geçerli olur)
+    private var examTypeBinding: Binding<ExamType> {
+        return Binding(get: { settings.examTypeDefault }, set: { settings.examTypeDefault = $0; settings.examType = $0 })
+    }
+
     // MARK: Kestirmeler
 
     private var shortcutsSection: some View {
         AccordionSection(id: "kestirmeler", title: "Kestirmeler (kendi kendini onarma)") {
-            Toggle("Her soruda kamera ile çekmeyi sor", isOn: $settings.askCamera)
+            Picker("Sınav türü", selection: examTypeBinding) {
+                ForEach(ExamType.allCases, id: \.self) { Text($0.title).tag($0) }
+            }
+            HelpRow("Görüntülü: sorular kamerayla çekilir. Sesli: soruyu mikrofona okursunuz, kamera kullanılmaz. Hibrit: her soruda kamera mı sesle mi olacağı sorulur. Yeni sınav bu türle başlar. Sınav sırasında “sesli sınav başlat”, “hibrit sınav başlat” ya da “görüntülü sınav başlat” derseniz kalan sorular o türle sürer (yalnız o sınav için; sonraki sınav yine buradaki türle başlar). “Sınav türü ne” diye sorabilirsiniz. Şu an: \(settings.examType.title). \(settings.examType.detail)")
             Toggle("Kamera açılırken soru mu paragraf mı diye sor", isOn: $settings.askCaptureKind)
             Stepper("Kamera kapalıysa kontrol aralığı: \(settings.cameraCheckMinutes) dakika", value: $settings.cameraCheckMinutes, in: AppSettings.cameraCheckMinutesRange)
             HelpRow("Kameraya beş denemede ulaşılamazsa (kapalı, şarjı bitti, menzil dışı) program sesle devam eder ve kamerayı bu aralıkla, yalnız sorular arasında yeniden kontrol eder; kamera döndüyse haber verir. “Kameranın Wi-Fi'sinde kal” kapalıysa kontrol telefonu birkaç saniye kameranın Wi-Fi'sine geçirir ve interneti keser; açıkken telefon zaten kameranın ağındadır ve kamera doğrudan yoklanır. Aralığı uzatırsanız kamera daha seyrek yoklanır, kısaltırsanız daha çabuk geri alınır (1 ile 60 dakika arası). Değişiklik bir sonraki kontrolden itibaren geçerlidir.")

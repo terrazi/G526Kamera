@@ -14,14 +14,20 @@ extension SessionViewModel {
 
     /// "Kamera ile çekmek ister misiniz?" sorusu: toplu çekim açıksa oturum sorusu
     func cameraAskText(again: Bool) -> String {
-        guard cameraSettings.pageSeries else { return again ? Say.askCameraAgain : Say.askCamera }
+        guard cameraSettings.pageSeries else {
+            if settings.examType == .camera { return again ? Say.askCameraOnlyAgain : Say.askCameraOnly }   // görüntülü sınav: "evet / hayır" sorulmaz
+            return again ? Say.askCameraAgain : Say.askCamera
+        }
         let seconds = cameraSettings.seriesSeconds
         return again ? Say.askCameraSeriesAgain(seconds: seconds) : Say.askCameraSeries(seconds: seconds)
     }
 
     /// Cevapsız kalınca yeniden sorma ("Cevap vermediniz…") ya da anlaşılmayınca ("Anlayamadım…")
     func cameraAskReminder(unclear: Bool, attempt: Int) -> String {
-        guard cameraSettings.pageSeries else { return unclear ? Say.reask(Say.askCameraAgain, attempt: attempt) : Say.askCameraRepeat(attempt) }
+        guard cameraSettings.pageSeries else {
+            if settings.examType == .camera { return unclear ? Say.reask(Say.askCameraOnlyAgain, attempt: attempt) : Say.askCameraOnlyRepeat(attempt) }
+            return unclear ? Say.reask(Say.askCameraAgain, attempt: attempt) : Say.askCameraRepeat(attempt)
+        }
         let seconds = cameraSettings.seriesSeconds
         return unclear ? Say.reask(Say.askCameraSeriesAgain(seconds: seconds), attempt: attempt)
                        : Say.askCameraSeriesRepeat(attempt, seconds: seconds)
@@ -29,7 +35,7 @@ extension SessionViewModel {
 
     /// Onarımdan sonra evet / hayır yeniden sorulurken
     var cameraAskAfterRecovery: String {
-        guard cameraSettings.pageSeries else { return Say.askCameraAfterRecovery }
+        guard cameraSettings.pageSeries else { return settings.examType == .camera ? Say.askCameraOnlyAfterRecovery : Say.askCameraAfterRecovery }
         return Say.askCameraSeriesAfterRecovery(seconds: cameraSettings.seriesSeconds)
     }
 

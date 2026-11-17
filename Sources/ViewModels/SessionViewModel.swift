@@ -427,6 +427,8 @@ final class SessionViewModel: ObservableObject {
     var cameraProbeTask: ScheduledTask?
     /// Kamera akışı başladı ama internete dönüş doğrulanmadı: telefon kameranın Wi-Fi'sinde, hücresel kapalı kalmış olabilir
     var networkMayBeOnCamera = false
+    /// Sınav türü başlangıç sorusu ("önceki kayıt mı, yeni sınav mı") beklenirken sesle seçildi: "yeni sınav" bu seçimi ayardaki türle ezmez
+    var examTypePinned = false
     /// Kamera için bağlantı sıfırlama (uçak modu) sürüyor: kulaklığın düşmesi beklenen bir durumdur, ses yolu değişince duraklatılmaz
     var connectionResetActive = false
     /// Oturum başında kameraya bağlanma (bkz. SessionViewModel+CameraStart): nil → henüz denenmedi; true/false → bağlanıldı / bağlanılamadı.
@@ -1551,6 +1553,7 @@ final class SessionViewModel: ObservableObject {
                 carry = nil
                 tlog("[açılış] yeni sınav seçildi: yeni klasör, numara 1")
                 setAside = setAsideLeftoverShots()   // eski sınavın PDF'leri yeni sınavın numaralarına karışmasın
+                await startNewExamType()   // sınav türü ayardaki başlangıç türüne döner (başlangıç sorusunda sesle seçilmediyse)
             } catch {
                 goOn = true
                 warn("klasor", "Yeni klasör açılamadı: \(error.localizedDescription). Önceki kayıttan devam ediliyor.")
@@ -1564,6 +1567,7 @@ final class SessionViewModel: ObservableObject {
             deps.journal.saveNextNumber(nextNumber)
             tlog("[açılış] önceki kayıttan devam: \(offer?.answers ?? answers.count) cevap, sıradaki soru \(nextNumber)")
         }
+        examTypePinned = false
         armCameraOffer()   // Sürüm 4: önceki kayıttan devam da olsa yeni sınav da olsa ilk soru için kamera sorulur
         let camera = cameraQuestionWillBeAsked
         var text = goOn ? Say.continuingPrevious(next: nextNumber, camera: camera) : (camera ? Say.startingNewCamera : Say.startingNew)

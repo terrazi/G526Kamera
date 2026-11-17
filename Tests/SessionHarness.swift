@@ -63,7 +63,9 @@ final class SessionHarness {
         settings.gapNarration = false
         settings.smartResume = false
         // Sürüm 4: her soruda "kamera ile çekmek ister misiniz?" varsayılan olarak açıktır; V3 testlerinin akışı bozulmasın diye burada kapalı
-        settings.askCamera = cameraFlow
+        // Sürüm 4: sınav türü varsayılan olarak görüntülüdür; eski testler hibrit (kamera sorusu "evet / hayır") ya da sesli akışla yazıldı, burada o türe ayarlanır
+        settings.examType = cameraFlow ? .hybrid : .voice
+        settings.examTypeDefault = settings.examType
         // "Soru mu, paragraf mı?" sorusu varsayılan olarak açıktır; kamera akışı testlerinin "evet"i doğrudan çekime gitsin diye burada kapalı, ona ait testler açar
         settings.askCaptureKind = false
         cameraSettings = CameraSettings(defaults: defaults)

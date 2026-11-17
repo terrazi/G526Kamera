@@ -213,6 +213,18 @@ extension SessionViewModel {
                 tlog("[komut] sesli komut: \(command): \(answer.text)")
             }
             guard await self.speakNotice(answer.text) else { return }
+            if answer.releaseCamera {
+                // Sesli sınava geçildi: cümle söylendikten sonra kamera bağlantısı kapanır ve internete dönülür (kestirme kulaklığı bir an düşürebilir)
+                await self.releaseCameraForVoice()
+                guard !Task.isCancelled else { return }
+            }
+            if answer.askCameraNow {
+                // Görüntülü / hibrit sınava soru metni yokken geçildi: sıradaki soru için kamera hemen sorulur
+                self.cameraOfferSuppressed = false
+                self.offerCamera = false
+                await self.askCameraChoice()
+                return
+            }
             if answer.leaveCameraChoice {
                 // "Kamera sorusunu kapat" kamera sorusu açıkken söylendi: evet/hayır beklenmez, soru V3'teki gibi sesle okunur
                 if mode == .passageCameraChoice {

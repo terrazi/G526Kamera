@@ -29,6 +29,8 @@ final class AppSettings: ObservableObject {
         static let smartResume = "v3.smartResume"
         static let shortcutInternet = "v3.shortcut.internet"
         static let askCamera = "v3.askCamera"
+        static let examType = "v4.examType"
+        static let examTypeDefault = "v4.examTypeDefault"
         static let askCaptureKind = "v4.askCaptureKind"
         static let cameraCheckMinutes = "v4.cameraCheckMinutes"
         static let gapNarration = "v4.gapNarration"
@@ -132,9 +134,28 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(internetShortcut, forKey: Key.shortcutInternet) }
     }
 
-    /// Sürüm 4: her soru için "kamera ile çekip göndermek ister misiniz?" diye sorulsun (kapalıyken yalnız sesle okunan soru)
-    @Published var askCamera: Bool {
-        didSet { defaults.set(askCamera, forKey: Key.askCamera) }
+    /// Sürüm 4: sınavın şu anki türü (görüntülü / sesli / hibrit). Sınav sırasında sesle değişir ("sesli sınav başlat"); program kapanıp açılsa da
+    /// önceki kayda devamda korunur. Yeni sınav `examTypeDefault` ile başlar.
+    @Published var examType: ExamType {
+        didSet { defaults.set(examType.rawValue, forKey: Key.examType) }
+    }
+
+    /// Sürüm 4: yeni sınavın başlangıç türü (Ayarlar'daki seçim). Sesle değiştirilen tür yalnız o sınav için geçerlidir; sonraki sınav buna döner.
+    @Published var examTypeDefault: ExamType {
+        didSet { defaults.set(examTypeDefault.rawValue, forKey: Key.examTypeDefault) }
+    }
+
+    /// Her soru için "kamera ile çekip göndermek ister misiniz?" diye sorulsun (kapalıyken yalnız sesle okunan soru): sesli sınavda sorulmaz,
+    /// görüntülü ve hibrit sınavda kamera kullanılır. Açmak sesli sınavdan hibrite, kapatmak sesli sınava geçer.
+    /// Bu eski ayar kalıcıdır: değişince yeni sınavın başlangıç türü de değişir ("kamera sorusunu kapat" sonraki sınavlarda da geçerli kalır).
+    /// Yalnız sınav türü komutları ("sesli sınav başlat") başlangıç türüne dokunmaz.
+    var askCamera: Bool {
+        get { return examType.usesCamera }
+        set {
+            let type: ExamType = newValue ? (examType.usesCamera ? examType : .hybrid) : .voice
+            examType = type
+            examTypeDefault = type
+        }
     }
 
     /// Sürüm 4: kamera "evet" denince "soru mu, ortak paragraf mı çekeceksiniz?" diye sorulsun (kapalıyken her çekim soru sayılır)
@@ -273,7 +294,11 @@ final class AppSettings: ObservableObject {
         bluetoothShortcut = defaults.string(forKey: Key.shortcutBluetooth) ?? ""
         resetShortcut = defaults.string(forKey: Key.shortcutReset) ?? ""
         internetShortcut = defaults.string(forKey: Key.shortcutInternet) ?? ""
-        askCamera = defaults.object(forKey: Key.askCamera) as? Bool ?? true
+        // Eski sürümdeki "her soruda kamera sorusu" ayarı kapalıysa sesli sınav, değilse görüntülü sınavla başlanır
+        let legacyAsk = defaults.object(forKey: Key.askCamera) as? Bool
+        let baseType = defaults.string(forKey: Key.examTypeDefault).flatMap { ExamType(rawValue: $0) } ?? (legacyAsk == false ? .voice : .camera)
+        examTypeDefault = baseType
+        examType = defaults.string(forKey: Key.examType).flatMap { ExamType(rawValue: $0) } ?? baseType
         askCaptureKind = defaults.object(forKey: Key.askCaptureKind) as? Bool ?? true
         cameraCheckMinutes = AppSettings.clampCameraCheckMinutes(defaults.object(forKey: Key.cameraCheckMinutes) as? Int ?? AppSettings.defaultCameraCheckMinutes)
         sectionsOn = AppSettings.fitted(defaults.array(forKey: Key.sectionsOn) as? [Bool] ?? [], fill: false)

@@ -52,7 +52,7 @@ final class CaptureStoreTests: XCTestCase {
         XCTAssertTrue(fm.fileExists(atPath: dir.appendingPathComponent("video.mp4").path))
         XCTAssertTrue(fm.fileExists(atPath: dir.appendingPathComponent("bilgi.json").path))
         XCTAssertEqual(try Data(contentsOf: dir.appendingPathComponent("foto.jpg")), original.photo)
-        XCTAssertTrue(name.hasPrefix("20270115-"), "Klasör adı çekim tarihiyle başlar: \(name)")
+        XCTAssertTrue(name.hasPrefix("2027-01-15-"), "Klasör adı çekim tarihiyle başlar: \(name)")
         XCTAssertEqual(store.summary().pending, 1)
     }
 

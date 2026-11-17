@@ -9,12 +9,18 @@ extension SessionViewModel {
     struct LiveReply {
         var text: String
         var leaveCameraChoice = false
+        /// Sesli sınava geçildi ve kamera bağlantısı açık (toplu çekimde hazır bekleyen): cümle bitince kamera kapanır, internete dönülür
+        var releaseCamera = false
+        /// Görüntülü ya da hibrit sınava, soru metni henüz yokken geçildi: cümle bitince kamera hemen sorulur
+        var askCameraNow = false
     }
 
     func liveReply(_ command: VoiceCommand, mode: ListenMode) async -> LiveReply {
         switch command {
         case .report(let kind): return LiveReply(text: await reportText(kind))
         case .volume(let action): return LiveReply(text: await changeVolume(action))
+        case .camera(.examType(let type)): return await changeExamType(type, mode: mode)   // çekim sürerken de söylenebilir (bkz. `SessionViewModel+ExamType`)
+        case .camera(.examTypeAsk): return LiveReply(text: Say.examTypeAnswer(settings.examType))
         case .camera(let action): return changeCameraSetting(action, mode: mode)
         default: return LiveReply(text: Say.nothingToRepeat)
         }
@@ -198,6 +204,8 @@ extension SessionViewModel {
             c.previewOff = !on
             tlog("[ayar] canlı önizleme: \(on ? "açık" : "kapalı")")
             return LiveReply(text: Say.cameraPreview(on: on, already: already))
+        case .examType, .examTypeAsk:
+            return LiveReply(text: Say.examTypeAnswer(settings.examType))   // `liveReply` bunları önceden ele alır
         }
     }
 }

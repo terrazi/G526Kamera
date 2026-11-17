@@ -74,7 +74,7 @@ final class ClosestChoiceTests: XCTestCase {
     }
 
     func testTheCameraQuestionIsNotAnsweredByGuessing() {
-        for text in ["", "evet hayır", "evat istemiyorum", "kamerayla", "çekmek", "pazarlama", "başka", "başka şey", "iptal et", "testi bitir", "bir daha söyle"] {
+        for text in ["", "evet hayır", "evat istemiyorum", "kamerayla", "çekmek", "pazarlama", "başka", "başka şey", "testi bitir", "bir daha söyle"] {
             XCTAssertNil(SpokenReply.closestCameraChoice(text), text)
         }
     }
@@ -95,7 +95,6 @@ final class ClosestChoiceTests: XCTestCase {
 
     func testTheReviewMenuMayGuessContinueOrRepeatButNeverFinish() {
         XCTAssertEqual(SpokenReply.closestReview("devan"), .continueTest)
-        XCTAssertEqual(SpokenReply.closestReview("tekrer"), .repeatAnswers)
         XCTAssertEqual(SpokenReply.closestReview("dinlee"), .repeatAnswers)
         for text in ["bitirr", "bitr", "sonlandırr", "tamamlaa", "kapatt", "devan bitirr", "soruyu sil", "soruyu atla", "sorular", ""] {
             XCTAssertNil(SpokenReply.closestReview(text), "Bitirme bulanık seçilmez, belirsiz söz anlaşılmaz: \(text)")

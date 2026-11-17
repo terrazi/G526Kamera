@@ -30,6 +30,9 @@ Bu belge, programın sesle nasıl işlemesi gerektiğini adım adım yazar; her 
    onarımdan sonra internet yoksa `Hücresele Geç` kestirmesi çalışır, sonra bekleyen çekim gönderilir ya da kamera sorulur.
    **Her aşamada kısa bilgi verilir:** "Kameraya geçiliyor" → "Kamera hazır, soruyu kadraja alın" → "Soru için video ve fotoğraf çekimi başarıyla
    yapıldı. Kamera kapatıldı, internete geçiliyor" → "İnternet geldi. Soru Gemini'ye gönderiliyor, cevabı bekleyin" → cevap okunur.
+2a. **Sınav türü (17.11.2026).** Görüntülü (varsayılan: her soru kamerayla, "evet / hayır" yok), sesli (kamera yok) ya da hibrit (her soruda kamera mı sesle mi
+   sorulur). Ayarlar'dan seçilir; sınav sırasında "sesli / hibrit / görüntülü sınav başlat" denirse kalan sorular o türle sürer, denmezse tür aynı kalır. Değişiklik
+   yalnız o sınavın kalanı içindir; yeni sınav Ayarlar'daki türle başlar, önceki kayıttan devamda tür korunur. Bkz. `SessionViewModel+ExamType`.
 2b. **Sürüm 4: kamera ile ortak paragraf.** Kamera sorusunda (ya da sesle okuma seçildikten sonra) "Ortak paragraf" denirse program "Paragrafı kamera ile
    çekmek ister misiniz?" diye sorar. **Hayır** → 3. adımdaki gibi paragraf sesle okunur. **Evet** → paragraf OKUNMAZ: kameraya geçilir, kadraja alınır
    ("Ortak paragrafı kadraja alın"), 5 sn video + fotoğraf çekilir, "Paragraf için video ve fotoğraf çekimi başarıyla yapıldı" denir, internete dönülür
