@@ -43,11 +43,16 @@ enum AudioRouting {
     /// Girişin geleceği tek yer: Lightning/USB/kablolu harici mikrofon. Telefonun kendi mikrofonu ve Bluetooth mikrofon güvenli sayılmaz.
     static let externalMicPorts: Set<AVAudioSession.Port> = [.usbAudio, .headsetMic, .lineIn]
 
+    /// Kamera çekimi için yaka mikrofonu BİLEREK kapatıldığında (Ayarlar > Kamera > "Çekimde yaka mikrofonunu kapat"; kullanıcı kararı 2026-11-17: yaka
+    /// mikrofonu kameranın Wi-Fi'sini bozuyor) telefonun kendi mikrofonu da geçici olarak geçerli giriş sayılır; çekim bitince yeniden kapanır.
+    /// Bluetooth mikrofon yine geçersizdir.
+    static var builtInMicAllowed = false
+
     static func verdict(_ snapshot: RouteSnapshot) -> RouteVerdict {
         let outputs = snapshot.outputs
         let inputs = snapshot.inputs
         let headphonesOK = !outputs.isEmpty && outputs.allSatisfy { headphonePorts.contains($0) }
-        let micOK = !inputs.isEmpty && inputs.allSatisfy { externalMicPorts.contains($0) }
+        let micOK = !inputs.isEmpty && inputs.allSatisfy { externalMicPorts.contains($0) || (builtInMicAllowed && $0 == .builtInMic) }
         return RouteVerdict(headphonesOK: headphonesOK, micOK: micOK, hint: hint(outputs: outputs, headphonesOK: headphonesOK))
     }
 

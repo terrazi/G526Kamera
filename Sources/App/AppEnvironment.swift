@@ -15,6 +15,8 @@ final class AppEnvironment: ObservableObject {
     let session: SessionViewModel
     let settingsModel: SettingsViewModel
     private let folderStore: FolderStore
+    /// Pano işareti (kapanma engeli ayarı ve uygulamadan çıkış bunu eşitler)
+    private let journal: RunJournal
 
     private let starter = StartScheduler()
     private let notificationRouter = StartNotificationRouter()
@@ -44,6 +46,7 @@ final class AppEnvironment: ObservableObject {
         let shortcuts = ShortcutRunner()
         let health = NetworkHealth()
         let journal = RunJournal()
+        journal.closeGuardEnabled = { settings.closeGuard }
         let captureStore = FileCaptureStore(root: FileCaptureStore.documentsRoot())
         captureStore.prepare()
         shortcuts.onLeaving = { journal.setAway(true) }
@@ -76,12 +79,23 @@ final class AppEnvironment: ObservableObject {
                                          sessionActive: { [weak session] in session?.phase.isRunning ?? false })
         self.session = session
         self.folderStore = folderStore
+        self.journal = journal
         self.settingsModel = SettingsViewModel(settings: settings, shortcuts: shortcuts, folder: folderStore,
                                                sessionActive: { [weak session] in session?.phase.isRunning ?? false })
         ScreenDimmer.shared.restoreIfLeftDimmed()
         wireStartTriggers()
         wireDimming()
         wireCellularRoute()
+        wireCloseGuard()
+    }
+
+    /// Ayarlar > "Kapanma engeli" değişince pano işareti hemen eşitlenir (@Published değişmeden önce yayınlar: ana kuyrukta okunur)
+    private func wireCloseGuard() {
+        settings.$closeGuard
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.journal.syncCloseGuard() }
+            .store(in: &cancellables)
     }
 
     /// Toplu çekim kipi açıkken Gemini ve internet yoklaması, telefon kameranın Wi-Fi'sindeyse hücresel yoldan da gidebilir (bkz. `CellularRoute`)
@@ -119,6 +133,7 @@ final class AppEnvironment: ObservableObject {
         tlog("[uygulama] arka plana ya da pasife geçti")
         isActive = false
         syncDimming()
+        journal.syncCloseGuard()   // engel kapalıysa: çıkarken pano işareti yerinde olsun (kopyalanmış günlük korunur)
     }
 
     /// Zamanlı başlatma: uygulama açıkken saat dolunca, ya da bildirime dokunulunca oturum başlar

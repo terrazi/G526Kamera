@@ -133,6 +133,8 @@ final class SessionViewModel: ObservableObject {
         static let cameraResetHeadsetWait: TimeInterval = 45
         /// Toplu çekim oturumundan sonra kulaklığın (Bluetooth) geri gelmesi için en çok beklenecek süre (sn); oturum boyunca ses yolu değişikliği duraklatma sayılmaz
         static let seriesHeadsetWait: TimeInterval = 60
+        /// Çekim bitince "Yaka mikrofonunu açın" dendikten sonra alıcının ses yoluna girmesi için en çok beklenen süre
+        static let lapelBackWait: TimeInterval = 15
         /// Oturum başında kameraya bağlanırken en çok kaç onarım yapılacağı (ilk deneme + 2 onarım = 3 deneme); olmazsa sesle devam edilir ve kamera yoklanır
         static let cameraStartRepairs = 2
         /// Oturum başında ilk bağlanma denemesinde en çok beklenen süre (sn): "Kameraya geç" telefonu kameranın ağına sokamadıysa 40 sn beklenmez,

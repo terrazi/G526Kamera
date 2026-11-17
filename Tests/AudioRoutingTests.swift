@@ -24,6 +24,18 @@ final class AudioRoutingTests: XCTestCase {
         }
     }
 
+    /// 17.11.2026: yaka mikrofonu kameranın Wi-Fi'sini bozuyor; çekimde kapatılınca telefonun kendi mikrofonu geçici kabul edilir
+    func testThePhonesOwnMicIsAcceptedOnlyWhileTheLapelMicIsDeliberatelyOff() {
+        XCTAssertFalse(verdict(out: [.bluetoothA2DP], in: [.builtInMic]).micOK, "Varsayılan: telefonun kendi mikrofonu geçersiz")
+        AudioRouting.builtInMicAllowed = true
+        defer { AudioRouting.builtInMicAllowed = false }
+        XCTAssertTrue(verdict(out: [.bluetoothA2DP], in: [.builtInMic]).isSafe)
+        XCTAssertTrue(verdict(out: [.bluetoothA2DP], in: [.usbAudio]).isSafe, "Yaka mikrofonu alıcısı takılı kalırsa da geçerli")
+        XCTAssertFalse(verdict(out: [.bluetoothA2DP], in: [.bluetoothHFP]).micOK, "Bluetooth mikrofon yine geçersiz")
+        XCTAssertFalse(verdict(out: [.bluetoothA2DP], in: []).micOK, "Giriş hiç yoksa yine geçersiz")
+        XCTAssertFalse(verdict(out: [.builtInSpeaker], in: [.builtInMic]).isSafe, "Çıkış kuralı (yalnız Bluetooth kulaklık) değişmez")
+    }
+
     func testPhoneSpeakerIsNeverSafe() {
         let v = verdict(out: [.builtInSpeaker], in: [.usbAudio])
         XCTAssertFalse(v.headphonesOK)

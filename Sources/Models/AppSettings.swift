@@ -37,6 +37,7 @@ final class AppSettings: ObservableObject {
         static let gapNarrationSeconds = "v4.gapNarrationSeconds"
         static let sectionsOn = "v4.sectionsOn"
         static let sectionQuestions = "v4.sectionQuestions"
+        static let closeGuard = "v4.closeGuard"
     }
 
     /// Kullanıcının verdiği kestirme adları. Uygulama ilk açıldığında (bir kez) ilgili alanlara yazılır; sonra Ayarlar'dan silinip
@@ -261,6 +262,12 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(smartResume, forKey: Key.smartResume) }
     }
 
+    /// Kapanma engeli (varsayılan açık): açıkken program yalnız "Programı kapat" düğmesiyle kapanır, başka her kapanmayı (kaydırma, çökme) Kestirmeler
+    /// otomasyonu geri açar. Kapalıyken pano işareti hep yerinde tutulur, otomasyon hiçbir kapanmada geri açmaz (kullanıcı kararı 2026-11-17)
+    @Published var closeGuard: Bool {
+        didSet { defaults.set(closeGuard, forKey: Key.closeGuard) }
+    }
+
     /// Test sürerken (kırmızı uyarı yokken) ekran pil için kısılsın mı
     @Published var dimScreen: Bool {
         didSet { defaults.set(dimScreen, forKey: Key.dimScreen) }
@@ -316,6 +323,7 @@ final class AppSettings: ObservableObject {
         gapNarrationSeconds = AppSettings.clampGapNarrationSeconds(defaults.object(forKey: Key.gapNarrationSeconds) as? Int ?? AppSettings.defaultGapNarrationSeconds)
         smartResume = defaults.object(forKey: Key.smartResume) as? Bool ?? true
         dimScreen = defaults.object(forKey: Key.dimScreen) as? Bool ?? false
+        closeGuard = defaults.object(forKey: Key.closeGuard) as? Bool ?? true
         spokenWarnings = defaults.object(forKey: Key.spokenWarnings) as? Bool ?? true
         instantDetection = defaults.object(forKey: Key.instantDetection) as? Bool ?? true
         phoneVoiceID = defaults.string(forKey: Key.phoneVoice) ?? ""

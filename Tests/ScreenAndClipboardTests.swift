@@ -299,6 +299,64 @@ final class ScreenAndClipboardTests: XCTestCase {
         try? FileManager.default.removeItem(at: file)
     }
 
+    // MARK: Kapanma engeli ayarı (kullanıcı kararı 2026-11-17: ayarlardan açılıp kapanabilmeli)
+
+    func testWithTheCloseGuardOffTheClosedMarkerStaysOnTheClipboardSoNothingReopensTheProgram() {
+        let board = RelaunchTests.FakePasteboard()
+        let file = tempLogFile()
+        let defaults = freshDefaults()
+        var guardOn = false
+        let journal = RunJournal(defaults: defaults, previousLog: [], clipboard: logFlag(board, defaults: defaults, file: file))
+        journal.closeGuardEnabled = { guardOn }
+        _ = journal.beginRun()
+        XCTAssertEqual(board.value, ClipboardFlag.closed, "Engel kapalıyken açılışta işaret yazılır")
+        journal.setSessionOpen(true)
+        XCTAssertEqual(board.value, ClipboardFlag.closed, "Oturum sürerken de yerinde")
+        journal.setSessionOpen(false)
+        XCTAssertEqual(board.value, ClipboardFlag.closed, "\"Testi Bitir\"den sonra da yerinde")
+        board.userCopies("başka metin")
+        journal.syncCloseGuard()   // uygulamadan çıkış
+        XCTAssertEqual(board.value, ClipboardFlag.closed, "Pano değişmişse çıkarken işaret yeniden yazılır")
+        let count = board.changeCount
+        journal.syncCloseGuard()
+        XCTAssertEqual(board.changeCount, count, "İşaret zaten yerindeyse pano yeniden yazılmaz")
+        guardOn = true
+        journal.syncCloseGuard()
+        XCTAssertEqual(board.value, "", "Engel açılınca işaret kalkar: otomasyon kapanmayı geri açar")
+        journal.setSessionOpen(true)
+        XCTAssertFalse(board.value.contains(ClipboardFlag.prefix), "Engel açıkken oturumda işaret yok (eski davranış)")
+    }
+
+    func testWithTheCloseGuardOffAReturnFromShortcutsPutsTheClosedMarkerBackAndAKeptLogSurvives() {
+        let board = RelaunchTests.FakePasteboard()
+        let file = tempLogFile()
+        let defaults = freshDefaults()
+        let journal = RunJournal(defaults: defaults, previousLog: [], clipboard: logFlag(board, defaults: defaults, file: file))
+        journal.closeGuardEnabled = { false }
+        _ = journal.beginRun()
+        logFlag(board, defaults: defaults, file: file).copyLog(sampleLog)
+        journal.syncCloseGuard()
+        XCTAssertTrue(board.value.hasPrefix(sampleLog), "Kopyalanan günlük işaretle ezilmez")
+        XCTAssertTrue(board.value.contains(ClipboardFlag.closed))
+        journal.setAway(true)
+        XCTAssertTrue(board.value.hasPrefix(sampleLog))
+        XCTAssertTrue(board.value.contains(ClipboardFlag.repair))
+        XCTAssertFalse(board.value.contains(ClipboardFlag.closed), "Kestirmeye geçerken onarım işareti")
+        journal.setAway(false)
+        XCTAssertTrue(board.value.hasPrefix(sampleLog))
+        XCTAssertTrue(board.value.contains(ClipboardFlag.closed), "Dönünce engel kapalı olduğundan KAPALI işareti geri konur")
+        XCTAssertFalse(board.value.contains(ClipboardFlag.repair))
+        try? FileManager.default.removeItem(at: file)
+    }
+
+    func testTheCloseGuardIsOnByDefaultAndSaved() {
+        let defaults = UserDefaults(suiteName: "g526.engel.\(UUID().uuidString)")!
+        let fresh = AppSettings(defaults: defaults)
+        XCTAssertTrue(fresh.closeGuard, "Varsayılan: kapanma yalnız \"Programı kapat\" ile")
+        fresh.closeGuard = false
+        XCTAssertFalse(AppSettings(defaults: defaults).closeGuard, "Kalıcı")
+    }
+
     func testTheJournalKeepsACopiedLogWhenTheProgramIsClosedByTheButton() {
         let board = RelaunchTests.FakePasteboard()
         let file = tempLogFile()

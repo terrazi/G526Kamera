@@ -36,6 +36,8 @@ final class CameraSettings: ObservableObject {
         static let countdown = "countdown"
         static let pageSeries = "pageSeries"
         static let seriesSeconds = "seriesTotalSeconds"
+        static let muteLapel = "muteLapel"
+        static let lapelOffSeconds = "lapelOffSeconds"
         static let videoToGemini = "videoToGemini"
         static let videoQuestion = "videoQuestion"
         static let videoHighRes = "videoHighRes"
@@ -136,6 +138,14 @@ final class CameraSettings: ObservableObject {
     @Published var seriesSeconds: Int { didSet { defaults.set(seriesSeconds, forKey: Key.seriesSeconds) } }
     static let seriesSecondsRange = 15...150
     static let defaultSeriesSeconds = 75
+    /// Çekimde yaka mikrofonu kapatılsın mı (kullanıcı kararı 2026-11-17: BOYA yaka mikrofonu 2,4 GHz ile çalışır, kameranın Wi-Fi'sini bozuyor; yazılım vericiyi
+    /// kapatamaz, kullanıcı kapatır). "Başla" denince program "Yaka mikrofonunu kapatın" der, `lapelOffSeconds` bekler, "Başladı" der ve çekim başlar;
+    /// çekim bitince "Yaka mikrofonunu açın" der. Bu sürede telefonun kendi mikrofonu geçerli sayılır. Toplu çekim ve deneme çekimi için geçerlidir.
+    @Published var muteLapel: Bool { didSet { defaults.set(muteLapel, forKey: Key.muteLapel) } }
+    /// "Başla"dan çekimin başlamasına kadar yaka mikrofonunu kapatmak için tanınan süre (3–30 sn, varsayılan 8)
+    @Published var lapelOffSeconds: Int { didSet { defaults.set(lapelOffSeconds, forKey: Key.lapelOffSeconds) } }
+    static let lapelOffSecondsRange = 3...30
+    static let defaultLapelOffSeconds = 8
     /// Çekimde sesli geri sayım: "N saniye boyunca çekim yapabilirsiniz. Başlıyorum." ve N, N-1 … 1 (kullanıcı kararı 2026-11-16)
     @Published var countdown: Bool { didSet { defaults.set(countdown, forKey: Key.countdown) } }
     /// Video Gemini'ye de gönderilir; cevap sesle okunur
@@ -205,6 +215,9 @@ final class CameraSettings: ObservableObject {
         pageSeries = defaults.object(forKey: Key.pageSeries) as? Bool ?? true
         seriesSeconds = CameraSettings.clampSeconds(defaults.object(forKey: Key.seriesSeconds) as? Int,
                                                     range: CameraSettings.seriesSecondsRange, fallback: CameraSettings.defaultSeriesSeconds)
+        muteLapel = defaults.object(forKey: Key.muteLapel) as? Bool ?? true
+        lapelOffSeconds = CameraSettings.clampSeconds(defaults.object(forKey: Key.lapelOffSeconds) as? Int,
+                                                      range: CameraSettings.lapelOffSecondsRange, fallback: CameraSettings.defaultLapelOffSeconds)
         videoToGemini = defaults.object(forKey: Key.videoToGemini) as? Bool ?? true
         videoQuestion = defaults.string(forKey: Key.videoQuestion) ?? ""
         videoHighRes = defaults.object(forKey: Key.videoHighRes) as? Bool ?? true

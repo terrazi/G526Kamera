@@ -299,6 +299,61 @@ final class PageSeriesTests: XCTestCase {
         XCTAssertEqual(h.speaker.spoken[spokenBefore], seriesDone, "Çekim sırasında ve hemen ardından duyuruya kadar hiçbir şey söylenmez")
     }
 
+    // MARK: Çekimde yaka mikrofonu (17.11.2026: BOYA 2,4 GHz, kameranın Wi-Fi'sini bozuyor)
+
+    func testTheLapelMicIsAskedOffAfterStartThenTheSecondsPassThenGoAndItIsAskedOnAfterTheCapture() async {
+        let h = harness(seriesResults: [series()], pageReplies: [.success([FakeAnswering.reply(1)])])
+        h.cameraSettings.muteLapel = true
+        h.cameraSettings.lapelOffSeconds = 8
+        var allowedDuringCapture = false
+        h.camera.onSeries = { allowedDuringCapture = AudioRouting.builtInMicAllowed }
+        _ = await h.startListening()
+        reply(h, "başla")
+        let done = await waitUntil(45) { h.vm.answers.count == 1 && self.questionOpen(h) }
+        XCTAssertTrue(done, "\(h.speaker.spoken)")
+        let spoken = h.speaker.spoken
+        guard let off = spoken.firstIndex(of: Say.lapelOff(seconds: 8)), let go = spoken.firstIndex(of: Say.seriesGo),
+              let on = spoken.firstIndex(of: Say.lapelOn), let finished = spoken.firstIndex(of: Say.seriesDone(taken: 75, planned: 75)) else {
+            return XCTFail("\(spoken)")
+        }
+        XCTAssertTrue(off < go && go < on && on < finished, "Sıra: kapatın, Başladı, açın, çekim sonucu; söylenenler: \(spoken)")
+        XCTAssertTrue(h.sleepLog.entries.contains { $0.seconds == 8 && $0.spokenCount == off + 1 }, "\"Kapatın\" denir denmez ayardaki 8 sn beklenir, \"Başladı\" ondan sonra gelir")
+        XCTAssertTrue(allowedDuringCapture, "Çekim sırasında telefonun kendi mikrofonu geçerli sayılır")
+        XCTAssertFalse(AudioRouting.builtInMicAllowed, "Çekim bitince telefonun kendi mikrofonu yeniden geçersiz")
+        XCTAssertEqual(spoken.filter { $0 == Say.lapelOff(seconds: 8) }.count, 1)
+    }
+
+    func testWithTheLapelSettingOffNothingIsSaidAboutTheLapelMicAndNothingIsWaited() async {
+        let h = harness(seriesResults: [series()], pageReplies: [.success([FakeAnswering.reply(1)])])
+        XCTAssertFalse(h.cameraSettings.muteLapel, "Sınama düzeneğinde varsayılan kapalı")
+        var allowedDuringCapture = true
+        h.camera.onSeries = { allowedDuringCapture = AudioRouting.builtInMicAllowed }
+        _ = await h.startListening()
+        reply(h, "başla")
+        let done = await waitUntil(45) { h.vm.answers.count == 1 && self.questionOpen(h) }
+        XCTAssertTrue(done, "\(h.speaker.spoken)")
+        XCTAssertFalse(h.speaker.spoken.contains(Say.lapelOff(seconds: 8)))
+        XCTAssertFalse(h.speaker.spoken.contains(Say.lapelOn))
+        XCTAssertFalse(allowedDuringCapture, "Ayar kapalıyken telefonun kendi mikrofonu geçerli sayılmaz")
+        XCTAssertFalse(h.sleepLog.entries.contains { $0.seconds == 8 })
+    }
+
+    func testTheLapelSettingsDefaultToOnWithEightSecondsAndAreClampedAndSaved() {
+        let defaults = UserDefaults(suiteName: "g526.yaka.\(UUID().uuidString)")!
+        let fresh = CameraSettings(defaults: defaults)
+        XCTAssertTrue(fresh.muteLapel)
+        XCTAssertEqual(fresh.lapelOffSeconds, 8)
+        fresh.muteLapel = false
+        fresh.lapelOffSeconds = 12
+        let reloaded = CameraSettings(defaults: defaults)
+        XCTAssertFalse(reloaded.muteLapel, "Kalıcı")
+        XCTAssertEqual(reloaded.lapelOffSeconds, 12)
+        defaults.set(999, forKey: "lapelOffSeconds")
+        XCTAssertEqual(CameraSettings(defaults: defaults).lapelOffSeconds, 30, "Üst sınır")
+        defaults.set(0, forKey: "lapelOffSeconds")
+        XCTAssertEqual(CameraSettings(defaults: defaults).lapelOffSeconds, 3, "Alt sınır")
+    }
+
     func testTheOldAnnouncementIsUsedWhenTheCameraIsNotWaiting() async {
         // Hazır bekleyen bağlantı koptuysa (kamera bağlı değil) eski düzen: duyuru, kestirme, bağlanma
         let h = harness(seriesResults: [series()], pageReplies: [.success([FakeAnswering.reply(1)])])

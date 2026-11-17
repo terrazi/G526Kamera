@@ -50,6 +50,11 @@ extension SessionViewModel {
         defer { cameraBusy = false }
         let seconds = cameraSettings.seriesSeconds
         tlog("[kamera] deneme çekimi: \(seconds) sn, sesli komutla başlatıldı")
+        defer { AudioRouting.builtInMicAllowed = false }
+        guard await muteLapelForCapture() else {
+            offerCamera = true
+            return
+        }
         guard await speakNotice(CaptureSay.trialIntro(seconds: seconds)) else {
             offerCamera = true
             return
@@ -70,6 +75,11 @@ extension SessionViewModel {
         guard !Task.isCancelled, phase == .answering else {
             // Kesinti (kulaklık, arama): deneme çekimi yarım kalır ama alınan kareler klasöre yazılır; kamera onarımdan sonra yeniden hazırlanır
             if case .success(let series) = result { deps.captureStore.keepTrial(series.shot, report: series.report) }
+            offerCamera = true
+            return
+        }
+        await releaseLapelAfterCapture()
+        guard !Task.isCancelled, phase == .answering else {
             offerCamera = true
             return
         }

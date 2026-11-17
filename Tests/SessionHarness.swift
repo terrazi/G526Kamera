@@ -73,6 +73,8 @@ final class SessionHarness {
         cameraSettings.connectAtStart = connectAtStart
         // Sayfa bazlı toplu çekim varsayılan olarak açıktır; eski testlerin tek soruluk akışı bozulmasın diye burada kapalı, ona ait testler açar
         cameraSettings.pageSeries = pageSeries
+        cameraSettings.muteLapel = false   // yaka mikrofonu uyarıları yalnız ilgili sınamalarda açılır (diğerlerinde söylenen cümle dizisi değişmesin)
+        AudioRouting.builtInMicAllowed = false
         if shortcutNames {
             settings.wifiShortcut = "WiFi_Ac"
             settings.cellularShortcut = "Hücresel_Ac"
