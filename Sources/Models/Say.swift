@@ -43,9 +43,9 @@ enum Say {
     static let endCancelledCamera = "Tamam, test devam ediyor."
     /// Program açılırken önceki kayıt bulundu: hazır anonsu ve soru bir arada
     static func readyAskContinue(answers: Int, next: Int) -> String {
-        return "Ben hazırım, sistem kontrol edildi ve problem yok. Önceki kayıtta \(answers) cevap var, sıradaki soru \(next). Önceki kayıttan devam mı, yeni sınav mı? Devam ya da yeni deyin."
+        return "Ben hazırım, sistem kontrol edildi ve problem yok. Önceki kayıtta \(answers) cevap var, sıradaki soru \(next). Önceki kayıttan devam mı, yeni sınav mı? Devam etmek için: önceki kayıttan devam et. Yeni sınav için: yeni sınavı sıfırdan başlat."
     }
-    static let askChoiceAgain = "Cevap alamadım, ikinci defa soruyorum. Önceki kayıttan devam mı, yeni sınav mı? Devam ya da yeni deyin."
+    static let askChoiceAgain = "Cevap alamadım, ikinci defa soruyorum. Önceki kayıttan devam mı, yeni sınav mı? Devam etmek için: önceki kayıttan devam et. Yeni sınav için: yeni sınavı sıfırdan başlat."
     static func continuingPrevious(next: Int, camera: Bool = false) -> String {
         return "Önceki kayıttan devam ediliyor. Sıradaki soru \(next)." + (camera ? "" : " Soruyu okuyabilirsiniz.")
     }
@@ -586,7 +586,7 @@ enum Say {
     }
 
     static func readyAskContinueSection(section: Int, answers: Int, next: Int) -> String {
-        return "Ben hazırım, sistem kontrol edildi ve problem yok. Önceki kayıtta \(ordinal(section)) bölümde \(answers) cevap var, sıradaki soru \(next). Önceki kayıttan devam mı, yeni sınav mı? Devam ya da yeni deyin."
+        return "Ben hazırım, sistem kontrol edildi ve problem yok. Önceki kayıtta \(ordinal(section)) bölümde \(answers) cevap var, sıradaki soru \(next). Önceki kayıttan devam mı, yeni sınav mı? Devam etmek için: önceki kayıttan devam et. Yeni sınav için: yeni sınavı sıfırdan başlat."
     }
 
     /// "Bölümü tamamla" ama sınavda bölüm yok

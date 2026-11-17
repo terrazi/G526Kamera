@@ -744,10 +744,14 @@ enum SpokenReply {
         "okuma", "okumayin", "okumayalim", "okumam", "okumuyorum", "dinleme", "dinlemeyelim", "dinlemeyin", "dinlemem", "dinlemiyorum",
         "tekrarlama", "tekrarlamayin", "tekrarlamayalim", "tekrarlamam", "tekrarlamiyorum",
         "soyleme", "soylemeyin", "soylemeyelim", "soylemem", "soylemiyorum", "anlatma", "anlatmayin",
-        "silme", "silmeyin", "silmeyelim", "silmem", "silmiyorum", "unutma", "temizleme"
+        "silme", "silmeyin", "silmeyelim", "silmem", "silmiyorum", "unutma", "temizleme",
+        "baslatma", "baslatmayin", "baslatmayalim", "baslatmam", "baslatmiyorum", "baslatmasin", "sifirlama", "sifirlamayin", "sifirlamayalim", "sifirlamam", "sifirlamiyorum"
     ]
     static let continueWords: Set<String> = ["devam", "onceki", "eski", "kaldigi", "kaldigim", "kaldigimiz", "aynen", "surdur", "surdurelim", "surdurun"]
-    static let newWords: Set<String> = ["yeni", "sifirdan", "bastan", "temiz"]
+    /// "Yeni" 4 harfli kısa bir sözcüktür: tanıyıcı sık yanlış yazar ve bulanık eşleşme (en az 5 harf) onu kurtarmaz. Bu yüzden anonsta daha uzun bir söyleyiş
+    /// ("yeni sınavı sıfırdan başlat") önerilir; içindeki her sözcük tek başına yeni sınav sayılır, biri yanlış duyulsa da diğerleri işe yarar.
+    static let newWords: Set<String> = ["yeni", "sifirdan", "bastan", "temiz", "baslat", "baslayalim", "baslayin", "baslayacagiz", "sifirla", "sifirlayalim", "sifirlayin",
+                                        "yenisi", "yenisini", "yenisinden", "yenisiyle"]
     static let reviewFinish: Set<String> = [
         "bitir", "bitirin", "bitirelim", "bitirsek", "bitirmek", "bitsin", "sonlandir", "sonlandirin", "sonlandiralim", "sonlandirmak",
         "tamamla", "tamamlayin", "tamamlayalim", "tamamlamak", "tamamlansin", "kapat", "kapatalim", "cikis", "yeter"

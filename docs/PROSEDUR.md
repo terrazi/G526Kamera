@@ -127,7 +127,7 @@ Bu belge, programın sesle nasıl işlemesi gerektiğini adım adım yazar; her 
 | testi bitirme onayı | "Testi bitirmek istiyor musunuz?" | evet / hayır (komutu yeniden söylemek de evet); "cevapları tekrarla" | anlaşılmazsa bir kez daha sorulur; cevapsızlıkta test sürer | 1 hatırlatma |
 | cevap okuma sonrası menü | "N sorunun cevabı okundu… Devam, Tekrar ya da Bitir deyin" | devam / tekrar / bitir ve doğal söyleyişler ("teste devam edelim", "cevapları yeniden oku", "testi tamamla") | anlaşılmazsa 4 sn sonra, sessizlikte 30 sn sonra bir kez hatırlatılır; sonra varsayılan (bitirme isteğiyse tamamla, değilse devam) | 1 hatırlatma |
 | yeni bölüm mü, test bitti mi (yalnız bölümlü sınavda) | "Yeni bir bölüm ile devam etmek ister misiniz, yoksa testi tamamlayalım mı?" | evet / yeni bölüm / devam; hayır / testi tamamla / bitir | anlaşılmazsa ya da sessizlikte bir kez hatırlatılır; yine olmazsa yeni bölüme geçilir | 1 hatırlatma |
-| devam mı, yeni mi | "Önceki kayıtta N cevap var… Devam mı, yeni sınav mı?" | devam / yeni | 1 hatırlatma, sonra 12 saat kuralı | 1 |
+| devam mı, yeni mi | "Önceki kayıtta N cevap var… Devam etmek için: önceki kayıttan devam et. Yeni sınav için: yeni sınavı sıfırdan başlat." | devam / yeni (ayrıca "sıfırdan", "baştan", "başlat", "yenisi"…) | 1 hatırlatma, sonra 12 saat kuralı | 1 |
 
 **Tek seferde anlama.** Söz önce tanıyıcının en iyi okumasıyla çözülür; çözülemezse tanıyıcının son sözcükler için verdiği alternatif okumalar denenir
 (cihaz bunları veriyorsa). Sözcükler ses anahtarıyla karşılaştırılır (b/p, d/t, g/k, s/z karışması: "peş" = beş, "yeti" = yedi, "dörd" = dört, "pitir" = bitir);

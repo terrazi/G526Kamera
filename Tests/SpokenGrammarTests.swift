@@ -81,6 +81,23 @@ final class SpokenGrammarTests: XCTestCase {
         XCTAssertNil(SpokenReply.start("yeni ama önceki de devam"))
     }
 
+    /// Anonsta önerilen uzun söyleyişler: "yeni" tek başına yanlış duyulsa da cümledeki diğer sözcükler yeni sınavı seçtirir
+    func testTheLongPhrasesTheProgramSuggestsAreUnderstood() {
+        XCTAssertEqual(SpokenReply.start("önceki kayıttan devam et"), .continuePrevious)
+        XCTAssertEqual(SpokenReply.start("yeni sınavı sıfırdan başlat"), .startNew)
+        for text in ["yani sınavı sıfırdan başlat", "jeni sınavı sıfırdan başlat", "yeni sınavı başlat", "sınavı sıfırdan başlat", "sınavı baştan başlat",
+                     "sıfırdan başlayalım", "yenisini başlat", "temiz başlat", "yeni sınavı sıfırlayalım"] {
+            XCTAssertEqual(SpokenReply.start(text), .startNew, text)
+        }
+        for text in ["yeni sınavı başlatma", "sıfırdan başlatmayalım", "yeni sınavı başlatmak istemiyorum", "sıfırlamayalım", "yeni sınavı sıfırdan başlatmıyorum"] {
+            XCTAssertNil(SpokenReply.start(text), text)
+        }
+        for prompt in [Say.askChoiceAgain, Say.readyAskContinue(answers: 3, next: 4), Say.readyAskContinueSection(section: 2, answers: 3, next: 4)] {
+            XCTAssertTrue(prompt.contains("önceki kayıttan devam et"), prompt)
+            XCTAssertTrue(prompt.contains("yeni sınavı sıfırdan başlat"), prompt)
+        }
+    }
+
     func testReviewMenuVariations() {
         for text in ["Bitir", "bitirelim", "testi bitir", "testi bitirelim lütfen", "tamamla", "testi tamamla", "sınavı tamamlayalım", "kapat",
                      "bitirmek istiyorum", "sonlandır", "pitir"] {
