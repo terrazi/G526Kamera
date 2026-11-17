@@ -92,12 +92,14 @@ extension SessionViewModel {
             // `captureSeries` aynı Wi-Fi'de bağlantıyı yeniden kurar (≈ 2–3 sn); süre görüntü gelince başlar
             let camera = deps.camera
             camera.onStatus = { [weak self] text in self?.statusNote = text }
+            attachCoach(to: camera)
             result = await withTaskCancellationHandler {
                 await operation(camera, Timing.cameraStartFirstConnect)
             } onCancel: {
                 Task { @MainActor in camera.cancel() }
             }
             camera.onStatus = nil
+            await detachCoach(from: camera)
             if case .failure(let failure) = result, failure == .notConnected || failure == .noFrames, !Task.isCancelled, phase == .answering {
                 // Bekleyen bağlantı kopmuştu ve aynı Wi-Fi'de yeni bağlantı da kurulamadı: süre HİÇ başlamadı. Onarım döngüsünde süre sessizce başlatılmaz
                 // (kullanıcı ne zaman başladığını bilemez, boşuna sayfa gösterir); kamera baştan hazırlanır ve "Başla" yeniden beklenir

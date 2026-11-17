@@ -116,6 +116,8 @@ struct CameraSettingsSections: View {
     private var guidanceSection: some View {
         AccordionSection(id: "konumlandirma", title: "Sesli konumlandırma") {
             Toggle("Sesle konumlandır", isOn: $camera.guidanceEnabled)
+            Toggle("Toplu çekimde sesli konumlandırma", isOn: $camera.seriesGuidance)
+            HelpRow("Toplu çekim ve deneme çekimi sürerken kadraj koçu kısa cümlelerle konuşur: hangi kenar kesik, kamerayı sağa / sola / aşağı kaydırın, çok yakın ya da bulanık, yazı küçük; düzeltme gerekmiyorsa üstte ve altta hangi satırla başlayıp bittiği. İşaretleyince “Kadrajı tarif et”, “Sayfa kenarını da algıla” ve “Uyarıları sesli söyle” de açılır. Süre dolunca susar. “Kadraj kontrolü” komutu (Başla’dan önce) aynı tarifi verir; sayfa kenarı algılaması yalnız orada kullanılır, çekim sürerken ağır olduğu için çalışmaz. Çekimi kendisi başlatmaz ya da bitirmez; yalnız kamera durunca (dur–kal) konuşur. Kapalıyken toplu çekim eskisi gibi sessizdir.")
             Toggle("Uyarıları sesli söyle", isOn: $camera.guidanceVoice)
             Toggle("Kamera ve gönderim durumunu da söyle", isOn: $camera.statusNotices)
             Picker("Netlik isteği", selection: $camera.guidanceSharpness) {

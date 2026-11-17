@@ -925,6 +925,31 @@ extension SessionViewModel {
         cameraGuidanceSpeaking = false
     }
 
+    /// Toplu çekim ve deneme çekimi sırasında kadraj koçunun cümlesi (Ayarlar > "Toplu çekimde sesli konumlandırma", kullanıcı kararı 2026-11-17):
+    /// çekim sürerken (cevap aşaması) kulaklıktan söylenir. Önceki cümle bitmediyse bu cümle atlanır: konuşma üst üste binmez, çekim hiç beklemez.
+    func sayCoach(_ text: String) {
+        guard phase == .answering, !cameraGuidanceSpeaking else { return }
+        cameraGuidanceSpeaking = true
+        Task { [weak self] in
+            guard let self = self else { return }
+            _ = try? await self.deps.speaker.speak(text, saveAs: nil)
+            self.quietTicks = 0
+            self.cameraGuidanceSpeaking = false
+        }
+    }
+
+    /// Ayar açıksa kamera çekim süresince koçun cümlelerini söyletir; ayar kapalıysa hiçbir şey yapılmaz (toplu çekim eskisi gibi sessiz)
+    func attachCoach(to camera: CameraCapturing) {
+        guard cameraSettings.seriesGuidance else { return }
+        camera.onSay = { [weak self] text in self?.sayCoach(text) }
+    }
+
+    /// Çekim bitince koç susturulur; söylenmekte olan son cümle bitene kadar beklenir (internete dönüş kestirmeleri sesi kesmesin)
+    func detachCoach(from camera: CameraCapturing) async {
+        camera.onSay = nil
+        await waitForGuidanceSpeech()
+    }
+
     func waitForGuidanceSpeech() async {
         var waited = 0
         while cameraGuidanceSpeaking, waited < 50, !Task.isCancelled {

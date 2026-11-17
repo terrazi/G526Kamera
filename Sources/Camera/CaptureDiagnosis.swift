@@ -141,9 +141,19 @@ struct ViewCheck: Equatable {
     var sharpness = 0.0
     /// En net karedeki yazı (yazı tanıma çalışmadıysa nil)
     var text: TextScore?
+    /// Toplu çekimde sesli konumlandırma açıkken kadrajın tarifi (kaç sayfa, kesik kenar, üstte ve altta hangi satır); yoksa nil
+    var framing: String?
+    /// Tarif bir düzeltme istiyor (kesik kenar, çok yakın, üst boş…): o zaman "Başlayabilirsiniz" denmez
+    var framingIsCorrection = false
 
-    /// Sesle söylenen karar
+    /// Sesle söylenen karar: tarif varsa ve yazı okunuyorsa tarif önce söylenir
     var spoken: String {
+        let verdict = baseVerdict
+        guard let framing = framing, let text = text, text.isReadable else { return verdict }
+        return framingIsCorrection ? framing : framing + " " + verdict
+    }
+
+    private var baseVerdict: String {
         if frames == 0 { return CaptureSay.viewNoFrames }
         guard let text = text else { return CaptureSay.viewNoOCR }
         if text.isReadable {

@@ -139,6 +139,18 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
 
     private enum Trigger { case positioned, forced, manual, lost, cancelled }
     private var waiter: CheckedContinuation<Trigger, Never>?
+
+    // Kadraj koçu (Ayarlar > "Toplu çekimde sesli konumlandırma"): toplu çekim sürerken kısa cümlelerle konuşur; çekimi başlatmaz / bitirmez
+    private var coach = FramingCoachTimer()
+    private var coachOn = false
+    private var coachConfig = GuidanceConfig()
+    private var coachSharpFloor = 0.45
+    private var coachLines: (lines: ViewLines, time: TimeInterval)?
+    private var coachOCRBusy = false
+    private var coachOCRTime: TimeInterval = -100
+    /// Satır tarifi için yazı tanıma en sık bu aralıkla (sn) yapılır; sonucun geçerlilik süresi de
+    static let coachOCRGap: TimeInterval = 2.5
+    static let coachLinesMaxAge: TimeInterval = 4
     private var timeoutTask: Task<Void, Never>?
     private var liveTask: Task<Void, Never>?
     private var running = false
@@ -506,11 +518,86 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
     }
 
     private func guidanceSample(_ sample: FramePipeline.GuidanceSample) {
+        if coachOn {
+            coachSample(sample)
+            return
+        }
         guard running, !shooting, !cancelled, isLive, waiter != nil else { return }
         let out = guidance.step(sample.metrics, time: sample.time, stillFor: sample.stillFor)
         if out.status != statusText { status(out.status) }
         if let text = out.speak { say(text) }
         if out.capture { resolve(.positioned) }
+    }
+
+    // MARK: Kadraj koçu (toplu çekimde sesli konumlandırma desteği)
+
+    /// Koçun ölçü eşikleri ayarlardan: tek soru çekimindeki yönlendirmeyle aynı netlik ve parlama istekleri
+    private func coachGuidanceConfig() -> (config: GuidanceConfig, sharpFloor: Double) {
+        var c = GuidanceConfig()
+        c.topBand = settings.imageOrientation == .normal ? GuidanceAnalyzer.skipTop : 0
+        c.glareLimit = settings.guidanceGlare ? 0.04 : 2
+        let floors = [0.30, 0.45, 0.60]
+        return (c, floors[min(max(settings.guidanceSharpness, 0), 2)])
+    }
+
+    /// Toplu çekim başlarken: koç açılır. Sürekli kâğıt algılaması (Vision) ağırdır, açılmaz; koç yazı ölçüsünü ve satırları kullanır.
+    private func startCoach() {
+        let g = coachGuidanceConfig()
+        coachConfig = g.config
+        coachSharpFloor = g.sharpFloor
+        coach.reset()
+        coachLines = nil
+        coachOCRBusy = false
+        coachOCRTime = -100
+        pipeline.guidanceOrientation = settings.imageOrientation
+        pipeline.pageEdgesOn = false
+        coachOn = true
+        pipeline.guidanceOn = true
+        tlog("[kamera] kadraj koçu açık (toplu çekimde sesli konumlandırma)")
+    }
+
+    /// Koç durur: ölçüm kapanır, bekleyen yazı tanıma sonucu atılır (süre dolunca ve temizlikte)
+    private func stopCoach() {
+        guard coachOn else { return }
+        coachOn = false
+        coachLines = nil
+        pipeline.guidanceOn = false
+    }
+
+    private func coachSample(_ sample: FramePipeline.GuidanceSample) {
+        guard coachOn, !cancelled, isLive else { return }
+        if sample.stillFor >= coach.config.stillNeeded, !coachOCRBusy, sample.time - coachOCRTime >= CameraCaptureController.coachOCRGap {
+            requestCoachLines(at: sample.time)
+        }
+        var lines: ViewLines?
+        if let cached = coachLines, sample.time - cached.time <= CameraCaptureController.coachLinesMaxAge { lines = cached.lines }
+        if let text = coach.step(metrics: sample.metrics, lines: lines, time: sample.time, stillFor: sample.stillFor,
+                                 guidance: coachConfig, sharpFloor: coachSharpFloor) {
+            sayCoach(text)
+        }
+    }
+
+    /// En taze karenin satırları arka planda okunur (kamera durgunken, seyrek); sonuç koçun sonraki değerlendirmelerinde kullanılır
+    private func requestCoachLines(at time: TimeInterval) {
+        let now = ProcessInfo.processInfo.systemUptime
+        let fresh = pipeline.store.frames(from: now - 1.0, to: now + 1)
+        guard let best = fresh.max(by: { $0.sharpness < $1.sharpness }) else { return }
+        coachOCRBusy = true
+        coachOCRTime = time
+        let buffer = best.buffer
+        let orientation = settings.imageOrientation
+        Task { [weak self] in
+            let lines = await Task.detached(priority: .utility) { ViewLinesReader.read(buffer, orientation: orientation) }.value
+            guard let self = self else { return }
+            self.coachOCRBusy = false
+            if let lines = lines, self.coachOn { self.coachLines = (lines: lines, time: time) }
+        }
+    }
+
+    /// Koç cümlesi: "Uyarıları sesli söyle" ayarından bağımsızdır (kullanıcı toplu çekimde sesli konumlandırmayı kendisi açtı)
+    private func sayCoach(_ text: String) {
+        onSay?(text)
+        tlog("[kamera] koç: \(text)")
     }
 
     private func awaitTrigger(seconds: TimeInterval) async -> Trigger {
@@ -702,7 +789,26 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         let buffer = best.buffer
         let text = await Task.detached(priority: .userInitiated) { SeriesTextReader.read(buffer, orientation: orientation) }.value
         tlog("[kamera] kadraj kontrolü: \(fresh.count) taze kare, en net kare netlik \(Int(best.sharpness.rounded())), \(text.map { $0.summary } ?? "yazı tanıma yok")")
-        return ViewCheck(frames: fresh.count, sharpness: best.sharpness, text: text)
+        var check = ViewCheck(frames: fresh.count, sharpness: best.sharpness, text: text)
+        // Toplu çekimde sesli konumlandırma açıksa kadrajın tarifi de verilir: kaç sayfa, kesik kenar, kayma yönü, üstte ve altta hangi satır
+        if settings.seriesGuidance, text?.isReadable == true {
+            let g = coachGuidanceConfig()
+            let edgesOn = settings.guidancePageEdges
+            let framing = await Task.detached(priority: .userInitiated) { () -> (text: String, correction: Bool)? in
+                guard var metrics = GuidanceAnalyzer.analyze(buffer, orientation: orientation) else { return nil }
+                if edgesOn && metrics.hasText { metrics.edges = PageEdgeDetector.detect(buffer, orientation: orientation) }
+                let lines = ViewLinesReader.read(buffer, orientation: orientation)
+                let note = FramingCoach.note(metrics, lines: lines, config: g.config, sharpFloor: g.sharpFloor)
+                let spoken = FramingCoach.describe(metrics, lines: lines, config: g.config, sharpFloor: g.sharpFloor)
+                return (text: spoken, correction: note.isCorrection)
+            }.value
+            if let framing = framing {
+                check.framing = framing.text
+                check.framingIsCorrection = framing.correction
+                tlog("[kamera] kadraj tarifi: \(framing.text)")
+            }
+        }
+        return check
     }
 
     private func runSeries(seconds: Int, connectLimit: TimeInterval?, trial: Bool) async -> Result<PageSeries, CameraFailure> {
@@ -738,7 +844,11 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
             if cancelled { return .failure(.cancelled) }
             guard live else { return .failure(connectFailure()) }
         }
-        pipeline.guidanceOn = false
+        if settings.seriesGuidance {
+            startCoach()
+        } else {
+            pipeline.guidanceOn = false
+        }
         return await shootSeries(seconds: max(1, seconds), trial: trial)
     }
 
@@ -796,6 +906,8 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
             }
         }
         pipeline.seriesSink = nil
+        // Süre doldu: koç susar (PDF hazırlanırken ve cevaplar okunurken konuşmaz, ölçüm de durur)
+        stopCoach()
         if cancelled {
             if trial { videoRecorder.cancel() }
             return .failure(.cancelled)
@@ -928,6 +1040,7 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
             waiter = nil
             continuation.resume(returning: .cancelled)
         }
+        stopCoach()
         pipeline.guidanceOn = false
         pipeline.pageEdgesOn = false
         client.stop()

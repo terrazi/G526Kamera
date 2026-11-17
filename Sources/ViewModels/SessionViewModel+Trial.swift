@@ -58,12 +58,14 @@ extension SessionViewModel {
         statusNote = "Deneme çekimi sürüyor"
         let camera = deps.camera
         camera.onStatus = { [weak self] text in self?.statusNote = text }
+        attachCoach(to: camera)
         let result = await withTaskCancellationHandler {
             await camera.captureTrial(seconds: seconds, connectLimit: Timing.cameraStartFirstConnect)
         } onCancel: {
             Task { @MainActor in camera.cancel() }
         }
         camera.onStatus = nil
+        await detachCoach(from: camera)
         statusNote = ""
         guard !Task.isCancelled, phase == .answering else {
             // Kesinti (kulaklık, arama): deneme çekimi yarım kalır ama alınan kareler klasöre yazılır; kamera onarımdan sonra yeniden hazırlanır
