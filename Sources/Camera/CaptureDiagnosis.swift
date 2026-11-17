@@ -25,6 +25,8 @@ struct CaptureDiagnosis: Equatable {
     var medianSharpness = 0.0
     /// Karelerde görülen soru numaraları (artan, tekrarsız)
     var questionNumbers: [Int] = []
+    /// En iyi karesi bile bozuk (bloklaşmış) çıkan pencere sayısı; bu pencereler PDF'te yer almaz (rapor için)
+    var damagedWindows = 0
 
     /// Ortanca netlik bunun altındaysa görüntü bulanık sayılır
     static let blurrySharpness = 60.0
@@ -112,6 +114,7 @@ struct CaptureDiagnosis: Equatable {
         lines.append("Süre: \(seconds) sn; ölçülen kare: \(measured) (yaklaşık saniyede \(perSecond))")
         lines.append("Yazı tanımadan geçen pencere: \(windows); yazısı okunan: \(readableWindows) (%\(Int((readableRatio * 100).rounded())))")
         lines.append("Netlik (ortanca): \(Int(medianSharpness.rounded())); bulanık eşiği: \(Int(CaptureDiagnosis.blurrySharpness))")
+        lines.append("Bozuk (bloklaşmış) pencere: \(damagedWindows); bu pencereler PDF'e yalnız sağlam kare yetmezse girer")
         lines.append("PDF'e giren kare: \(selected) (yazısı okunan: \(readable))")
         lines.append("Görülen soru numaraları: " + (questionNumbers.isEmpty ? "yok" : questionNumbers.map { String($0) }.joined(separator: ", ")))
         let missing = missingNumbers

@@ -80,7 +80,7 @@ final class CaptureEngine {
         if candidates.isEmpty, let latest = store.latest, ProcessInfo.processInfo.systemUptime - latest.time < 2 {
             candidates = [latest]
         }
-        guard let best = candidates.max(by: { $0.sharpness < $1.sharpness }) else {
+        guard let best = candidates.max(by: { $0.pickScore < $1.pickScore }) else {
             completion(.failure(.noFrames))
             return
         }
@@ -101,7 +101,7 @@ final class CaptureEngine {
            ProcessInfo.processInfo.systemUptime - latest.time < 3 {
             candidates = [latest]
         }
-        let ranked = candidates.sorted { $0.sharpness > $1.sharpness }
+        let ranked = candidates.sorted { $0.pickScore > $1.pickScore }
         guard var best = ranked.first else {
             return .failure(.noFrames)
         }
@@ -135,6 +135,7 @@ final class CaptureEngine {
         if options.multiFrame {
             let similar = candidates
                 .filter { $0.id != best.id
+                    && !$0.damaged
                     && $0.sharpness >= best.sharpness * 0.85
                     && FrameAnalysis.difference($0.signature, best.signature) < 2.5 }
                 .sorted { $0.sharpness > $1.sharpness }

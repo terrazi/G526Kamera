@@ -172,11 +172,13 @@ struct SeriesItem {
     /// nil: yazı tanıma çalışmadı
     var text: TextScore?
     var signature: [UInt8]
+    /// Bozuk (bloklaşmış / önceki sahneyle karışmış) kare: yazısı okunsa bile "yararlı" sayılmaz, yalnız sağlam kare yetmezse tamamlayıcı olarak gider
+    var damaged = false
 
     /// Karede soru görünüyor mu: yazı okunabilir (yeterli harf) ya da bir şık harfi / soru numarası görülmüş. Okunan kareler her zaman alınır;
-    /// öteki (zayıf) kareler yalnız okunan kare azsa en nete göre tamamlanır
+    /// öteki (zayıf) kareler yalnız okunan kare azsa en nete göre tamamlanır. Bozuk kare hiçbir zaman yararlı sayılmaz (karışık yazı Gemini'yi yanıltır).
     var isUseful: Bool {
-        guard let text = text else { return false }
+        guard !damaged, let text = text else { return false }
         return text.isReadable || !text.options.isEmpty || !text.questionNumbers.isEmpty
     }
 
@@ -218,6 +220,12 @@ struct SeriesPool {
 
     mutating func add(_ item: SeriesItem) {
         if let last = items.last, SeriesPool.sameView(last, item) {
+            if item.damaged != last.damaged {
+                // Aynı görünümün bozuk ve sağlam hâli: sağlam olan kalır (bozuk karenin "ötekinde olmayan kelimeleri" karışık yazıdan gelir)
+                merged += 1
+                if last.damaged { items[items.count - 1] = item }
+                return
+            }
             let keptCovers = SeriesPool.covers(last, item)
             let newCovers = SeriesPool.covers(item, last)
             if keptCovers && newCovers {
@@ -255,7 +263,11 @@ struct SeriesPool {
         }
         let room = minPages - chosen.count
         if room > 0 {
-            let weak = items.filter { !$0.isUseful }.sorted { $0.quality > $1.quality }
+            // Zayıf kareler arasında sağlam olanlar önce gelir; bozuklar yalnız hâlâ yer varsa tamamlar
+            let weak = items.filter { !$0.isUseful }.sorted {
+                if $0.damaged != $1.damaged { return !$0.damaged }
+                return $0.quality > $1.quality
+            }
             chosen += weak.prefix(room)
         }
         return chosen.sorted { $0.time < $1.time }
@@ -273,6 +285,9 @@ final class SeriesCollector {
         let time: TimeInterval
         let sharpness: Double
         let signature: [UInt8]
+        /// Blok sınırı ölçüsü (bkz. `FrameAnalysis.blockiness`); 1 civarı sağlam
+        var blockiness = 1.0
+        var damaged: Bool { return blockiness > FrameAnalysis.damagedBlockiness }
     }
 
     struct Stats: Equatable {
@@ -293,6 +308,9 @@ final class SeriesCollector {
         /// Havuza giren aday ve aynı görünüm diye birleşenler
         var kept = 0
         var merged = 0
+        /// Bozuk (bloklaşmış) ölçülen kare ve penceredeki en iyi karesi bile bozuk olan pencere
+        var damagedFrames = 0
+        var damagedWindows = 0
     }
 
     struct Outcome {
@@ -335,15 +353,18 @@ final class SeriesCollector {
     }
 
     /// Analiz edilmiş bir kare (analiz kuyruğundan çağrılır; hızlı döner)
-    func offer(buffer: CVPixelBuffer, time: TimeInterval, sharpness: Double, signature: [UInt8]) {
+    func offer(buffer: CVPixelBuffer, time: TimeInterval, sharpness: Double, signature: [UInt8], blockiness: Double = 1.0) {
         lock.lock()
         if finished {
             lock.unlock()
             return
         }
         stats.offered += 1
-        let frame = Frame(buffer: buffer, time: time, sharpness: sharpness, signature: signature)
-        let closed = windows.offer(time: time, sharpness: sharpness, payload: frame)
+        let frame = Frame(buffer: buffer, time: time, sharpness: sharpness, signature: signature, blockiness: blockiness)
+        if frame.damaged { stats.damagedFrames += 1 }
+        // Bozuk kare bloklardaki keskin kenarlar yüzünden yapay olarak çok net ölçülür: pencerede sağlam kare varsa o kazanır
+        let score = frame.damaged ? sharpness - 1_000_000 : sharpness
+        let closed = windows.offer(time: time, sharpness: score, payload: frame)
         lock.unlock()
         if let closed = closed { submit(closed) }
     }
@@ -372,11 +393,14 @@ final class SeriesCollector {
     /// kesin eleme çekim bitince `SeriesPool.selected` içinde yapılır (okunan kare azsa en net zayıf kareler Gemini'ye yine gider)
     private func process(_ frame: Frame) {
         let text = reader(frame.buffer)
+        let damaged = frame.damaged
         lock.lock()
+        if damaged { stats.damagedWindows += 1 }
         if let text = text {
             stats.read += 1
-            sharpnesses.append(frame.sharpness)
-            if text.isReadable { stats.readable += 1 } else { stats.weak += 1 }
+            // Bozuk karenin netliği ve soru numaraları (karışık yazı) teşhise ve numara listesine katılmaz
+            if !damaged { sharpnesses.append(frame.sharpness) }
+            if text.isReadable && !damaged { stats.readable += 1 } else { stats.weak += 1 }
         } else {
             stats.readFailed += 1
             stats.weak += 1
@@ -392,16 +416,16 @@ final class SeriesCollector {
             return
         }
         let item = SeriesItem(time: frame.time, jpeg: rendered.data, width: rendered.width, height: rendered.height,
-                              sharpness: frame.sharpness, text: text, signature: frame.signature)
+                              sharpness: frame.sharpness, text: text, signature: frame.signature, damaged: damaged)
         lock.lock()
         let mergedBefore = pool.merged
         pool.add(item)
         stats.kept += 1
-        if let text = text { numbers.formUnion(text.questionNumbers) }
+        if let text = text, !damaged { numbers.formUnion(text.questionNumbers) }
         let wasMerged = pool.merged > mergedBefore
         lock.unlock()
-        let verdict = item.isUseful ? "alındı" : "zayıf aday (okunamadı)"
-        log("[seri] \(stamp(frame.time)): \(wasMerged ? "aynı görünüm, en iyisi kaldı" : verdict) (net \(sharp), \(text.map { $0.summary } ?? "yazı tanıma yok"))")
+        let verdict = damaged ? "BOZUK kare (bloklaşmış), yalnız sağlam kare yetmezse alınır" : (item.isUseful ? "alındı" : "zayıf aday (okunamadı)")
+        log("[seri] \(stamp(frame.time)): \(wasMerged ? "aynı görünüm, en iyisi kaldı" : verdict) (net \(sharp), blok \(String(format: "%.2f", frame.blockiness)), \(text.map { $0.summary } ?? "yazı tanıma yok"))")
         finishOne()
     }
 
@@ -428,7 +452,8 @@ final class SeriesCollector {
         let seen = numbers.sorted()
         // Yazı tanıma hiç çalışmadıysa (read == 0) teşhis konmaz: pencere sayısı 0 kalır
         let diagnosis = CaptureDiagnosis(windows: result.read, readableWindows: result.readable,
-                                         medianSharpness: CaptureDiagnosis.median(sharpnesses), questionNumbers: seen)
+                                         medianSharpness: CaptureDiagnosis.median(sharpnesses), questionNumbers: seen,
+                                         damagedWindows: result.damagedWindows)
         return Outcome(items: chosen, readable: chosen.filter { $0.isUseful }.count, stats: result, questionNumbers: seen, diagnosis: diagnosis)
     }
 

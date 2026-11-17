@@ -9,6 +9,12 @@ struct StoredFrame {
     let sharpness: Double
     /// 32x18 ızgaralık ortalama parlaklık imzası (hareket / değişim algılama için)
     let signature: [UInt8]
+    /// Kare bozuk çözülmüş (16 pikselik bloklar belirgin; kamera akışında paket kaybı ya da sahne değişiminde kodlayıcının yetişememesi). Bozuk kare
+    /// bloklardaki keskin kenarlar yüzünden yapay olarak "çok net" ölçülür: en net kare seçilirken geriye alınır (bkz. `pickScore`)
+    var damaged = false
+
+    /// En net kareyi seçerken kullanılan puan: bozuk kare, sağlam hiçbir kareyle yarışamaz
+    var pickScore: Double { return damaged ? sharpness - 1_000_000 : sharpness }
 }
 
 enum FrameAnalysis {
@@ -95,6 +101,72 @@ enum FrameAnalysis {
         let mean = sum / n
         let variance = sumSq / n - mean * mean
         return (variance, signature)
+    }
+
+    // MARK: - Bozuk (bloklaşmış) kare ölçütü
+
+    /// Bu değerin üstündeki kare bozuk sayılır. Ölçü 1.0 civarında sağlam karedir: kameranın ham akışında sağlam karelerde 1.02–1.09, PDF'teki sağlam
+    /// sayfalarda en çok 1.16, bozuk karelerde 1.3–1.9 çıktı (2026-11-17, 60 sayfalık çekim ve 8 Kasım ham akış kaydı). Bozuk sayılan kare atılmaz,
+    /// yalnız sağlam kareler yetmediğinde kullanılır.
+    static let damagedBlockiness = 1.22
+
+    /// Parlaklık düzleminde 16 pikselik blok (makroblok) sınırlarındaki ortalama kenar şiddetinin, bloğun içindeki (8 piksel kaymış) aynı ölçüme oranı;
+    /// yatay ve dikey yönün geometrik ortalaması. Sağlam görüntüde ≈1, bozulup bloklaşmış (düz renkli kareler, önceki sahnenin parçaları) görüntüde
+    /// belirgin biçimde büyüktür. 8 piksel kaymış konum karşılaştırma alınır ki JPEG gibi 8'lik ızgaralar sonucu etkilemesin. `skipTop`: üstteki bu kadar
+    /// satır (kameranın saat yazısı) ölçülmez. Seyrek örnekleme: 1080p karede yüz binden az okuma.
+    static func blockiness(luma: UnsafePointer<UInt8>, width: Int, height: Int, stride: Int, skipTop: Int = 0) -> Double {
+        let top = max(0, min(skipTop, height / 2))
+        let eps = 1.0   // düz alanlarda (kenar yok) oran 1'e yaklaşsın
+
+        // Dikey kenarlar: x = 16, 32, ... sınırı ile x + 8 konumu; her ikinci satır
+        var edgeV = 0, refV = 0, countV = 0
+        var y = (top + 1) & ~1
+        while y < height {
+            let row = luma + y * stride
+            var x = 16
+            while x + 8 < width {
+                edgeV += abs(Int(row[x]) - Int(row[x - 1]))
+                refV += abs(Int(row[x + 8]) - Int(row[x + 7]))
+                countV += 1
+                x += 16
+            }
+            y += 2
+        }
+
+        // Yatay kenarlar: y = 16, 32, ... sınırı ile y + 8 konumu; her ikinci sütun
+        var edgeH = 0, refH = 0, countH = 0
+        var by = ((top + 15) / 16 + 1) * 16
+        while by + 8 < height {
+            let a = luma + by * stride
+            let b = luma + (by - 1) * stride
+            let c = luma + (by + 8) * stride
+            let d = luma + (by + 7) * stride
+            var x = 0
+            while x < width {
+                edgeH += abs(Int(a[x]) - Int(b[x]))
+                refH += abs(Int(c[x]) - Int(d[x]))
+                countH += 1
+                x += 2
+            }
+            by += 16
+        }
+        if countV == 0 || countH == 0 { return 1 }
+        let v = (Double(edgeV) / Double(countV) + eps) / (Double(refV) / Double(countV) + eps)
+        let h = (Double(edgeH) / Double(countH) + eps) / (Double(refH) / Double(countH) + eps)
+        return (v * h).squareRoot()
+    }
+
+    /// Kare tamponunun parlaklık düzleminde `blockiness`; ölçülemezse 1 (sağlam sayılır)
+    static func blockiness(_ pixelBuffer: CVPixelBuffer, skipTop: Int = 0) -> Double {
+        CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
+        guard CVPixelBufferGetPlaneCount(pixelBuffer) >= 1,
+              let base = CVPixelBufferGetBaseAddressOfPlane(pixelBuffer, 0) else { return 1 }
+        let width = CVPixelBufferGetWidthOfPlane(pixelBuffer, 0)
+        let height = CVPixelBufferGetHeightOfPlane(pixelBuffer, 0)
+        let stride = CVPixelBufferGetBytesPerRowOfPlane(pixelBuffer, 0)
+        if width < 64 || height < 64 { return 1 }
+        return blockiness(luma: base.assumingMemoryBound(to: UInt8.self), width: width, height: height, stride: stride, skipTop: skipTop)
     }
 
     // MARK: - Kare birleştirme denetimi (gölge/hayalet yazıyı önler)
@@ -209,10 +281,10 @@ final class FrameStore {
         return frames.last
     }
 
-    func add(buffer: CVPixelBuffer, time: TimeInterval, sharpness: Double, signature: [UInt8]) {
+    func add(buffer: CVPixelBuffer, time: TimeInterval, sharpness: Double, signature: [UInt8], damaged: Bool = false) {
         lock.lock()
         nextID += 1
-        frames.append(StoredFrame(id: nextID, time: time, buffer: buffer, sharpness: sharpness, signature: signature))
+        frames.append(StoredFrame(id: nextID, time: time, buffer: buffer, sharpness: sharpness, signature: signature, damaged: damaged))
         if frames.count > capacity {
             frames.removeFirst(frames.count - capacity)
         }

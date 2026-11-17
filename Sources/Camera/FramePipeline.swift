@@ -109,11 +109,15 @@ final class FramePipeline {
 
         queue.async {
             let height = CVPixelBufferGetHeight(pixelBuffer)
-            if let result = FrameAnalysis.analyze(pixelBuffer, skipTop: Int(Double(height) * GuidanceAnalyzer.skipTop)) {
+            let skip = Int(Double(height) * GuidanceAnalyzer.skipTop)
+            if let result = FrameAnalysis.analyze(pixelBuffer, skipTop: skip) {
+                let blockiness = FrameAnalysis.blockiness(pixelBuffer, skipTop: skip)
                 self.store.add(buffer: pixelBuffer, time: time,
-                               sharpness: result.sharpness, signature: result.signature)
+                               sharpness: result.sharpness, signature: result.signature,
+                               damaged: blockiness > FrameAnalysis.damagedBlockiness)
                 self.onAnalyzed?(pixelBuffer, time, result.sharpness)
-                self.seriesSink?.offer(buffer: pixelBuffer, time: time, sharpness: result.sharpness, signature: result.signature)
+                self.seriesSink?.offer(buffer: pixelBuffer, time: time, sharpness: result.sharpness, signature: result.signature,
+                                       blockiness: blockiness)
                 if self.guidanceOn { self.guidanceStep(pixelBuffer, signature: result.signature, time: time) }
             }
             self.lock.lock()
