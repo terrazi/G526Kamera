@@ -18,9 +18,10 @@ final class PowerSavingTests: XCTestCase {
         return buffer
     }
 
-    private func analyzedCount(saving: Bool) -> Int {
+    private func analyzedCount(saving: Bool, fullRate: Bool = false) -> Int {
         let pipeline = FramePipeline()
         pipeline.saving = saving
+        pipeline.fullRate = fullRate
         for i in 0..<10 {
             pipeline.handle(planarBuffer(), time: Double(i))
             usleep(80_000)      // analiz kuyruğu boşalsın (birikme sınırına takılmasın)
@@ -32,6 +33,12 @@ final class PowerSavingTests: XCTestCase {
     func testSavingModeAnalyzesEveryOtherFrame() {
         XCTAssertEqual(analyzedCount(saving: false), 10)
         XCTAssertEqual(analyzedCount(saving: true), 5)
+    }
+
+    /// Toplu çekimde kameranın verdiği her kare ölçülür: pil tasarrufu açık olsa bile kareler seyreltilmez
+    func testFullRateAnalyzesEveryFrameEvenInSavingMode() {
+        XCTAssertEqual(analyzedCount(saving: true, fullRate: true), 10)
+        XCTAssertEqual(analyzedCount(saving: false, fullRate: true), 10)
     }
 
     @MainActor

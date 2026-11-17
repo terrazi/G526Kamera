@@ -19,6 +19,15 @@ final class FramePipeline {
         set { lock.lock(); _saving = newValue; lock.unlock() }
     }
 
+    private var _fullRate = false
+
+    /// Tam hız: pil tasarrufunda bile kareler seyreltilmez, kameranın verdiği HER kare analiz edilir. Toplu çekimde açıktır (kullanıcı kararı 2026-11-17:
+    /// kameranın saniyede verebildiği en çok kare 1080p olarak ölçülür, en iyileri seçilip PDF'e girer); önizleme tasarrufu (ekrana kare gitmemesi) değişmez.
+    var fullRate: Bool {
+        get { lock.lock(); defer { lock.unlock() }; return _fullRate }
+        set { lock.lock(); _fullRate = newValue; lock.unlock() }
+    }
+
     /// Her analiz edilen kare için (kare, zaman, netlik puanı) çağrılır (analiz kuyruğundan). Video kaydı en net kareyi seçmek için kullanır.
     var onAnalyzed: ((CVPixelBuffer, TimeInterval, Double) -> Void)?
 
@@ -80,8 +89,8 @@ final class FramePipeline {
         let power = saving
         if !power { renderer.enqueue(pixelBuffer) }
         framesSeen += 1
-        // Pil tasarrufunda her ikinci kare analiz edilir (netlik/değişim hesabı işlemciyi en çok yoran iştir)
-        if power && framesSeen % 2 == 0 { return }
+        // Pil tasarrufunda her ikinci kare analiz edilir (netlik/değişim hesabı işlemciyi en çok yoran iştir); tam hızda (toplu çekim) hiçbiri atlanmaz
+        if power && !fullRate && framesSeen % 2 == 0 { return }
 
         lock.lock()
         if backlog >= 3 {

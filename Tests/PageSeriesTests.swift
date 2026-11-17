@@ -10,8 +10,8 @@ final class PageSeriesTests: XCTestCase {
     typealias T = SessionViewModel.Timing
 
     /// Bir oturumun sonucu: `photos` fotoğraflık TEK PDF (planlanan 75)
-    private func series(photos: Int = 75, planned: Int = 75, failure: CameraFailure? = nil) -> Result<PageSeries, CameraFailure> {
-        return .success(PageSeries(shot: FakeCamera.page(1, photos: photos), planned: planned, failure: failure))
+    private func series(photos: Int = 75, planned: Int = 75, failure: CameraFailure? = nil, readable: Bool = true) -> Result<PageSeries, CameraFailure> {
+        return .success(PageSeries(shot: FakeCamera.page(1, photos: photos), planned: planned, failure: failure, readable: readable))
     }
 
     /// Kameraya geçince internet gider, "Hücresele Geç" kestirmesi interneti getirir
@@ -441,22 +441,47 @@ final class PageSeriesTests: XCTestCase {
         XCTAssertFalse(CameraSettings(defaults: defaults).pageSeries, "Ayar kalıcıdır")
     }
 
-    /// Çekimde okunabilir yazı yoksa (bulanık, boş, soru görünmüyor) Gemini'ye hiçbir şey gitmez; kullanıcıya söylenir ve kamera yeniden hazırlanır
-    func testASessionWithNothingReadableSendsNothingAndOffersAnotherTake() async {
-        let h = harness(seriesResults: [.failure(.unreadable), series()], pageReplies: [.success([FakeAnswering.reply(1)])])
+    /// Telefon hiçbir karede yazı okuyamasa da çekim çöpe atılmaz (kullanıcı kararı 2026-11-17): en net kareler klasöre yazılır, Gemini'ye gider ve
+    /// cevaplar okunur; kullanıcıya yazının net okunamadığı söylenir. Gemini daha iyi okur; "okunabilir soru yok" diye işlem aksamaz
+    func testASessionWhoseTextCouldNotBeReadStillIsKeptInTheFolderSentToGeminiAndAnswered() async {
+        let h = harness(seriesResults: [series(photos: 16, planned: 16, readable: false)], pageReplies: [.success([FakeAnswering.reply(1)])], archive: true)
         _ = await h.startListening()
         reply(h, "başla")
-        let again = await waitUntil(45) { h.speaker.spoken.contains(Say.seriesUnreadable) && self.questionOpen(h) }
+        let done = await waitUntil(45) { h.vm.answers.count == 1 && self.questionOpen(h) }
+        XCTAssertTrue(done, "\(h.speaker.spoken)")
+        XCTAssertTrue(h.speaker.spoken.contains(Say.seriesDone(taken: 16, planned: 16, readable: false)), "\(h.speaker.spoken)")
+        XCTAssertEqual(h.answering.pageCalls.count, 1, "Okunamayan çekim de Gemini'ye gider")
+        XCTAssertEqual(h.answering.pageCalls.first?.shot.pageCount, 16)
+        XCTAssertFalse(h.speaker.spoken.contains(where: { $0.contains("Gemini'ye gönderilmedi") }))
+        XCTAssertNil(h.vm.cameraDownSince)
+        let summary = h.fileStore!.summary()
+        XCTAssertEqual(summary.pending, 0)
+        XCTAssertEqual(summary.sent, 1, "Çekim klasöre yazıldı ve cevapları duyulunca Gönderilen'e taşındı")
+    }
+
+    /// Gemini görüntülerde soru bulamazsa söylenir, sıradaki çekim için kamera yeniden hazırlanır
+    func testWhenGeminiFindsNoQuestionInAWeakSessionTheCameraIsOfferedAgain() async {
+        let empty = GeminiReply(number: nil, option: "", text: "", spoken: "", model: "fake")
+        let h = harness(seriesResults: [series(photos: 16, planned: 16, readable: false), series()],
+                        pageReplies: [.success([empty]), .success([FakeAnswering.reply(1)])])
+        _ = await h.startListening()
+        reply(h, "başla")
+        let again = await waitUntil(45) { h.speaker.spoken.contains(Say.pageNoQuestion) && self.questionOpen(h) }
         XCTAssertTrue(again, "\(h.speaker.spoken)")
-        XCTAssertTrue(h.answering.pageCalls.isEmpty, "Okunamayan çekim Gemini'ye gitmez")
-        XCTAssertTrue(h.vm.pendingShots.isEmpty)
-        XCTAssertFalse(h.speaker.spoken.contains(Say.cameraFailed(.unreadable)), "Sesle okumaya düşülmez: yeniden çekim önerilir")
-        XCTAssertNil(h.vm.cameraDownSince, "Kamera bozuk sayılmaz; yalnız çekim okunamadı")
         reply(h, "başla")
         let second = await waitUntil(45) { h.vm.answers.count == 1 && self.questionOpen(h) }
         XCTAssertTrue(second, "\(h.speaker.spoken)")
-        XCTAssertEqual(h.answering.pageCalls.count, 1)
+        XCTAssertEqual(h.answering.pageCalls.count, 2)
         XCTAssertEqual(h.camera.seriesCalls.count, 2)
+    }
+
+    /// Toplu çekimde kare 1080p olmalı (640×360'ta yazı okunmaz): düşük kalite ayarı yalnız toplu çekim kapalıyken geçerlidir
+    func testTheSeriesAlwaysAsksForTheFullHdStream() {
+        XCTAssertEqual(CameraCaptureController.streamChoice(quality: 1, series: true).stream, 1)
+        XCTAssertEqual(CameraCaptureController.streamChoice(quality: 2, series: true).stream, 1, "Düşük kalite ayarı toplu çekimde yok sayılır")
+        XCTAssertEqual(CameraCaptureController.streamChoice(quality: 2, series: true).state, 1)
+        XCTAssertEqual(CameraCaptureController.streamChoice(quality: 2, series: false).stream, 2, "Eski tek soru çekiminde ayar geçerli")
+        XCTAssertEqual(CameraCaptureController.streamChoice(quality: 1, series: false).stream, 1)
     }
 
     // MARK: Tek PDF ve boyut bütçesi

@@ -195,6 +195,48 @@ final class SeriesSelectionTests: XCTestCase {
         XCTAssertTrue(SeriesPool().selected().isEmpty)
     }
 
+    /// Soru görünen kare: yazısı okunabilir ya da bir şık harfi / soru numarası görülmüş. Öteki kareler zayıftır.
+    func testAFragmentWithAnOptionLetterCountsAsUsefulButAPlainWeakFrameDoesNot() {
+        XCTAssertTrue(item(1, time: 1, quality: 4, words: [], options: "E").isUseful, "Yalnız E şıkkının göründüğü kare soruyu tamamlayabilir")
+        XCTAssertTrue(item(2, time: 1, quality: 40, words: pageA).isUseful)
+        XCTAssertFalse(item(3, time: 1, quality: 5, words: []).isUseful)
+        XCTAssertFalse(item(4, time: 1, quality: 0).isUseful, "Yazı tanıma çalışmadıysa kare zayıftır")
+        XCTAssertGreaterThan(item(1, time: 1, quality: 40, words: pageA, sharpness: 10).rank, item(4, time: 1, quality: 0, sharpness: 400).rank,
+                             "Yararlı kare, ne kadar net olursa olsun zayıf kareden önce gelir")
+    }
+
+    /// Yazı tanıma azı okuduysa Gemini'nin göreceği kare yine de olsun: eksik sayfa en net zayıf karelerle tamamlanır, okunanların yerini almaz
+    func testWeakFramesOnlyFillTheMissingPagesAndTheSharpestComeFirst() {
+        var pool = SeriesPool()
+        pool.add(item(1, time: 1, quality: 300, words: pageA, options: "ABCDE"))
+        for k in 0..<4 {
+            pool.add(item(UInt8(10 + k), time: Double(2 + k), quality: 5, words: [], sharpness: [100, 400, 200, 300][k],
+                          signature: [UInt8](repeating: UInt8(30 + 60 * k), count: 576)))
+        }
+        XCTAssertEqual(pool.selected(minPages: 3).map { $0.jpeg.first }, [1, 11, 13], "Okunan kare + en net iki zayıf kare, zaman sırasıyla")
+        XCTAssertEqual(pool.selected(minPages: 1).map { $0.jpeg.first }, [1], "Okunan kare yeterliyse zayıf kare eklenmez")
+        XCTAssertEqual(pool.selected(minPages: 0).map { $0.jpeg.first }, [1])
+        XCTAssertEqual(pool.selected(minPages: 99).count, 5, "Yer varsa hepsi")
+    }
+
+    func testWhenNothingIsReadableTheSharpestFramesAreStillChosen() {
+        var pool = SeriesPool()
+        for k in 0..<6 {
+            pool.add(item(UInt8(k + 1), time: Double(k), quality: 0, sharpness: [50, 400, 100, 300, 20, 200][k],
+                          signature: [UInt8](repeating: UInt8(20 + 40 * k), count: 576)))
+        }
+        XCTAssertEqual(pool.selected(minPages: 3).map { $0.jpeg.first }, [2, 4, 6], "Hiç yazı okunmadıysa yalnız netliğe göre en iyi üçü")
+    }
+
+    func testWeakFramesNeverPushReadableOnesOutOfAFullPool() {
+        var pool = SeriesPool()
+        pool.capacity = 2
+        pool.add(item(1, time: 1, quality: 30, words: pageA))                                                               // okunan ama düşük puanlı
+        pool.add(item(2, time: 2, quality: 0, sharpness: 400, signature: [UInt8](repeating: 20, count: 576)))              // çok net ama okunmayan
+        pool.add(item(3, time: 3, quality: 0, sharpness: 390, signature: [UInt8](repeating: 200, count: 576)))
+        XCTAssertEqual(pool.items.map { $0.jpeg.first }, [1, 2], "Havuz dolunca önce zayıf kareler atılır; okunan kare kalır")
+    }
+
     // MARK: Toplayıcı
 
     private func buffer(id: Int) -> CVPixelBuffer {
@@ -229,46 +271,68 @@ final class SeriesSelectionTests: XCTestCase {
         return t
     }
 
-    func testTheCollectorKeepsOneReadableFramePerViewAndDropsBlurryWindows() async {
+    func testTheCollectorKeepsOneReadableFramePerViewAndTheBlurryWindowsDoNotJoinWhenThereAreEnoughReadableOnes() async {
         let t0 = 1000.0
-        let collector = SeriesCollector(start: t0, maxPending: 1000, reader: { self.reader($0) },
+        let collector = SeriesCollector(start: t0, maxPending: 1000, minPages: 0, reader: { self.reader($0) },
                                         renderer: { buffer in (data: Data([UInt8(self.id(of: buffer))]), width: 1920, height: 1080) })
         feed(collector, from: t0)
         let outcome = await collector.finish()
         XCTAssertEqual(outcome.stats.offered, 18)
         XCTAssertEqual(outcome.stats.windows, 6)
-        XCTAssertEqual(outcome.stats.unreadable, 2, "Bulanık iki pencere elendi")
-        XCTAssertEqual(outcome.stats.kept, 4)
-        XCTAssertEqual(outcome.stats.merged, 2, "A sayfasının iki penceresi ve B sayfasının iki penceresi birer görünümde birleşti")
+        XCTAssertEqual(outcome.stats.weak, 2, "Bulanık iki pencerenin yazısı okunamadı: elenmez, zayıf aday olarak havuza girer")
+        XCTAssertEqual(outcome.stats.kept, 6, "Her pencere aday olur; kesin eleme çekim bitince yapılır")
+        XCTAssertEqual(outcome.stats.merged, 4, "A'nın iki penceresi, A'dan sonraki iki bulanık pencere (yeni bir şey göstermiyor) ve B'nin iki penceresi birleşti")
         XCTAssertEqual(outcome.items.count, 2)
+        XCTAssertEqual(outcome.readable, 2)
         // Her pencerenin en net karesi (üçüncüsü) aday olur: pencere 0 → kare 3, 1 → 6, 4 → 15, 5 → 18; eşit puanda aynı görünümün ilk adayı kalır
         XCTAssertEqual(outcome.items.map { $0.jpeg.first }, [3, 15].map { UInt8($0) })
     }
 
-    func testWithoutTextRecognitionOnlySharpFramesAreUsed() async {
+    /// Yazı tanıma hiç çalışmasa da (ör. model yok) çekim boş gitmez: en net kareler alınır
+    func testWithoutTextRecognitionTheSharpestFramesAreStillUsed() async {
         let t0 = 2000.0
         let collector = SeriesCollector(start: t0, maxPending: 1000, reader: { _ in nil },
                                         renderer: { buffer in (data: Data([UInt8(self.id(of: buffer))]), width: 10, height: 10) })
-        // 1. pencere: en net 150 (yeterli), 2. pencere: en net 60 (bulanık)
         collector.offer(buffer: buffer(id: 1), time: t0 + 0.1, sharpness: 150, signature: [UInt8](repeating: 10, count: 576))
         collector.offer(buffer: buffer(id: 2), time: t0 + 0.6, sharpness: 60, signature: [UInt8](repeating: 200, count: 576))
         let outcome = await collector.finish()
         XCTAssertEqual(outcome.stats.readFailed, 2)
-        XCTAssertEqual(outcome.stats.unreadable, 1)
-        XCTAssertEqual(outcome.items.map { $0.jpeg.first }, [1])
+        XCTAssertEqual(outcome.stats.weak, 2)
+        XCTAssertEqual(outcome.items.map { $0.jpeg.first }, [1, 2], "Bulanık da olsa elenmez: Gemini kararı verir")
+        XCTAssertEqual(outcome.readable, 0)
     }
 
-    func testAnEmptyOrAllBlurrySessionYieldsNoFrames() async {
+    /// Kullanıcının bildirdiği hata: hiçbir karede yazı okunamayınca çekim tümüyle çöpe gidiyordu. Artık en net kareler seçilir
+    func testASessionWithNothingReadableStillYieldsItsSharpestFramesInsteadOfNothing() async {
         let t0 = 3000.0
-        let collector = SeriesCollector(start: t0, maxPending: 1000, reader: { _ in TextScore() },
-                                        renderer: { _ in (data: Data([1]), width: 10, height: 10) })
-        for k in 0..<10 {
-            collector.offer(buffer: buffer(id: k), time: t0 + Double(k) * 0.2, sharpness: 400, signature: [UInt8](repeating: 100, count: 576))
+        let sharpness: [Double] = [50, 400, 100, 300, 20, 200]
+        let collector = SeriesCollector(start: t0, maxPending: 1000, minPages: 3, reader: { _ in TextScore() },
+                                        renderer: { buffer in (data: Data([UInt8(self.id(of: buffer))]), width: 10, height: 10) })
+        for window in 0..<6 {
+            collector.offer(buffer: buffer(id: window + 1), time: t0 + Double(window) * 0.5 + 0.1, sharpness: sharpness[window],
+                            signature: [UInt8](repeating: UInt8(20 + 40 * window), count: 576))
         }
         let outcome = await collector.finish()
-        XCTAssertTrue(outcome.items.isEmpty, "Keskin ama yazısız (ör. boş kâğıt, yer) kareler alınmaz")
-        XCTAssertEqual(outcome.stats.offered, 10)
-        XCTAssertEqual(outcome.stats.kept, 0)
+        XCTAssertEqual(outcome.stats.offered, 6)
+        XCTAssertEqual(outcome.stats.weak, 6)
+        XCTAssertEqual(outcome.stats.kept, 6)
+        XCTAssertEqual(outcome.readable, 0, "Hiçbiri okunmadı: kullanıcıya söylenir")
+        XCTAssertEqual(outcome.items.map { $0.jpeg.first }, [2, 4, 6], "En net üç pencere, zaman sırasıyla")
+    }
+
+    func testAFragmentThatShowsOnlyAnOptionLetterIsKeptEvenWhenTheRestOfTheFrameIsNotReadable() async {
+        let t0 = 3500.0
+        let collector = SeriesCollector(start: t0, maxPending: 1000, minPages: 0, reader: { buffer in
+            var t = TextScore()
+            t.confidence = 0.9
+            if self.id(of: buffer) == 1 { t.chars = 300; t.words = Set(self.pageA) } else { t.chars = 4; t.options = ["E"] }
+            return t
+        }, renderer: { buffer in (data: Data([UInt8(self.id(of: buffer))]), width: 10, height: 10) })
+        collector.offer(buffer: buffer(id: 1), time: t0 + 0.1, sharpness: 200, signature: [UInt8](repeating: 20, count: 576))
+        collector.offer(buffer: buffer(id: 2), time: t0 + 0.6, sharpness: 200, signature: [UInt8](repeating: 200, count: 576))
+        let outcome = await collector.finish()
+        XCTAssertEqual(outcome.items.map { $0.jpeg.first }, [1, 2], "Soruyu tamamlayan E şıkkı görünen kare, az yazılı diye atılmaz")
+        XCTAssertEqual(outcome.readable, 2)
     }
 
     func testFramesAfterFinishAreIgnored() async {
@@ -288,8 +352,9 @@ final class SeriesSelectionTests: XCTestCase {
         XCTAssertTrue(Say.seriesDone(taken: 18, planned: 18).contains("18 net görüntü"))
         XCTAssertTrue(Say.seriesDone(taken: 12, planned: 75).contains("yarıda kesildi"))
         XCTAssertFalse(Say.seriesDone(taken: 18, planned: 18).contains("sayfalık"))
-        XCTAssertFalse(CameraFailure.unreadable.message.isEmpty)
-        XCTAssertNotEqual(CameraFailure.unreadable, CameraFailure.noFrames)
-        XCTAssertTrue(Say.seriesUnreadable.contains("Gemini'ye gönderilmedi"))
+        let weak = Say.seriesDone(taken: 16, planned: 16, readable: false)
+        XCTAssertTrue(weak.contains("Yazı net okunamadı") && weak.contains("yine de Gemini'ye gönderiliyor"), weak)
+        XCTAssertEqual(Say.seriesDone(taken: 16, planned: 16, readable: true), Say.seriesDone(taken: 16, planned: 16))
+        XCTAssertTrue(Say.seriesDone(taken: 5, planned: 75, readable: false).contains("yarıda kesildi"), "Kesilme her zaman söylenir")
     }
 }

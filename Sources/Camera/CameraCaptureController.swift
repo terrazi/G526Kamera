@@ -286,6 +286,13 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         return live && !cancelled
     }
 
+    /// İstenecek video akışı: 1 = ana akış (1920×1080), 2 = alt akış (640×360). Toplu çekim açıkken ayardan bağımsız hep ana akış: 640×360'ta soru
+    /// yazısı okunmaz (kullanıcı kararı 2026-11-17: kameranın verebildiği en çok kare 1080p alınır, en iyileri seçilir)
+    static func streamChoice(quality: Int, series: Bool) -> (state: Int, stream: Int) {
+        if quality == 2 && !series { return (state: 2, stream: 2) }
+        return (state: 1, stream: 1)
+    }
+
     /// Kameraya bağlanır (görüntü kareleri akmaya başlar): kare belleği ve ölçümler sıfırlanır, bağlantı kurulur
     private func startClient(uid: CameraUID) {
         decoder.reset()
@@ -293,7 +300,7 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         decodeClock.clear()
         batteryMonitor.reset()
         handshakeAt = nil
-        let quality = settings.streamQuality == 2 ? (state: 2, stream: 2) : (state: 1, stream: 1)
+        let quality = CameraCaptureController.streamChoice(quality: settings.streamQuality, series: settings.pageSeries)
         client.start(config: CameraSession.Config(uid: uid,
                                                   password: settings.cameraPassword,
                                                   manualIP: settings.cameraIP.trimmed,
@@ -594,7 +601,8 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
     }
 
     /// Kameranın verdiği HER kare ölçülür; 0,5 sn'lik pencerelerin en net karesi yazı tanımadan geçer, okunabilenler PDF'e girer (bkz. `SeriesSelection`).
-    /// Okunabilir kare yoksa `unreadable` döner: PDF kurulmaz, Gemini'ye gitmez, kullanıcı yeniden çekime yönlendirilir.
+    /// Yazı tanıma yalnız sıralama yardımcısıdır, hiçbir kareyi veto etmez: okunan kare azsa en net kareler eklenir, çekim "okunamadı" diye çöpe gitmez
+    /// (kare geldiyse PDF kurulur, telefondaki klasöre yazılır ve Gemini'ye gider; hiç soru yoksa Gemini "soru yok" der).
     private func shootSeries(seconds: Int) async -> Result<PageSeries, CameraFailure> {
         shooting = true
         let total = seconds
@@ -612,7 +620,11 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
             log: { tlog($0) })
         let rawBefore = pipeline.framesSeen
         pipeline.seriesSink = collector
-        defer { pipeline.seriesSink = nil }
+        pipeline.fullRate = true   // pil tasarrufu açık olsa bile her kare ölçülür: seçim ne kadar çok kareden yapılırsa o kadar iyi olur
+        defer {
+            pipeline.seriesSink = nil
+            pipeline.fullRate = false
+        }
         var lostFor = 0
         var cutAt: Int?
         tlog("[kamera] toplu çekim başladı: \(seconds) sn (konuşma ve titreşim yok; her kare ölçülür, \(SeriesSelection.window) sn'lik pencerelerin en iyisi yazı tanımadan geçer)")
@@ -640,12 +652,10 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         let stats = outcome.stats
         let elapsed = max(1.0, ProcessInfo.processInfo.systemUptime - t0)
         let rawFrames = max(0, pipeline.framesSeen - rawBefore)
-        tlog("[kamera] toplu çekim özeti: kameradan \(rawFrames) kare geldi (≈\(Int((Double(rawFrames) / elapsed).rounded()))/sn), \(stats.offered) kare ölçüldü (≈\(Int((Double(stats.offered) / elapsed).rounded()))/sn), \(stats.windows) pencere: \(stats.unreadable) okunamadığı için elendi, \(stats.busySkipped) atlandı, \(stats.merged) tekrar birleşti, \(stats.kept) aday → \(outcome.items.count) fotoğraf; yazı tanıma \(stats.read) kez çalıştı, \(stats.readFailed) kez çalışmadı; görülen soru numaraları: \(outcome.questionNumbers.map { String($0) }.joined(separator: ","))")
-        guard let best = outcome.items.max(by: { $0.quality < $1.quality }) else {
-            if cutAt != nil || stats.offered == 0 { return .failure(.noFrames) }
-            tlog("[kamera] toplu çekim: okunabilir kare yok; PDF kurulmadı, Gemini'ye gönderilmeyecek")
-            return .failure(.unreadable)
-        }
+        tlog("[kamera] toplu çekim özeti: kameradan \(rawFrames) kare geldi (≈\(Int((Double(rawFrames) / elapsed).rounded()))/sn), \(stats.offered) kare ölçüldü (≈\(Int((Double(stats.offered) / elapsed).rounded()))/sn), \(stats.windows) pencere: \(stats.weak) tanesinin yazısı okunamadı (zayıf aday), \(stats.busySkipped) atlandı, \(stats.merged) tekrar birleşti, \(stats.kept) aday → \(outcome.items.count) fotoğraf (\(outcome.readable) tanesi okunan); yazı tanıma \(stats.read) kez çalıştı, \(stats.readFailed) kez çalışmadı; görülen soru numaraları: \(outcome.questionNumbers.map { String($0) }.joined(separator: ","))")
+        // Kare geldiği halde hiç aday çıkmadıysa (hepsinin fotoğrafı oluşturulamadı) ya da görüntü baştan kesildiyse çekim yoktur
+        guard let best = outcome.items.max(by: { $0.rank < $1.rank }) else { return .failure(.noFrames) }
+        if outcome.readable == 0 { tlog("[kamera] toplu çekim: hiçbir karede yazı okunamadı; en net \(outcome.items.count) kare yine de gönderilecek (yazı tanıma zayıf kalmış olabilir)") }
         // Seçilen fotoğraflar zaman sırasıyla TEK PDF olur; toplam bütçeyi aşarsa fotoğraflar yeniden sıkıştırılır
         let raw = outcome.items.map { $0.jpeg }
         let (pdf, fitted) = await Task.detached(priority: .userInitiated) { () -> (Data?, Int) in
@@ -660,7 +670,7 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         shot.isPage = true
         // Görüntü akışı kesildiyse oturum yarımdır (planlanan süre dolmadı); değilse "planlanan" = seçilen fotoğraf sayısı: seçim süreyle değil kaliteyle yapılır
         let failure: CameraFailure? = cutAt != nil ? .noFrames : nil
-        return .success(PageSeries(shot: shot, planned: cutAt != nil ? total : outcome.items.count, failure: failure))
+        return .success(PageSeries(shot: shot, planned: cutAt != nil ? total : outcome.items.count, failure: failure, readable: outcome.readable > 0))
     }
 
     // MARK: Yardımcılar

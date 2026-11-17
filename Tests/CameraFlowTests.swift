@@ -1134,7 +1134,7 @@ final class CameraSupportTests: XCTestCase {
     }
 
     func testCameraFailureMessagesAreNeverEmpty() {
-        let all: [CameraFailure] = [.notConnected, .noFrames, .noPosition, .lowDisk, .captureFailed("x"), .captureFailed(""), .cancelled, .unavailable, .unreadable]
+        let all: [CameraFailure] = [.notConnected, .noFrames, .noPosition, .lowDisk, .captureFailed("x"), .captureFailed(""), .cancelled, .unavailable]
         all.forEach { XCTAssertFalse($0.message.isEmpty) }
     }
 }

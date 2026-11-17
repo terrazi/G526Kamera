@@ -488,13 +488,13 @@ enum Say {
         return "Kamera oturumu başlıyor: \(seconds) saniye. Çekim sessiz sürer, kulaklık kapanacak. Sayfaları sırayla kameraya gösterin. Süre dolunca haber vereceğim."
     }
     /// Oturum bitti, internet ve kulaklık geldi; görüntüler tek istekle gönderilir. `taken`: seçilen net görüntü sayısı (bulanık ve boş kareler elenir),
-    /// `planned`: tam biten oturumda `taken`'a eşit, görüntü akışı kesildiyse oturumun süresi
-    static func seriesDone(taken: Int, planned: Int) -> String {
-        if taken >= planned { return "Çekim bitti. \(taken) net görüntü seçildi, Gemini'ye gönderiliyor." }
-        return "Çekim yarıda kesildi. Alınabilen \(taken) net görüntü Gemini'ye gönderiliyor."
+    /// `planned`: tam biten oturumda `taken`'a eşit, görüntü akışı kesildiyse oturumun süresi. `readable`: false ise telefon hiçbir karede yazı okuyamadı;
+    /// en net kareler yine de gider (çekim çöpe atılmaz)
+    static func seriesDone(taken: Int, planned: Int, readable: Bool = true) -> String {
+        if taken < planned { return "Çekim yarıda kesildi. Alınabilen \(taken) net görüntü Gemini'ye gönderiliyor." }
+        if !readable { return "Çekim bitti. Yazı net okunamadı; en net \(taken) görüntü yine de Gemini'ye gönderiliyor." }
+        return "Çekim bitti. \(taken) net görüntü seçildi, Gemini'ye gönderiliyor."
     }
-    /// Toplu çekimde hiçbir karede okunabilir yazı yoktu: Gemini'ye gönderilmez, kamera yeniden hazırlanır
-    static let seriesUnreadable = "Çekimde okunabilir soru görünmedi, Gemini'ye gönderilmedi. Sayfayı kameraya sabit tutun; soru ile şıklar birlikte görünsün. Yeniden çekelim."
     /// Oturum bitti ama internet gelmedi
     static let seriesSavedOffline = "Çekim bitti ama internet gelmedi. Görüntüler telefonda saklandı; internet gelince gönderilecek."
     /// Toplu çekimin PDF'i gönderilirken (bekleyen birkaç tane varsa hangisi olduğu söylenir)

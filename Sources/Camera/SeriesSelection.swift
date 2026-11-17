@@ -3,16 +3,18 @@ import CoreVideo
 import Vision
 
 /// Toplu çekimde kare seçimi (kullanıcı kararı 2026-11-17). Kameranın verdiği HER kare ölçülür; 0,5 sn'lik pencerelerin en net karesi yazı tanımadan
-/// (Vision) geçirilir, okunabilen kareler PDF adayı olur; aynı görünümün tekrarları ve bulanık / boş kareler elenir. Gemini'ye yüzlerce kare
-/// yerine soruyu gerçekten okutan en iyi birkaç düzine kare gider. Mantığın çoğu saf yapılardadır (birim testle denenir); Vision ve görüntü
-/// işleme `SeriesCollector`'a dışarıdan verilir.
+/// (Vision) geçirilir. Yazı tanıma YALNIZ SIRALAMA YARDIMCISIDIR, hiçbir kareyi veto etmez (telefonun hızlı yazı tanıması küçük, eğik yazıda
+/// başarısız olabilir; Gemini aynı kareyi çok daha iyi okur): okunan kareler öne geçer, aynı görünümün tekrarları elenir, okunan kare azsa en net
+/// kareler tamamlayıcı olarak eklenir. Çekim hiçbir zaman "okunamadı" diye çöpe gitmez. Mantığın çoğu saf yapılardadır (birim testle denenir);
+/// Vision ve görüntü işleme `SeriesCollector`'a dışarıdan verilir.
 enum SeriesSelection {
     /// Pencere uzunluğu (sn): her pencerenin en net karesi aday olur
     static let window: TimeInterval = 0.5
     /// Adayın okunur sayılması için en az harf + rakam sayısı (güveni yeterli satırlardan)
     static let minChars = 25
-    /// Yazı tanıma hiç çalışmazsa adayın alınması için en az netlik puanı
-    static let fallbackSharpness: Double = 100
+    /// Gemini'ye giden en az sayfa sayısı: okunan kare bundan azsa en net (okunamayan) karelerle tamamlanır. Yazı tanıma zayıf kaldığında bile
+    /// Gemini'nin göreceği kare olur; çekim hiçbir zaman boş gitmez
+    static let minPages = 16
     /// İki ardışık adayın kelime örtüşmesi (Jaccard) bu orana ulaşırsa aynı görünüm sayılır
     static let sameWords = 0.75
     /// Yazısı okunamayan iki adayın imza farkı bunun altındaysa aynı görünüm sayılır (yedek ölçüt)
@@ -171,11 +173,21 @@ struct SeriesItem {
     var text: TextScore?
     var signature: [UInt8]
 
-    /// Sıralama puanı: yazı varsa yazının değeri (netlik küçük katkı), yoksa yalnız netlik (daha düşük ölçekte)
-    var quality: Double {
-        if let text = text { return text.value + min(sharpness, 400) * 0.1 }
-        return min(sharpness, 400) * 0.25
+    /// Karede soru görünüyor mu: yazı okunabilir (yeterli harf) ya da bir şık harfi / soru numarası görülmüş. Okunan kareler her zaman alınır;
+    /// öteki (zayıf) kareler yalnız okunan kare azsa en nete göre tamamlanır
+    var isUseful: Bool {
+        guard let text = text else { return false }
+        return text.isReadable || !text.options.isEmpty || !text.questionNumbers.isEmpty
     }
+
+    /// Sıralama puanı: yararlı karede yazının değeri (netlik küçük katkı); zayıf karede netlik + okunan harf (yazı tanıma bir şey görmüşse kâğıt vardır)
+    var quality: Double {
+        if isUseful, let text = text { return text.value + min(sharpness, 400) * 0.1 }
+        return min(sharpness, 400) + 10 * Double(text?.chars ?? 0)
+    }
+
+    /// Karşılaştırma puanı: yararlı kare, ne kadar net olursa olsun zayıf kareden önce gelir (birleştirme ve havuz tavanında)
+    var rank: Double { return (isUseful ? 1_000_000 : 0) + quality }
 }
 
 /// Adayları tutar: ardışık aynı görünümlerde en iyisini bırakır, tavanı aşınca en düşük puanlıyı atar (saf mantık)
@@ -211,7 +223,7 @@ struct SeriesPool {
             if keptCovers && newCovers {
                 // Aynı içerik: en iyisi kalır
                 merged += 1
-                if item.quality > last.quality { items[items.count - 1] = item }
+                if item.rank > last.rank { items[items.count - 1] = item }
             } else if newCovers {
                 // Yeni kare ötekinin gösterdiği her şeyi ve fazlasını gösteriyor: onun yerini alır
                 merged += 1
@@ -227,15 +239,26 @@ struct SeriesPool {
             items.append(item)
         }
         while items.count > capacity {
-            guard let lowest = items.indices.min(by: { items[$0].quality < items[$1].quality }) else { break }
+            guard let lowest = items.indices.min(by: { items[$0].rank < items[$1].rank }) else { break }
             items.remove(at: lowest)
         }
     }
 
-    /// Son eleme: en iyi puanın `relativeFloor` oranının altındakiler atılır; zaman sırasıyla döner
-    func selected() -> [SeriesItem] {
-        guard let best = items.map({ $0.quality }).max() else { return [] }
-        return items.filter { $0.quality >= best * SeriesSelection.relativeFloor }.sorted { $0.time < $1.time }
+    /// Son seçim, zaman sırasıyla: (1) yararlı (okunan) kareler; en iyi puanın `relativeFloor` oranının altındakiler atılır. (2) Bunlar `minPages`'ten
+    /// azsa kalan yer, okunamayan (zayıf) karelerin en netleriyle doldurulur: yazı tanıma zayıf kalmış olabilir, Gemini bu kareleri çoğu zaman okur.
+    /// Hiç yararlı kare yoksa yalnız zayıf kareler gider. Çekim boş dönmez (kare varsa).
+    func selected(minPages: Int = SeriesSelection.minPages) -> [SeriesItem] {
+        let useful = items.filter { $0.isUseful }
+        var chosen: [SeriesItem] = []
+        if let best = useful.map({ $0.quality }).max() {
+            chosen = useful.filter { $0.quality >= best * SeriesSelection.relativeFloor }
+        }
+        let room = minPages - chosen.count
+        if room > 0 {
+            let weak = items.filter { !$0.isUseful }.sorted { $0.quality > $1.quality }
+            chosen += weak.prefix(room)
+        }
+        return chosen.sorted { $0.time < $1.time }
     }
 }
 
@@ -260,8 +283,8 @@ final class SeriesCollector {
         /// Yazı tanıma çalıştı / çalışmadı
         var read = 0
         var readFailed = 0
-        /// Okunamadığı (bulanık, boş, kâğıt değil) için elenen pencere
-        var unreadable = 0
+        /// Yazısı okunamayan (bulanık, küçük, eğik ya da boş) pencere: elenmez, zayıf aday olarak havuza girer
+        var weak = 0
         /// Yazı tanıma yetişemediği için atlanan pencere
         var busySkipped = 0
         var renderFailed = 0
@@ -272,6 +295,8 @@ final class SeriesCollector {
 
     struct Outcome {
         var items: [SeriesItem]
+        /// Seçilenlerden yazısı okunan (yararlı) kare sayısı; 0 ise Gemini'ye yalnız en net kareler gidiyor
+        var readable: Int
         var stats: Stats
         /// Karelerde görülen soru numaraları (günlük için)
         var questionNumbers: [Int]
@@ -290,11 +315,13 @@ final class SeriesCollector {
     private let renderer: Renderer
     private let log: (String) -> Void
     private let maxPending: Int
+    private let minPages: Int
 
-    init(start: TimeInterval, maxPending: Int = SeriesSelection.maxPending, reader: @escaping Reader, renderer: @escaping Renderer,
-         log: @escaping (String) -> Void = { _ in }) {
+    init(start: TimeInterval, maxPending: Int = SeriesSelection.maxPending, minPages: Int = SeriesSelection.minPages,
+         reader: @escaping Reader, renderer: @escaping Renderer, log: @escaping (String) -> Void = { _ in }) {
         self.start = start
         self.maxPending = maxPending
+        self.minPages = minPages
         self.windows = WindowBest<Frame>(start: start, length: SeriesSelection.window)
         self.reader = reader
         self.renderer = renderer
@@ -335,30 +362,20 @@ final class SeriesCollector {
         return String(format: "%.1f sn", max(0, time - start))
     }
 
+    /// Pencerenin kazananı okunur ve havuza girer. Yazı okunamasa da (ya da yazı tanıma hiç çalışmasa da) kare ATILMAZ: zayıf aday olarak tutulur,
+    /// kesin eleme çekim bitince `SeriesPool.selected` içinde yapılır (okunan kare azsa en net zayıf kareler Gemini'ye yine gider)
     private func process(_ frame: Frame) {
         let text = reader(frame.buffer)
-        var keep = true
         lock.lock()
         if let text = text {
             stats.read += 1
-            if !text.isReadable {
-                keep = false
-                stats.unreadable += 1
-            }
+            if !text.isReadable { stats.weak += 1 }
         } else {
             stats.readFailed += 1
-            if frame.sharpness < SeriesSelection.fallbackSharpness {
-                keep = false
-                stats.unreadable += 1
-            }
+            stats.weak += 1
         }
         lock.unlock()
         let sharp = Int(frame.sharpness.rounded())
-        guard keep else {
-            log("[seri] \(stamp(frame.time)): elendi (net \(sharp), \(text.map { $0.summary } ?? "yazı tanıma yok"))")
-            finishOne()
-            return
-        }
         guard let rendered = renderer(frame.buffer) else {
             lock.lock()
             stats.renderFailed += 1
@@ -376,7 +393,8 @@ final class SeriesCollector {
         if let text = text { numbers.formUnion(text.questionNumbers) }
         let wasMerged = pool.merged > mergedBefore
         lock.unlock()
-        log("[seri] \(stamp(frame.time)): \(wasMerged ? "aynı görünüm, en iyisi kaldı" : "alındı") (net \(sharp), \(text.map { $0.summary } ?? "yazı tanıma yok"))")
+        let verdict = item.isUseful ? "alındı" : "zayıf aday (okunamadı)"
+        log("[seri] \(stamp(frame.time)): \(wasMerged ? "aynı görünüm, en iyisi kaldı" : verdict) (net \(sharp), \(text.map { $0.summary } ?? "yazı tanıma yok"))")
         finishOne()
     }
 
@@ -399,7 +417,8 @@ final class SeriesCollector {
         defer { lock.unlock() }
         var result = stats
         result.merged = pool.merged
-        return Outcome(items: pool.selected(), stats: result, questionNumbers: numbers.sorted())
+        let chosen = pool.selected(minPages: minPages)
+        return Outcome(items: chosen, readable: chosen.filter { $0.isUseful }.count, stats: result, questionNumbers: numbers.sorted())
     }
 
     /// Açık pencereyi kapatır, bekleyen işlerin bitmesini bekler ve sonucu verir. Bundan sonra gelen kareler yok sayılır.
