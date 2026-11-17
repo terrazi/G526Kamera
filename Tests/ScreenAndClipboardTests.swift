@@ -216,6 +216,108 @@ final class ScreenAndClipboardTests: XCTestCase {
         _ = journal().beginRun()
         XCTAssertEqual(board.changeCount, count, "Açılışta pano yalnız sayaçla yoklanır; yazılmaz, okunmaz")
     }
+
+    // MARK: Kopyalanan günlük işaretle ezilmez (17.11.2026: yapıştırılan şey yalnız "SESLIKONTROL-KAPALI" idi)
+
+    private func logFlag(_ board: RelaunchTests.FakePasteboard, defaults: UserDefaults, file: URL) -> ClipboardFlag {
+        return ClipboardFlag(defaults: defaults, write: { board.write($0) }, changeCount: { board.changeCount }, logFile: file)
+    }
+
+    private func tempLogFile() -> URL {
+        return FileManager.default.temporaryDirectory.appendingPathComponent("gunluk-\(UUID().uuidString).txt")
+    }
+
+    private let sampleLog = ClipboardFlag.logText(info: "Sürüm: abc", lines: ["10:00:00.000 [açılış] başladı", "10:00:01.000 [oturum] hazır"])
+
+    func testClosingTheProgramAfterCopyingTheLogKeepsTheLogAndStillBlocksTheAutomation() {
+        let board = RelaunchTests.FakePasteboard()
+        let file = tempLogFile()
+        let flag = logFlag(board, defaults: freshDefaults(), file: file)
+        flag.copyLog(sampleLog)
+        XCTAssertEqual(board.value, sampleLog)
+        flag.set(ClipboardFlag.closed)   // "Programı kapat"
+        XCTAssertTrue(board.value.hasPrefix(sampleLog), "Günlük panoda kalır: yapıştırınca günlük gelir")
+        XCTAssertTrue(board.value.contains(ClipboardFlag.closed), "Otomasyon yine kapanma işaretini görür, program geri açılmaz")
+        XCTAssertEqual(board.value.components(separatedBy: ClipboardFlag.prefix).count - 1, 1, "İşaret tek kez, günlüğün sonunda")
+        XCTAssertEqual(flag.state(), .marker(ClipboardFlag.closed))
+        try? FileManager.default.removeItem(at: file)
+    }
+
+    func testTheLogComesBackWhenTheMarkerIsCleared() {
+        let board = RelaunchTests.FakePasteboard()
+        let file = tempLogFile()
+        let flag = logFlag(board, defaults: freshDefaults(), file: file)
+        flag.copyLog(sampleLog)
+        flag.set(ClipboardFlag.repair)   // kestirmeye geçiş
+        XCTAssertTrue(board.value.contains(ClipboardFlag.repair))
+        flag.set(ClipboardFlag.closed)   // ardından kapanma: günlük hâlâ tek parça
+        XCTAssertTrue(board.value.hasPrefix(sampleLog))
+        XCTAssertFalse(board.value.contains(ClipboardFlag.repair), "Eski işaret günlükte birikmez")
+        flag.clearIfOurs()
+        XCTAssertEqual(board.value, sampleLog, "İşaret kalkınca pano yine yalnız günlüktür; otomasyon sonraki kapanmada geri açabilir")
+        XCTAssertFalse(board.value.contains(ClipboardFlag.prefix))
+        XCTAssertEqual(flag.state(), .clean)
+        flag.set(ClipboardFlag.repair)
+        XCTAssertTrue(board.value.hasPrefix(sampleLog), "Günlük geri konduktan sonra da korunur")
+        try? FileManager.default.removeItem(at: file)
+    }
+
+    func testTheLogSurvivesARelaunchAfterTheProgramWasClosedWithTheButton() {
+        let board = RelaunchTests.FakePasteboard()
+        let file = tempLogFile()
+        let defaults = freshDefaults()
+        logFlag(board, defaults: defaults, file: file).copyLog(sampleLog)
+        logFlag(board, defaults: defaults, file: file).set(ClipboardFlag.closed)
+        // Program kapandı, yeniden açıldı: açılışta işaret silinir, günlük kalır
+        logFlag(board, defaults: defaults, file: file).clearIfOurs()
+        XCTAssertEqual(board.value, sampleLog)
+        try? FileManager.default.removeItem(at: file)
+    }
+
+    func testALogTheUserReplacedIsNotRestoredAndTheMarkerGoesAlone() {
+        let board = RelaunchTests.FakePasteboard()
+        let file = tempLogFile()
+        let flag = logFlag(board, defaults: freshDefaults(), file: file)
+        flag.copyLog(sampleLog)
+        board.userCopies("başka bir metin")
+        flag.set(ClipboardFlag.closed)
+        XCTAssertEqual(board.value, ClipboardFlag.closed, "Pano artık günlük değil: işaret eskisi gibi tek başına yazılır")
+        flag.clearIfOurs()
+        XCTAssertEqual(board.value, "", "Eski günlük geri gelmez")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: file.path), "Saklanan kopya silinir")
+    }
+
+    func testCopyingTheLogAfterTheMarkerReplacesTheMarker() {
+        let board = RelaunchTests.FakePasteboard()
+        let file = tempLogFile()
+        let flag = logFlag(board, defaults: freshDefaults(), file: file)
+        flag.set(ClipboardFlag.repair)
+        flag.copyLog(sampleLog)
+        XCTAssertEqual(board.value, sampleLog)
+        flag.clearIfOurs()
+        XCTAssertEqual(board.value, sampleLog, "Günlük kopyalandıktan sonra eski işaret temizliği panoya dokunmaz")
+        try? FileManager.default.removeItem(at: file)
+    }
+
+    func testTheJournalKeepsACopiedLogWhenTheProgramIsClosedByTheButton() {
+        let board = RelaunchTests.FakePasteboard()
+        let file = tempLogFile()
+        let defaults = freshDefaults()
+        let journal = RunJournal(defaults: defaults, previousLog: [], clipboard: logFlag(board, defaults: defaults, file: file))
+        _ = journal.beginRun()
+        journal.setSessionOpen(true)
+        logFlag(board, defaults: defaults, file: file).copyLog(sampleLog)
+        journal.setSessionOpen(true)   // oturum sürerken günlüğe dokunulmaz
+        XCTAssertEqual(board.value, sampleLog)
+        journal.setAway(true)
+        XCTAssertTrue(board.value.hasPrefix(sampleLog))
+        journal.setAway(false)
+        XCTAssertEqual(board.value, sampleLog, "Kestirmeden dönünce günlük yerinde")
+        journal.markDeliberateClose()
+        XCTAssertTrue(board.value.hasPrefix(sampleLog))
+        XCTAssertTrue(board.value.contains(ClipboardFlag.closed))
+        try? FileManager.default.removeItem(at: file)
+    }
 }
 
 /// Ses yolu günlüğünde ham port adları (kulaklık çalışırken program sorun görüyorsa nedeni bulmak için)

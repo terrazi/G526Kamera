@@ -212,16 +212,26 @@ final class ClipboardFlag {
 
     private static let tokenKey = "journal.clipboardToken"
     private static let nameKey = "journal.clipboardMarker"
+    /// Panodaki değişim sayacı bu değerse pano hâlâ bizim kopyaladığımız günlüğü (ve belki altında işareti) taşır
+    private static let logCountKey = "journal.clipboardLogCount"
     private let defaults: UserDefaults
     private let write: (String) -> Void
     private let changeCount: () -> Int
+    /// Kopyalanan günlüğün saklandığı dosya (işaret panoya yazılırken günlüğün üstüne yazılıp kaybolmasın diye)
+    private let logFile: URL
+
+    static var defaultLogFile: URL {
+        return FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("kopyalanan-gunluk.txt")
+    }
 
     init(defaults: UserDefaults = .standard,
          write: @escaping (String) -> Void = { UIPasteboard.general.string = $0 },
-         changeCount: @escaping () -> Int = { UIPasteboard.general.changeCount }) {
+         changeCount: @escaping () -> Int = { UIPasteboard.general.changeCount },
+         logFile: URL = ClipboardFlag.defaultLogFile) {
         self.defaults = defaults
         self.write = write
         self.changeCount = changeCount
+        self.logFile = logFile
     }
 
     /// Panoya kopyalanacak serbest metinden (günlük) işaret önekini çıkarır. Kestirmeler otomasyonu "pano SESLIKONTROL- içeriyorsa dur" der; kopyalanan
@@ -236,9 +246,45 @@ final class ClipboardFlag {
         return defused(info + "\n\n" + lines.joined(separator: "\n"))
     }
 
-    /// İşareti panoya yazar ve o andaki değişim sayacını saklar (sonradan başkası panoyu değiştirirse anlaşılsın diye)
+    /// "Günlüğü kopyala": günlüğü panoya koyar ve bir kopyasını saklar. Sonradan kapanma / kestirme işareti yazılırken günlük silinmez:
+    /// işaret günlüğün altına eklenir, işaret kalkınca günlük geri konur (17.11.2026: günlük kopyalanıp program kapatılınca yapıştırılan
+    /// şey yalnız "SESLIKONTROL-KAPALI" idi).
+    func copyLog(_ text: String) {
+        write(text)
+        if (try? text.write(to: logFile, atomically: true, encoding: .utf8)) != nil {
+            defaults.set(changeCount(), forKey: ClipboardFlag.logCountKey)
+        } else {
+            forgetLog()
+        }
+    }
+
+    /// Pano şu an bizim kopyaladığımız günlüğü taşıyor mu (başkası panoyu değiştirmediyse sayaç aynıdır)
+    private var logOnBoard: Bool {
+        return defaults.object(forKey: ClipboardFlag.logCountKey) != nil && defaults.integer(forKey: ClipboardFlag.logCountKey) == changeCount()
+    }
+
+    private func keptLog() -> String? {
+        guard let text = try? String(contentsOf: logFile, encoding: .utf8), !text.isEmpty else { return nil }
+        return text
+    }
+
+    private func forgetLog() {
+        guard defaults.object(forKey: ClipboardFlag.logCountKey) != nil else { return }
+        defaults.removeObject(forKey: ClipboardFlag.logCountKey)
+        try? FileManager.default.removeItem(at: logFile)
+    }
+
+    /// İşareti panoya yazar ve o andaki değişim sayacını saklar (sonradan başkası panoyu değiştirirse anlaşılsın diye).
+    /// Pano kullanıcının kopyaladığı günlüğü taşıyorsa günlük korunur, işaret son satır olarak eklenir (otomasyon "SESLIKONTROL-" içeriyor mu diye
+    /// metnin her yerine bakar, işaret nerede olursa olsun görür).
     func set(_ marker: String) {
-        write(marker)
+        if logOnBoard, let log = keptLog() {
+            write(log + "\n" + marker)
+            defaults.set(changeCount(), forKey: ClipboardFlag.logCountKey)
+        } else {
+            forgetLog()
+            write(marker)
+        }
         defaults.set(changeCount(), forKey: ClipboardFlag.tokenKey)
         defaults.set(marker, forKey: ClipboardFlag.nameKey)
     }
@@ -253,12 +299,24 @@ final class ClipboardFlag {
         return .overwritten
     }
 
-    /// Pano hâlâ bizim yazdığımızsa siler; kullanıcı arada başka bir şey kopyaladıysa dokunmaz
+    /// Pano hâlâ bizim yazdığımızsa işareti siler (altında kullanıcının kopyaladığı günlük varsa onu geri koyar, yoksa panoyu boşaltır);
+    /// kullanıcı arada başka bir şey kopyaladıysa dokunmaz
     func clearIfOurs() {
-        guard defaults.object(forKey: ClipboardFlag.tokenKey) != nil else { return }
-        if defaults.integer(forKey: ClipboardFlag.tokenKey) == changeCount() { write("") }
-        defaults.removeObject(forKey: ClipboardFlag.tokenKey)
-        defaults.removeObject(forKey: ClipboardFlag.nameKey)
+        let logHere = logOnBoard
+        if defaults.object(forKey: ClipboardFlag.tokenKey) != nil {
+            if defaults.integer(forKey: ClipboardFlag.tokenKey) == changeCount() {
+                if logHere, let log = keptLog() {
+                    write(log)
+                    defaults.set(changeCount(), forKey: ClipboardFlag.logCountKey)
+                } else {
+                    write("")
+                }
+            }
+            defaults.removeObject(forKey: ClipboardFlag.tokenKey)
+            defaults.removeObject(forKey: ClipboardFlag.nameKey)
+        }
+        // Pano artık günlüğü taşımıyorsa (kullanıcı başka şey kopyaladı) saklanan kopya da silinir
+        if !logOnBoard { forgetLog() }
     }
 }
 
