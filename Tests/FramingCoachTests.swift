@@ -83,6 +83,19 @@ final class ViewLinesTests: XCTestCase {
         XCTAssertEqual(ViewLines(bottomCut: true).endsText, "Alt satır yarım kalıyor.")
     }
 
+    func testTheLiveCoachSaysTheTopAndBottomLinesInWordsNotSentences() {
+        let v = ViewLines(starts: [LineEnd(side: nil, words: "alfa beta gama delta")], ends: [LineEnd(side: nil, words: "kırmızı mavi yeşil sarı")],
+                          topCut: false, bottomCut: true)
+        XCTAssertEqual(v.startsShort, "Üstte: alfa beta gama delta.")
+        XCTAssertEqual(v.endsShort, "Alt satır kesik; son tam: kırmızı mavi yeşil sarı.")
+        XCTAssertEqual(v.shortCoverage, "Üstte: alfa beta gama delta. Alt satır kesik; son tam: kırmızı mavi yeşil sarı.")
+        XCTAssertNil(ViewLines().shortCoverage)
+        XCTAssertEqual(ViewLines(topCut: true).startsShort, "Üst satır kesik.")
+        XCTAssertEqual(ViewLines(bottomCut: true).endsShort, "Alt satır kesik.")
+        let columns = ViewLines(starts: [LineEnd(side: "solda", words: "bir iki üç dört"), LineEnd(side: "sağda", words: "beş altı yedi sekiz")], ends: [])
+        XCTAssertEqual(columns.startsShort, "Üstte: solda bir iki üç dört, sağda beş altı yedi sekiz.")
+    }
+
     func testTwoColumnsAreNamedBySide() {
         let v = ViewLines.make([
             line("sol sütunun birinci satırı burada", top: 0.20, x: 0.05, width: 0.4),
@@ -127,69 +140,82 @@ final class FramingCoachNoteTests: XCTestCase {
     func testNoTextAsksToPointTheCameraAtThePage() {
         let n = note(PageMetrics())
         XCTAssertEqual(n.kind, .noText)
-        XCTAssertEqual(n.text, "Yazı görünmüyor. Kamerayı sayfaya çevirin.")
+        XCTAssertEqual(n.text, "Yazı yok.")
         XCTAssertTrue(n.isCorrection)
     }
 
     func testACutRightEdgeSaysWhichSideIsCutAndWhereToMoveTheCamera() {
         let n = note(metrics(x0: 0.15, x1: 0.995))
         XCTAssertEqual(n.kind, .cutRight)
-        XCTAssertEqual(n.text, "Sağ taraf kesik. Kamerayı biraz sağa kaydırın.")
+        XCTAssertEqual(n.text, "Biraz sağa.")
+    }
+
+    func testTheLiveCoachSpeaksWordsWhileTheFullCheckKeepsTheSentences() {
+        let m = metrics(x0: 0.15, x1: 0.995)
+        XCTAssertEqual(FramingCoach.note(m, lines: nil, sharpFloor: 0.45).text, "Biraz sağa.")
+        XCTAssertEqual(FramingCoach.note(m, lines: nil, sharpFloor: 0.45, verbose: true).text, "Sağ taraf kesik. Kamerayı biraz sağa kaydırın.")
+        // Canlı koçun hiçbir uyarısı beş sözcüğü aşmaz ("Azıcık sağa, sonra yaklaşın." en uzunudur)
+        let samples: [PageMetrics] = [PageMetrics(), m, metrics(x0: 0.01, x1: 0.99), metrics(x0: 0.4, x1: 0.6, y0: 0.4, y1: 0.6),
+                                      metrics(x0: 0.2, x1: 0.8, sharp: 0.1), metrics(x0: 0.2, x1: 0.8, glare: 0.5), metrics(x0: 0.2, x1: 0.8)]
+        for sample in samples {
+            let words = note(sample).text.split(separator: " ").count
+            XCTAssertLessThanOrEqual(words, 5, note(sample).text)
+        }
     }
 
     func testACutLeftEdgeSaysWhichSideIsCutAndWhereToMoveTheCamera() {
         let n = note(metrics(x0: 0.005, x1: 0.85))
         XCTAssertEqual(n.kind, .cutLeft)
-        XCTAssertEqual(n.text, "Sol taraf kesik. Kamerayı biraz sola kaydırın.")
+        XCTAssertEqual(n.text, "Biraz sola.")
     }
 
     func testBothSidesCutMeansTheCameraIsTooCloseToTheWholePage() {
         let n = note(metrics(x0: 0.005, x1: 0.995))
         XCTAssertEqual(n.kind, .tooWide)
-        XCTAssertEqual(n.text, "Sayfa kadraja sığmıyor. Biraz uzaklaşın.")
+        XCTAssertEqual(n.text, "Uzaklaşın.")
     }
 
     func testABlurryViewThatFillsTheFrameTellsTheUserToStepBack() {
         let n = note(metrics(x0: 0.1, x1: 0.9, y0: 0.1, y1: 0.9, sharp: 0.2))
         XCTAssertEqual(n.kind, .blurry)
-        XCTAssertEqual(n.text, "Görüntü net değil, çok yakınsınız. Biraz uzaklaşın.")
+        XCTAssertEqual(n.text, "Bulanık, uzaklaşın.")
     }
 
     func testABlurryViewThatDoesNotFillTheFrameOnlyAsksToHoldSteady() {
         let n = note(metrics(x0: 0.2, x1: 0.8, sharp: 0.2))
         XCTAssertEqual(n.kind, .blurry)
-        XCTAssertEqual(n.text, "Görüntü net değil. Kamerayı sabit tutun.")
+        XCTAssertEqual(n.text, "Bulanık, sabit tutun.")
     }
 
     func testGlareAsksToTiltTheCamera() {
         let n = note(metrics(x0: 0.2, x1: 0.8, glare: 0.2))
         XCTAssertEqual(n.kind, .glare)
-        XCTAssertEqual(n.text, "Sayfada parlama var. Kamerayı biraz eğin.")
+        XCTAssertEqual(n.text, "Parlama. Kamerayı eğin.")
     }
 
     func testSmallTextCentredInTheFrameAsksToMoveCloser() {
         let n = note(metrics(x0: 0.4, x1: 0.6, y0: 0.4, y1: 0.6))
         XCTAssertEqual(n.kind, .tooSmall)
-        XCTAssertEqual(n.text, "Yazı küçük kalıyor. Biraz yaklaşın.")
+        XCTAssertEqual(n.text, "Yaklaşın.")
     }
 
     func testSmallTextOffCentreAsksToCentreBeforeMovingCloser() {
         let n = note(metrics(x0: 0.6, x1: 0.8, y0: 0.4, y1: 0.6))
         XCTAssertEqual(n.kind, .shiftRight)
-        XCTAssertEqual(n.text, "Yazı küçük. Önce kamerayı azıcık sağa kaydırıp sonra yaklaşın.")
+        XCTAssertEqual(n.text, "Azıcık sağa, sonra yaklaşın.")
     }
 
     func testTextSittingLowInTheFrameAsksToMoveTheCameraDown() {
         let n = note(metrics(x0: 0.2, x1: 0.8, y0: 0.6, y1: 0.9))
         XCTAssertEqual(n.kind, .emptyTop)
-        XCTAssertEqual(n.text, "Yazı kadrajın alt yarısında, üst taraf boş. Kamerayı biraz aşağı kaydırın.")
+        XCTAssertEqual(n.text, "Üst boş, biraz aşağı.")
         XCTAssertTrue(n.isCorrection)
     }
 
     func testTextRunningOffTheTopAndBottomIsNotAProblemInTheSeries() {
         let n = note(metrics(x0: 0.2, x1: 0.8, y0: GuidanceAnalyzer.skipTop + 0.005, y1: 0.995))
         XCTAssertEqual(n.kind, .good, "Sayfa kadrajdan büyüktür: dikey kesik sorun değil, satır tarifi verilir")
-        XCTAssertEqual(n.text, "Kadraj uygun.")
+        XCTAssertEqual(n.text, "Uygun.")
         XCTAssertFalse(n.isCorrection)
     }
 
@@ -198,13 +224,13 @@ final class FramingCoachNoteTests: XCTestCase {
                               ends: [LineEnd(side: nil, words: "cevap hangisidir lütfen seçiniz")])
         let n = note(metrics(x0: 0.2, x1: 0.8), lines: lines)
         XCTAssertEqual(n.kind, .good)
-        XCTAssertEqual(n.text, "Üstte Kavram haritası nedir ve ile başlıyor. Altta cevap hangisidir lütfen seçiniz ile bitiyor.")
+        XCTAssertEqual(n.text, "Üstte: Kavram haritası nedir ve. Altta: cevap hangisidir lütfen seçiniz.")
     }
 
     func testTextOnlyInTheUpperHalfIsReportedAsInformationNotAsACorrection() {
         let n = note(metrics(x0: 0.2, x1: 0.8, y0: 0.2, y1: 0.5))
         XCTAssertEqual(n.kind, .good)
-        XCTAssertEqual(n.text, "Yazı kadrajın üst yarısında, alt taraf boş.")
+        XCTAssertEqual(n.text, "Alt boş.")
     }
 
     func testTheFullDescriptionAddsTheSceneToTheCorrectionAndTheLines() {
@@ -237,7 +263,7 @@ final class FramingCoachNoteTests: XCTestCase {
         let lines = ViewLines(starts: [LineEnd(side: nil, words: "alfa beta gama delta")], ends: [LineEnd(side: nil, words: "kırmızı mavi yeşil sarı")])
         let n = note(withEdges(edges()), lines: lines)
         XCTAssertEqual(n.kind, .goodFull)
-        XCTAssertEqual(n.text, "Tam sayfa görünüyor, dört kenar boş.")
+        XCTAssertEqual(n.text, "Tam sayfa.")
         XCTAssertFalse(n.isCorrection)
     }
 
@@ -246,7 +272,7 @@ final class FramingCoachNoteTests: XCTestCase {
                               topCut: false, bottomCut: true)
         let n = note(withEdges(edges(bottom: 1.0), y1: 0.95), lines: lines)
         XCTAssertEqual(n.kind, .goodUpper)
-        XCTAssertEqual(n.text, "Sayfanın üst yarısı görünüyor, üst, sol ve sağ kenar boş. Alt satır yarım kalıyor; son tam satır cevap hangisidir lütfen seçiniz ile bitiyor.")
+        XCTAssertEqual(n.text, "Üst yarı. Alt satır kesik; son tam: cevap hangisidir lütfen seçiniz.")
     }
 
     func testTheLowerHalfHasThreeFreeEdgesAndNamesWhereTheCutTopLineStarts() {
@@ -254,36 +280,36 @@ final class FramingCoachNoteTests: XCTestCase {
                               topCut: true, bottomCut: false)
         let n = note(withEdges(edges(top: 0.0), y0: 0.1, y1: 0.8), lines: lines)
         XCTAssertEqual(n.kind, .goodLower)
-        XCTAssertEqual(n.text, "Sayfanın alt yarısı görünüyor, alt, sol ve sağ kenar boş. Üst satır yarım kalıyor; ilk tam satır alfa beta gama delta ile başlıyor.")
+        XCTAssertEqual(n.text, "Alt yarı. Üst satır kesik; ilk tam: alfa beta gama delta.")
     }
 
     func testASliceFromTheMiddleOfThePageAsksForAFullPageOrAHalf() {
         let n = note(withEdges(edges(top: 0.0, bottom: 1.0), y0: 0.1, y1: 0.9))
         XCTAssertEqual(n.kind, .middle)
         XCTAssertTrue(n.isCorrection)
-        XCTAssertEqual(n.text, "Sayfanın ortası görünüyor, üst ve alt kenar kadraj dışında. Tam sayfa için uzaklaşın; yarım sayfa için kamerayı yukarı ya da aşağı kaydırın.")
+        XCTAssertEqual(n.text, "Sayfa ortası. Uzaklaşın ya da kaydırın.")
     }
 
     func testAPaperEdgeOutsideTheSideOfTheFrameIsReportedButIsNotACorrection() {
         let n = note(withEdges(edges(right: 1.0)))
         XCTAssertEqual(n.kind, .goodFull)
-        XCTAssertEqual(n.text, "Sayfanın üstü ve altı görünüyor; sağ kenarı kadrajın dışında kalıyor.", "Yandan taşan kâğıt için 'tam sayfa' / 'dört kenar boş' denmez")
+        XCTAssertEqual(n.text, "Üst ve alt boş; sağ kenar dışarıda.", "Yandan taşan kâğıt için 'tam sayfa' / 'dört kenar boş' denmez")
     }
 
     func testBothSidesOutsideAndTheHalfViewsNameTheSidesInTheirOwnWords() {
-        XCTAssertEqual(note(withEdges(edges(left: 0.0, right: 1.0))).text, "Sayfanın üstü ve altı görünüyor; sol ve sağ kenarları kadrajın dışında kalıyor.")
+        XCTAssertEqual(note(withEdges(edges(left: 0.0, right: 1.0))).text, "Üst ve alt boş; sol ve sağ kenar dışarıda.")
         let upper = note(withEdges(edges(left: 0.0, bottom: 1.0), y1: 0.95))
         XCTAssertEqual(upper.kind, .goodUpper)
-        XCTAssertEqual(upper.text, "Sayfanın üst yarısı görünüyor; sol kenarı kadrajın dışında kalıyor.")
+        XCTAssertEqual(upper.text, "Üst yarı; sol kenar dışarıda.")
         let lower = note(withEdges(edges(right: 1.0, top: 0.0), y0: 0.1, y1: 0.8))
         XCTAssertEqual(lower.kind, .goodLower)
-        XCTAssertEqual(lower.text, "Sayfanın alt yarısı görünüyor; sağ kenarı kadrajın dışında kalıyor.")
+        XCTAssertEqual(lower.text, "Alt yarı; sağ kenar dışarıda.")
     }
 
     func testAnUndecidedTopOrBottomEdgeMakesNoClaimAboutTheLayout() {
         let n = note(withEdges(edges(top: 0.02)))
         XCTAssertEqual(n.kind, .good, "Kenar 'kesik' ile 'boş' arasında: titremesin diye söylenmez")
-        XCTAssertEqual(n.text, "Kadraj uygun.")
+        XCTAssertEqual(n.text, "Uygun.")
         XCTAssertNil(FramingCoach.layout(PageMetrics()))
     }
 
@@ -336,7 +362,7 @@ final class FramingCoachTimerTests: XCTestCase {
     func testACorrectionNeedsTwoConsecutiveMeasurementsBeforeItIsSpoken() {
         var t = FramingCoachTimer()
         XCTAssertNil(step(&t, cutRight, at: 10.0))
-        XCTAssertEqual(step(&t, cutRight, at: 10.3), "Sağ taraf kesik. Kamerayı biraz sağa kaydırın.")
+        XCTAssertEqual(step(&t, cutRight, at: 10.3), "Biraz sağa.")
     }
 
     func testAFlickeringMeasurementNeverReachesTheTwoInARowBar() {
@@ -370,7 +396,7 @@ final class FramingCoachTimerTests: XCTestCase {
         XCTAssertNil(step(&t, tooSmall, at: 10.6))
         XCTAssertNil(step(&t, tooSmall, at: 10.9), "Konuşma arası dolmadı")
         XCTAssertNil(step(&t, tooSmall, at: 12.0))
-        XCTAssertEqual(step(&t, tooSmall, at: 14.0), "Yazı küçük kalıyor. Biraz yaklaşın.")
+        XCTAssertEqual(step(&t, tooSmall, at: 14.0), "Yaklaşın.")
     }
 
     func testOkIsSaidOnceAfterACorrectionAndNeverRepeatedForTheSameView() {
@@ -378,7 +404,7 @@ final class FramingCoachTimerTests: XCTestCase {
         _ = step(&t, cutRight, at: 10.0)
         XCTAssertNotNil(step(&t, cutRight, at: 10.3))
         XCTAssertNil(step(&t, fine, at: 14.0))
-        XCTAssertEqual(step(&t, fine, at: 14.3), "Tamam. Kadraj uygun.")
+        XCTAssertEqual(step(&t, fine, at: 14.3), "Tamam.")
         var again: [String] = []
         var time = 14.6
         while time < 80 {
@@ -393,10 +419,10 @@ final class FramingCoachTimerTests: XCTestCase {
         let a = ViewLines(starts: [LineEnd(side: nil, words: "alfa beta gama delta")], ends: [LineEnd(side: nil, words: "kırmızı mavi yeşil sarı")])
         let b = ViewLines(starts: [LineEnd(side: nil, words: "zeta eta teta iota")], ends: [LineEnd(side: nil, words: "kapa lamda mü nü")])
         _ = step(&t, fine, at: 10.0, lines: a)
-        XCTAssertEqual(step(&t, fine, at: 10.3, lines: a), "Üstte alfa beta gama delta ile başlıyor. Altta kırmızı mavi yeşil sarı ile bitiyor.")
+        XCTAssertEqual(step(&t, fine, at: 10.3, lines: a), "Üstte: alfa beta gama delta. Altta: kırmızı mavi yeşil sarı.")
         XCTAssertNil(step(&t, fine, at: 14.0, lines: a), "Tekrar aralığı dolmadı")
         XCTAssertNil(step(&t, fine, at: 23.0, lines: a), "Görünüm aynı: yeniden anlatılmaz")
-        XCTAssertEqual(step(&t, fine, at: 23.3, lines: b), "Üstte zeta eta teta iota ile başlıyor. Altta kapa lamda mü nü ile bitiyor.", "Görünüm değişti ve aralık doldu: yeniden anlatılır")
+        XCTAssertEqual(step(&t, fine, at: 23.3, lines: b), "Üstte: zeta eta teta iota. Altta: kapa lamda mü nü.", "Görünüm değişti ve aralık doldu: yeniden anlatılır")
     }
 
     // MARK: Yeni sayfa: her gösterilen sayfada yardım yeniden başlar
@@ -426,7 +452,7 @@ final class FramingCoachTimerTests: XCTestCase {
         let start = last + 20
         XCTAssertNil(step(&t, cutRight, at: start, still: 0, lines: nil))
         XCTAssertNil(step(&t, cutRight, at: start + 0.6, still: 0.6, lines: pageB), "İlk ölçüm")
-        XCTAssertEqual(step(&t, cutRight, at: start + 0.9, still: 0.9, lines: pageB), "Sağ taraf kesik. Kamerayı biraz sağa kaydırın.", "Yeni sayfa için yeniden söylenir")
+        XCTAssertEqual(step(&t, cutRight, at: start + 0.9, still: 0.9, lines: pageB), "Biraz sağa.", "Yeni sayfa için yeniden söylenir")
     }
 
     func testASmallShiftOnTheSamePageDoesNotRestartTheHelp() {
@@ -459,7 +485,7 @@ final class FramingCoachTimerTests: XCTestCase {
         XCTAssertNil(step(&t, fine, at: 13.0, still: 1.0, lines: pageA))
         XCTAssertNil(step(&t, fine, at: 13.3, still: 1.3, lines: pageA))
         XCTAssertEqual(step(&t, fine, at: 14.5, still: 1.6, lines: pageA),
-                       "Tamam. Üstte alfa beta gama delta ile başlıyor. Altta kırmızı mavi yeşil sarı ile bitiyor.")
+                       "Tamam. Üstte: alfa beta gama delta. Altta: kırmızı mavi yeşil sarı.")
     }
 
     func testANewPageStartsWithoutAnOkFromThePreviousPagesCorrection() {
@@ -469,7 +495,7 @@ final class FramingCoachTimerTests: XCTestCase {
         XCTAssertNil(step(&t, fine, at: 15.0, still: 0, lines: nil))
         XCTAssertNil(step(&t, fine, at: 16.0, still: 1.0, lines: pageB))
         let said = step(&t, fine, at: 16.3, still: 1.3, lines: pageB)
-        XCTAssertEqual(said, "Üstte zeta teta iota kapa ile başlıyor. Altta lamda omikron sigma tau ile bitiyor.", "Yeni sayfa: önceki düzeltmeye 'tamam' denmez")
+        XCTAssertEqual(said, "Üstte: zeta teta iota kapa. Altta: lamda omikron sigma tau.", "Yeni sayfa: önceki düzeltmeye 'tamam' denmez")
     }
 
     func testTheFullPageUpperAndLowerHalfAreAnnouncedWhenTheLayoutChanges() {
@@ -484,13 +510,13 @@ final class FramingCoachTimerTests: XCTestCase {
         }
         var t = FramingCoachTimer()
         _ = step(&t, page(edges()), at: 10.0)
-        XCTAssertEqual(step(&t, page(edges()), at: 10.3), "Tam sayfa görünüyor, dört kenar boş.")
+        XCTAssertEqual(step(&t, page(edges()), at: 10.3), "Tam sayfa.")
         _ = step(&t, page(edges(bottom: 1.0), y1: 0.95), at: 14.0)
         let upper = step(&t, page(edges(bottom: 1.0), y1: 0.95), at: 14.3)
-        XCTAssertEqual(upper, "Sayfanın üst yarısı görünüyor, üst, sol ve sağ kenar boş.", "Tam sayfadan üst yarıya geçildi")
+        XCTAssertEqual(upper, "Üst yarı.", "Tam sayfadan üst yarıya geçildi")
         _ = step(&t, page(edges(top: 0.0), y0: 0.1, y1: 0.8), at: 18.0)
         let lower = step(&t, page(edges(top: 0.0), y0: 0.1, y1: 0.8), at: 18.3)
-        XCTAssertEqual(lower, "Sayfanın alt yarısı görünüyor, alt, sol ve sağ kenar boş.", "Üst yarıdan alt yarıya geçildi")
+        XCTAssertEqual(lower, "Alt yarı.", "Üst yarıdan alt yarıya geçildi")
     }
 
     func testAKnownPageStateIsNotReplacedByTheVagueOkSentenceWhenTheEdgesBlinkOut() {
@@ -499,8 +525,8 @@ final class FramingCoachTimerTests: XCTestCase {
                                         PageEdges.Point(x: 0.9, y: 0.9), PageEdges.Point(x: 0.1, y: 0.9)], confidence: 0.9)
         var t = FramingCoachTimer()
         _ = step(&t, full, at: 10.0)
-        XCTAssertEqual(step(&t, full, at: 10.3), "Tam sayfa görünüyor, dört kenar boş.")
-        // Kenarlar bir süre ölçülemedi: "Kadraj uygun." diye geri düşülüp tekrar anlatılmaz
+        XCTAssertEqual(step(&t, full, at: 10.3), "Tam sayfa.")
+        // Kenarlar bir süre ölçülemedi: "Uygun." diye geri düşülüp tekrar anlatılmaz
         for i in 0..<8 { XCTAssertNil(step(&t, fine, at: 14.0 + Double(i) * 0.3)) }
     }
 
@@ -527,7 +553,7 @@ final class FramingCoachTimerTests: XCTestCase {
         XCTAssertNil(step(&t, fine, at: 10.3, still: 0.8, edges: true))
         XCTAssertNil(step(&t, fine, at: 10.6, still: 1.1, edges: true))
         XCTAssertNil(step(&t, fine, at: 10.9, still: 1.4, edges: true), "Kenarlar gelmedi: kısa bekleme sonrası sayılmaya başlar")
-        XCTAssertEqual(step(&t, fine, at: 11.2, still: 1.7, edges: true), "Kadraj uygun.")
+        XCTAssertEqual(step(&t, fine, at: 11.2, still: 1.7, edges: true), "Uygun.")
     }
 
     func testACorrectionDoesNotWaitForThePaperEdges() {

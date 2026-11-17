@@ -108,6 +108,25 @@ struct ViewLines: Equatable {
         let parts = [startsText, endsText].compactMap { $0 }
         return parts.isEmpty ? nil : parts.joined(separator: " ")
     }
+
+    /// Canlı koçun kısa söylenişi (kullanıcı kararı 2026-11-17: cümle değil kelime): "Üstte: A." ya da üst satır kesikse "Üst satır kesik; ilk tam: A."
+    var startsShort: String? {
+        let phrase = starts.map { $0.phrase }.joined(separator: ", ")
+        if topCut { return starts.isEmpty ? "Üst satır kesik." : "Üst satır kesik; ilk tam: " + phrase + "." }
+        return starts.isEmpty ? nil : "Üstte: " + phrase + "."
+    }
+
+    /// "Altta: B." ya da alt satır kesikse "Alt satır kesik; son tam: B."
+    var endsShort: String? {
+        let phrase = ends.map { $0.phrase }.joined(separator: ", ")
+        if bottomCut { return ends.isEmpty ? "Alt satır kesik." : "Alt satır kesik; son tam: " + phrase + "." }
+        return ends.isEmpty ? nil : "Altta: " + phrase + "."
+    }
+
+    var shortCoverage: String? {
+        let parts = [startsShort, endsShort].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " ")
+    }
 }
 
 /// Kareyi okuyup satırları çıkarır (Vision, hızlı kip). Yalnız kamera durgunken ve seyrek çağrılır.
@@ -195,8 +214,20 @@ enum FramingCoach {
         return PageLayoutReading(layout: layout, cutSides: sides, allClear: e.allClear)
     }
 
-    /// "Tam sayfa görünüyor, dört kenar boş." / "Sayfanın üst yarısı görünüyor, üst, sol ve sağ kenar boş." (ayrıntılıysa kesik kenar açıklaması da eklenir)
+    /// Canlı koçta kelime ("Tam sayfa.", "Üst yarı.", "Alt yarı.", "Sağ kenar dışarıda."); ayrıntılıysa ("Kadraj kontrolü") tam cümle:
+    /// "Tam sayfa görünüyor, dört kenar boş." / "Sayfanın üst yarısı görünüyor, üst, sol ve sağ kenar boş." (+ kesik kenar açıklaması)
     static func layoutText(_ r: PageLayoutReading, verbose: Bool) -> String {
+        if !verbose {
+            let outside = r.cutSides.isEmpty ? "" : r.cutSides.map { $0.word }.joined(separator: " ve ") + " kenar dışarıda."
+            let name: String
+            switch r.layout {
+            case .full: name = r.cutSides.isEmpty ? "Tam sayfa." : "Üst ve alt boş;"
+            case .upperHalf: name = r.cutSides.isEmpty ? "Üst yarı." : "Üst yarı;"
+            case .lowerHalf: name = r.cutSides.isEmpty ? "Alt yarı." : "Alt yarı;"
+            case .middle: name = "Sayfa ortası."
+            }
+            return outside.isEmpty ? name : name + " " + outside
+        }
         // Kâğıt yandan taşıyorsa "dört kenar boş" denmez: "sağ kenarı kadrajın dışında kalıyor" / "sol ve sağ kenarları kadrajın dışında kalıyor"
         let sideClause = r.cutSides.isEmpty ? "" : r.cutSides.map { $0.word }.joined(separator: " ve ") + (r.cutSides.count == 1 ? " kenarı" : " kenarları") + " kadrajın dışında kalıyor"
         switch r.layout {
@@ -214,42 +245,56 @@ enum FramingCoach {
         }
     }
 
+    /// Düzgün kadraj ("düzeltme gerekmiyor") için kısa söyleniş; düzeltmeden sonra tek başına "Tamam." olur
+    static let okText = "Uygun."
+
+    /// "azıcık" → "Azıcık" (Türkçe büyük harfle)
+    static func capitalised(_ s: String) -> String {
+        return String(s.prefix(1)).uppercased(with: Locale(identifier: "tr_TR")) + String(s.dropFirst())
+    }
+
+    /// `verbose` false (canlı koç): kelime ("Biraz sağa.", "Uzaklaşın.", "Bulanık, sabit tutun."); true ("Kadraj kontrolü"): tam cümle
     static func note(_ m: PageMetrics, lines: ViewLines?, config c: GuidanceConfig = GuidanceConfig(), sharpFloor: Double = 0.45,
                      verbose: Bool = false) -> FramingNote {
         let d = GuidanceAdvisor.decide(m, config: c, sharpFloor: sharpFloor)
         switch d.advice {
         case .noText:
-            return FramingNote(kind: .noText, text: "Yazı görünmüyor. Kamerayı sayfaya çevirin.")
+            return FramingNote(kind: .noText, text: verbose ? "Yazı görünmüyor. Kamerayı sayfaya çevirin." : "Yazı yok.")
         case .blurry:
-            let text = d.fill >= 0.7 ? "Görüntü net değil, çok yakınsınız. Biraz uzaklaşın." : "Görüntü net değil. Kamerayı sabit tutun."
-            return FramingNote(kind: .blurry, text: text)
+            let close = d.fill >= 0.7
+            if verbose {
+                return FramingNote(kind: .blurry, text: close ? "Görüntü net değil, çok yakınsınız. Biraz uzaklaşın." : "Görüntü net değil. Kamerayı sabit tutun.")
+            }
+            return FramingNote(kind: .blurry, text: close ? "Bulanık, uzaklaşın." : "Bulanık, sabit tutun.")
         case .glare:
-            return FramingNote(kind: .glare, text: "Sayfada parlama var. Kamerayı biraz eğin.")
+            return FramingNote(kind: .glare, text: verbose ? "Sayfada parlama var. Kamerayı biraz eğin." : "Parlama. Kamerayı eğin.")
         case .moveLeft, .moveRight, .moveUp, .moveDown:
             let word = GuidanceAdvisor.amountWord(shift: d.shift, config: c)
             let dir = d.advice.directionWord
             if d.scale > 1 {
                 // Yazı kesik değil, küçük: yakınlaşınca taşacağı için önce ortalanır
                 let kind: FramingNote.Kind = d.advice == .moveRight ? .shiftRight : .shiftLeft
-                return FramingNote(kind: kind, text: "Yazı küçük. Önce kamerayı \(word) \(dir) kaydırıp sonra yaklaşın.")
+                let text = verbose ? "Yazı küçük. Önce kamerayı \(word) \(dir) kaydırıp sonra yaklaşın." : "\(capitalised(word)) \(dir), sonra yaklaşın."
+                return FramingNote(kind: kind, text: text)
             }
             let side = d.advice == .moveRight ? "Sağ" : "Sol"
             let kind: FramingNote.Kind = d.advice == .moveRight ? .cutRight : .cutLeft
-            return FramingNote(kind: kind, text: "\(side) taraf kesik. Kamerayı \(word) \(dir) kaydırın.")
+            return FramingNote(kind: kind, text: verbose ? "\(side) taraf kesik. Kamerayı \(word) \(dir) kaydırın." : "\(capitalised(word)) \(dir).")
         case .farther:
-            return FramingNote(kind: .tooWide, text: "Sayfa kadraja sığmıyor. Biraz uzaklaşın.")
+            return FramingNote(kind: .tooWide, text: verbose ? "Sayfa kadraja sığmıyor. Biraz uzaklaşın." : "Uzaklaşın.")
         case .closer:
-            return FramingNote(kind: .tooSmall, text: "Yazı küçük kalıyor. Biraz yaklaşın.")
+            return FramingNote(kind: .tooSmall, text: verbose ? "Yazı küçük kalıyor. Biraz yaklaşın." : "Yaklaşın.")
         case .ok:
             break
         }
         // Düzeltme gerekmiyor: sayfanın üç durumdan hangisinde göründüğü kâğıt kenarlarından bilinir
         let reading = layout(m)
         if let reading = reading, reading.layout == .middle {
-            return FramingNote(kind: .middle, text: layoutText(reading, verbose: verbose) + " Tam sayfa için uzaklaşın; yarım sayfa için kamerayı yukarı ya da aşağı kaydırın.")
+            let tail = verbose ? " Tam sayfa için uzaklaşın; yarım sayfa için kamerayı yukarı ya da aşağı kaydırın." : " Uzaklaşın ya da kaydırın."
+            return FramingNote(kind: .middle, text: layoutText(reading, verbose: verbose) + tail)
         }
         if m.y0 - c.topBand > emptyTopLimit {
-            return FramingNote(kind: .emptyTop, text: "Yazı kadrajın alt yarısında, üst taraf boş. Kamerayı biraz aşağı kaydırın.")
+            return FramingNote(kind: .emptyTop, text: verbose ? "Yazı kadrajın alt yarısında, üst taraf boş. Kamerayı biraz aşağı kaydırın." : "Üst boş, biraz aşağı.")
         }
         if let reading = reading {
             // Yarım görünümde kesik kenardan hangi satırın başlayıp bittiği söylenir; tam sayfada satır tarifine gerek yoktur
@@ -258,19 +303,19 @@ enum FramingCoach {
             switch reading.layout {
             case .upperHalf:
                 kind = .goodUpper
-                if let text = lines?.endsText { parts.append(text) }
+                if let text = (verbose ? lines?.endsText : lines?.endsShort) { parts.append(text) }
             case .lowerHalf:
                 kind = .goodLower
-                if let text = lines?.startsText { parts.append(text) }
+                if let text = (verbose ? lines?.startsText : lines?.startsShort) { parts.append(text) }
             default:
                 kind = .goodFull
             }
             return FramingNote(kind: kind, text: parts.joined(separator: " "))
         }
         var parts: [String] = []
-        if m.y1 < emptyBottomLimit { parts.append("Yazı kadrajın üst yarısında, alt taraf boş.") }
-        if let coverage = lines?.coverage { parts.append(coverage) }
-        if parts.isEmpty { parts.append("Kadraj uygun.") }
+        if m.y1 < emptyBottomLimit { parts.append(verbose ? "Yazı kadrajın üst yarısında, alt taraf boş." : "Alt boş.") }
+        if let coverage = (verbose ? lines?.coverage : lines?.shortCoverage) { parts.append(coverage) }
+        if parts.isEmpty { parts.append(verbose ? "Kadraj uygun." : okText) }
         return FramingNote(kind: .good, text: parts.joined(separator: " "))
     }
 
@@ -438,7 +483,7 @@ struct FramingCoachTimer {
             sameCount += 1
         }
         var text = note.text
-        if note.kind.isGood && correctionPending { text = "Tamam. " + text }
+        if note.kind.isGood && correctionPending { text = note.text == FramingCoach.okText ? "Tamam." : "Tamam. " + text }
         correctionPending = note.isCorrection
         lastKind = note.kind
         lastTime = time

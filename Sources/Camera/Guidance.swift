@@ -1104,6 +1104,7 @@ final class GuidanceEngine {
         return String(s.prefix(1)).uppercased(with: Locale(identifier: "tr_TR")) + String(s.dropFirst())
     }
 
+    /// Kısa söyleniş (kullanıcı kararı 2026-11-17: cümle değil kelime): "Epey sağa.", "Uzaklaşın.", "Bulanık, sabit tutun."
     /// `again`: aynı uyarı ardı ardına tekrarlanıyor ("Biraz daha sola…" diye ilerleme beklenir); `stuck`: ikiden fazla tekrar, hâlâ düzelmedi.
     /// `trend`: kamera durunca önceki ölçümle kıyas (doğru yöne gidildi / ters yöne gidildi / fazla kaçtı).
     func phrase(for advice: GuidanceAdvice, again: Bool = false, trend: GuidanceTrend = .steady, stuck: Bool = false) -> String {
@@ -1112,48 +1113,38 @@ final class GuidanceEngine {
             let dir = advice.directionWord
             let word = GuidanceAdvisor.amountWord(shift: lastShift, config: config)
             switch trend {
-            case .better: return "Doğru. \(capitalised(word)) daha \(dir) kaydırın."
-            case .worse: return "Ters yöne gittiniz. Kamerayı \(word) \(dir) kaydırın."
-            case .overshoot:
-                let back = advice.opposite?.directionWord ?? ""
-                return "Fazla \(back) kaydırdınız. \(capitalised(word)) \(dir) kaydırın."
+            case .better: return "Doğru. \(capitalised(word)) daha \(dir)."
+            case .worse: return "Ters yön. \(capitalised(word)) \(dir)."
+            case .overshoot: return "Fazla oldu. \(capitalised(word)) \(dir)."
             case .steady:
-                if stuck { return "Hâlâ aynı yönde. Daha fazla \(dir) kaydırın." }
-                return again ? "Biraz daha \(dir) kaydırın." : "Kamerayı \(word) \(dir) kaydırın."
+                if stuck { return "Daha fazla \(dir)." }
+                return again ? "Biraz daha \(dir)." : "\(capitalised(word)) \(dir)."
             }
         case .farther:
-            if trend == .overshoot { return "Fazla yaklaştınız. Biraz uzaklaşın." }
-            if stuck { return "Hâlâ taşıyor. Daha fazla uzaklaşın." }
-            return again ? "Biraz daha uzaklaşın." : "Biraz uzaklaşın, yazı kadrajdan taşıyor."
+            if trend == .overshoot { return "Fazla oldu. Uzaklaşın." }
+            if stuck { return "Daha fazla uzaklaşın." }
+            return again ? "Biraz daha uzaklaşın." : "Uzaklaşın."
         case .closer:
             switch trend {
             case .better: return "Doğru. Biraz daha yaklaşın."
-            case .worse: return "Ters yöne gittiniz. Yaklaşın."
-            case .overshoot: return "Fazla uzaklaştınız. Biraz yaklaşın."
+            case .worse: return "Ters yön. Yaklaşın."
+            case .overshoot: return "Fazla oldu. Yaklaşın."
             case .steady: break
             }
-            if stuck { return "Hâlâ küçük. Daha fazla yaklaşın." }
+            if stuck { return "Daha fazla yaklaşın." }
             if again { return "Biraz daha yaklaşın." }
-            return lastScale >= config.closerBigScale ? "Yaklaşın, yazı küçük kalıyor." : "Biraz yaklaşın."
-        case .noText: return "Yazı görünmüyor. Kamerayı belgeye çevirin."
+            return lastScale >= config.closerBigScale ? "Yaklaşın." : "Biraz yaklaşın."
+        case .noText: return "Yazı yok."
         case .blurry:
             // Yazı kadrajı dolduruyorsa büyük olasılıkla fazla yakındır: önce uzaklaşmak; küçükse önce sabit tutup beklemek
             let options: [String]
-            if lastFill >= 0.9 {
-                options = ["Görüntü net değil, çok yakınsınız. Biraz uzaklaşın.",
-                           "Yine de net değil. Kamerayı sabit tutup bekleyin.",
-                           "Net değil. Biraz yaklaşın."]
-            } else if lastFill >= 0.7 {
-                options = ["Görüntü net değil. Biraz uzaklaşın.",
-                           "Yine de net değil. Kamerayı sabit tutup bekleyin.",
-                           "Net değil. Biraz yaklaşın."]
+            if lastFill >= 0.7 {
+                options = ["Bulanık, uzaklaşın.", "Hâlâ bulanık, sabit tutun.", "Bulanık, yaklaşın."]
             } else {
-                options = ["Görüntü net değil. Kamerayı sabit tutup bekleyin.",
-                           "Yine de net değil. Biraz yaklaşın.",
-                           "Net değil. Biraz uzaklaşın."]
+                options = ["Bulanık, sabit tutun.", "Hâlâ bulanık, yaklaşın.", "Bulanık, uzaklaşın."]
             }
             return options[blurSpeaks % options.count]
-        case .glare: return "Sayfada parlama var. Kamerayı biraz eğin ya da ışığı değiştirin."
+        case .glare: return "Parlama. Kamerayı eğin."
         case .ok: return "Çekiyorum."
         }
     }
@@ -1238,7 +1229,7 @@ final class GuidanceEngine {
             let trend = a.isCorrection ? trendTracker.take(at: time, config: config) : .steady
             if trend != .steady || a != lastSpoken { repeats = 0 } else { repeats += 1 }
             if repeats >= config.maxRepeats {
-                out.speak = "Hâlâ uygun değil. Birazdan yine de çekeceğim."
+                out.speak = "Olmadı, birazdan çekeceğim."
                 muted = a
             } else {
                 var text = phrase(for: a, again: repeats > 0, trend: trend, stuck: repeats >= 2)
