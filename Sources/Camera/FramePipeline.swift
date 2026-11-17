@@ -48,6 +48,13 @@ final class FramePipeline {
         set { lock.lock(); _guidanceOrientation = newValue; lock.unlock() }
     }
 
+    private var _seriesSink: SeriesCollector?
+    /// Toplu çekimde analizden geçen her kare buraya da verilir (bkz. `SeriesCollector`); çekim dışında nil
+    var seriesSink: SeriesCollector? {
+        get { lock.lock(); defer { lock.unlock() }; return _seriesSink }
+        set { lock.lock(); _seriesSink = newValue; lock.unlock() }
+    }
+
     var guidanceOn: Bool {
         get { lock.lock(); defer { lock.unlock() }; return _guidance }
         set { lock.lock(); _guidance = newValue; lock.unlock() }
@@ -90,6 +97,7 @@ final class FramePipeline {
                 self.store.add(buffer: pixelBuffer, time: time,
                                sharpness: result.sharpness, signature: result.signature)
                 self.onAnalyzed?(pixelBuffer, time, result.sharpness)
+                self.seriesSink?.offer(buffer: pixelBuffer, time: time, sharpness: result.sharpness, signature: result.signature)
                 if self.guidanceOn { self.guidanceStep(pixelBuffer, signature: result.signature, time: time) }
             }
             self.lock.lock()

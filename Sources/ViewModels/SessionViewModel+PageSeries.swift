@@ -149,7 +149,13 @@ extension SessionViewModel {
         case .failure(let failure):
             tlog("[kamera] toplu çekim olmadı: \(failure.message)")
             clearWarning("kamera")
-            if online {
+            if online, failure == .unreadable {
+                // Kamera çalışıyor ama çekimde okunabilir yazı yoktu (bulanık, boş, soru görünmüyor): sesle devam edilmez, yeniden çekim önerilir;
+                // hiçbir şey Gemini'ye gitmez. Akış, çekim başarılı olduğundaki gibi ilerler: kamera yeniden hazırlanır, "Başla" beklenir
+                guard await speakNotice(Say.seriesUnreadable) else { offerCamera = true; return }
+                armCameraOffer()
+                beginListening()
+            } else if online {
                 await fallBackToVoice(Say.cameraFailed(failure, down: cameraGaveUp, minutes: settings.cameraCheckMinutes))
             } else if offlineCapture {
                 await continueOffline(Say.cameraFailedOfflineContinue(failure))

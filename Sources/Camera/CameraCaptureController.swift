@@ -593,19 +593,29 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         return await shootSeries(seconds: max(1, seconds))
     }
 
-    /// Oturum en az bu kadar fotoğraf aldıysa tutulur (görüntü kesilmişse alınanlar gönderilir; çok azsa çekim başarısız sayılır)
-    static func minPhotos(total: Int) -> Int { return max(1, min(5, total)) }
-
+    /// Kameranın verdiği HER kare ölçülür; 0,5 sn'lik pencerelerin en net karesi yazı tanımadan geçer, okunabilenler PDF'e girer (bkz. `SeriesSelection`).
+    /// Okunabilir kare yoksa `unreadable` döner: PDF kurulmaz, Gemini'ye gitmez, kullanıcı yeniden çekime yönlendirilir.
     private func shootSeries(seconds: Int) async -> Result<PageSeries, CameraFailure> {
         shooting = true
         let total = seconds
         let options = captureOptions()
-        let engine = pipeline.engine
+        let enhance = options.enhance
+        let orientation = enhance.orientation
         let t0 = ProcessInfo.processInfo.systemUptime
-        var tasks: [Task<Result<CapturedPhoto, CaptureError>, Never>] = []
+        let collector = SeriesCollector(
+            start: t0,
+            reader: { SeriesTextReader.read($0, orientation: orientation) },
+            renderer: { buffer in
+                guard let rendered = Enhancer.render(buffers: [buffer], options: enhance) else { return nil }
+                return (data: rendered.data, width: rendered.width, height: rendered.height)
+            },
+            log: { tlog($0) })
+        let rawBefore = pipeline.framesSeen
+        pipeline.seriesSink = collector
+        defer { pipeline.seriesSink = nil }
         var lostFor = 0
         var cutAt: Int?
-        tlog("[kamera] toplu çekim başladı: \(seconds) sn (konuşma ve titreşim yok)")
+        tlog("[kamera] toplu çekim başladı: \(seconds) sn (konuşma ve titreşim yok; her kare ölçülür, \(SeriesSelection.window) sn'lik pencerelerin en iyisi yazı tanımadan geçer)")
         for second in 1...total {
             if cancelled { break }
             status("Çekim: \(second)/\(total) sn")
@@ -622,43 +632,35 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
                 tlog("[kamera] toplu çekim: görüntü \(lostFor) sn kesildi (\(second). saniye); oturum bırakılıyor")
                 break
             }
-            let from = target - 1.0
-            tasks.append(Task<Result<CapturedPhoto, CaptureError>, Never> {
-                await withCheckedContinuation { (continuation: CheckedContinuation<Result<CapturedPhoto, CaptureError>, Never>) in
-                    engine.photo(from: from, to: target, reason: "Toplu çekim", options: options) { continuation.resume(returning: $0) }
-                }
-            })
         }
+        pipeline.seriesSink = nil
         if cancelled { return .failure(.cancelled) }
-        var photos: [CapturedPhoto] = []
-        var failures: [CaptureError] = []
-        for task in tasks {
-            switch await task.value {
-            case .success(let photo): photos.append(photo)
-            case .failure(let error): failures.append(error)
-            }
-        }
+        let outcome = await collector.finish()
         if cancelled { return .failure(.cancelled) }
-        let keep = CameraCaptureController.minPhotos(total: total)
-        guard photos.count >= keep, let best = photos.max(by: { $0.sharpness < $1.sharpness }) else {
-            tlog("[kamera] toplu çekim: yalnız \(photos.count) fotoğraf alınabildi (en az \(keep) gerekir)")
-            if cutAt != nil || failures.contains(where: { if case .noFrames = $0 { return true } else { return false } }) { return .failure(.noFrames) }
-            return .failure(.captureFailed(failures.first?.message ?? ""))
+        let stats = outcome.stats
+        let elapsed = max(1.0, ProcessInfo.processInfo.systemUptime - t0)
+        let rawFrames = max(0, pipeline.framesSeen - rawBefore)
+        tlog("[kamera] toplu çekim özeti: kameradan \(rawFrames) kare geldi (≈\(Int((Double(rawFrames) / elapsed).rounded()))/sn), \(stats.offered) kare ölçüldü (≈\(Int((Double(stats.offered) / elapsed).rounded()))/sn), \(stats.windows) pencere: \(stats.unreadable) okunamadığı için elendi, \(stats.busySkipped) atlandı, \(stats.merged) tekrar birleşti, \(stats.kept) aday → \(outcome.items.count) fotoğraf; yazı tanıma \(stats.read) kez çalıştı, \(stats.readFailed) kez çalışmadı; görülen soru numaraları: \(outcome.questionNumbers.map { String($0) }.joined(separator: ","))")
+        guard let best = outcome.items.max(by: { $0.quality < $1.quality }) else {
+            if cutAt != nil || stats.offered == 0 { return .failure(.noFrames) }
+            tlog("[kamera] toplu çekim: okunabilir kare yok; PDF kurulmadı, Gemini'ye gönderilmeyecek")
+            return .failure(.unreadable)
         }
-        // Bütün oturumun fotoğrafları TEK PDF olur (zaman sırasıyla); toplam bütçeyi aşarsa fotoğraflar yeniden sıkıştırılır
-        let raw = photos.map { $0.jpeg }
+        // Seçilen fotoğraflar zaman sırasıyla TEK PDF olur; toplam bütçeyi aşarsa fotoğraflar yeniden sıkıştırılır
+        let raw = outcome.items.map { $0.jpeg }
         let (pdf, fitted) = await Task.detached(priority: .userInitiated) { () -> (Data?, Int) in
             let fit = PageDocument.fit(raw)
             return (PageDocument.make(jpegs: fit, title: "Toplu çekim"), fit.reduce(0) { $0 + $1.count })
         }.value
-        tlog("[kamera] toplu çekim: \(photos.count)/\(total) fotoğraf (\(best.width)×\(best.height), ham \(raw.reduce(0) { $0 + $1.count } / 1024) KB → \(fitted / 1024) KB) → PDF \(pdf.map { "\($0.count / 1024) KB" } ?? "kurulamadı")")
+        tlog("[kamera] toplu çekim: \(outcome.items.count) fotoğraf (\(best.width)×\(best.height), ham \(raw.reduce(0) { $0 + $1.count } / 1024) KB → \(fitted / 1024) KB) → PDF \(pdf.map { "\($0.count / 1024) KB" } ?? "kurulamadı")")
         var shot = CapturedQuestion(photo: best.jpeg)
         shot.pdf = pdf
-        shot.pageCount = pdf == nil ? 0 : photos.count
-        shot.date = best.date
+        shot.pageCount = pdf == nil ? 0 : outcome.items.count
+        shot.date = Date()
         shot.isPage = true
-        let failure: CameraFailure? = cutAt != nil ? .noFrames : (photos.count < total ? .captureFailed("") : nil)
-        return .success(PageSeries(shot: shot, planned: total, failure: failure))
+        // Görüntü akışı kesildiyse oturum yarımdır (planlanan süre dolmadı); değilse "planlanan" = seçilen fotoğraf sayısı: seçim süreyle değil kaliteyle yapılır
+        let failure: CameraFailure? = cutAt != nil ? .noFrames : nil
+        return .success(PageSeries(shot: shot, planned: cutAt != nil ? total : outcome.items.count, failure: failure))
     }
 
     // MARK: Yardımcılar

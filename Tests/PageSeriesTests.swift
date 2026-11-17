@@ -351,7 +351,7 @@ final class PageSeriesTests: XCTestCase {
         reply(h, "başla")
         let done = await waitUntil(45) { h.vm.answers.count == 1 && self.questionOpen(h) }
         XCTAssertTrue(done, "\(h.speaker.spoken)")
-        XCTAssertTrue(h.speaker.spoken.contains(Say.seriesDone(taken: 40, planned: 75)), "Yarıda kesilince kaç sayfa alındığı söylenir")
+        XCTAssertTrue(h.speaker.spoken.contains(Say.seriesDone(taken: 40, planned: 75)), "Yarıda kesilince söylenir; sayı seçilen net görüntü sayısıdır")
         XCTAssertEqual(h.answering.pageCalls.first?.shot.pageCount, 40)
         XCTAssertTrue(h.vm.pendingShots.isEmpty)
     }
@@ -441,10 +441,22 @@ final class PageSeriesTests: XCTestCase {
         XCTAssertFalse(CameraSettings(defaults: defaults).pageSeries, "Ayar kalıcıdır")
     }
 
-    func testASessionNeedsAFewPhotosToBeKept() {
-        XCTAssertEqual(CameraCaptureController.minPhotos(total: 75), 5)
-        XCTAssertEqual(CameraCaptureController.minPhotos(total: 3), 3)
-        XCTAssertEqual(CameraCaptureController.minPhotos(total: 1), 1)
+    /// Çekimde okunabilir yazı yoksa (bulanık, boş, soru görünmüyor) Gemini'ye hiçbir şey gitmez; kullanıcıya söylenir ve kamera yeniden hazırlanır
+    func testASessionWithNothingReadableSendsNothingAndOffersAnotherTake() async {
+        let h = harness(seriesResults: [.failure(.unreadable), series()], pageReplies: [.success([FakeAnswering.reply(1)])])
+        _ = await h.startListening()
+        reply(h, "başla")
+        let again = await waitUntil(45) { h.speaker.spoken.contains(Say.seriesUnreadable) && self.questionOpen(h) }
+        XCTAssertTrue(again, "\(h.speaker.spoken)")
+        XCTAssertTrue(h.answering.pageCalls.isEmpty, "Okunamayan çekim Gemini'ye gitmez")
+        XCTAssertTrue(h.vm.pendingShots.isEmpty)
+        XCTAssertFalse(h.speaker.spoken.contains(Say.cameraFailed(.unreadable)), "Sesle okumaya düşülmez: yeniden çekim önerilir")
+        XCTAssertNil(h.vm.cameraDownSince, "Kamera bozuk sayılmaz; yalnız çekim okunamadı")
+        reply(h, "başla")
+        let second = await waitUntil(45) { h.vm.answers.count == 1 && self.questionOpen(h) }
+        XCTAssertTrue(second, "\(h.speaker.spoken)")
+        XCTAssertEqual(h.answering.pageCalls.count, 1)
+        XCTAssertEqual(h.camera.seriesCalls.count, 2)
     }
 
     // MARK: Tek PDF ve boyut bütçesi

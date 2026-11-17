@@ -100,6 +100,8 @@ enum CameraFailure: Error, Equatable {
     case lowDisk
     /// Çekim işlenemedi
     case captureFailed(String)
+    /// Toplu çekimde hiçbir karede okunabilir yazı yok (bulanık, boş, soru görünmüyor): PDF kurulmaz, Gemini'ye gönderilmez
+    case unreadable
     /// Kullanıcı ya da program iptal etti
     case cancelled
     /// Bu sürümde kamera yok (test / yapılandırılmamış)
@@ -112,6 +114,7 @@ enum CameraFailure: Error, Equatable {
         case .noPosition: return "Sayfa kadraja alınamadı."
         case .lowDisk: return "Telefonda boş yer çok az."
         case .captureFailed(let why): return why.isEmpty ? "Çekim yapılamadı." : "Çekim yapılamadı: \(why)"
+        case .unreadable: return "Çekimde okunabilir soru görünmedi."
         case .cancelled: return "Çekim iptal edildi."
         case .unavailable: return "Kamera kullanılamıyor."
         }
@@ -128,7 +131,7 @@ enum CaptureSubject: Equatable {
 /// kesilmiştir (planlanan fotoğrafların yalnız bir kısmı alındı)
 struct PageSeries: Equatable {
     var shot: CapturedQuestion
-    /// Planlanan fotoğraf sayısı (sayfa sayısı × sayfa süresi: saniyede bir fotoğraf)
+    /// Planlanan fotoğraf sayısı: oturum tam bittiyse seçilen (PDF'e giren) fotoğraf sayısı, görüntü akışı kesildiyse oturumun süresi (sn)
     var planned: Int
     var failure: CameraFailure?
 }
