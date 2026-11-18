@@ -37,6 +37,8 @@ struct PageMetrics: Equatable {
     var glyphShare = 1.0
     /// Apple Vision'ın bulduğu kâğıt kenarları (kamera durunca, seyrek ölçülür); ölçülmediyse ya da bulunamadıysa nil
     var edges: PageEdges?
+    /// Kare bozuk çözülmüş (bloklaşmış; bkz. `StoredFrame.damaged`): koç bu görünümü hiçbir zaman "alındı" saymaz (kullanıcı kararı 2026-11-18)
+    var damaged = false
 
     var summary: String {
         if !hasText { return hasPage ? "sayfa var, yazı seçilemiyor" : "yazı bulunamadı" }

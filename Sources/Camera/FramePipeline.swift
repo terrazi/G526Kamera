@@ -118,7 +118,10 @@ final class FramePipeline {
                 self.onAnalyzed?(pixelBuffer, time, result.sharpness)
                 self.seriesSink?.offer(buffer: pixelBuffer, time: time, sharpness: result.sharpness, signature: result.signature,
                                        blockiness: blockiness)
-                if self.guidanceOn { self.guidanceStep(pixelBuffer, signature: result.signature, time: time) }
+                if self.guidanceOn {
+                    self.guidanceStep(pixelBuffer, signature: result.signature, time: time,
+                                      damaged: blockiness > FrameAnalysis.damagedBlockiness)
+                }
             }
             self.lock.lock()
             self.backlog -= 1
@@ -126,7 +129,7 @@ final class FramePipeline {
         }
     }
 
-    private func guidanceStep(_ pixelBuffer: CVPixelBuffer, signature sig: [UInt8], time: TimeInterval) {
+    private func guidanceStep(_ pixelBuffer: CVPixelBuffer, signature sig: [UInt8], time: TimeInterval, damaged: Bool = false) {
         if let prev = prevSignature {
             if FrameAnalysis.difference(prev, sig) > FramePipeline.stillDiff { lastMoveTime = time }
         } else {
@@ -140,6 +143,7 @@ final class FramePipeline {
         var metrics = PageMetrics()
         if still >= 0.2, let m = GuidanceAnalyzer.analyze(pixelBuffer, orientation: guidanceOrientation) { metrics = m }
         metrics.edges = pageEdges(for: pixelBuffer, still: still, time: time, hasText: metrics.hasText)
+        metrics.damaged = damaged
         onGuidance?(GuidanceSample(metrics: metrics, time: time, stillFor: still))
     }
 

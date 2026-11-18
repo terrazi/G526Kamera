@@ -587,7 +587,7 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         var lines: ViewLines?
         if let cached = coachLines, sample.time - cached.time <= CameraCaptureController.coachLinesMaxAge { lines = cached.lines }
         if let text = coach.step(metrics: sample.metrics, lines: lines, time: sample.time, stillFor: sample.stillFor,
-                                 guidance: coachConfig, sharpFloor: coachSharpFloor, expectEdges: coachExpectsEdges) {
+                                 guidance: coachConfig, sharpFloor: coachSharpFloor, expectEdges: coachExpectsEdges, firstReadable: true) {
             // Düzgün kadrajda uygunluğun yanında sayfanın alındığı ve sıradakine geçilebileceği de söylenir (kullanıcı kararı 2026-11-18)
             sayCoach(coach.lastWasGood ? FramingCoach.withCapture(text) : text)
         }
@@ -598,7 +598,8 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
     private func requestCoachLines(at time: TimeInterval, stillFor: TimeInterval) {
         let now = ProcessInfo.processInfo.systemUptime
         let fresh = pipeline.store.frames(from: now - min(max(stillFor - 0.1, 0.2), 1.0), to: now + 1)
-        guard let best = fresh.max(by: { $0.sharpness < $1.sharpness }) else { return }
+        // Bozuk kare bloklardaki keskin kenarlar yüzünden "çok net" ölçülür: `pickScore` onu geriye alır; yalnız bozuk kare varsa okunmaz
+        guard let best = fresh.max(by: { $0.pickScore < $1.pickScore }), !best.damaged else { return }
         coachOCRBusy = true
         coachOCRTime = time
         let epoch = coachMoveEpoch

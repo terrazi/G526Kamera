@@ -791,3 +791,304 @@ final class FramingCoachFlowTests: XCTestCase {
         XCTAssertTrue(done, "\(h.speaker.spoken)")
     }
 }
+
+// MARK: - İlk yeterli görüntü (kullanıcı kararı 2026-11-18)
+
+/// Görüntü kadraja sığıyor ve program okuyabiliyorsa daha mükemmel görüntü için konumlandırma yapılmaz, ilk yeterli görüntü alınır ("Alındı. Sonraki.");
+/// bozuk (bloklu) görüntü kabul edilmez; soru ya da paragraf tam görünmüyorsa kabul edilmez, tüm sayfa için "Uzaklaşın" denir.
+final class ViewCompletenessTests: XCTestCase {
+    private func line(_ text: String, top: Double, x: Double = 0.1, width: Double = 0.8) -> (text: String, box: CGRect) {
+        return (text: text, box: CGRect(x: x, y: 1 - top - 0.03, width: width, height: 0.03))
+    }
+
+    /// Numaralı bir soru ve A–E şıkları, `first` üstten başlar
+    private func question(_ number: Int, first: Double, x: Double = 0.1, width: Double = 0.8, upTo last: String = "E") -> [(text: String, box: CGRect)] {
+        var rows = [line("\(number). Aşağıdaki cümlelerin hangisinde yazım yanlışı vardır", top: first, x: x, width: width)]
+        for (i, letter) in ["A", "B", "C", "D", "E"].enumerated() {
+            rows.append(line("\(letter)) \(i + 1). seçenek metni burada", top: first + 0.10 * Double(i + 1), x: x, width: width))
+            if letter == last { break }
+        }
+        return rows
+    }
+
+    func testAQuestionThatStartsWithItsNumberAndEndsWithEIsComplete() {
+        let v = ViewLines.make(question(12, first: 0.12))
+        XCTAssertTrue(v.topComplete)
+        XCTAssertTrue(v.bottomComplete)
+        XCTAssertTrue(v.isReadable)
+    }
+
+    func testAViewThatStartsInTheMiddleOfAQuestionIsNotCompleteAtTheTop() {
+        var rows = [line("C) üçüncü seçenek metni burada", top: 0.12), line("D) dördüncü seçenek metni burada", top: 0.22),
+                    line("E) beşinci seçenek metni burada", top: 0.32)]
+        rows += question(13, first: 0.40)
+        let v = ViewLines.make(rows)
+        XCTAssertFalse(v.topComplete, "Üstte önceki sorunun yalnız şıkları var")
+        XCTAssertTrue(v.bottomComplete)
+    }
+
+    func testTheTopLineTouchingTheEdgeIsNotComplete() {
+        var rows = question(12, first: 0.12)
+        rows[0] = (text: rows[0].text, box: CGRect(x: 0.1, y: 0.975, width: 0.8, height: 0.03))
+        XCTAssertFalse(ViewLines.make(rows).topComplete)
+    }
+
+    func testAQuestionWithoutItsEOptionIsNotCompleteAtTheBottom() {
+        let v = ViewLines.make(question(12, first: 0.05) + question(13, first: 0.60, upTo: "C"))
+        XCTAssertTrue(v.topComplete)
+        XCTAssertFalse(v.bottomComplete, "13. soru C şıkkında kesildi")
+    }
+
+    func testTheEOptionTouchingTheBottomEdgeIsNotComplete() {
+        var rows = question(12, first: 0.12)
+        rows[rows.count - 1] = (text: rows[rows.count - 1].text, box: CGRect(x: 0.1, y: 0.002, width: 0.8, height: 0.03))
+        XCTAssertFalse(ViewLines.make(rows).bottomComplete)
+    }
+
+    func testAParagraphWithoutNumbersIsNeverCompleteFromTheTextAlone() {
+        let v = ViewLines.make([line("Sabahın erken saatlerinde köyün meydanında toplanan insanlar", top: 0.15),
+                                line("uzun bir süre konuşmadan öylece beklediler çünkü kimse", top: 0.25),
+                                line("ne söyleyeceğini tam olarak bilemiyordu ve hava soğuktu", top: 0.35)])
+        XCTAssertFalse(v.topComplete)
+        XCTAssertFalse(v.bottomComplete)
+        XCTAssertTrue(v.isReadable)
+    }
+
+    func testAtMostTwoContinuationLinesMayFollowTheEOption() {
+        let tail1 = [line("E şıkkının devamı ikinci satırda", top: 0.75)]
+        XCTAssertTrue(ViewLines.make(question(12, first: 0.10) + tail1).bottomComplete)
+        let passage = [line("Sonraki paragrafın birinci satırı burada", top: 0.75), line("Sonraki paragrafın ikinci satırı burada", top: 0.80),
+                       line("Sonraki paragrafın üçüncü satırı burada", top: 0.85)]
+        XCTAssertFalse(ViewLines.make(question(12, first: 0.10) + passage).bottomComplete, "E'den sonra başka bir paragraf başlamış")
+    }
+
+    func testTwoColumnsAreJudgedOneByOne() {
+        let left = question(12, first: 0.12, x: 0.05, width: 0.4)
+        let rightComplete = question(13, first: 0.12, x: 0.55, width: 0.4)
+        XCTAssertTrue(ViewLines.make(left + rightComplete).bottomComplete)
+        let rightCut = question(13, first: 0.12, x: 0.55, width: 0.4, upTo: "C")
+        let v = ViewLines.make(left + rightCut)
+        XCTAssertFalse(v.bottomComplete, "Sağ sütundaki soru kesik")
+        XCTAssertTrue(v.topComplete)
+    }
+
+    func testAShortFragmentIsNotReadableAndTheClockBandIsNotCounted() {
+        XCTAssertFalse(ViewLines.make([line("ab cd", top: 0.30)]).isReadable)
+        let clockOnly = ViewLines.make([line("12:45 kamera saat yazısı bandı ve tarih bilgisi", top: 0.02)], skipTop: 0.075)
+        XCTAssertEqual(clockOnly.chars, 0)
+        XCTAssertFalse(clockOnly.isReadable)
+    }
+
+    func testNoTextIsNeitherReadableNorComplete() {
+        let v = ViewLines.make([])
+        XCTAssertFalse(v.isReadable)
+        XCTAssertFalse(v.topComplete)
+        XCTAssertFalse(v.bottomComplete)
+    }
+}
+
+final class FirstReadableNoteTests: XCTestCase {
+    private func metrics(x0: Double = 0.2, x1: Double = 0.8, y0: Double = 0.2, y1: Double = 0.8, sharp: Double = 1.0, glare: Double = 0) -> PageMetrics {
+        var m = PageMetrics()
+        m.hasPage = true
+        m.hasText = true
+        m.x0 = x0; m.x1 = x1; m.y0 = y0; m.y1 = y1
+        m.cells = 600
+        m.sharp = sharp
+        m.glare = glare
+        return m
+    }
+
+    private func edges(left: Double = 0.1, right: Double = 0.9, top: Double = 0.1, bottom: Double = 0.9) -> PageEdges {
+        return PageEdges(points: [PageEdges.Point(x: left, y: top), PageEdges.Point(x: right, y: top),
+                                  PageEdges.Point(x: right, y: bottom), PageEdges.Point(x: left, y: bottom)], confidence: 0.9)
+    }
+
+    private let complete = ViewLines(chars: 160, topComplete: true, bottomComplete: true)
+
+    private func note(_ m: PageMetrics, lines: ViewLines?, verbose: Bool = false) -> FramingNote {
+        return FramingCoach.note(m, lines: lines, sharpFloor: 0.45, verbose: verbose, firstReadable: true)
+    }
+
+    func testADamagedViewIsNeverAcceptedEvenWhenItsTextIsReadable() {
+        var m = metrics()
+        m.damaged = true
+        let n = note(m, lines: complete)
+        XCTAssertEqual(n.kind, .damaged)
+        XCTAssertEqual(n.text, "Bozuk, sabit tutun.")
+        XCTAssertTrue(n.isCorrection)
+        XCTAssertEqual(note(m, lines: nil).kind, .damaged, "Yazı tanıma beklenmeden söylenir")
+        XCTAssertEqual(note(m, lines: complete, verbose: true).text, "Görüntü bozuk. Kamerayı sabit tutun.")
+        XCTAssertEqual(FramingCoach.note(m, lines: complete, sharpFloor: 0.45).kind, .good, "Eski davranış (ayrıntılı kontrol) bozukluğa bakmaz")
+    }
+
+    func testReadableSmallTextIsAcceptedWithoutAskingToComeCloser() {
+        let small = metrics(x0: 0.4, x1: 0.6, y0: 0.4, y1: 0.6)
+        XCTAssertEqual(note(small, lines: nil).kind, .tooSmall, "Okunduğu kanıtlanmadan eski öneri sürer")
+        let n = note(small, lines: complete)
+        XCTAssertEqual(n.kind, .good)
+        XCTAssertEqual(n.text, FramingCoach.okText)
+        let off = metrics(x0: 0.6, x1: 0.8, y0: 0.4, y1: 0.6)
+        XCTAssertEqual(note(off, lines: complete).kind, .good, "Önce kaydır sonra yaklaş da iptal olur")
+    }
+
+    func testReadableBlurryGlaringOrLowTextIsAcceptedToo() {
+        XCTAssertEqual(note(metrics(sharp: 0.2), lines: complete).kind, .good)
+        XCTAssertEqual(note(metrics(glare: 0.5), lines: complete).kind, .good)
+        XCTAssertEqual(note(metrics(y0: 0.6, y1: 0.9), lines: complete).kind, .good)
+        XCTAssertEqual(note(PageMetrics(), lines: complete).kind, .good, "Okunuyorsa 'yazı yok' denmez")
+    }
+
+    func testTextTheProgramCannotReadKeepsTheOldAdvice() {
+        let weak = ViewLines(chars: 6, topComplete: true, bottomComplete: true)
+        XCTAssertEqual(note(metrics(sharp: 0.2), lines: weak).kind, .blurry)
+        XCTAssertEqual(note(metrics(x0: 0.4, x1: 0.6, y0: 0.4, y1: 0.6), lines: weak).kind, .tooSmall)
+    }
+
+    func testARealSideCutAndATooWideViewAreStillCorrected() {
+        XCTAssertEqual(note(metrics(x0: 0.15, x1: 0.995), lines: complete).kind, .cutRight)
+        XCTAssertEqual(note(metrics(x0: 0.005, x1: 0.995), lines: complete).kind, .tooWide)
+    }
+
+    func testAQuestionThatIsNotFullyVisibleAsksForTheWholePage() {
+        let cutBottom = ViewLines(chars: 160, topComplete: true, bottomComplete: false)
+        let n = note(metrics(), lines: cutBottom)
+        XCTAssertEqual(n.kind, .incomplete)
+        XCTAssertEqual(n.text, "Metin kesik, uzaklaşın.")
+        XCTAssertTrue(n.isCorrection)
+        XCTAssertEqual(note(metrics(), lines: ViewLines(chars: 160, topComplete: false, bottomComplete: true)).kind, .incomplete)
+        XCTAssertEqual(note(metrics(), lines: cutBottom, verbose: true).text, "Soru ya da paragraf tam görünmüyor. Tüm sayfa için uzaklaşın.")
+    }
+
+    func testACompleteQuestionIsAcceptedEvenWhenItIsASliceOfThePage() {
+        var m = metrics(y0: 0.1, y1: 0.9)
+        m.edges = edges(top: 0.0, bottom: 1.0)
+        let n = note(m, lines: complete)
+        XCTAssertEqual(n.kind, .good, "Üst ve alt kenar görünmese de soru başından sonuna görünüyor")
+        XCTAssertEqual(n.text, FramingCoach.okText)
+        XCTAssertEqual(note(m, lines: ViewLines(chars: 160, topComplete: true, bottomComplete: false)).kind, .incomplete)
+    }
+
+    func testAWholePageIsAcceptedWhateverTheTextBlocksLookLike() {
+        var m = metrics(y0: 0.15, y1: 0.85)
+        m.edges = edges()
+        let n = note(m, lines: ViewLines(chars: 160, topComplete: false, bottomComplete: false))
+        XCTAssertEqual(n.kind, .goodFull, "Kâğıdın dört kenarı kadrajda: tam sayfa görünüyor")
+        XCTAssertEqual(n.text, "Tam sayfa.")
+    }
+
+    func testTheUpperHalfNeedsTheLastQuestionToEndWithE() {
+        var m = metrics(y0: 0.15, y1: 0.95)
+        m.edges = edges(bottom: 1.0)
+        XCTAssertEqual(note(m, lines: ViewLines(chars: 160, topComplete: false, bottomComplete: false)).kind, .incomplete)
+        let n = note(m, lines: ViewLines(chars: 160, topComplete: false, bottomComplete: true))
+        XCTAssertEqual(n.kind, .goodUpper, "Kâğıdın üst kenarı görünüyor: üst taraf tam")
+        XCTAssertEqual(n.text, "Üst yarı.", "Kabul edilen görüntüde satır tarifi okunmaz: hız")
+    }
+
+    func testWithoutFirstReadableNothingChanges() {
+        let small = metrics(x0: 0.4, x1: 0.6, y0: 0.4, y1: 0.6)
+        XCTAssertEqual(FramingCoach.note(small, lines: complete, sharpFloor: 0.45).kind, .tooSmall)
+        XCTAssertEqual(FramingCoach.note(metrics(), lines: ViewLines(chars: 160, topComplete: false, bottomComplete: false), sharpFloor: 0.45).kind, .good)
+    }
+}
+
+final class FirstReadableTimerTests: XCTestCase {
+    private func metrics(x0: Double = 0.2, x1: Double = 0.8, y0: Double = 0.2, y1: Double = 0.8) -> PageMetrics {
+        var m = PageMetrics()
+        m.hasPage = true
+        m.hasText = true
+        m.x0 = x0; m.x1 = x1; m.y0 = y0; m.y1 = y1
+        m.cells = 600
+        m.sharp = 1.0
+        return m
+    }
+
+    private let complete = ViewLines(chars: 160, topComplete: true, bottomComplete: true)
+
+    private func step(_ t: inout FramingCoachTimer, _ m: PageMetrics, at time: TimeInterval, lines: ViewLines?) -> String? {
+        return t.step(metrics: m, lines: lines, time: time, stillFor: 1, sharpFloor: 0.45, expectEdges: false, firstReadable: true)
+    }
+
+    func testAReadableCompleteViewIsAcceptedAtTheSecondMeasurement() {
+        var t = FramingCoachTimer()
+        XCTAssertNil(step(&t, metrics(), at: 10.0, lines: complete))
+        XCTAssertEqual(step(&t, metrics(), at: 10.3, lines: complete), FramingCoach.okText)
+        XCTAssertTrue(t.lastWasGood)
+    }
+
+    func testReadableSmallTextIsAcceptedInsteadOfAskingToComeCloser() {
+        var t = FramingCoachTimer()
+        let small = metrics(x0: 0.4, x1: 0.6, y0: 0.4, y1: 0.6)
+        _ = step(&t, small, at: 10.0, lines: complete)
+        XCTAssertEqual(step(&t, small, at: 10.3, lines: complete), FramingCoach.okText)
+    }
+
+    func testRefinementsWaitForTheTextRecognitionButOnlyBrieflyThenTheGeometrySpeaks() {
+        var t = FramingCoachTimer()
+        let small = metrics(x0: 0.4, x1: 0.6, y0: 0.4, y1: 0.6)
+        var spoken: [(TimeInterval, String)] = []
+        for i in 0..<10 {
+            let time = 10.0 + Double(i) * 0.3
+            if let s = step(&t, small, at: time, lines: nil) { spoken.append((time, s)) }
+        }
+        XCTAssertEqual(spoken.first?.1, "Yaklaşın.", "Yazı tanıma gelmediyse geometri konuşur")
+        XCTAssertGreaterThanOrEqual(spoken.first?.0 ?? 0, 11.5, "En az lineWait (1,5 sn) beklenir")
+    }
+
+    func testTheTextRecognitionResultCancelsTheWaitingRefinement() {
+        var t = FramingCoachTimer()
+        let small = metrics(x0: 0.4, x1: 0.6, y0: 0.4, y1: 0.6)
+        XCTAssertNil(step(&t, small, at: 10.0, lines: nil))
+        XCTAssertNil(step(&t, small, at: 10.3, lines: nil))
+        XCTAssertNil(step(&t, small, at: 10.6, lines: complete))
+        XCTAssertEqual(step(&t, small, at: 10.9, lines: complete), FramingCoach.okText)
+    }
+
+    func testADamagedViewAndAnIncompleteQuestionAreSaidWithoutWaiting() {
+        var t = FramingCoachTimer()
+        var damaged = metrics()
+        damaged.damaged = true
+        XCTAssertNil(step(&t, damaged, at: 10.0, lines: nil))
+        XCTAssertEqual(step(&t, damaged, at: 10.3, lines: nil), "Bozuk, sabit tutun.")
+        XCTAssertFalse(t.lastWasGood, "Bozuk görüntüye 'Alındı' denmez")
+
+        var u = FramingCoachTimer()
+        let cut = ViewLines(chars: 160, topComplete: true, bottomComplete: false)
+        XCTAssertNil(step(&u, metrics(), at: 10.0, lines: cut))
+        XCTAssertEqual(step(&u, metrics(), at: 10.3, lines: cut), "Metin kesik, uzaklaşın.")
+        XCTAssertFalse(u.lastWasGood)
+    }
+
+    func testAfterStepBackTheTextGettingSmallDoesNotContradictWithComeCloser() {
+        var t = FramingCoachTimer()
+        let cut = ViewLines(chars: 160, topComplete: true, bottomComplete: false)
+        _ = step(&t, metrics(), at: 10.0, lines: cut)
+        XCTAssertEqual(step(&t, metrics(), at: 10.3, lines: cut), "Metin kesik, uzaklaşın.")
+        // Uzaklaşınca yazı küçüldü ve okunmuyor: "Yaklaşın." yerine yarım yarım çekim önerilir
+        let small = metrics(x0: 0.4, x1: 0.6, y0: 0.4, y1: 0.6)
+        let weak = ViewLines(chars: 6, topComplete: false, bottomComplete: false)
+        _ = step(&t, small, at: 12.0, lines: weak)
+        XCTAssertEqual(step(&t, small, at: 12.3, lines: weak), FramingCoach.halvesText)
+        XCTAssertFalse(t.lastWasGood)
+    }
+
+    func testWithoutAStepBackSmallTextStillSaysComeCloser() {
+        var t = FramingCoachTimer()
+        let small = metrics(x0: 0.4, x1: 0.6, y0: 0.4, y1: 0.6)
+        let weak = ViewLines(chars: 6, topComplete: false, bottomComplete: false)
+        _ = step(&t, small, at: 10.0, lines: weak)
+        XCTAssertEqual(step(&t, small, at: 10.3, lines: weak), "Yaklaşın.")
+    }
+
+    func testAfterTheQuestionBecomesCompleteTheTimerSaysOkAndNextAfterTheCorrection() {
+        var t = FramingCoachTimer()
+        let cut = ViewLines(chars: 160, topComplete: true, bottomComplete: false)
+        _ = step(&t, metrics(), at: 10.0, lines: cut)
+        XCTAssertEqual(step(&t, metrics(), at: 10.3, lines: cut), "Metin kesik, uzaklaşın.")
+        _ = step(&t, metrics(), at: 12.0, lines: complete)
+        let said = step(&t, metrics(), at: 12.3, lines: complete)
+        XCTAssertEqual(said, "Tamam.", "Düzeltmeden sonra tamam; çağıran bunu 'Alındı. Sonraki.' yapar")
+        XCTAssertEqual(FramingCoach.withCapture(said ?? ""), FramingCoach.capturedText)
+    }
+}
