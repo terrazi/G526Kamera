@@ -181,6 +181,36 @@ struct WindowBest<Payload> {
     }
 }
 
+/// Ritim modunda dilimin en iyisini seçer (saf mantık): kare, ait olduğu dilimin numarasıyla verilir; dilim değişince ÖNCEKİ dilimin kazananı döner
+struct SlotBest<Payload> {
+    private var index = -1
+    private var best: (score: Double, payload: Payload)?
+
+    /// Geç gelen (eski dilime ait) kareler yok sayılır
+    mutating func offer(slot: Int, score: Double, payload: Payload) -> Payload? {
+        if slot < index { return nil }
+        var finished: Payload?
+        if slot > index {
+            finished = best?.payload
+            best = nil
+            index = slot
+        }
+        if let current = best {
+            if score > current.score { best = (score, payload) }
+        } else {
+            best = (score, payload)
+        }
+        return finished
+    }
+
+    /// Açık dilimin kazananını verir ve dilimi kapatır
+    mutating func flush() -> Payload? {
+        let payload = best?.payload
+        best = nil
+        return payload
+    }
+}
+
 /// PDF'e girecek bir aday kare
 struct SeriesItem {
     var time: TimeInterval
@@ -193,6 +223,8 @@ struct SeriesItem {
     var signature: [UInt8]
     /// Bozuk (bloklaşmış / önceki sahneyle karışmış) kare: yazısı okunsa bile "yararlı" sayılmaz, yalnız sağlam kare yetmezse tamamlayıcı olarak gider
     var damaged = false
+    /// Ritim modunda karenin dilim numarası (bkz. `SeriesRhythm.slotIndex`); klasik seçimde nil
+    var slot: Int?
 
     /// Karede soru görünüyor mu: yazı okunabilir (yeterli harf) ya da bir şık harfi / soru numarası görülmüş. Okunan kareler her zaman alınır;
     /// öteki (zayıf) kareler yalnız okunan kare azsa en nete göre tamamlanır. Bozuk kare hiçbir zaman yararlı sayılmaz (karışık yazı Gemini'yi yanıltır).
@@ -217,6 +249,8 @@ struct SeriesPool {
     /// Aynı görünüm diye birleştirilen aday sayısı
     private(set) var merged = 0
     var capacity = SeriesSelection.maxFrames
+    /// Ritim modu: her dilimin kazananı kalır, hiçbiri "aynı görünüm" diye birleşmez ya da elenmez (dört parça kasten birbirini örter)
+    var keepAll = false
 
     /// Aynı görünüm: ikisinin de yazısı okunduysa kelime örtüşmesi; değilse kare imzalarının farkı. (İmza tek başına yetmez: iki farklı yazılı sayfa
     /// 32×18 ızgarada birbirine çok benzer; yazı bulunduğunda kelimelere bakılır.)
@@ -251,6 +285,10 @@ struct SeriesPool {
     }
 
     mutating func add(_ item: SeriesItem) {
+        if keepAll {
+            items.append(item)
+            return
+        }
         // Yalnız sonuncuyla değil, son birkaç adayla karşılaştırılır (A, B, A' sırasında A' birinciyle birleşir)
         let recent = items.indices.suffix(SeriesSelection.lookback)
         if let index = recent.reversed().first(where: { SeriesPool.sameView(items[$0], item) }) {
@@ -306,6 +344,7 @@ struct SeriesPool {
     /// azsa kalan yer, okunamayan (zayıf) karelerin en netleriyle doldurulur: yazı tanıma zayıf kalmış olabilir, Gemini bu kareleri çoğu zaman okur.
     /// Hiç yararlı kare yoksa yalnız zayıf kareler gider. Çekim boş dönmez (kare varsa).
     func selected(minPages: Int = SeriesSelection.minPages) -> [SeriesItem] {
+        if keepAll { return items.sorted { $0.time < $1.time } }
         let useful = items.filter { $0.isUseful }
         var chosen: [SeriesItem] = []
         if let best = useful.map({ $0.quality }).max() {
@@ -341,6 +380,8 @@ final class SeriesCollector {
         /// Kamera bu kareden önce kaç sn durgundu (bir önceki kareyle imza farkı `FramePipeline.stillDiff` altında kaldığı süre)
         var stillFor: TimeInterval = 0
         var still: Bool { return stillFor >= SeriesSelection.minStill }
+        /// Ritim modunda karenin dilim numarası
+        var slot: Int?
     }
 
     struct Stats: Equatable {
@@ -377,10 +418,15 @@ final class SeriesCollector {
         var questionNumbers: [Int]
         /// Çekimin teşhisi: bulanık / çok yakın / yazı yok / numara boşluğu (bkz. `CaptureDiagnosis`)
         var diagnosis: CaptureDiagnosis
+        /// Ritim modunda her fotoğrafın etiketi ("2. sayfa, orta üst"), `items` ile aynı sırada; klasik seçimde boş
+        var labels: [String] = []
     }
 
     private let lock = NSLock()
     private var windows: WindowBest<Frame>
+    /// Ritim modu: pencereler yerine dilimlerin en iyisi seçilir
+    private let rhythm: SeriesRhythm?
+    private var slots = SlotBest<Frame>()
     private var pool = SeriesPool()
     private var stats = Stats()
     private var pending = 0
@@ -399,15 +445,18 @@ final class SeriesCollector {
     private let maxPending: Int
     private let minPages: Int
 
-    init(start: TimeInterval, maxPending: Int = SeriesSelection.maxPending, minPages: Int = SeriesSelection.minPages,
+    init(start: TimeInterval, maxPending: Int = SeriesSelection.maxPending, minPages: Int = SeriesSelection.minPages, rhythm: SeriesRhythm? = nil,
          reader: @escaping Reader, renderer: @escaping Renderer, log: @escaping (String) -> Void = { _ in }) {
         self.start = start
-        self.maxPending = maxPending
+        // Ritimde her dilimin kazananı gerekir: yazı tanıma yetişemese de dilim atlanmaz (dilimler 4 sn arayla kapanır, kuyruk birikmez)
+        self.maxPending = rhythm == nil ? maxPending : Int.max
+        self.rhythm = rhythm
         self.minPages = minPages
         self.windows = WindowBest<Frame>(start: start, length: SeriesSelection.window)
         self.reader = reader
         self.renderer = renderer
         self.log = log
+        pool.keepAll = rhythm != nil
     }
 
     /// Analiz edilmiş bir kare (analiz kuyruğundan çağrılır; hızlı döner)
@@ -425,14 +474,23 @@ final class SeriesCollector {
             lastMoveTime = time
         }
         lastSignature = signature
-        let frame = Frame(buffer: buffer, time: time, sharpness: sharpness, signature: signature, blockiness: blockiness,
+        var frame = Frame(buffer: buffer, time: time, sharpness: sharpness, signature: signature, blockiness: blockiness,
                           stillFor: max(0, time - lastMoveTime))
         if frame.damaged { stats.damagedFrames += 1 }
         // Pencere kazananı: önce sağlam ve durgun an karesi, sonra sağlam hareketli kare, en son bozuk kare; aynı sınıfta en net olan.
         // (Bozuk kare bloklardaki keskin kenarlar yüzünden yapay olarak çok net ölçülür; hareketli kare bulanık olma eğilimindedir.)
         let tier = frame.damaged ? 0.0 : (frame.still ? 2.0 : 1.0)
         let score = tier * 1_000_000 + sharpness
-        let closed = windows.offer(time: time, sharpness: score, payload: frame)
+        var closed: Frame?
+        if let rhythm = rhythm {
+            // Ritim: yalnız bir dilimin yerleşme süresinden sonraki kareleri sayılır (sayfa çevirirken ve yeni yere giderken gelenler atılır)
+            if let slot = rhythm.shotSlot(at: time - start) {
+                frame.slot = slot.index
+                closed = slots.offer(slot: slot.index, score: score, payload: frame)
+            }
+        } else {
+            closed = windows.offer(time: time, sharpness: score, payload: frame)
+        }
         lock.unlock()
         if let closed = closed { submit(closed) }
     }
@@ -485,7 +543,7 @@ final class SeriesCollector {
             return
         }
         let item = SeriesItem(time: frame.time, jpeg: rendered.data, width: rendered.width, height: rendered.height,
-                              sharpness: frame.sharpness, text: text, signature: frame.signature, damaged: damaged)
+                              sharpness: frame.sharpness, text: text, signature: frame.signature, damaged: damaged, slot: frame.slot)
         lock.lock()
         let mergedBefore = pool.merged
         pool.add(item)
@@ -494,7 +552,8 @@ final class SeriesCollector {
         let wasMerged = pool.merged > mergedBefore
         lock.unlock()
         let verdict = damaged ? "BOZUK kare (bloklaşmış), yalnız sağlam kare yetmezse alınır" : (item.isUseful ? "alındı" : "zayıf aday (okunamadı)")
-        log("[seri] \(stamp(frame.time)): \(wasMerged ? "aynı görünüm, en iyisi kaldı" : verdict) (net \(sharp), blok \(String(format: "%.2f", frame.blockiness)), durgun \(String(format: "%.1f", frame.stillFor)) sn, \(text.map { $0.summary } ?? "yazı tanıma yok"))")
+        let place = frame.slot.flatMap { SeriesRhythm.slot(index: $0) }.map { "\(SeriesRhythm.label(page: $0.page, part: $0.part)): " } ?? ""
+        log("[seri] \(place)\(stamp(frame.time)): \(wasMerged ? "aynı görünüm, en iyisi kaldı" : verdict) (net \(sharp), blok \(String(format: "%.2f", frame.blockiness)), durgun \(String(format: "%.1f", frame.stillFor)) sn, \(text.map { $0.summary } ?? "yazı tanıma yok"))")
         finishOne()
     }
 
@@ -509,7 +568,7 @@ final class SeriesCollector {
         lock.lock()
         defer { lock.unlock() }
         finished = true
-        return windows.flush()
+        return rhythm == nil ? windows.flush() : slots.flush()
     }
 
     private func snapshot() -> Outcome {
@@ -523,7 +582,13 @@ final class SeriesCollector {
         let diagnosis = CaptureDiagnosis(windows: result.read, readableWindows: result.readable,
                                          medianSharpness: CaptureDiagnosis.median(sharpnesses), questionNumbers: seen,
                                          damagedWindows: result.damagedWindows)
-        return Outcome(items: chosen, readable: chosen.filter { $0.isUseful }.count, stats: result, questionNumbers: seen, diagnosis: diagnosis)
+        var outcome = Outcome(items: chosen, readable: chosen.filter { $0.isUseful }.count, stats: result, questionNumbers: seen, diagnosis: diagnosis)
+        if rhythm != nil {
+            outcome.labels = chosen.map { item in
+                item.slot.flatMap { SeriesRhythm.slot(index: $0) }.map { SeriesRhythm.label(page: $0.page, part: $0.part) } ?? ""
+            }
+        }
+        return outcome
     }
 
     /// Açık pencereyi kapatır, bekleyen işlerin bitmesini bekler ve sonucu verir. Bundan sonra gelen kareler yok sayılır.

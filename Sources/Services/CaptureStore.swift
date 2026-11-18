@@ -112,6 +112,8 @@ final class FileCaptureStore: CaptureStoring {
         var videoBytes: Int
         var videoSeconds: Double
         var state: String
+        /// Ritimli toplu çekimin kare etiketleri (eski kayıtlarda yok)
+        var labels: [String]?
     }
 
     let root: URL
@@ -210,6 +212,7 @@ final class FileCaptureStore: CaptureStoring {
                 shot.extraInstruction = saved.extraInstruction
                 shot.highResolution = saved.highResolution
                 shot.videoSeconds = saved.videoSeconds
+                shot.rhythmLabels = saved.labels ?? []
                 shot.isPage = saved.kind == CaptureKind.page.rawValue   // toplu çekimin sayfası: yeniden açılınca da sayfa olarak (tüm sorular) gönderilir
             } else if let created = (try? dir.resourceValues(forKeys: [.creationDateKey]))?.creationDate {
                 shot.date = created
@@ -384,7 +387,8 @@ final class FileCaptureStore: CaptureStoring {
     private func info(for shot: CapturedQuestion, kind: CaptureKind, state: String) -> Info {
         return Info(id: shot.id.uuidString, date: shot.date.timeIntervalSince1970, kind: kind.rawValue,
                     extraInstruction: shot.extraInstruction, highResolution: shot.highResolution,
-                    videoBytes: shot.videoBytes, videoSeconds: shot.videoSeconds, state: state)
+                    videoBytes: shot.videoBytes, videoSeconds: shot.videoSeconds, state: state,
+                    labels: shot.rhythmLabels.isEmpty ? nil : shot.rhythmLabels)
     }
 
     private func write(_ info: Info, to dir: URL) {

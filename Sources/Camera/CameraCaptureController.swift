@@ -663,6 +663,12 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         tlog("[kamera] koç: \(text)\(extra)")
     }
 
+    /// Ritim komutu ("Üst."): "Toplu çekimde sesli konumlandırma" açıkken kulaklıktan söylenir (bkz. `SeriesRhythm.cue`)
+    private func sayRhythm(_ text: String) {
+        onSay?(text)
+        tlog("[kamera] ritim: \(text)")
+    }
+
     private func awaitTrigger(seconds: TimeInterval) async -> Trigger {
         if cancelled { return .cancelled }
         return await withCheckedContinuation { (continuation: CheckedContinuation<Trigger, Never>) in
@@ -907,11 +913,8 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
             if cancelled { return .failure(.cancelled) }
             guard live else { return .failure(connectFailure()) }
         }
-        if settings.seriesGuidance {
-            startCoach()
-        } else {
-            pipeline.guidanceOn = false
-        }
+        // Sesli konumlandırma açıksa çekim RİTİMLİDİR (bkz. `SeriesRhythm`): kadraj koçu çalışmaz, program tempo tutar (kullanıcı kararı 2026-11-18)
+        pipeline.guidanceOn = false
         return await shootSeries(seconds: max(1, seconds), trial: trial)
     }
 
@@ -920,7 +923,10 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
     /// (kare geldiyse PDF kurulur, telefondaki klasöre yazılır ve Gemini'ye gider; hiç soru yoksa Gemini "soru yok" der).
     private func shootSeries(seconds: Int, trial: Bool = false) async -> Result<PageSeries, CameraFailure> {
         shooting = true
-        let total = seconds
+        let rhythm: SeriesRhythm? = settings.seriesGuidance ? SeriesRhythm.standard : nil
+        // Ritimde süre sayfa sayısına tamamlanır (yarım sayfa bırakılmaz)
+        let total = rhythm.map { $0.roundedSeconds(seconds) } ?? seconds
+        let pages = rhythm?.pages(in: seconds) ?? 0
         let options = captureOptions()
         let enhance = options.enhance
         let baseOrientation = enhance.orientation
@@ -931,6 +937,7 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         let t0 = ProcessInfo.processInfo.systemUptime
         let collector = SeriesCollector(
             start: t0,
+            rhythm: rhythm,
             reader: { buffer in finder.readScore(buffer, base: baseOrientation, enabled: findOrientation) { frame, orientation in SeriesTextReader.read(frame, orientation: orientation) } },
             renderer: { buffer in
                 var rendering = enhance
@@ -956,10 +963,19 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         }
         var lostFor = 0
         var cutAt: Int?
-        tlog("[kamera] \(trial ? "deneme çekimi" : "toplu çekim") başladı: \(seconds) sn (konuşma ve titreşim yok; her kare ölçülür, \(SeriesSelection.window) sn'lik pencerelerin en iyisi yazı tanımadan geçer)")
+        if let rhythm = rhythm {
+            tlog("[kamera] \(trial ? "deneme çekimi" : "toplu çekim") başladı: \(total) sn, RİTİM: \(pages) sayfa × \(Int(rhythm.pageSeconds)) sn (tüm sayfa + 4 parça, dilim \(Int(rhythm.slotSeconds)) sn, çevirme \(Int(rhythm.turnSeconds)) sn); her dilimin en net karesi yazı tanımadan geçer")
+            if let cue = rhythm.cue(at: 0, totalPages: pages) { sayRhythm(cue) }
+        } else {
+            tlog("[kamera] \(trial ? "deneme çekimi" : "toplu çekim") başladı: \(seconds) sn (konuşma ve titreşim yok; her kare ölçülür, \(SeriesSelection.window) sn'lik pencerelerin en iyisi yazı tanımadan geçer)")
+        }
         for second in 1...total {
             if cancelled { break }
-            status("Çekim: \(second)/\(total) sn")
+            if let rhythm = rhythm, let p = rhythm.position(at: Double(second) - 0.5) {
+                status("Çekim: \(second)/\(total) sn, \(p.page). sayfa, \(p.part.title)")
+            } else {
+                status("Çekim: \(second)/\(total) sn")
+            }
             let target = t0 + Double(second)
             while !cancelled {
                 let rest = target - ProcessInfo.processInfo.systemUptime
@@ -967,6 +983,7 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
                 try? await Task.sleep(nanoseconds: UInt64(min(rest, 0.25) * 1_000_000_000))
             }
             if cancelled { break }
+            if let rhythm = rhythm, second < total, let cue = rhythm.cue(at: Double(second), totalPages: pages) { sayRhythm(cue) }
             lostFor = isLive ? 0 : lostFor + 1
             if lostFor >= CameraCaptureController.seriesLostSeconds {
                 cutAt = second
@@ -1005,7 +1022,14 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         }
         if outcome.readable == 0 { tlog("[kamera] toplu çekim: hiçbir karede yazı okunamadı; en net \(outcome.items.count) kare yine de gönderilecek (yazı tanıma zayıf kalmış olabilir)") }
         // Seçilen fotoğraflar zaman sırasıyla TEK PDF olur; toplam bütçeyi aşarsa fotoğraflar yeniden sıkıştırılır
-        let raw = outcome.items.map { $0.jpeg }
+        var raw = outcome.items.map { $0.jpeg }
+        if rhythm != nil {
+            // "Tüm sayfa" karesi haritadır (düzen, soru numaraları): biraz küçültülür; metin dört parçadan okunur (bayt ve yükleme süresi azalır)
+            for (index, item) in outcome.items.enumerated() {
+                guard let slot = item.slot.flatMap({ SeriesRhythm.slot(index: $0) }), slot.part == .whole else { continue }
+                if let small = PageDocument.recompress(raw[index], quality: SeriesRhythm.wholeQuality, scale: SeriesRhythm.wholeScale) { raw[index] = small }
+            }
+        }
         let (pdf, fitted) = await Task.detached(priority: .userInitiated) { () -> (Data?, Int) in
             let fit = PageDocument.fit(raw)
             return (PageDocument.make(jpegs: fit, title: "Toplu çekim"), fit.reduce(0) { $0 + $1.count })
@@ -1017,6 +1041,7 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         shot.date = Date()
         shot.isPage = true
         shot.seenNumbers = outcome.questionNumbers
+        shot.rhythmLabels = pdf == nil ? [] : outcome.labels
         shot.video = videoOutput?.url
         shot.videoBytes = videoOutput?.bytes ?? 0
         shot.videoSeconds = videoOutput?.seconds ?? 0

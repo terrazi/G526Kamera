@@ -97,7 +97,7 @@ extension SessionViewModel {
             }
         }
         let ready = deps.camera.holding
-        guard await speakNotice(ready ? Say.seriesGo : Say.seriesStarting(seconds: seconds)) else {
+        guard await speakNotice(ready ? Say.seriesGo : Say.seriesStarting(seconds: seconds, rhythm: cameraSettings.seriesGuidance)) else {
             tlog("[kamera] oturum duyurusu kesildi; kestirme çalıştırılmadı, onarımdan sonra yeniden sorulacak")
             offerCamera = true
             return

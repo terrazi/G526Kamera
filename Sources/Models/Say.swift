@@ -498,7 +498,10 @@ enum Say {
         return "Cevap vermediniz, \(ordinal) defa soruyorum. " + askCameraSeries(seconds: seconds)
     }
     /// Oturum başlamadan, kestirme kulaklığı kapatmadan ÖNCE bir kez söylenir; çekim boyunca hiçbir şey söylenmez
-    static func seriesStarting(seconds: Int) -> String {
+    static func seriesStarting(seconds: Int, rhythm: Bool = false) -> String {
+        if rhythm {
+            return "Kamera oturumu başlıyor: \(seconds) saniye. Her sayfa için sırayla tüm sayfayı, sonra yukarıdan aşağı dört parçayı göstereceksiniz; ben komut vereceğim. Süre dolunca haber vereceğim."
+        }
         return "Kamera oturumu başlıyor: \(seconds) saniye. Çekim sessiz sürer, kulaklık kapanacak. Sayfaları sırayla kameraya gösterin. Süre dolunca haber vereceğim."
     }
     /// Oturum bitti, internet ve kulaklık geldi; görüntüler tek istekle gönderilir. `taken`: seçilen net görüntü sayısı (bulanık ve boş kareler elenir),

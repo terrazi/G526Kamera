@@ -288,17 +288,17 @@ final class TrialFlowTests: XCTestCase {
         h.camera.trialResults = [.success(PageSeries(shot: trialShotWithVideo(), planned: 12, failure: nil, readable: true, diagnosis: measured, report: report))]
         _ = await h.startListening()
         say(h, "deneme çekimi")
-        let ask = Say.askCameraSeries(seconds: 75)
+        let ask = Say.askCameraSeries(seconds: 125)
         let done = await waitUntil(60) { h.camera.trialCalls.count == 1 && h.speaker.spoken.last == ask && self.questionOpen(h) }
         XCTAssertTrue(done, "\(h.speaker.spoken) \(h.events)")
-        XCTAssertEqual(h.camera.trialCalls.first?.seconds, 75)
+        XCTAssertEqual(h.camera.trialCalls.first?.seconds, 125)
         XCTAssertEqual(h.camera.trialHeldAtStart, [true], "Deneme hazır bekleyen bağlantıyla başladı")
         XCTAssertEqual(h.camera.seriesCalls.count, 0, "Gerçek çekim değil")
         XCTAssertEqual(h.answering.pageCalls.count, 0, "Gemini'ye hiçbir şey gitmez")
         XCTAssertEqual(h.answering.captureCalls.count, 0)
         XCTAssertEqual(h.shortcuts.runs.filter { $0 == "Hücresele_Gec" }.count, 0, "İnternet gerekmez: internete dönülmez")
         let spoken = h.speaker.spoken
-        XCTAssertTrue(spoken.contains(CaptureSay.trialIntro(seconds: 75)), "\(spoken)")
+        XCTAssertTrue(spoken.contains(CaptureSay.trialIntro(seconds: 125)), "\(spoken)")
         XCTAssertTrue(spoken.contains(CaptureSay.trialDone("")), "Sorun yoksa \"bu kadrajla çekim yapılabilir\" denir: \(spoken)")
         XCTAssertTrue(h.vm.questions.isEmpty, "Soru numarası tüketilmez")
         XCTAssertEqual(h.vm.answers.count, 0)
@@ -330,7 +330,7 @@ final class TrialFlowTests: XCTestCase {
         h.camera.trialResults = [.success(PageSeries(shot: trialShotWithVideo(), planned: 12, failure: nil, readable: false, diagnosis: blurry, report: "rapor"))]
         _ = await h.startListening()
         say(h, "deneme çekimi")
-        let done = await waitUntil(60) { h.camera.trialCalls.count == 1 && h.speaker.spoken.last == Say.askCameraSeries(seconds: 75) && self.questionOpen(h) }
+        let done = await waitUntil(60) { h.camera.trialCalls.count == 1 && h.speaker.spoken.last == Say.askCameraSeries(seconds: 125) && self.questionOpen(h) }
         XCTAssertTrue(done, "\(h.speaker.spoken)")
         XCTAssertTrue(h.speaker.spoken.contains(CaptureSay.trialDone(CaptureSay.blurry)), "\(h.speaker.spoken)")
         XCTAssertEqual(h.fileStore?.summary().trials, 1)
@@ -341,7 +341,7 @@ final class TrialFlowTests: XCTestCase {
         h.camera.trialResults = [.failure(.noFrames)]
         _ = await h.startListening()
         say(h, "deneme çekimi")
-        let done = await waitUntil(60) { h.camera.trialCalls.count == 1 && h.speaker.spoken.last == Say.askCameraSeries(seconds: 75) && self.questionOpen(h) }
+        let done = await waitUntil(60) { h.camera.trialCalls.count == 1 && h.speaker.spoken.last == Say.askCameraSeries(seconds: 125) && self.questionOpen(h) }
         XCTAssertTrue(done, "\(h.speaker.spoken)")
         XCTAssertTrue(h.speaker.spoken.contains(CaptureSay.trialFailed + " " + CameraFailure.noFrames.message), "\(h.speaker.spoken)")
         XCTAssertEqual(h.fileStore?.summary().trials, 0)
@@ -387,7 +387,7 @@ final class TrialFlowTests: XCTestCase {
                         pageReplies: [.success([FakeAnswering.reply(1), FakeAnswering.reply(2), FakeAnswering.reply(4)])])
         _ = await h.startListening()
         say(h, "başla")
-        let ask = Say.askCameraSeries(seconds: 75)
+        let ask = Say.askCameraSeries(seconds: 125)
         let done = await waitUntil(45) { h.vm.answers.count == 3 && h.speaker.spoken.last == ask && self.questionOpen(h) }
         XCTAssertTrue(done, "\(h.speaker.spoken)")
         let spoken = h.speaker.spoken

@@ -32,6 +32,9 @@ struct CapturedQuestion: Equatable {
     var isPage = false
     /// Çekimde telefonun yazı tanımasının gördüğü soru numaraları (artan): cevaplar okunduktan sonra görünüp cevaplanamayanlar söylenir
     var seenNumbers: [Int] = []
+    /// Ritimli toplu çekimde PDF'in her sayfasının etiketi ("2. sayfa, orta üst"), PDF sırasıyla; ritimsiz çekimde boş. Gemini'ye giden istemde sayılır:
+    /// hangi görüntünün kitapçık sayfasının tamamı, hangisinin hangi parçası olduğu bilinsin, parçalar doğru birleşsin
+    var rhythmLabels: [String] = []
 
     /// Gemini'ye satır içi gönderilebilen fotoğraf + video toplamı (bayt). İstek sınırı 20 MB'tır ve veri base64 ile üçte bir şişer
     /// (14 MB → ~18,7 MB); metin ve talimat payı için de yer kalır. Video sığmazsa yalnız fotoğraf gider.

@@ -36,7 +36,8 @@ final class CameraSettings: ObservableObject {
         static let pageVideoSeconds = "pageVideoSeconds"
         static let countdown = "countdown"
         static let pageSeries = "pageSeries"
-        static let seriesSeconds = "seriesTotalSeconds"
+        /// 2026-11-18: ritimli çekimde süre 25 sn'lik sayfalardan oluşur (varsayılan 125 sn = 5 sayfa); eski "seriesTotalSeconds" (75 sn) anahtarı bırakıldı
+        static let seriesSeconds = "seriesSessionSeconds"
         static let muteLapel = "muteLapel"
         static let lapelOffSeconds = "lapelOffSeconds"
         static let phoneMic = "phoneMic"
@@ -135,15 +136,16 @@ final class CameraSettings: ObservableObject {
     /// Her soru ya da paragraf için çekim süresi (2–15 sn, varsayılan 10): video bu kadar sürer, her saniyenin en net karesi bir fotoğraf olur
     /// (10 sn = 10 fotoğraf = tek PDF). Anahtar adı eski sürümden kalmadır.
     @Published var pageVideoSeconds: Int { didSet { defaults.set(pageVideoSeconds, forKey: Key.pageVideoSeconds) } }
-    /// Toplu çekim (kullanıcı kararı 2026-11-16): kamera sorusu "evet" olunca BİR OTURUM çekilir; oturumun TEK sınırı süredir (`seriesSeconds`, varsayılan 75 sn).
+    /// Toplu çekim (kullanıcı kararı 2026-11-16): kamera sorusu "evet" olunca BİR OTURUM çekilir; oturumun TEK sınırı süredir (`seriesSeconds`, varsayılan 125 sn).
     /// Sayfa sayısı yoktur: sayfalar eşit sürede gösterilmez (biri 3 sn, biri 8 sn görünür; hızlı hareketle 10 sayfa da taranabilir), süre içinde ne kadar sayfa
     /// gösterilirse hepsi gönderilir. Oturum boyunca ses, mikrofon, hücresel ve kulaklık kapalıdır (titreşim ya da ses işareti YOK).
     /// Oturumdan sonra görüntülerdeki BÜTÜN sorular ve paragraflar Gemini'ye gider ve cevaplar numara sırasıyla okunur. Kapalıysa her çekim tek sorudur (eski düzen).
     @Published var pageSeries: Bool { didSet { defaults.set(pageSeries, forKey: Key.pageSeries) } }
-    /// Oturumun toplam süresi (15–150 sn, varsayılan 75); saniyede bir fotoğraf alınır
+    /// Oturumun toplam süresi (25–200 sn, varsayılan 125 = 5 sayfa; 25'in katı): ritimli çekimde (`SeriesRhythm`) sayfa başına 25 sn, kullanıcı kararı 2026-11-18
     @Published var seriesSeconds: Int { didSet { defaults.set(seriesSeconds, forKey: Key.seriesSeconds) } }
-    static let seriesSecondsRange = 15...150
-    static let defaultSeriesSeconds = 75
+    static let seriesSecondsRange = 25...200
+    static let seriesSecondsStep = 25
+    static let defaultSeriesSeconds = 125
     /// Kamera çalışırken program girişi OTOMATİK telefonun kendi mikrofonuna alır (kullanıcı kararı 2026-11-17: yaka mikrofonunu program devre dışı bıraksın,
     /// el ile kapatılmasın). "Başla" denince (kamera açılmadan hemen önce) geçilir, çekim bitip internete dönülünce yaka mikrofonuna dönülür; "Başla"yı yaka
     /// mikrofonu duyar. Yaka mikrofonu alıcısı takılı kalır ve vericinin 2,4 GHz radyosu açık kalır (iOS bunları kapatmaya izin vermez); yalnız ses girişi
@@ -229,8 +231,10 @@ final class CameraSettings: ObservableObject {
                                                        range: VideoRecorder.pageSecondsRange, fallback: VideoRecorder.pageSegmentSeconds)
         countdown = defaults.object(forKey: Key.countdown) as? Bool ?? false   // kullanıcı kararı 2026-11-16: çekim sırasında sürekli konuşma Bluetooth/Wi-Fi çakışmasını artırabilir; varsayılan sessiz
         pageSeries = defaults.object(forKey: Key.pageSeries) as? Bool ?? true
-        seriesSeconds = CameraSettings.clampSeconds(defaults.object(forKey: Key.seriesSeconds) as? Int,
-                                                    range: CameraSettings.seriesSecondsRange, fallback: CameraSettings.defaultSeriesSeconds)
+        // Süre sayfa sayısına tamamlanır (ritim yarım sayfa bırakmaz): söylenen süre ile çekilen süre aynı olsun
+        seriesSeconds = SeriesRhythm.standard.roundedSeconds(
+            CameraSettings.clampSeconds(defaults.object(forKey: Key.seriesSeconds) as? Int,
+                                        range: CameraSettings.seriesSecondsRange, fallback: CameraSettings.defaultSeriesSeconds))
         phoneMic = defaults.object(forKey: Key.phoneMic) as? Bool ?? true
         muteLapel = defaults.object(forKey: Key.muteLapel) as? Bool ?? false
         lapelOffSeconds = CameraSettings.clampSeconds(defaults.object(forKey: Key.lapelOffSeconds) as? Int,

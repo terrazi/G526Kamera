@@ -157,7 +157,7 @@ final class GeminiAnswerService: Answering {
     """
 
     /// Toplu çekim kullanıcı mesajı (görüntü parçalarından sonra gelir)
-    static func pageText(expectedNumber: Int, hasVideo: Bool, extra: String, pages: Int = 0) -> String {
+    static func pageText(expectedNumber: Int, hasVideo: Bool, extra: String, pages: Int = 0, labels: [String] = []) -> String {
         var text = "İpucu: görüntülerdeki ilk sorunun numarası okunamazsa ona Soru \(expectedNumber) de ve sırayla devam et. Numara okunuyorsa sıraya değil okunan numaraya uy."
         if pages > 0 {
             let split = " Kareler zaman sırasındadır ve birbirini kısmen örter; bir soru birkaç kareye bölünmüş olabilir: parçaları ortak satırlardan ve şık harflerinden eşleyip birleştir, soruyu bütün olarak çöz."
@@ -168,6 +168,13 @@ final class GeminiAnswerService: Answering {
             text += hasVideo
                 ? "\n\nBu mesajda sayfanın fotoğrafı ve aynı sayfanın kısa videosu var. Görüntülerdeki bütün soruları, her biri ayrı satırda cevapla."
                 : "\n\nBu mesajda sayfanın fotoğrafı var. Görüntülerdeki bütün soruları, her biri ayrı satırda cevapla."
+        }
+        if pages > 0, labels.count == pages, !labels.contains("") {
+            // Ritimli çekim: her kitapçık sayfası belli bir sırayla çekildi (tüm sayfa, sonra yukarıdan aşağı dört parça); parçalar birbirini örter
+            let list = labels.enumerated().map { "\($0.offset + 1)) \($0.element)" }.joined(separator: "; ")
+            text += "\n\nÇekim ritimliydi: her kitapçık sayfası için önce sayfanın TAMAMI (küçük, yalnız düzeni ve soru numaralarını görmek için), sonra yukarıdan aşağı dört PARÇA çekildi; "
+                + "dört parça birbirini kısmen örter. Sayfanın tamamı haritadır, metni parçalardan oku; bir soru iki parçaya bölünmüşse parçaları ortak satırlardan birleştir ve soruyu bütün olarak çöz. "
+                + "PDF sayfalarının sırası: " + list + "."
         }
         let note = extra.trimmed
         if !note.isEmpty { text += "\n\nKullanıcının ek talimatı: \(note)" }
@@ -227,7 +234,7 @@ final class GeminiAnswerService: Answering {
         }
         let pages = shot.pdf == nil ? 0 : max(shot.pageCount, 1)
         parts.append(["text": page
-            ? pageText(expectedNumber: expectedNumber, hasVideo: video != nil, extra: shot.extraInstruction, pages: pages)
+            ? pageText(expectedNumber: expectedNumber, hasVideo: video != nil, extra: shot.extraInstruction, pages: pages, labels: shot.rhythmLabels)
             : captureText(expectedNumber: expectedNumber, hasVideo: video != nil, extra: shot.extraInstruction, passage: shot.passageNote, pages: pages)])
         var object: [String: Any] = [
             "systemInstruction": ["parts": [["text": page ? pageSystemPrompt : captureSystemPrompt]]],
