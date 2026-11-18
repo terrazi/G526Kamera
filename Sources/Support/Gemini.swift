@@ -26,8 +26,36 @@ struct GeminiError: LocalizedError {
     var errorDescription: String? { return message }
 }
 
+/// Gemini Files API'ye yüklenmiş dosya: isteklerde adresiyle (`uri`) anılır; 48 saat saklanır
+struct GeminiUploadedFile: Equatable {
+    var uri: String
+    /// "files/abc123": durumu sorgulamak için
+    var name: String
+    /// "ACTIVE", "PROCESSING", "FAILED"; cevapta yoksa "ACTIVE" sayılır
+    var state: String
+}
+
 /// Yardımcı işlevler: hata çevirisi, şık kodları, düşünme ayarı, model listesi
 enum GeminiSupport {
+    /// Dosya yükleme cevabından (`{"file": {...}}`) ya da durum sorgusundan (`{...}`) dosya bilgisi; adres yoksa nil
+    static func parseUploadedFile(_ data: Data) -> GeminiUploadedFile? {
+        guard let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return nil }
+        let file = (json["file"] as? [String: Any]) ?? json
+        guard let uri = (file["uri"] as? String)?.trimmed, !uri.isEmpty else { return nil }
+        let state = ((file["state"] as? String) ?? "ACTIVE").uppercased()
+        return GeminiUploadedFile(uri: uri, name: (file["name"] as? String) ?? "", state: state)
+    }
+
+    /// Yükleme adresi: "https://…/v1beta" → "https://…/upload/v1beta/files"
+    static func uploadURL(base: String) -> String {
+        let trimmedBase = base.hasSuffix("/") ? String(base.dropLast()) : base
+        if let range = trimmedBase.range(of: "/", options: .backwards), !trimmedBase[range.upperBound...].isEmpty,
+           trimmedBase[range.upperBound...].hasPrefix("v") {
+            return String(trimmedBase[..<range.lowerBound]) + "/upload/" + String(trimmedBase[range.upperBound...]) + "/files"
+        }
+        return trimmedBase + "/upload/v1beta/files"
+    }
+
     // MARK: Hata çevirisi
 
     /// Hata yanıtının gövdesinden hata nesnesi. JSON değilse (aradaki proxy / güvenlik duvarı HTML sayfası döndürmüş olabilir)
@@ -220,6 +248,109 @@ final class GeminiClient {
     var model: String {
         let m = modelProvider().trimmed
         return m.isEmpty ? GeminiConfig.defaultModel : m
+    }
+
+    /// `transport` gibi, cevap başlıklarıyla (dosya yükleme için)
+    private func transportFull(_ request: URLRequest, body: Data?) async throws -> (data: Data, status: Int, headers: [String: String]) {
+        let viaCellular = preferCellular()
+        return try await BackgroundGrace.run("gemini") {
+            try await GeminiTransport.sendFull(request, body: body, session: self.session, viaCellular: viaCellular)
+        }
+    }
+
+    // MARK: Dosya yükleme (Files API)
+
+    /// Büyük dosyayı (PDF) Gemini'ye bir kez yükler; sonraki isteklerde yalnız adresi gider (Google'ın belgelediği iki adımlı "resumable" yükleme:
+    /// önce yükleme adresi istenir, sonra baytlar gönderilir). `limit` sn içinde bitmezse `timedOut` işaretli hata verir. Cihazda doğrulanmadı.
+    func uploadFile(_ data: Data, mimeType: String, displayName: String, key: String, timeout limit: TimeInterval) async throws -> GeminiUploadedFile {
+        let reply: Reply = try await withThrowingTaskGroup(of: Reply.self) { group in
+            group.addTask {
+                return Reply(value: try await self.uploadSteps(data, mimeType: mimeType, displayName: displayName, key: key))
+            }
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(limit * 1_000_000_000))
+                return Reply(value: nil)
+            }
+            let first = try await group.next() ?? Reply(value: nil)
+            group.cancelAll()
+            return first
+        }
+        guard let file = reply.value as? GeminiUploadedFile else {
+            var e = GeminiError("Dosya \(Int(limit)) sn içinde yüklenemedi.", .network)
+            e.timedOut = true
+            throw e
+        }
+        return file
+    }
+
+    private func uploadSteps(_ data: Data, mimeType: String, displayName: String, key: String) async throws -> GeminiUploadedFile {
+        let apiKey = key.trimmed
+        guard !apiKey.isEmpty else { throw GeminiError("Gemini API anahtarı girilmemiş. Ayarlardan yapıştırın.", .key) }
+        guard let startURL = URL(string: GeminiSupport.uploadURL(base: baseURL)) else { throw GeminiError("Yükleme adresi geçersiz.", .error) }
+        var start = URLRequest(url: startURL)
+        start.httpMethod = "POST"
+        start.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
+        start.setValue("resumable", forHTTPHeaderField: "X-Goog-Upload-Protocol")
+        start.setValue("start", forHTTPHeaderField: "X-Goog-Upload-Command")
+        start.setValue(String(data.count), forHTTPHeaderField: "X-Goog-Upload-Header-Content-Length")
+        start.setValue(mimeType, forHTTPHeaderField: "X-Goog-Upload-Header-Content-Type")
+        start.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let meta = try JSONSerialization.data(withJSONObject: ["file": ["display_name": displayName]])
+        let first: (data: Data, status: Int, headers: [String: String])
+        do {
+            first = try await transportFull(start, body: meta)
+        } catch {
+            if Task.isCancelled || (error as? URLError)?.code == .cancelled { throw CancellationError() }
+            throw GeminiError("Dosya yükleme başlatılamadı: \(error.localizedDescription)", .network)
+        }
+        guard (200..<300).contains(first.status) else {
+            let (kind, message) = GeminiSupport.describeError(status: first.status, json: GeminiSupport.errorObject(from: first.data), model: model)
+            throw GeminiError("Dosya yükleme başlatılamadı: \(message)", kind, status: first.status)
+        }
+        guard let target = first.headers["x-goog-upload-url"]?.trimmed, !target.isEmpty, let uploadURL = URL(string: target) else {
+            throw GeminiError("Dosya yükleme adresi gelmedi.", .error, status: first.status)
+        }
+        var send = URLRequest(url: uploadURL)
+        send.httpMethod = "POST"
+        send.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
+        send.setValue(mimeType, forHTTPHeaderField: "Content-Type")
+        send.setValue("0", forHTTPHeaderField: "X-Goog-Upload-Offset")
+        send.setValue("upload, finalize", forHTTPHeaderField: "X-Goog-Upload-Command")
+        let second: (data: Data, status: Int, headers: [String: String])
+        do {
+            second = try await transportFull(send, body: data)
+        } catch {
+            if Task.isCancelled || (error as? URLError)?.code == .cancelled { throw CancellationError() }
+            throw GeminiError("Dosya yüklenemedi: \(error.localizedDescription)", .network)
+        }
+        guard (200..<300).contains(second.status) else {
+            let (kind, message) = GeminiSupport.describeError(status: second.status, json: GeminiSupport.errorObject(from: second.data), model: model)
+            throw GeminiError("Dosya yüklenemedi: \(message)", kind, status: second.status)
+        }
+        guard let file = GeminiSupport.parseUploadedFile(second.data) else {
+            throw GeminiError("Dosya yüklendi ama adresi okunamadı.", .error, status: second.status)
+        }
+        return file
+    }
+
+    /// Yüklenen dosya kullanıma hazır mı ("ACTIVE")? Hazır değilse 2 sn arayla en çok `tries` kez sorulur. Durum sorulamıyorsa hazır sayılır
+    /// (istek denenir; olmazsa çağıran dosyasız yola döner).
+    func waitUntilActive(_ file: GeminiUploadedFile, key: String, tries: Int = 10) async -> Bool {
+        if file.state == "ACTIVE" { return true }
+        if file.state == "FAILED" { return false }
+        guard !file.name.isEmpty, let url = URL(string: baseURL + "/" + file.name) else { return true }
+        for _ in 0..<tries {
+            await sleep(2)
+            if Task.isCancelled { return false }
+            var request = URLRequest(url: url)
+            request.httpMethod = "GET"
+            request.setValue(key.trimmed, forHTTPHeaderField: "x-goog-api-key")
+            guard let result = try? await transport(request, body: nil), (200..<300).contains(result.status) else { continue }
+            let state = GeminiSupport.parseUploadedFile(result.data)?.state ?? ""
+            if state == "ACTIVE" { return true }
+            if state == "FAILED" { return false }
+        }
+        return false
     }
 
     static let pathAllowed: CharacterSet = {

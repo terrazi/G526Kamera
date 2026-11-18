@@ -501,6 +501,12 @@ enum CellularHTTP {
 
     /// İsteği gönderir. Bağlanılamazsa `CellularUnavailable` (istek hiç gitmedi); sonrasında `URLError` (-1001 süre doldu, -1005 bağlantı koptu…).
     static func perform(_ request: URLRequest, body: Data?, options: Options = Options()) async throws -> (data: Data, status: Int) {
+        let response = try await performFull(request, body: body, options: options)
+        return (response.body, response.status)
+    }
+
+    /// `perform` gibi, ama cevabın başlıklarını da verir (adlar küçük harf): dosya yüklemede yükleme adresi başlıkta gelir
+    static func performFull(_ request: URLRequest, body: Data?, options: Options = Options()) async throws -> HTTPWire.Response {
         guard let url = request.url, let scheme = url.scheme?.lowercased(), scheme == "https" || scheme == "http",
               let host = url.host, !host.isEmpty else { throw URLError(.badURL) }
         let useTLS = scheme == "https"
@@ -521,7 +527,7 @@ enum CellularHTTP {
         } onCancel: {
             exchange.cancel()
         }
-        return (response.body, response.status)
+        return response
     }
 }
 
@@ -554,5 +560,33 @@ enum GeminiTransport {
             pair = try await session.data(for: request)
         }
         return (pair.0, (pair.1 as? HTTPURLResponse)?.statusCode ?? 0)
+    }
+
+    /// `send` gibi, ama cevabın başlıklarını da verir (adlar küçük harf). Dosya yükleme (Gemini Files API) için: yükleme adresi başlıkta gelir
+    static func sendFull(_ request: URLRequest, body: Data?, session: URLSession, viaCellular: Bool) async throws -> (data: Data, status: Int, headers: [String: String]) {
+        let host = request.url?.host ?? "?"
+        if viaCellular {
+            do {
+                let response = try await CellularHTTP.performFull(request, body: body)
+                tlog("[ağ] \(host): hücresel yoldan gitti, HTTP \(response.status)")
+                return (response.body, response.status, response.headers)
+            } catch let unavailable as CellularUnavailable {
+                tlog("[ağ] \(host): hücresel yol açılamadı (\(unavailable.reason)); normal yoldan deneniyor")
+            }
+        }
+        let pair: (Data, URLResponse)
+        if let body = body {
+            pair = try await session.upload(for: request, from: body)
+        } else {
+            pair = try await session.data(for: request)
+        }
+        let http = pair.1 as? HTTPURLResponse
+        var headers: [String: String] = [:]
+        if let fields = http?.allHeaderFields {
+            for (name, value) in fields {
+                if let name = name as? String, let value = value as? String { headers[name.lowercased()] = value }
+            }
+        }
+        return (pair.0, http?.statusCode ?? 0, headers)
     }
 }

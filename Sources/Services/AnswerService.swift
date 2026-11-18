@@ -43,6 +43,13 @@ extension Answering {
     }
 }
 
+/// Bir sayfa isteği boyunca yüklenen dosyaların adresleri: aynı anahtarla dosya bir kez yüklenir, başka anahtarlı profil kendi yüklemesini yapar
+/// (yüklenen dosyayı yalnız yükleyen anahtar görür). Yükleme başarısız olan anahtar bir daha denenmez.
+final class GeminiUploadCache {
+    var uris: [String: String] = [:]
+    var failed = Set<String>()
+}
+
 /// Modül 5: soruyu Gemini'ye gönderir, kısa cevabı çözer. 4 profil (her birinin kendi anahtarı ve modeli) sırayla denenir:
 /// kota dolarsa, sunucu hata verirse, cevap gecikirse ya da anahtar/model sorunluysa sıradaki profile geçilir.
 @MainActor
@@ -58,6 +65,22 @@ final class GeminiAnswerService: Answering {
     static let maxRounds = 5
     /// Turlar arasında beklenecek süre (sn)
     static let roundPause: TimeInterval = 3
+
+    /// Büyük PDF'i önce Gemini'ye dosya olarak yükle, isteğe yalnız adresini koy (Ayarlar > "Büyük PDF'i dosya olarak yükle"). Dosya bir kez yüklenir;
+    /// model yoğun olup sıradaki modele geçilse de onlarca MB yeniden gönderilmez. Varsayılan kapalı (testler ve eski davranış); uygulama ayara bağlar
+    var largeFiles: () -> Bool = { false }
+    /// PDF bu boyutu aşarsa dosya olarak yüklenir; küçükler eskisi gibi isteğin içinde gider (kanıtlanmış yol)
+    static let fileUploadThreshold = 16_500_000
+
+    /// Dosya yükleme için süre sınırı: 60 sn + MB başına 6 sn (40 MB ≈ 5 dk; yavaş hücresel)
+    static func uploadLimit(bytes: Int) -> TimeInterval {
+        return 60 + Double(bytes) / 1_000_000 * 6
+    }
+
+    /// İsteğin içinde giden çok büyük gövde için ek bekleme (MB başına 5 sn); 24 MB'ın altındaki gövdelerde (eski düzen) ek süre yok
+    static func inlineAllowance(bytes: Int) -> TimeInterval {
+        return bytes > 24_000_000 ? Double(bytes) / 1_000_000 * 5 : 0
+    }
 
     /// Biraz sonra yeniden denenirse düzelebilecek hatalar: cevap gecikmesi, sunucu yoğunluğu, boş cevap, dakikalık kota. Anahtar sorunu, model adı sorunu
     /// ve günlük kota beklemekle düzelmez: o profil sonraki turlara katılmaz.
@@ -204,7 +227,9 @@ final class GeminiAnswerService: Answering {
     }
 
     /// Çekimin görüntü parçası: saniyede bir çekilmiş fotoğrafların PDF'i varsa o (application/pdf), yoksa tek fotoğraf (image/jpeg)
-    static func visualPart(photo: Data, pdf: Data?) -> [String: Any] {
+    static func visualPart(photo: Data, pdf: Data?, pdfURI: String? = nil) -> [String: Any] {
+        // PDF Gemini'ye dosya olarak yüklendiyse isteğe yalnız adresi girer (Files API)
+        if pdf != nil, let uri = pdfURI { return ["fileData": ["mimeType": "application/pdf", "fileUri": uri]] }
         if let pdf = pdf { return ["inlineData": ["mimeType": "application/pdf", "data": pdf.base64EncodedString()]] }
         return ["inlineData": ["mimeType": "image/jpeg", "data": photo.base64EncodedString()]]
     }
@@ -221,7 +246,8 @@ final class GeminiAnswerService: Answering {
     }
 
     /// Çekilen soru için istek gövdesi. Video satır içi gider (≤ 14 MB; büyükse yalnız fotoğraf gider); `fps`: kaydın kare hızı (nil: ayarsız)
-    static func captureBody(_ shot: CapturedQuestion, expectedNumber: Int, fps: Double? = VideoRecorder.fps, page: Bool = false) throws -> Data {
+    static func captureBody(_ shot: CapturedQuestion, expectedNumber: Int, fps: Double? = VideoRecorder.fps, page: Bool = false,
+                            pdfURI: String? = nil) throws -> Data {
         var video: Data?
         if shot.canSendVideo, let url = shot.video { video = try? Data(contentsOf: url) }
         // Google'ın önerisi (video ve görüntü belgeleri): metin istemi görüntü / video parçalarından SONRA gelir
@@ -230,7 +256,7 @@ final class GeminiAnswerService: Answering {
         if let media = shot.passageMedia {
             parts.append(contentsOf: passageParts(media, withVideo: shot.canSendPassageVideo, fps: fps))
         }
-        parts.append(visualPart(photo: shot.photo, pdf: shot.pdf))
+        parts.append(visualPart(photo: shot.photo, pdf: shot.pdf, pdfURI: pdfURI))
         if let video = video {
             var part: [String: Any] = ["inlineData": ["mimeType": "video/mp4", "data": video.base64EncodedString()]]
             if let fps = fps { part["videoMetadata"] = ["fps": fps] }
@@ -408,13 +434,50 @@ final class GeminiAnswerService: Answering {
         let body = try GeminiAnswerService.captureBody(capture, expectedNumber: expectedNumber, page: true)
         // 75 fotoğraflık PDF (≈16 MB) hücresel veriyle yüklenir ve çok görüntü okunur: model başına bekleme iki katıdır (üç katıydı)
         let limit = capture.pageCount > 20 ? captureLimit * 2 : captureLimit
+        // Büyük PDF (sıkıştırılmamış kareler): önce dosya olarak yüklenir, isteğe adresi girer; yüklenemezse PDF isteğin içinde gider
+        var alternate: ((GeminiProfileInfo, GeminiClient) async -> Data?)?
+        if largeFiles(), let pdf = capture.pdf, pdf.count > GeminiAnswerService.fileUploadThreshold {
+            let cache = GeminiUploadCache()
+            alternate = { [weak self] profile, client in
+                guard let self = self else { return nil }
+                return await self.fileBody(capture: capture, pdf: pdf, expectedNumber: expectedNumber, profile: profile, client: client, cache: cache)
+            }
+        }
         do {
-            return try await runChain(body: body, limit: limit, parse: GeminiAnswerService.parsePage)
+            return try await runChain(body: body, limit: limit, alternate: alternate, parse: GeminiAnswerService.parsePage)
         } catch let error as GeminiError where error.status == 400 && error.kind == .http && capture.sendsFrameRate {
             tlog("[kamera] kare hızı ayarıyla sayfa isteği reddedildi (\(error.message)); ayarsız yeniden deneniyor")
             return try await runChain(body: try GeminiAnswerService.captureBody(capture, expectedNumber: expectedNumber, fps: nil, page: true),
                                       limit: limit, parse: GeminiAnswerService.parsePage)
         }
+    }
+
+    /// PDF'i bu profilin anahtarıyla Gemini'ye yükler (aynı anahtarla bir kez) ve adresli istek gövdesini verir; yüklenemezse nil (PDF isteğin içinde gider)
+    private func fileBody(capture: CapturedQuestion, pdf: Data, expectedNumber: Int, profile: GeminiProfileInfo, client: GeminiClient,
+                          cache: GeminiUploadCache) async -> Data? {
+        let key = profile.key.trimmed
+        if key.isEmpty || cache.failed.contains(key) || Task.isCancelled { return nil }
+        var uri = cache.uris[key]
+        if uri == nil {
+            let limit = GeminiAnswerService.uploadLimit(bytes: pdf.count)
+            tlog("[gemini] büyük PDF (\(String(format: "%.1f", Double(pdf.count) / 1_000_000)) MB) dosya olarak yükleniyor (en çok \(Int(limit)) sn)")
+            let began = now()
+            do {
+                let file = try await client.uploadFile(pdf, mimeType: "application/pdf", displayName: "sayfalar.pdf", key: key, timeout: limit)
+                guard await client.waitUntilActive(file, key: key) else {
+                    throw GeminiError("Yüklenen dosya hazır olmadı (\(file.state)).", .error)
+                }
+                tlog("[gemini] dosya yüklendi (\(Int(now().timeIntervalSince(began))) sn): \(file.name)")
+                cache.uris[key] = file.uri
+                uri = file.uri
+            } catch {
+                cache.failed.insert(key)
+                tlog("[gemini] dosya yüklenemedi (\((error as? GeminiError)?.message ?? error.localizedDescription)); PDF isteğin içinde gönderilecek")
+                return nil
+            }
+        }
+        guard let ready = uri else { return nil }
+        return try? GeminiAnswerService.captureBody(capture, expectedNumber: expectedNumber, page: true, pdfURI: ready)
     }
 
     private func run(body: Data, limit: TimeInterval) async throws -> GeminiReply {
@@ -428,7 +491,10 @@ final class GeminiAnswerService: Answering {
     /// Profil zinciri: istek sırayla her profile gönderilir (kota, sunucu hatası, gecikme, anahtar ya da model sorununda sıradakine geçilir). Hiçbiri cevap
     /// vermezse ve hatalar geçici ise (gecikme, yoğunluk, dakikalık kota) sıra BAŞTAN aynı sırayla yeniden denenir, en çok `maxRounds` tur.
     /// `parse`: model metninden cevap satırları (tek soruda bir, sayfada birkaç); boş dönerse cevap satırı verilmemiş sayılır.
-    private func runChain(body: Data, limit: TimeInterval, parse: (String) -> [AnswerParser.Parsed]) async throws -> [GeminiReply] {
+    /// `alternate`: profil için başka bir gövde (PDF dosya olarak yüklendiyse adresli gövde); nil dönerse `body` gider. Adresli gövde reddedilirse
+    /// (400 / 403 / 404) aynı profilde bir kez `body` ile yeniden denenir.
+    private func runChain(body: Data, limit: TimeInterval, alternate: ((GeminiProfileInfo, GeminiClient) async -> Data?)? = nil,
+                          parse: (String) -> [AnswerParser.Parsed]) async throws -> [GeminiReply] {
         let usable = GeminiProfiles.usable(profilesProvider())
         guard !usable.isEmpty else { throw GeminiError(Say.noKeyShort, .key) }
         var active = order(usable)
@@ -445,9 +511,23 @@ final class GeminiAnswerService: Answering {
                 do {
                     let client = makeClient(profile)
                     // Sunucu hatasında yeniden deneme ve uzun bekleme yok: hemen sıradakine geçilir; yeniden deneme turlarla yapılır
-                    let object = try await client.generate(model: profile.model, key: profile.key,
+                    var sendBody = body
+                    var viaFile = false
+                    if let alternate = alternate, let fileBody = await alternate(profile, client) {
+                        sendBody = fileBody
+                        viaFile = true
+                    }
+                    let object: Any
+                    do {
+                        object = try await client.generate(model: profile.model, key: profile.key,
+                                                           body: GeminiAnswerService.body(sendBody, forModel: profile.model),
+                                                           serverRetries: 0, timeout: wait + GeminiAnswerService.inlineAllowance(bytes: sendBody.count))
+                    } catch let error as GeminiError where viaFile && [400, 403, 404].contains(error.status) {
+                        tlog("[gemini] yüklenen dosyayla istek reddedildi (HTTP \(error.status): \(error.message)); PDF isteğin içinde yeniden gönderiliyor")
+                        object = try await client.generate(model: profile.model, key: profile.key,
                                                            body: GeminiAnswerService.body(body, forModel: profile.model),
-                                                           serverRetries: 0, timeout: wait)
+                                                           serverRetries: 0, timeout: wait + GeminiAnswerService.inlineAllowance(bytes: body.count))
+                    }
                     let parsedList = parse(try GeminiAnswerService.replyText(from: object))
                     if parsedList.isEmpty { throw GeminiError("Gemini cevap satırı vermedi.", .empty) }
                     restingUntil[profile.identity] = nil

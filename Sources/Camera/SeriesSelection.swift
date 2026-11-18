@@ -119,11 +119,21 @@ struct TextScore: Equatable {
     }
 }
 
+/// Bir sayfalık taramanın karelerinin dökümü (bkz. `SeriesCollector.quality`): geçerli / bozuk / bulanık kare sayısı ve geçerli karelerde okunan soru
+/// numaralarının kaç karede görüldüğü
+struct PageQuality: Equatable {
+    var valid = 0
+    var damaged = 0
+    var blurry = 0
+    var numbers: [Int: Int] = [:]
+}
+
 /// Vision ile bir karedeki yazıyı okur. Hata verirse (ör. simülatörde model yok) nil döner; seçici o zaman yalnız netliğe bakar.
 enum SeriesTextReader {
-    static func read(_ pixelBuffer: CVPixelBuffer, orientation: ImageOrientation) -> TextScore? {
+    /// `accurate`: Vision'ın güçlü (yavaş) kipi; soru numaraları ve küçük yazı daha doğru okunur (bkz. `ReadPace`)
+    static func read(_ pixelBuffer: CVPixelBuffer, orientation: ImageOrientation, accurate: Bool = false) -> TextScore? {
         let request = VNRecognizeTextRequest()
-        request.recognitionLevel = .fast
+        request.recognitionLevel = accurate ? .accurate : .fast
         request.usesLanguageCorrection = false
         request.minimumTextHeight = 0.012
         let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: orientation.cgOrientation, options: [:])
@@ -454,8 +464,10 @@ final class SeriesCollector {
     private var slotWords: [Int: Set<String>] = [:]
     /// Son karenin geldiği an (görüntü kesildi mi diye bakılır)
     private var lastOfferTime: TimeInterval?
-    /// Ritim: değerlendirilen her kazanan karenin zamanı ve hükmü (sayfa denetimi için; nil = geçerli)
-    private var verdicts: [(time: TimeInterval, problem: SlotProblem?)] = []
+    /// Ritim: değerlendirilen her kazanan karenin zamanı, hükmü (nil = geçerli) ve karede okunan soru numaraları (sayfa denetimi için)
+    private var verdicts: [(time: TimeInterval, problem: SlotProblem?, numbers: Set<Int>)] = []
+    /// Hareket takibi (varsa): kameradan gelen her kare ona da verilir. Çekim başlamadan önce atanır
+    var motion: MotionTracker?
     private var pool = SeriesPool()
     private var stats = Stats()
     private var pending = 0
@@ -500,6 +512,7 @@ final class SeriesCollector {
         }
         stats.offered += 1
         lastOfferTime = time
+        let tracker = motion
         // Durgunluk: önceki kareyle fark eşiği aşınca kamera hareket ediyor sayılır (imza karşılaştırılamazsa da hareketli sayılır)
         if let previous = lastSignature, FrameAnalysis.difference(previous, signature) <= FramePipeline.stillDiff {
             // durgun: son hareket anı değişmez
@@ -529,6 +542,7 @@ final class SeriesCollector {
             closed = windows.offer(time: time, sharpness: score, payload: frame)
         }
         lock.unlock()
+        tracker?.offer(buffer, time: time)
         if let closed = closed { submit(closed) }
     }
 
@@ -548,13 +562,15 @@ final class SeriesCollector {
     func slotNeedsRetry(_ index: Int) -> Bool { return slotProblem(index) != nil }
 
     /// Çekimin `from`–`to` saniyeleri (çekim başından beri, gerçek süre) arasında alınan karelerin dökümü. Önce `settle` çağrılmalıdır
-    func quality(from: TimeInterval, to: TimeInterval) -> (valid: Int, damaged: Int, blurry: Int) {
+    func quality(from: TimeInterval, to: TimeInterval) -> PageQuality {
         lock.lock()
         defer { lock.unlock() }
-        var result = (valid: 0, damaged: 0, blurry: 0)
+        var result = PageQuality()
         for v in verdicts where v.time - start >= from && v.time - start < to {
             switch v.problem {
-            case nil: result.valid += 1
+            case nil:
+                result.valid += 1
+                for number in v.numbers { result.numbers[number, default: 0] += 1 }
             case .damaged?: result.damaged += 1
             default: result.blurry += 1
             }
@@ -622,7 +638,9 @@ final class SeriesCollector {
         case .noOverlap?: stats.noOverlapWindows += 1
         default: break
         }
-        if clock != nil, frame.slot != nil { verdicts.append((time: frame.time, problem: problem)) }
+        if clock != nil, frame.slot != nil {
+            verdicts.append((time: frame.time, problem: problem, numbers: problem == nil ? (text?.questionNumbers ?? []) : []))
+        }
         if let slotIndex = frame.slot, clock != nil {
             if let problem = problem { slotProblems[slotIndex, default: []].insert(problem) } else { goodSlots.insert(slotIndex) }
         }

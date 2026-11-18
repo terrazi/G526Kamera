@@ -51,6 +51,8 @@ final class AppEnvironment: ObservableObject {
         captureStore.prepare()
         shortcuts.onLeaving = { journal.setAway(true) }
         shortcuts.onReturned = { journal.setAway(false) }
+        let answering = GeminiAnswerService(profiles: { settings.geminiProfileInfos() })
+        answering.largeFiles = { camera.largeUpload }
         let deps = SessionDependencies(route: route,
                                        listener: listener,
                                        recorder: recorder,
@@ -58,7 +60,7 @@ final class AppEnvironment: ObservableObject {
                                        network: NetworkWatcher(),
                                        health: health,
                                        shortcuts: shortcuts,
-                                       answering: GeminiAnswerService(profiles: { settings.geminiProfileInfos() }),
+                                       answering: answering,
                                        permissions: SystemPermissions(),
                                        replayPlayer: speaker.filePlayer,
                                        screen: SystemScreen(),

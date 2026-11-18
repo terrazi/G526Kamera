@@ -286,3 +286,208 @@ final class ScanPromptTests: XCTestCase {
         XCTAssertEqual(restored.first?.rhythmLabels, ["0–10. saniye, 1. kare", "0–10. saniye, 2. kare"])
     }
 }
+
+/// Üç yenilik birlikte eklendi (kullanıcı isteği 2026-11-18 akşam): büyük PDF'in dosya olarak yüklenmesi, güçlü yazı okuma, hareket takibi. Her biri
+/// Ayarlar'dan kapatılabilir. Buradaki testler saf mantığı dener; Gemini'nin dosya yükleme hizmeti, Vision'ın güçlü kipi ve kare hizalaması cihazda doğrulanmadı.
+final class PageNumbersTests: XCTestCase {
+    func testANumberCountsOnlyWhenReadInTwoFrames() {
+        XCTAssertEqual(SeriesRhythm.confirmedNumbers([11: 3, 12: 1, 13: 2, 0: 5]), [11, 13], "Tek karede okunan numara ve 0 sayılmaz")
+        XCTAssertEqual(SeriesRhythm.confirmedNumbers([:]), [])
+    }
+
+    func testOnlyASingleHoleBetweenTwoSeenNumbersIsMissing() {
+        XCTAssertEqual(SeriesRhythm.holes(in: [11, 13]), [12])
+        XCTAssertEqual(SeriesRhythm.holes(in: [27, 29, 30]), [28])
+        XCTAssertEqual(SeriesRhythm.holes(in: [10, 11, 12, 13, 14, 17]), [], "Ardışık iki eksik kesin değildir: komşu sayfanın numarası kadraja girmiş olabilir")
+        XCTAssertEqual(SeriesRhythm.holes(in: [10, 11, 12]), [])
+        XCTAssertEqual(SeriesRhythm.holes(in: []), [])
+    }
+
+    func testTheSpokenReviewNamesTheSeenQuestionsTheMissingOneAndTheSpeed() {
+        XCTAssertEqual(SeriesRhythm.nextPageText(page: 1, good: true, seen: [10, 11, 12, 13, 14]),
+                       "Birinci sayfa tamam. Görülen sorular: 10 ile 14 arası. Sonraki sayfaya geçin.")
+        XCTAssertTrue(SeriesRhythm.nextPageText(page: 1, good: true, barelyMoved: true).contains("Kamera az kaydırıldı"))
+        XCTAssertEqual(SeriesRhythm.missingText(page: 1, missing: [12]), "Birinci sayfada 12. soru görülmedi. Bu sayfayı yeniden tarayın.")
+        XCTAssertTrue(SeriesRhythm.missingText(page: 2, missing: [12, 15]).contains("12 ve 15. sorular"))
+        XCTAssertEqual(SeriesRhythm.reviewText(page: 1, damaged: 0, blurry: 5, fast: true),
+                       "Birinci sayfa okunamadı: bulanıklık var; kamera hızlı kaydırıldı. Bu sayfayı yeniden, daha yavaş tarayın.")
+        XCTAssertFalse(SeriesRhythm.reviewText(page: 1, damaged: 5, blurry: 0, fast: true).contains("hızlı"), "Bulanıklık yoksa hız söylenmez")
+    }
+
+    func testTheCollectorCountsTheQuestionNumbersOfValidFrames() async {
+        var pb: CVPixelBuffer?
+        CVPixelBufferCreate(kCFAllocatorDefault, 16, 4, kCVPixelFormatType_32BGRA, nil, &pb)
+        let buffer = pb!
+        let t0 = 20000.0
+        let signature = [UInt8](repeating: 100, count: 576)
+        let c = SeriesCollector(start: t0, clock: RhythmClock(pages: 6),
+                                reader: { _ in
+                                    var t = TextScore()
+                                    t.chars = 200
+                                    t.questionNumbers = [12]
+                                    return t
+                                },
+                                renderer: { _ in (data: Data([1]), width: 1920, height: 1080) })
+        c.offer(buffer: buffer, time: t0 + 0.1, sharpness: 100, signature: signature)
+        c.offer(buffer: buffer, time: t0 + 0.6, sharpness: 100, signature: signature)
+        c.offer(buffer: buffer, time: t0 + 1.1, sharpness: 100, signature: signature, blockiness: FrameAnalysis.damagedBlockiness + 0.5)
+        await c.settle()
+        let q = c.quality(from: 0, to: 30)
+        XCTAssertEqual(q.valid, 2)
+        XCTAssertEqual(q.damaged, 1)
+        XCTAssertEqual(q.numbers[12], 2, "Bozuk karenin numarası sayılmaz")
+        XCTAssertEqual(SeriesRhythm.confirmedNumbers(q.numbers), [12])
+    }
+}
+
+final class MotionTrackerTests: XCTestCase {
+    private func buffer() -> CVPixelBuffer {
+        var pb: CVPixelBuffer?
+        CVPixelBufferCreate(kCFAllocatorDefault, 16, 8, kCVPixelFormatType_32BGRA, nil, &pb)
+        return pb!
+    }
+
+    private func samples(_ count: Int, dx: (Int) -> Double, dt: Double = 0.1) -> [MotionTracker.Sample] {
+        return (0..<count).map { MotionTracker.Sample(time: Double($0) * dt, dx: dx($0), dy: 0, dt: dt) }
+    }
+
+    func testAFastSweepIsReportedAsFast() {
+        let s = MotionTracker.summarize(samples(30) { _ in 0.1 }, failures: 2)
+        XCTAssertEqual(s.samples, 30)
+        XCTAssertEqual(s.failures, 2)
+        XCTAssertEqual(s.medianSpeed, 1.0, accuracy: 0.0001)
+        XCTAssertEqual(s.fastShare, 1.0, accuracy: 0.0001)
+        XCTAssertTrue(s.isFast)
+        XCTAssertFalse(s.barelyMoved)
+        XCTAssertTrue(s.logText.contains("30 ölçüm"))
+    }
+
+    func testACameraThatJittersInOnePlaceBarelyMoved() {
+        let s = MotionTracker.summarize(samples(60) { $0 % 2 == 0 ? 0.01 : -0.01 }, failures: 0)
+        XCTAssertEqual(s.movingShare, 1.0, accuracy: 0.0001)
+        XCTAssertLessThan(s.extentX, 0.05)
+        XCTAssertTrue(s.barelyMoved, "Kamera kıpırdıyor ama aynı yerde: sayfanın tamamı taranmamış olabilir")
+        XCTAssertFalse(s.isFast)
+    }
+
+    func testNoJudgementWhenNothingMovesOrWhenThePageIsSwept() {
+        let frozen = MotionTracker.summarize(samples(60) { _ in 0 }, failures: 0)
+        XCTAssertFalse(frozen.barelyMoved, "Hiç hareket ölçülmediyse ölçüm çalışmıyor olabilir: hüküm verilmez")
+        let sweep = MotionTracker.summarize(samples(60) { _ in 0.02 }, failures: 0)
+        XCTAssertEqual(sweep.extentX, 1.2, accuracy: 0.0001)
+        XCTAssertFalse(sweep.barelyMoved)
+        XCTAssertFalse(sweep.isFast, "Saniyede 0,2 kare boyu: okunaklı hız")
+        XCTAssertFalse(MotionTracker.summarize([], failures: 0).isFast)
+    }
+
+    func testTheTrackerMeasuresConsecutiveFramesAndIgnoresLongGaps() async {
+        let tracker = MotionTracker(align: { _, _ in (dx: 0.05, dy: 0.0) })
+        for i in 0..<5 {
+            tracker.offer(buffer(), time: 100 + Double(i) * 0.1)
+            await tracker.drain()
+        }
+        tracker.offer(buffer(), time: 105)   // 4,6 sn ara: ölçülmez
+        await tracker.drain()
+        let s = tracker.summary(from: 100, to: 110)
+        XCTAssertEqual(s.samples, 4)
+        XCTAssertEqual(s.failures, 0)
+        XCTAssertEqual(s.extentX, 0.2, accuracy: 0.0001)
+        XCTAssertEqual(s.medianSpeed, 0.5, accuracy: 0.001)
+        XCTAssertEqual(tracker.summary(from: 200, to: 210).samples, 0)
+    }
+
+    func testFramesThatCannotBeAlignedAreCountedAsFailures() async {
+        let tracker = MotionTracker(align: { _, _ in nil })
+        for i in 0..<3 {
+            tracker.offer(buffer(), time: 50 + Double(i) * 0.1)
+            await tracker.drain()
+        }
+        let s = tracker.summary(from: 50, to: 51)
+        XCTAssertEqual(s.samples, 0)
+        XCTAssertEqual(s.failures, 2)
+    }
+}
+
+final class ReadPaceTests: XCTestCase {
+    func testAccurateReadingIsKeptWhileThePhoneKeepsUp() {
+        let pace = ReadPace(enabled: true)
+        XCTAssertTrue(pace.useAccurate)
+        for _ in 0..<10 { XCTAssertFalse(pace.record(seconds: 0.2)) }
+        XCTAssertTrue(pace.useAccurate)
+        XCTAssertEqual(pace.report.count, 10)
+        XCTAssertEqual(pace.report.average, 0.2, accuracy: 0.0001)
+    }
+
+    func testAccurateReadingIsDroppedOnceWhenItIsTooSlow() {
+        let pace = ReadPace(enabled: true)
+        XCTAssertFalse(pace.record(seconds: 1.0))
+        XCTAssertFalse(pace.record(seconds: 1.0))
+        XCTAssertFalse(pace.record(seconds: 1.0))
+        XCTAssertTrue(pace.record(seconds: 1.0), "Dört okumanın ortalaması 0,4 sn'yi aştı: hızlı kipe dönülür")
+        XCTAssertFalse(pace.useAccurate)
+        XCTAssertFalse(pace.record(seconds: 1.0), "Bir kez haber verilir")
+        XCTAssertTrue(pace.report.gaveUp)
+    }
+
+    func testTheSettingTurnsAccurateReadingOff() {
+        XCTAssertFalse(ReadPace(enabled: false).useAccurate)
+    }
+}
+
+@MainActor
+final class LargeUploadTests: XCTestCase {
+    func testTheUploadedFileIsReadFromTheUploadReplyAndFromTheStatusReply() {
+        let reply = Data(#"{"file":{"name":"files/abc","uri":"https://x/v1beta/files/abc","state":"ACTIVE","mimeType":"application/pdf"}}"#.utf8)
+        XCTAssertEqual(GeminiSupport.parseUploadedFile(reply), GeminiUploadedFile(uri: "https://x/v1beta/files/abc", name: "files/abc", state: "ACTIVE"))
+        let status = Data(#"{"name":"files/abc","uri":"https://x/v1beta/files/abc","state":"processing"}"#.utf8)
+        XCTAssertEqual(GeminiSupport.parseUploadedFile(status)?.state, "PROCESSING")
+        XCTAssertEqual(GeminiSupport.parseUploadedFile(Data(#"{"file":{"uri":"u"}}"#.utf8))?.state, "ACTIVE", "Durum yoksa hazır sayılır")
+        XCTAssertNil(GeminiSupport.parseUploadedFile(Data(#"{"file":{"name":"files/abc"}}"#.utf8)), "Adres yoksa dosya kullanılamaz")
+        XCTAssertNil(GeminiSupport.parseUploadedFile(Data("<html>".utf8)))
+    }
+
+    func testTheUploadAddressIsDerivedFromTheApiAddress() {
+        XCTAssertEqual(GeminiSupport.uploadURL(base: GeminiConfig.baseURL), "https://generativelanguage.googleapis.com/upload/v1beta/files")
+        XCTAssertEqual(GeminiSupport.uploadURL(base: "http://127.0.0.1:8080"), "http://127.0.0.1:8080/upload/v1beta/files")
+    }
+
+    func testAnUploadedPdfGoesByAddressAndASmallOneStaysInline() throws {
+        let byAddress = GeminiAnswerService.visualPart(photo: Data([1]), pdf: Data([2]), pdfURI: "https://x/files/abc")
+        XCTAssertEqual((byAddress["fileData"] as? [String: String])?["fileUri"], "https://x/files/abc")
+        XCTAssertEqual((byAddress["fileData"] as? [String: String])?["mimeType"], "application/pdf")
+        XCTAssertNil(byAddress["inlineData"])
+        XCTAssertNotNil(GeminiAnswerService.visualPart(photo: Data([1]), pdf: Data([2]))["inlineData"])
+        XCTAssertNotNil(GeminiAnswerService.visualPart(photo: Data([1]), pdf: nil, pdfURI: "https://x/files/abc")["inlineData"], "PDF yoksa fotoğraf gider")
+        var shot = CapturedQuestion(photo: Data([1, 2, 3]))
+        shot.isPage = true
+        shot.pdf = Data([4, 5, 6])
+        shot.pageCount = 3
+        let body = try GeminiAnswerService.captureBody(shot, expectedNumber: 1, page: true, pdfURI: "https://x/files/abc")
+        let text = String(data: body, encoding: .utf8) ?? ""
+        XCTAssertTrue(text.contains("fileUri"))
+        XCTAssertFalse(text.contains("inlineData"), "Yüklenen PDF isteğin içinde yeniden gönderilmez")
+    }
+
+    func testBigBodiesGetMoreTimeAndSmallOnesKeepTheOldLimits() {
+        XCTAssertEqual(GeminiAnswerService.uploadLimit(bytes: 40_000_000), 300, accuracy: 0.001)
+        XCTAssertEqual(GeminiAnswerService.inlineAllowance(bytes: 20_000_000), 0, "Eski boyutlarda bekleme değişmez")
+        XCTAssertEqual(GeminiAnswerService.inlineAllowance(bytes: 50_000_000), 250, accuracy: 0.001)
+        XCTAssertGreaterThan(PageDocument.largeBudgetBytes, PageDocument.budgetBytes)
+        XCTAssertLessThan(PageDocument.largeBudgetBytes, 50_000_000, "Gemini'nin PDF sınırı 50 MB")
+    }
+
+    func testTheThreeNewFeaturesAreOnByDefaultAndCanBeTurnedOff() {
+        let defaults = UserDefaults(suiteName: "g526.testler.\(UUID().uuidString)")!
+        let settings = CameraSettings(defaults: defaults)
+        XCTAssertTrue(settings.largeUpload)
+        XCTAssertTrue(settings.accurateReading)
+        XCTAssertTrue(settings.motionTracking)
+        settings.largeUpload = false
+        settings.accurateReading = false
+        settings.motionTracking = false
+        let again = CameraSettings(defaults: defaults)
+        XCTAssertFalse(again.largeUpload)
+        XCTAssertFalse(again.accurateReading)
+        XCTAssertFalse(again.motionTracking)
+    }
+}

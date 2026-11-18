@@ -33,6 +33,9 @@ final class CameraSettings: ObservableObject {
         static let guidanceDescribe = "guidanceDescribe"
         static let guidancePageEdges = "guidancePageEdges"
         static let seriesGuidance = "seriesGuidance"
+        static let largeUpload = "largeUpload"
+        static let accurateReading = "accurateReading"
+        static let motionTracking = "motionTracking"
         static let pageVideoSeconds = "pageVideoSeconds"
         static let countdown = "countdown"
         static let pageSeries = "pageSeries"
@@ -121,6 +124,14 @@ final class CameraSettings: ObservableObject {
     /// Toplu çekimde sesli konumlandırma (kullanıcı kararı 2026-11-17; 2026-11-18: sesli konumlandırmanın her bileşeni varsayılan AÇIK): çekim sürerken kadraj koçu kısa cümlelerle konuşur (kesik kenar,
     /// kayma yönü, yakın / bulanık, üstte ve altta hangi satır). İşaretlenince "sesli konumlandırma desteği" de açılır: kadraj tarifi, sayfa kenarı ve
     /// sesli uyarı. Kapalıyken toplu çekim sessizdir.
+    /// Büyük PDF (kullanıcı isteği 2026-11-18 akşam): kareler sıkıştırılmadan (45 MB'a kadar) PDF olur ve Gemini'ye DOSYA olarak bir kez yüklenir
+    /// (Files API); kapalıyken eski düzen (16 MB, isteğin içinde). Yükleme başarısız olursa PDF isteğin içinde gider
+    @Published var largeUpload: Bool { didSet { defaults.set(largeUpload, forKey: Key.largeUpload) } }
+    /// Güçlü yazı okuma: serbest taramada kareler Vision'ın "accurate" kipiyle okunur (soru numaraları daha doğru çıkar); telefon yetişemezse o
+    /// oturumda kendiliğinden hızlı kipe dönülür (bkz. `ReadPace`)
+    @Published var accurateReading: Bool { didSet { defaults.set(accurateReading, forKey: Key.accurateReading) } }
+    /// Hareket takibi: ardışık kareler hizalanır, kaydırma hızı ve gezilen alan ölçülür (bkz. `MotionTracker`); bu sürümde yalnız danışmandır
+    @Published var motionTracking: Bool { didSet { defaults.set(motionTracking, forKey: Key.motionTracking) } }
     @Published var seriesGuidance: Bool {
         didSet {
             defaults.set(seriesGuidance, forKey: Key.seriesGuidance)
@@ -227,6 +238,9 @@ final class CameraSettings: ObservableObject {
         guidanceDescribe = defaults.object(forKey: Key.guidanceDescribe) as? Bool ?? true
         guidancePageEdges = defaults.object(forKey: Key.guidancePageEdges) as? Bool ?? true
         seriesGuidance = defaults.object(forKey: Key.seriesGuidance) as? Bool ?? true
+        largeUpload = defaults.object(forKey: Key.largeUpload) as? Bool ?? true
+        accurateReading = defaults.object(forKey: Key.accurateReading) as? Bool ?? true
+        motionTracking = defaults.object(forKey: Key.motionTracking) as? Bool ?? true
 
         pageVideoSeconds = CameraSettings.clampSeconds(defaults.object(forKey: Key.pageVideoSeconds) as? Int,
                                                        range: VideoRecorder.pageSecondsRange, fallback: VideoRecorder.pageSegmentSeconds)

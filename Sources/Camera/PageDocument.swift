@@ -31,6 +31,9 @@ enum PageDocument {
     /// (gerekirse biraz küçültülerek) yeniden sıkıştırılır; sığan en yüksek düzey seçilir. Gemini'nin PDF sınırı 50 MB, istek 100 MB'dır ama telefonun
     /// hücresel yüklemesi yavaş olabilir: bütçe 16 MB (base64 ile ≈ 21 MB).
     static let budgetBytes = 16_000_000
+    /// "Büyük PDF" açıkken bütçe (kullanıcı kararı 2026-11-18 akşam: kareler sıkıştırılmasın): Gemini'nin PDF sınırı 50 MB'tır (isteğin içinde de, dosya
+    /// yüklemede de); 120 kare × ≈330 KB ≈ 40 MB çoğu zaman hiç sıkıştırılmadan sığar. PDF dosya olarak bir kez yüklenir (bkz. `GeminiAnswerService.largeFiles`)
+    static let largeBudgetBytes = 45_000_000
     /// (JPEG kalitesi, ölçek) düzeyleri: önce yalnız kalite düşer, olmazsa görüntü küçülür
     static let fitLevels: [(quality: Double, scale: Double)] = [(0.85, 1), (0.75, 1), (0.65, 1), (0.55, 1), (0.45, 1), (0.6, 0.8), (0.55, 0.65)]
 

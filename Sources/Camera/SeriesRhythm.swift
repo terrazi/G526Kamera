@@ -62,20 +62,49 @@ struct SeriesRhythm: Equatable {
         return Double(valid) < Double(total) * minGoodShare
     }
 
-    /// Sayfa işe yaradıysa (ya da ikinci taramada da zayıf kaldıysa) söylenen yönlendirme
-    static func nextPageText(page: Int, good: Bool) -> String {
-        if good { return "\(Say.ordinalCapital(page)) sayfa tamam. Sonraki sayfaya geçin." }
-        return "\(Say.ordinalCapital(page)) sayfa yine zayıf; eldeki görüntüler gönderilecek. Sonraki sayfaya geçin."
+    /// Bir soru numarası en az bu kadar karede okunduysa "görüldü" sayılır (yazı tanıma gürültüsü çoğu zaman tek karede kalır)
+    static let confirmFrames = 2
+
+    /// Sayfada görülen soru numaraları: en az `confirmFrames` karede okunanlar, küçükten büyüğe (`counts`: numara → kaç karede okundu)
+    static func confirmedNumbers(_ counts: [Int: Int]) -> [Int] {
+        return counts.filter { $0.key > 0 && $0.value >= confirmFrames }.keys.sorted()
+    }
+
+    /// Görülmeyen sorular: iki yanındaki numara görülmüş, kendisi görülmemiş ("tek delik": 11 ve 13 var, 12 yok). Yalnız bu durum kesin sayılır:
+    /// baştaki / sondaki eksikler ve ardışık iki eksik (kadraja giren komşu sayfanın numaraları olabilir) eksik sayılmaz
+    static func holes(in numbers: [Int]) -> [Int] {
+        let seen = Set(numbers)
+        return numbers.filter { !seen.contains($0 + 1) && seen.contains($0 + 2) }.map { $0 + 1 }
+    }
+
+    /// Sayfa işe yaradıysa (ya da ikinci taramada da zayıf kaldıysa) söylenen yönlendirme. `seen`: görülen soru numaraları (varsa söylenir);
+    /// `barelyMoved`: hareket takibi kameranın hep aynı yerde kaldığını ölçtü (bkz. `MotionSummary.barelyMoved`)
+    static func nextPageText(page: Int, good: Bool, seen: [Int] = [], barelyMoved: Bool = false) -> String {
+        let name = Say.ordinalCapital(page)
+        guard good else { return "\(name) sayfa yine zayıf; eldeki görüntüler gönderilecek. Sonraki sayfaya geçin." }
+        var text = "\(name) sayfa tamam."
+        if !seen.isEmpty { text += " Görülen sorular: \(Say.compactList(seen))." }
+        if barelyMoved { text += " Kamera az kaydırıldı; sayfanın tamamı görünmemiş olabilir." }
+        return text + " Sonraki sayfaya geçin."
+    }
+
+    /// Kareler yeterli ama bir soru numarası hiç görülmedi: sayfa yeniden taranır
+    static func missingText(page: Int, missing: [Int]) -> String {
+        let list = Say.compactList(missing)
+        let noun = missing.count == 1 ? "\(list). soru" : "\(list). sorular"
+        return "\(Say.ordinalCapital(page)) sayfada \(noun) görülmedi. Bu sayfayı yeniden tarayın."
     }
 
     /// Sayfa kötüyse söylenen cümle: neden (hangisi çoksa önce) ve ne yapılacağı
-    static func reviewText(page: Int, damaged: Int, blurry: Int) -> String {
-        let why: String
+    static func reviewText(page: Int, damaged: Int, blurry: Int, fast: Bool = false) -> String {
+        var why: String
         if damaged > 0 && blurry > 0 { why = damaged >= blurry ? "blok bozulmaları ve bulanıklık var" : "bulanıklık ve blok bozulmaları var" }
         else if damaged > 0 { why = "blok bozulmaları var" }
         else if blurry > 0 { why = "bulanıklık var" }
         else { why = "yeterli görüntü gelmedi" }
-        return "\(Say.ordinalCapital(page)) sayfa okunamadı: \(why). Bu sayfayı yeniden, yavaşça tarayın."
+        // Hareket takibi kameranın hızlı kaydırıldığını ölçtüyse bulanıklığın nedeni söylenir
+        if fast && blurry > 0 { why += "; kamera hızlı kaydırıldı" }
+        return "\(Say.ordinalCapital(page)) sayfa okunamadı: \(why). Bu sayfayı yeniden, \(fast && blurry > 0 ? "daha yavaş" : "yavaşça") tarayın."
     }
 
     var pageSeconds: TimeInterval { return slotSeconds * Double(SeriesRhythm.shotsPerPage) + turnSeconds }

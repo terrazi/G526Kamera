@@ -939,10 +939,24 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         let findOrientation = settings.autoOrientation
         finder.reset(base: baseOrientation)
         let t0 = ProcessInfo.processInfo.systemUptime
+        // Güçlü okuma ve hareket takibi yalnız serbest taramada (ritim) çalışır; ayarlardan kapatılabilir
+        let pace = ReadPace(enabled: rhythm != nil && settings.accurateReading)
+        let tracker: MotionTracker? = (rhythm != nil && settings.motionTracking) ? MotionTracker() : nil
         let collector = SeriesCollector(
             start: t0,
             clock: clock,
-            reader: { buffer in finder.readScore(buffer, base: baseOrientation, enabled: findOrientation) { frame, orientation in SeriesTextReader.read(frame, orientation: orientation) } },
+            reader: { buffer in
+                // Güçlü yazı okuma (ayar açıksa ve telefon yetişiyorsa): süresi ölçülür, yetişemezse bu oturumda hızlı kipe dönülür
+                let accurate = pace.useAccurate
+                let began = ProcessInfo.processInfo.systemUptime
+                let score = finder.readScore(buffer, base: baseOrientation, enabled: findOrientation) { frame, orientation in
+                    SeriesTextReader.read(frame, orientation: orientation, accurate: accurate)
+                }
+                if accurate, pace.record(seconds: ProcessInfo.processInfo.systemUptime - began) {
+                    tlog("[seri] güçlü yazı okuma yetişemiyor (ortalama \(String(format: "%.2f", pace.report.average)) sn); bu oturumda hızlı okumaya dönüldü")
+                }
+                return score
+            },
             renderer: { buffer in
                 var rendering = enhance
                 rendering.orientation = finder.orientation(for: buffer, fallback: baseOrientation)
@@ -951,6 +965,7 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
             },
             log: { tlog($0) })
         let rawBefore = pipeline.framesSeen
+        collector.motion = tracker
         pipeline.seriesSink = collector
         pipeline.fullRate = true   // pil tasarrufu açık olsa bile her kare ölçülür: seçim ne kadar çok kareden yapılırsa o kadar iyi olur
         defer {
@@ -1013,19 +1028,32 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
                     await collector.settle()
                     let page = net / SeriesRhythm.reviewSeconds
                     let q = collector.quality(from: Double(reviewFrom), to: Double(second))
-                    let bad = SeriesRhythm.pageIsBad(valid: q.valid, damaged: q.damaged, blurry: q.blurry)
-                    tlog("[kamera] sayfa denetimi: \(page). sayfa (\(reviewFrom)–\(second). sn): geçerli \(q.valid), bozuk \(q.damaged), bulanık \(q.blurry) → \(bad ? "KÖTÜ" : "yeterli")")
+                    let framesBad = SeriesRhythm.pageIsBad(valid: q.valid, damaged: q.damaged, blurry: q.blurry)
+                    // Görülen soru numaraları (en az iki karede okunanlar); "tek delik" yalnız güçlü okuma çalışırken sayfayı kötü yapar
+                    let seen = SeriesRhythm.confirmedNumbers(q.numbers)
+                    let missing = pace.useAccurate ? SeriesRhythm.holes(in: seen) : []
+                    // Hareket takibi (danışman): kaydırma hızı ve gezilen alan
+                    var motion: MotionSummary?
+                    if let tracker = tracker {
+                        await tracker.drain()
+                        motion = tracker.summary(from: t0 + Double(reviewFrom), to: t0 + Double(second))
+                    }
+                    let bad = framesBad || !missing.isEmpty
+                    tlog("[kamera] sayfa denetimi: \(page). sayfa (\(reviewFrom)–\(second). sn): geçerli \(q.valid), bozuk \(q.damaged), bulanık \(q.blurry); görülen sorular: \(seen.map { String($0) }.joined(separator: ",")); görülmeyen: \(missing.map { String($0) }.joined(separator: ",")) → \(bad ? "KÖTÜ" : "yeterli")")
+                    if let motion = motion { tlog("[kamera] hareket takibi: \(motion.logText); atlanan kare \(tracker?.skipped ?? 0)\(motion.isFast ? "; HIZLI" : "")\(motion.barelyMoved ? "; AZ KAYDIRILDI" : "")") }
                     reviewFrom = second
                     if bad, !redone.contains(page) {
                         redone.insert(page)
                         clock.redo(seconds: Double(SeriesRhythm.reviewSeconds))
                         total = clock.totalSeconds
                         tlog("[kamera] sayfa denetimi: \(page). sayfa yeniden taranacak; oturum \(total) sn'ye uzadı")
-                        sayRhythm(SeriesRhythm.reviewText(page: page, damaged: q.damaged, blurry: q.blurry))
+                        sayRhythm(framesBad
+                            ? SeriesRhythm.reviewText(page: page, damaged: q.damaged, blurry: q.blurry, fast: motion?.isFast ?? false)
+                            : SeriesRhythm.missingText(page: page, missing: missing))
                         reviewed = true
                     } else if second < total {
                         // Sayfa işe yaradı (ya da ikinci taramada da zayıf kaldı): kullanıcı sıradaki sayfaya yönlendirilir; süre anonsunun yerine geçer
-                        sayRhythm(SeriesRhythm.nextPageText(page: page, good: !bad))
+                        sayRhythm(SeriesRhythm.nextPageText(page: page, good: !bad, seen: seen, barelyMoved: motion?.barelyMoved ?? false))
                         reviewed = true
                     }
                 }
@@ -1081,6 +1109,14 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         if let clock = clock {
             // Ayar için: geçerli kare kuralı bu oturumda kaç kareyi neden geçersiz saydı, kaç tekrar yaptırdı
             tlog("[kamera] ritim özeti: \(outcome.items.count) fotoğraf, \(clock.retries) tekrar (+\(Int(clock.offset.rounded())) sn); geçersiz kazanan kare: bozuk \(stats.damagedWindows), bulanık \(stats.blurryWindows), soru tam değil \(stats.noQuestionWindows), örtüşmüyor \(stats.noOverlapWindows)")
+            let read = pace.report
+            if read.count > 0 {
+                tlog("[kamera] güçlü yazı okuma: \(read.count) kare, ortalama \(String(format: "%.2f", read.average)) sn\(read.gaveUp ? "; yetişemedi, hızlı okumaya dönüldü" : "")")
+            }
+            if let tracker = tracker {
+                await tracker.drain()
+                tlog("[kamera] hareket takibi (oturum): \(tracker.summary(from: t0, to: t0 + Double(total) + 1).logText); atlanan kare \(tracker.skipped)")
+            }
         }
         let elapsed = max(1.0, ProcessInfo.processInfo.systemUptime - t0)
         let rawFrames = max(0, pipeline.framesSeen - rawBefore)
@@ -1093,8 +1129,10 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         if outcome.readable == 0 { tlog("[kamera] toplu çekim: hiçbir karede yazı okunamadı; en net \(outcome.items.count) kare yine de gönderilecek (yazı tanıma zayıf kalmış olabilir)") }
         // Seçilen fotoğraflar zaman sırasıyla TEK PDF olur; toplam bütçeyi aşarsa fotoğraflar yeniden sıkıştırılır
         let raw = outcome.items.map { $0.jpeg }
+        // "Büyük PDF" açıkken kareler sıkıştırılmaz (45 MB'a kadar); kapalıyken eski 16 MB bütçe
+        let budget = settings.largeUpload ? PageDocument.largeBudgetBytes : PageDocument.budgetBytes
         let (pdf, fitted) = await Task.detached(priority: .userInitiated) { () -> (Data?, Int) in
-            let fit = PageDocument.fit(raw)
+            let fit = PageDocument.fit(raw, budget: budget)
             return (PageDocument.make(jpegs: fit, title: "Toplu çekim"), fit.reduce(0) { $0 + $1.count })
         }.value
         tlog("[kamera] toplu çekim: \(outcome.items.count) fotoğraf (\(best.width)×\(best.height), ham \(raw.reduce(0) { $0 + $1.count } / 1024) KB → \(fitted / 1024) KB) → PDF \(pdf.map { "\($0.count / 1024) KB" } ?? "kurulamadı")")
