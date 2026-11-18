@@ -175,7 +175,8 @@ final class RhythmCollectorTests: XCTestCase {
     func testASlotWithoutFramesIsSimplyMissingAndTheOthersKeepTheirLabels() async {
         let t0 = 8000.0
         let c = collector(t0)
-        // yalnız "üst" (dilim 1) ve "alt" (dilim 4) dilimlerinde kare var
+        // yalnız "üst" (dilim 1) ve "alt" (dilim 4) dilimlerinde kare var (ilk kare yerleşirken gelir: kamera durgunluğu ölçülsün)
+        c.offer(buffer: buffer(id: 90), time: t0 + 4 + 0.5, sharpness: 100, signature: signature)
         c.offer(buffer: buffer(id: 1), time: t0 + 4 + 2.0, sharpness: 100, signature: signature)
         c.offer(buffer: buffer(id: 2), time: t0 + 16 + 2.0, sharpness: 100, signature: signature)
         let outcome = await c.finish()

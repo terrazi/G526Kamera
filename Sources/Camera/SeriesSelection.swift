@@ -531,7 +531,9 @@ final class SeriesCollector {
         defer { lock.unlock() }
         if damagedSlots.contains(index) && !cleanSlots.contains(index) { return .damaged }
         if goodSlots.contains(index) { return nil }
-        return slotProblems[index]?.min()
+        // Dilimde sağlam kare görüldüyse bir yarının bozuk kazananı "bozuk" sebebi sayılmaz (sağlam kare henüz değerlendirilmemiş olabilir)
+        let seen = (slotProblems[index] ?? []).filter { $0 != .damaged || !cleanSlots.contains(index) }
+        return seen.min()
     }
 
     func slotNeedsRetry(_ index: Int) -> Bool { return slotProblem(index) != nil }
