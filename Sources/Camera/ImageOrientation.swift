@@ -37,6 +37,16 @@ enum ImageOrientation: Int, CaseIterable {
         return ((base.quarterTurns - detected.quarterTurns) % 4 + 4) % 4
     }
 
+    /// Aynı eksende ters yön (yazı bir yönde dik okunuyorsa öbüründe baş aşağı okunur): normal ↔ 180°, 90° sağa ↔ 90° sola
+    var opposite: ImageOrientation {
+        switch self {
+        case .normal: return .rotate180
+        case .rotate180: return .normal
+        case .right90: return .left90
+        case .left90: return .right90
+        }
+    }
+
     /// Dik açıyla çevrilince en/boy yer değiştirir
     var isQuarterTurn: Bool { return self == .right90 || self == .left90 }
 

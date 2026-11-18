@@ -394,6 +394,21 @@ final class AppSettings: ObservableObject {
         }
     }
 
+    /// Profili bir yukarı (-1) ya da aşağı (+1) taşır: ad, model, anahtar türü ve anahtarı birlikte gider; sıra kalıcıdır ve zincir bu sırayla sorar.
+    /// Taşınamazsa (en üst / en alt) false döner ve hiçbir şey değişmez.
+    @discardableResult
+    func moveGeminiProfile(at index: Int, by offset: Int) -> Bool {
+        guard GeminiProfiles.canMove(index, by: offset),
+              geminiProfiles.count == GeminiProfiles.slotCount, geminiKeys.count == GeminiProfiles.slotCount else { return false }
+        var profiles = geminiProfiles
+        var keys = geminiKeys
+        profiles.swapAt(index, index + offset)
+        keys.swapAt(index, index + offset)
+        geminiKeys = keys
+        geminiProfiles = profiles
+        return true
+    }
+
     /// Zincirin gördüğü 4 profil (anahtarlarıyla, yuva sırasıyla)
     func geminiProfileInfos() -> [GeminiProfileInfo] {
         return geminiProfiles.enumerated().map { i, p in

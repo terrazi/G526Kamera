@@ -19,6 +19,9 @@ struct GeminiProfileInfo: Equatable {
 
     /// Anahtarı ve modeli dolu profil zincire girer; boş olanlar atlanır
     var usable: Bool { return !key.trimmed.isEmpty && !model.trimmed.isEmpty }
+
+    /// Profilin kimliği: yuva numarası değil kendisi (kullanıcı sırayı değiştirince "dinlenen" profil kendisiyle birlikte taşınsın)
+    var identity: String { return "\(name)|\(model)|\(key)" }
 }
 
 /// 4 yedekli Gemini profili (ilk sürümdeki düzen). Soru sırayla 1 → 2 → 3 → 4 profilin kendi anahtarı ve modeliyle sorulur;
@@ -62,6 +65,13 @@ enum GeminiProfiles {
     /// Anahtar türü yazısı: anahtar neyse yazı da odur
     static func keyKindLabel(free: Bool) -> String {
         return free ? "Ücretsiz anahtar" : "Ücretli anahtar"
+    }
+
+    /// Sıra değiştirme (kullanıcı isteği 2026-11-18: ücretsiz modeller geç ya da yanlış cevap verebiliyor; yukarı / aşağı oklarıyla sıra değişsin):
+    /// `index` konumundaki profil bir yukarı (-1) ya da bir aşağı (+1) taşınabilir mi
+    static func canMove(_ index: Int, by offset: Int) -> Bool {
+        let target = index + offset
+        return abs(offset) == 1 && (0..<slotCount).contains(index) && (0..<slotCount).contains(target)
     }
 
     /// Profil adı boşsa "N. model"

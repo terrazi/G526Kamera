@@ -534,6 +534,28 @@ final class GeminiProfileChainTests: XCTestCase {
         XCTAssertEqual(sentKey(3), "K1")
     }
 
+    func testRestingFollowsTheProfileWhenTheUserReordersTheList() async throws {
+        FakeGeminiProtocol.reset()
+        let clock = Date(timeIntervalSince1970: 1_800_000_000)
+        var list = profiles(["K1", "K2", "K3"])()
+        let service = GeminiAnswerService(profiles: { list }, now: { clock }, makeClient: fakeProfileClient)
+        queueReplies([errorReply(429, "quota"), textReply("Soru 1, Adana, A")])
+        _ = try await service.answer(question: "x", expectedNumber: 1, audio: nil)
+        XCTAssertEqual(FakeGeminiProtocol.urls.count, 2, "1. profilin kotası doldu, cevap 2.'den geldi")
+
+        // Kullanıcı kotası dolan 1. profili en alta alır: sıra K2, K3, K1 (yuva numaraları yeniden verilir)
+        list = [list[1], list[2], list[0]].enumerated().map { i, p in
+            var q = p
+            q.slot = i + 1
+            return q
+        }
+        queueReplies([textReply("Soru 2, Bursa, B")])
+        let again = try await service.answer(question: "y", expectedNumber: 2, audio: nil)
+        XCTAssertEqual(again.model, GeminiProfiles.defaultModels[1], "Yeni 1. profil (K2) sorulur")
+        XCTAssertEqual(sentKey(2), "K2")
+        XCTAssertEqual(FakeGeminiProtocol.urls.count, 3)
+    }
+
     func testEveryProfileFailingKeepsEachProfilesReason() async {
         FakeGeminiProtocol.reset()
         // Kalıcı hatalar (anahtar / model): yeni tur başlamaz; geçici hatalarda (kota, yoğunluk, gecikme) sıra baştan denenirdi

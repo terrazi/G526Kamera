@@ -218,7 +218,7 @@ final class CameraSettings: ObservableObject {
         defaults.set(orient.rawValue, forKey: Key.imageOrientation)
         imageOrientation = orient
         guidanceFrame = frameValue
-        autoOrientation = defaults.object(forKey: Key.autoOrientation) as? Bool ?? true
+        autoOrientation = defaults.object(forKey: Key.autoOrientation) as? Bool ?? false
         guidanceSharpness = defaults.object(forKey: Key.guidanceSharpness) as? Int ?? 1
         guidanceGlare = defaults.object(forKey: Key.guidanceGlare) as? Bool ?? true
         guidanceDescribe = defaults.object(forKey: Key.guidanceDescribe) as? Bool ?? true

@@ -19,6 +19,12 @@ enum SeriesSelection {
     static let sameWords = 0.75
     /// Yazısı okunamayan iki adayın imza farkı bunun altındaysa aynı görünüm sayılır (yedek ölçüt)
     static let sameSignature = 2.5
+    /// Kamera oynamadan alınmış aynı görünüm: imza farkı bunun altında ve kelimelerin en az `stillWords` oranı ortak (küçük kümeye göre). Gerçek günlük
+    /// 2026-11-18: hızlı yazı tanıma aynı sayfayı her karede başka bozuyor (Jaccard %40'a düşüyor), bu yüzden 60 sayfalık PDF'in 39'u aynı görünümdü
+    static let stillSignature = 3.0
+    static let stillWords = 0.45
+    /// Yeni aday, havuzun son bu kadar adayıyla karşılaştırılır (yalnız sonuncuyla değil)
+    static let lookback = 3
     /// Bir kare, ötekinde olmayan en az bu kadar kelime gösteriyorsa "yeni içerik" taşır (OKR gürültüsü birkaç kelimeyi oynatır)
     static let newWords = 8
     /// Kamera bu kadar sn durgun kaldıktan sonra gelen kare "durgun an" karesidir: hareket bulanıklığı yoktur, kodlayıcı görüntüyü tazelemiştir
@@ -44,6 +50,9 @@ struct TextScore: Equatable {
     var confidence = 0.0
     /// Üç harften uzun küçük harfli kelimeler (aynı görünüm denetimi için)
     var words: Set<String> = []
+    /// Okunan yazıdaki sık kullanılan işlev sözcüklerinin ("the", "of", "bir", "için") sayısı: yazı baş aşağı okunduğunda harf sayısı yüksek kalabilir ama
+    /// anlamlı sözcük çıkmaz (bkz. `TextSense`, `OrientationFinder`)
+    var sense = 0
 
     static let minConfidence: Float = 0.3
 
@@ -91,9 +100,16 @@ struct TextScore: Equatable {
             for word in text.lowercased().split(whereSeparator: { !$0.isLetter }) where word.count >= 3 {
                 score.words.insert(String(word))
             }
+            score.sense += TextSense.count(text)
         }
         score.confidence = used == 0 ? 0 : confidenceSum / Double(used)
         return score
+    }
+
+    /// Küçük kümenin ne kadarının ötekinde de bulunduğu (0–1); biri boşsa 0
+    static func containment(_ a: Set<String>, _ b: Set<String>) -> Double {
+        if a.isEmpty || b.isEmpty { return 0 }
+        return Double(a.intersection(b).count) / Double(min(a.count, b.count))
     }
 
     /// İki kelime kümesinin örtüşmesi (0–1); biri boşsa 0
@@ -206,9 +222,22 @@ struct SeriesPool {
     /// 32×18 ızgarada birbirine çok benzer; yazı bulunduğunda kelimelere bakılır.)
     static func sameView(_ a: SeriesItem, _ b: SeriesItem) -> Bool {
         if let ta = a.text, let tb = b.text, !ta.words.isEmpty, !tb.words.isEmpty {
-            return TextScore.overlap(ta.words, tb.words) >= SeriesSelection.sameWords
+            return TextScore.overlap(ta.words, tb.words) >= SeriesSelection.sameWords || isStillView(a, b)
         }
         return FrameAnalysis.difference(a.signature, b.signature) < SeriesSelection.sameSignature
+    }
+
+    /// Kamera oynamadan alınmış aynı görünüm: ikisinin de yazısı okunmuş, imzaları çok yakın ve kelimelerinin yarıya yakını ortak
+    static func isStillView(_ a: SeriesItem, _ b: SeriesItem) -> Bool {
+        guard let ta = a.text, let tb = b.text, !ta.words.isEmpty, !tb.words.isEmpty else { return false }
+        return FrameAnalysis.difference(a.signature, b.signature) < SeriesSelection.stillSignature
+            && TextScore.containment(ta.words, tb.words) >= SeriesSelection.stillWords
+    }
+
+    /// `a`, `b`'nin gösterdiği şık harflerinin ve soru numaralarının hepsini gösteriyor mu (kelimelere bakılmaz; yazısı okunmamış karede true)
+    static func coversMarks(_ a: SeriesItem, _ b: SeriesItem) -> Bool {
+        guard let ta = a.text, let tb = b.text else { return true }
+        return ta.options.isSuperset(of: tb.options) && ta.questionNumbers.isSuperset(of: tb.questionNumbers)
     }
 
     /// `a`, `b`'nin gösterdiği her şeyi gösteriyor mu: `b`'de görülen şık harflerinin ve soru numaralarının hepsi `a`'da da var ve `b`'nin `a`'da olmayan
@@ -222,11 +251,14 @@ struct SeriesPool {
     }
 
     mutating func add(_ item: SeriesItem) {
-        if let last = items.last, SeriesPool.sameView(last, item) {
+        // Yalnız sonuncuyla değil, son birkaç adayla karşılaştırılır (A, B, A' sırasında A' birinciyle birleşir)
+        let recent = items.indices.suffix(SeriesSelection.lookback)
+        if let index = recent.reversed().first(where: { SeriesPool.sameView(items[$0], item) }) {
+            let last = items[index]
             if item.damaged != last.damaged {
                 // Aynı görünümün bozuk ve sağlam hâli: sağlam olan kalır (bozuk karenin "ötekinde olmayan kelimeleri" karışık yazıdan gelir)
                 merged += 1
-                if last.damaged { items[items.count - 1] = item }
+                if last.damaged { items[index] = item }
                 return
             }
             let keptCovers = SeriesPool.covers(last, item)
@@ -234,14 +266,18 @@ struct SeriesPool {
             if keptCovers && newCovers {
                 // Aynı içerik: en iyisi kalır
                 merged += 1
-                if item.rank > last.rank { items[items.count - 1] = item }
+                if item.rank > last.rank { items[index] = item }
             } else if newCovers {
                 // Yeni kare ötekinin gösterdiği her şeyi ve fazlasını gösteriyor: onun yerini alır
                 merged += 1
-                items[items.count - 1] = item
+                items[index] = item
             } else if keptCovers {
                 // Yeni karede yeni bir şey yok
                 merged += 1
+            } else if SeriesPool.isStillView(last, item), SeriesPool.coversMarks(last, item) {
+                // Kamera oynamadan okunan iki kare: yazı tanıma gürültüsü kelimeleri farklı bozmuş ama yeni şık / numara yok: tekrar (en iyisi kalır)
+                merged += 1
+                if SeriesPool.coversMarks(item, last), item.rank > last.rank { items[index] = item }
             } else {
                 // İkisinin de ötekinde olmayan içeriği var (kamera kaydı): ikisi de kalır
                 items.append(item)
@@ -255,6 +291,17 @@ struct SeriesPool {
         }
     }
 
+    /// Aynı görünümün tekrarlarını eler: puanı yüksek olandan başlanır; kamera oynamadan alınmış ve yeni şık / numara göstermeyen kare atılır (ardışık
+    /// olmasa da: yazı tanıma gürültüsü kareleri ardışık birleştirmeyi kaçırmış olabilir). Gerçek günlük 2026-11-18: 60 sayfalık PDF 11–15 MB oldu, Gemini zaman aşımına düştü
+    static func distinct(_ list: [SeriesItem]) -> [SeriesItem] {
+        var kept: [SeriesItem] = []
+        for item in list.sorted(by: { $0.rank > $1.rank }) {
+            if kept.contains(where: { SeriesPool.isStillView($0, item) && SeriesPool.coversMarks($0, item) }) { continue }
+            kept.append(item)
+        }
+        return kept
+    }
+
     /// Son seçim, zaman sırasıyla: (1) yararlı (okunan) kareler; en iyi puanın `relativeFloor` oranının altındakiler atılır. (2) Bunlar `minPages`'ten
     /// azsa kalan yer, okunamayan (zayıf) karelerin en netleriyle doldurulur: yazı tanıma zayıf kalmış olabilir, Gemini bu kareleri çoğu zaman okur.
     /// Hiç yararlı kare yoksa yalnız zayıf kareler gider. Çekim boş dönmez (kare varsa).
@@ -262,7 +309,7 @@ struct SeriesPool {
         let useful = items.filter { $0.isUseful }
         var chosen: [SeriesItem] = []
         if let best = useful.map({ $0.quality }).max() {
-            chosen = useful.filter { $0.quality >= best * SeriesSelection.relativeFloor }
+            chosen = SeriesPool.distinct(useful.filter { $0.quality >= best * SeriesSelection.relativeFloor })
         }
         let room = minPages - chosen.count
         if room > 0 {

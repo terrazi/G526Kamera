@@ -627,7 +627,7 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
             // Yazı yönü: görünüm mevcut yönde okunmuyorsa yan ve ters yönler denenir (bkz. `OrientationFinder`); ölçüm dik görüntüde yapılır
             let found = await Task.detached(priority: .utility) { () -> (orientation: ImageOrientation, lines: ViewLines?) in
                 guard auto else { return (base, ViewLinesReader.read(buffer, orientation: base)) }
-                let result = finder.locate(buffer, preferred: preferred) { orientation -> (value: ViewLines?, chars: Int) in
+                let result = finder.locate(buffer, preferred: preferred, sense: { (lines: ViewLines?) in lines?.sense ?? 0 }) { orientation -> (value: ViewLines?, chars: Int) in
                     let lines = ViewLinesReader.read(buffer, orientation: orientation)
                     return (lines, lines?.chars ?? 0)
                 }

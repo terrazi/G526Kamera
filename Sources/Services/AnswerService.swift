@@ -244,8 +244,9 @@ final class GeminiAnswerService: Answering {
     private let maxRounds: Int
     private let roundPause: TimeInterval
     private let now: () -> Date
-    /// Bu profiller bu zamana kadar sona bırakılır (kotası doldu / cevap vermedi): her soruda boşuna beklenmesin
-    private var restingUntil: [Int: Date] = [:]
+    /// Bu profiller bu zamana kadar sona bırakılır (kotası doldu / cevap vermedi): her soruda boşuna beklenmesin. Anahtar profilin kimliğidir (yuva değil):
+    /// kullanıcı sırayı değiştirse de dinlenme kendi profilinde kalır
+    private var restingUntil: [String: Date] = [:]
 
     init(profiles: @escaping () -> [GeminiProfileInfo],
          limit: TimeInterval = GeminiAnswerService.perModelLimit,
@@ -348,8 +349,8 @@ final class GeminiAnswerService: Answering {
     /// Sıra: dinlenmiş profiller yuva sırasıyla, ardından sona bırakılanlar (hepsi sondaysa yine hepsi denenir)
     func order(_ usable: [GeminiProfileInfo]) -> [GeminiProfileInfo] {
         let t = now()
-        let ready = usable.filter { (restingUntil[$0.slot] ?? .distantPast) <= t }
-        let resting = usable.filter { (restingUntil[$0.slot] ?? .distantPast) > t }
+        let ready = usable.filter { (restingUntil[$0.identity] ?? .distantPast) <= t }
+        let resting = usable.filter { (restingUntil[$0.identity] ?? .distantPast) > t }
         return ready + resting
     }
 
@@ -360,7 +361,7 @@ final class GeminiAnswerService: Answering {
         case .key, .model, .cap: seconds = 900
         default: seconds = 120
         }
-        restingUntil[profile.slot] = now().addingTimeInterval(seconds)
+        restingUntil[profile.identity] = now().addingTimeInterval(seconds)
     }
 
     func answer(question: String, english: String, expectedNumber: Int, audio: Data?, passage: PassageMedia?) async throws -> GeminiReply {
@@ -438,7 +439,7 @@ final class GeminiAnswerService: Answering {
                                                            serverRetries: 0, timeout: wait)
                     let parsedList = parse(try GeminiAnswerService.replyText(from: object))
                     if parsedList.isEmpty { throw GeminiError("Gemini cevap satırı vermedi.", .empty) }
-                    restingUntil[profile.slot] = nil
+                    restingUntil[profile.identity] = nil
                     let note = trail.isEmpty ? "" : "Cevap \(profile.name) modelinden geldi: " + trail.joined(separator: " ")
                     let spokenNote = (!profile.free && !failedNames.isEmpty) ? Say.paidModelUsed : ""
                     return parsedList.map { parsed in

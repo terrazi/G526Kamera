@@ -17,6 +17,26 @@ struct LineEnd: Equatable {
     }
 }
 
+/// Kadrajda tam görünen bir sorunun kimliği: numarası (okunduysa) ve sözcükleri (dört harften uzun makul sözcükler, küçük harf). Aynı soru sonradan yeniden
+/// görününce "zaten alındı" denebilsin diye kullanılır (kullanıcı isteği 2026-11-18); yazı tanıma gürültüsü yüzünden sözcük örtüşmesine bakılır.
+struct QuestionMark: Equatable {
+    var number: Int?
+    var keys: Set<String>
+
+    /// Sözcük kümesi bu kadar sözcükten azsa kimlik için güvenilmez: numaraya bakılır
+    static let minKeys = 5
+    /// İki sorunun sözcüklerinin (küçük kümeye göre) örtüşmesi bu orana ulaşırsa aynı sorudur
+    static let sameOverlap = 0.5
+
+    func isSame(as other: QuestionMark) -> Bool {
+        if keys.count >= QuestionMark.minKeys && other.keys.count >= QuestionMark.minKeys {
+            return FramingCoach.overlap(keys, other.keys) >= QuestionMark.sameOverlap
+        }
+        if let a = number, let b = other.number { return a == b }
+        return false
+    }
+}
+
 /// Kadrajın en üstündeki ve en altındaki TAM satırlar ve kenara dayanıp yarım kalan satır var mı (kullanıcı kararı 2026-11-17: "en alttaki satır …
 /// ile bitiyor" diye kameranın nereye kadar gördüğü söylensin). Saf mantık: Vision kutularından kurulur, birim testle denenir.
 struct ViewLines: Equatable {
@@ -30,6 +50,13 @@ struct ViewLines: Equatable {
     /// Güveni yeterli satırlardaki harf + rakam sayısı: yazı program tarafından okunabiliyor mu (kullanıcı kararı 2026-11-18: okunuyorsa daha mükemmel
     /// görüntü aranmaz, ilk yeterli görüntü alınır)
     var chars = 0
+    /// Okunan satırlardaki sık kullanılan işlev sözcüklerinin sayısı (bkz. `TextSense`): yazı baş aşağı okunmuyor mu diye bakılır
+    var sense = 0
+    /// Kadrajda baştan sona (numara / gövde, A–E şıkları) TAM görünen soru sayısı (numarası okunmasa da şıklardan sayılır). Kullanıcı kararı 2026-11-18:
+    /// en az bir soru tam görünüyorsa kadraj kabul edilir; yandaki ve alttaki kesik sorular "ekrana sığmıyor" sebebi olmaz
+    var completeQuestions = 0
+    /// Tam görünen soruların kimlikleri (`completeQuestions` kadar)
+    var completeMarks: [QuestionMark] = []
     /// Kadrajın en üstündeki soru ya da paragrafın KESİK olduğuna dair kanıt YOK: ilk satır kenara dayanmıyor ve numarasız bir şık satırıyla (önceki sorunun
     /// kuyruğu) başlamıyor
     var topComplete = false
@@ -166,9 +193,12 @@ struct ViewLines: Equatable {
         result.ignored = input.count - lines.count
         for line in lines where (2 - Double(line.box.maxY) - Double(line.box.minY)) / 2 >= skipTop {   // saat bandındaki yazı sayılmaz
             result.chars += line.text.filter { ch in ch.isLetter || ch.isNumber }.count
+            result.sense += TextSense.count(line.text)
         }
         let blocks = completeness(lines, skipTop: skipTop)
         result.topComplete = blocks.top
+        result.completeQuestions = blocks.complete
+        result.completeMarks = blocks.marks
         result.bottomComplete = blocks.bottom
         result.questions = blocks.questions
         result.nextQuestion = blocks.next
@@ -262,7 +292,10 @@ struct ViewLines: Equatable {
     // MARK: Soru / paragraf bütünlüğü
 
     private static let numberStart = try? NSRegularExpression(pattern: "^\\s*(\\d{1,3})\\s?[\\.\\)]\\s*\\S", options: [])
-    private static let optionE = try? NSRegularExpression(pattern: "^\\s*\\(?E\\s?[\\)\\.\\]]", options: [])
+    /// E şıkkı: "E)" ya da yazı tanımanın ")" işaretini düşürdüğü "E in which stage" (gerçek günlük 2026-11-18: "A The only way", "E in which stage")
+    private static let optionE = try? NSRegularExpression(pattern: "^\\s*\\(?E(\\s?[\\)\\.\\]]|\\s+(?=[A-Za-z]))", options: [])
+    /// Şık satırı, ")" işareti düşmüş olabilir: B–E harfi ve sözcük; A yalnız büyük harfli sözcükle ("A study" gibi makale satırları şık sayılmasın)
+    private static let optionLoose = try? NSRegularExpression(pattern: "^\\s*\\(?([B-E](\\s?[\\)\\.\\]]|\\s+(?=[A-Za-z]))|A(\\s?[\\)\\.\\]]|\\s+(?=[A-Z])))", options: [])
     private static let optionAny = try? NSRegularExpression(pattern: "^\\s*\\(?[A-E]\\s?[\\)\\.\\]]\\s*\\S", options: [])
     /// Satırın içinde (başında ya da bir sözcük sonra) E şıkkı: iki sütunun satırı tek kutuda birleşmişse sağ sütunun E'si ortada kalır
     private static let optionEInside = try? NSRegularExpression(pattern: "(^|\\s)\\(?E\\s?[\\)\\.\\]]\\s*\\S", options: [])
@@ -304,6 +337,10 @@ struct ViewLines: Equatable {
         var reason: String?
         /// Numaralı soru ve şık yapısı yok: paragraf
         var paragraph = false
+        /// Baştan sona tam görünen soru sayısı (numarası okunmayanlar şıklarından sayılır)
+        var complete = 0
+        /// Tam görünen soruların kimlikleri
+        var marks: [QuestionMark] = []
     }
 
     private struct Row {
@@ -358,6 +395,11 @@ struct ViewLines: Equatable {
         var done: [Int] = []
         var notDone: [Int] = []
         var numberedRows = 0
+        var unnumbered = 0
+        var marks: [QuestionMark] = []
+        func keys(_ rows: [Row]) -> Set<String> {
+            return Set(rows.flatMap { words($0.text) }.filter { $0.count >= 4 && isPlausibleWord($0) }.map { $0.lowercased() })
+        }
         for row in merged {
             if row.cutTop {
                 topOK = false
@@ -386,7 +428,27 @@ struct ViewLines: Equatable {
                     let after = ordered[(e + 1)...]
                     if after.count > 2 || ordered[e].cutBottom || after.contains(where: { $0.cutBottom }) { complete = false }
                 }
-                if complete { done.append(start.number) } else { notDone.append(start.number) }
+                if complete {
+                    done.append(start.number)
+                    marks.append(QuestionMark(number: start.number, keys: keys(Array(slice))))
+                } else {
+                    notDone.append(start.number)
+                }
+            }
+            // Numarası okunmayan tam sorular (gerçek günlük: numara çoğu karede okunmuyor): E şıkkına kadar şık satırları ve üstlerinde gövde satırı görünüyorsa,
+            // gövdenin ilk satırı kenara dayanmıyorsa soru tamdır
+            var boundary = 0
+            for (i, row) in ordered.enumerated() where matches(optionE, row.text) {
+                let blockStart = boundary
+                boundary = i + 1
+                guard !row.cutTop, !row.cutBottom else { continue }
+                let block = Array(ordered[blockStart...i])
+                guard !block.contains(where: { questionNumber($0.text) != nil }) else { continue }   // numaralı sorular yukarıda sayıldı
+                guard let firstOption = block.firstIndex(where: { matches(optionLoose, $0.text) }), firstOption > 0 else { continue }
+                guard block.filter({ matches(optionLoose, $0.text) }).count >= 4 else { continue }
+                if let head = block.first, head.cutTop || (blockStart == 0 && head.plausible && startsLowercase(head.text)) { continue }
+                unnumbered += 1
+                marks.append(QuestionMark(number: nil, keys: keys(block)))
             }
             // KESİK KANITI (gerçek günlük 2026-11-18: yazı tanıma soru numarasını çoğu karede okumadığı için "numarayla başlamıyor = kesik" saymak her
             // görüntüyü reddetti): ÜST kesik yalnız ilk satır kenara dayanıyorsa ya da numarasız bir ŞIK satırıyla başlıyorsa (önceki sorunun kuyruğu)
@@ -440,6 +502,8 @@ struct ViewLines: Equatable {
             }
         }
         var result = Blocks(top: topOK, bottom: bottomOK)
+        result.complete = done.count + unnumbered
+        result.marks = marks
         result.reason = reasons.isEmpty ? nil : reasons.joined(separator: "; ")
         // Paragraf: numaralı soru satırı yok ve A–E şık satırı en çok bir (yazı tanıma numarayı okumasa da şıklar sıralı görünür)
         result.paragraph = numberedRows == 0 && rows.filter { matches(optionAny, $0.text) }.count < 2
@@ -598,15 +662,19 @@ struct FramingNote: Equatable {
         case good, goodFull, goodUpper, goodLower
         /// Parçalı çekim: sayfanın bu parçası alındı ama sayfa bitmedi (alt uç açık); kullanıcı aşağı kaydırır, sıradaki parça bununla örtüşmelidir
         case goodPart
+        /// Kadrajda en az bir soru TAM görünüyor ve okunuyor: hemen alınır (kullanıcı kararı 2026-11-18); kesik komşu sorular sorun sayılmaz
+        case taken
+        /// Daha önce alınan soruya yeniden durulmuş ve kadrajda başka soru yok: "Bu soru zaten alındı, başka soruya geçin" (düzeltme sayılır)
+        case alreadyTaken
 
-        var isGood: Bool { return self == .good || self == .goodFull || self == .goodUpper || self == .goodLower || self == .goodPart }
+        var isGood: Bool { return self == .good || self == .goodFull || self == .goodUpper || self == .goodLower || self == .goodPart || self == .taken }
 
         /// Yazı okunabiliyorsa değişebilecek (iptal olabilecek) değerlendirme: yazı tanıma sonucu gelene kadar beklenir (bkz. `FramingCoachTimer`).
         /// Kenar kesikleri, "uzaklaşın", "yazı yok", bozuk kare ve eksik metin yazı tanımaya bakmadan söylenir.
         var awaitsText: Bool {
             switch self {
             case .blurry, .glare, .shiftLeft, .shiftRight, .tooSmall, .emptyTop, .middle, .good, .goodFull, .goodUpper, .goodLower, .goodPart: return true
-            case .noText, .cutLeft, .cutRight, .tooWide, .damaged, .incomplete, .wholePage, .halves: return false
+            case .noText, .cutLeft, .cutRight, .tooWide, .damaged, .incomplete, .wholePage, .halves, .taken, .alreadyTaken: return false
             }
         }
     }
@@ -700,6 +768,11 @@ enum FramingCoach {
     /// Düzeltme isteyen cümlelere eklenmez (çağıran yalnız düzgün kadrajda çağırır).
     static let capturedText = "Alındı. Sonraki."
 
+    /// Aynı soruya yeniden durulduğunda (kadrajda başka soru yokken) söylenir; numarası okunduysa başına eklenir
+    static func alreadyTakenText(number: Int?) -> String {
+        return (number.map { "\($0). soru zaten alındı." } ?? "Bu soru zaten alındı.") + " Başka soruya geçin."
+    }
+
     /// Tam sayfa tek karede olmuyor ya da okunmuyor: yarım yarım çekilir (her yarıda soru tam görünür). "Uzaklaşın" ile "Yaklaşın" arasında gidip gelinmez
     static let halvesText = "Tam sayfa olmuyor; yarım yarım çekin."
 
@@ -743,6 +816,12 @@ enum FramingCoach {
                      verbose: Bool = false, firstReadable: Bool = false, plan: ShotPlan = .any, continuing: Bool? = nil, turn: Int = 0) -> FramingNote {
         if firstReadable && m.damaged {
             return FramingNote(kind: .damaged, text: verbose ? "Görüntü bozuk. Kamerayı sabit tutun." : "Bozuk, sabit tutun.")
+        }
+        // KABUL KURALI (kullanıcı kararı 2026-11-18, konumlandırma değerlendirmesi): kadrajda en az bir soru baştan sona (gövde ve A–E şıkları) görünüyor ve
+        // okunuyorsa hemen alınır; hangi soru olduğu söylenir ("47. soru tamam"). En iyisini aramak süre yitirir; yandaki / alttaki ya da üstteki kesik
+        // sorular "ekrana sığmıyor, uzaklaşın" sebebi OLMAZ: zaten alınan bir soru vardır. Bozuk kare yukarıda elendi
+        if firstReadable, !verbose, let lines = lines, lines.isReadable, lines.completeQuestions > 0 {
+            return FramingNote(kind: .taken, text: okText)
         }
         var d = GuidanceAdvisor.decide(m, config: c, sharpFloor: sharpFloor)
         let proven = firstReadable && lines?.isReadable == true
@@ -1006,10 +1085,16 @@ struct FramingCoachTimer {
     /// Parçalı çekim: son alınan parçanın açık (alttan kesik) bloğunun sözcükleri ve alındığı an; boşsa açık parça yok
     private var chainAnchor: Set<String> = []
     private var chainTime: TimeInterval = -1000
+    /// Alınan (söylenen) tam sorular, hangi durgun dönemde alındığıyla; aynı durgunlukta ("aldım" dedikten sonra beklerken) "zaten alındı" denmez, kamera
+    /// oynayıp yeniden durunca denir. `epoch`: kamera her oynamaya başladığında artar
+    private var taken: [(mark: QuestionMark, epoch: Int)] = []
+    private var epoch = 0
     /// Son söylenen cümle sayfanın bitmediği bir parçaydı (çağıran sonuna "Alındı. Sonraki." eklemez: sıradaki parça aynı sayfanın devamıdır)
     private(set) var lastWasOpen = false
 
     mutating func reset() {
+        taken = []
+        epoch = 0
         chainAnchor = []
         chainTime = -1000
         lastWasOpen = false
@@ -1073,6 +1158,7 @@ struct FramingCoachTimer {
                        guidance c: GuidanceConfig = GuidanceConfig(), sharpFloor: Double = 0.45, expectEdges: Bool = false,
                        firstReadable: Bool = false, wholeFirst: Bool = false, turn: Int = 0) -> String? {
         if stillFor < config.movingBelow {
+            if !moved { epoch += 1 }
             moved = true
             waitingSince = nil
             candidate = nil
@@ -1108,6 +1194,12 @@ struct FramingCoachTimer {
             continuing = chainAnchor.count < 3 || FramingCoach.overlap(chainAnchor, lines?.words ?? []) >= config.chainOverlap
         }
         var note = FramingCoach.note(m, lines: lines, config: c, sharpFloor: sharpFloor, firstReadable: firstReadable, plan: plan, continuing: continuing, turn: turn)
+        if note.kind == .taken, let lines = lines, lines.completeQuestions == 1, lines.topComplete, lines.bottomComplete, let mark = lines.completeMarks.first,
+           taken.contains(where: { $0.epoch < epoch && $0.mark.isSame(as: mark) }) {
+            // Daha önce alınan sorunun üzerinde yeniden durulmuş ve kadrajda başka soru yok. Kadrajda birkaç soru varsa (ya da komşu soru kesik görünüyorsa)
+            // mükerrer alım sorun sayılmaz: bu kural yalnız tek başına kalan, alınmış soru için
+            note = FramingNote(kind: .alreadyTaken, text: FramingCoach.alreadyTakenText(number: mark.number))
+        }
         let seeksWhole = plan == .wholePage && (note.kind == .wholePage || note.kind == .tooWide || note.kind == .incomplete)
         if seeksWhole, wholeTries >= config.wholeTries, time - lastTime >= config.wholeWait {
             // Tam sayfa için yeterince denendi ve olmadı: yarım yarım çekime geçilir
@@ -1143,7 +1235,9 @@ struct FramingCoachTimer {
             candidate = note.kind
             consecutive = 1
         }
-        guard consecutive >= config.stable, time - lastTime >= config.speakGap, spokenInView < config.maxPerView else { return nil }
+        // Tam görünen soru hemen söylenir (tek ölçüm yeter): ilk konumlandırma cümlesi geç geliyordu
+        let needed = note.kind == .taken ? 1 : config.stable
+        guard consecutive >= needed, time - lastTime >= config.speakGap, spokenInView < config.maxPerView else { return nil }
         let changed = note.kind != lastKind
         var words: Set<String> = []
         if note.kind.isGood {
@@ -1176,6 +1270,10 @@ struct FramingCoachTimer {
                 chainAnchor = []
             }
         }
+        if note.kind == .taken, let marks = lines?.completeMarks {
+            let now = epoch
+            for mark in marks { taken.append((mark: mark, epoch: now)) }
+        }
         lastCapture = note.kind.isGood ? FramingCoach.questionsText(lines) : nil
         if note.kind == .halves {
             halvesMode = true
@@ -1184,7 +1282,7 @@ struct FramingCoachTimer {
                 countedHalves = true
             }
         }
-        if plan == .wholePage && note.kind == .goodFull { halvesStreak = 0 }
+        if plan == .wholePage && (note.kind == .goodFull || note.kind == .taken) { halvesStreak = 0 }
         if seeksWhole && note.kind != .halves { wholeTries += 1 }
         if plan == .halves && (note.kind == .goodUpper || note.kind == .goodPart) { expectSecondHalf = true }
         return text

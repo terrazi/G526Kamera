@@ -356,6 +356,28 @@ final class SettingsToolsTests: XCTestCase {
                        "Geçersiz yuva yok sayılır")
     }
 
+    func testMovingAProfileMovesItsTestResultAndModelListAndIsRefusedWhileTesting() {
+        Keychain.testStore = [:]
+        defer { Keychain.testStore = nil }
+        let settings = AppSettings(defaults: makeDefaults())
+        settings.geminiKeys = ["A", "B", "C", "D"]
+        let model = SettingsViewModel(settings: settings, shortcuts: FakeShortcuts())
+        model.keyResults[3] = KeyTestResult(ok: true, text: "3. profilin sonucu")
+        model.modelLists[3] = ["gemini-x"]
+        model.moveProfile(slot: 3, by: -1)
+        XCTAssertEqual(settings.geminiKeys, ["A", "C", "B", "D"])
+        XCTAssertEqual(model.keyResults[2]?.text, "3. profilin sonucu", "Sonuç profille birlikte yukarı çıkar")
+        XCTAssertNil(model.keyResults[3])
+        XCTAssertEqual(model.modelLists[2], ["gemini-x"])
+        XCTAssertNil(model.modelLists[3])
+        model.testingKeySlot = 2
+        model.moveProfile(slot: 2, by: -1)
+        XCTAssertEqual(settings.geminiKeys, ["A", "C", "B", "D"], "Deneme sürerken sıra değişmez")
+        model.testingKeySlot = 0
+        model.moveProfile(slot: 1, by: -1)
+        XCTAssertEqual(settings.geminiKeys, ["A", "C", "B", "D"], "En üstteki yukarı taşınmaz")
+    }
+
     func testListingModelsWithoutAKeyAsksForTheKey() async {
         Keychain.testStore = [:]
         defer { Keychain.testStore = nil }

@@ -91,7 +91,19 @@ struct SettingsView: View {
         AccordionSection(id: "profiller", title: "Gemini modelleri ve API anahtarları") {
             ForEach(0..<GeminiProfiles.slotCount, id: \.self) { i in
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("\(i + 1). profil").font(.footnote).foregroundColor(.secondary)
+                    HStack(spacing: 8) {
+                        Text("\(i + 1). profil").font(.footnote).foregroundColor(.secondary)
+                        Spacer()
+                        // Sıra okları: üstteki profil önce sorulur; anahtarı ve modeliyle birlikte taşınır
+                        let busy = model.testingKeySlot != 0 || model.listingModelsSlot != 0
+                        Button { model.moveProfile(slot: i + 1, by: -1) } label: { Image(systemName: "arrow.up").padding(8) }
+                            .disabled(!GeminiProfiles.canMove(i, by: -1) || busy)
+                            .accessibilityLabel("\(i + 1). profili yukarı taşı")
+                        Button { model.moveProfile(slot: i + 1, by: 1) } label: { Image(systemName: "arrow.down").padding(8) }
+                            .disabled(!GeminiProfiles.canMove(i, by: 1) || busy)
+                            .accessibilityLabel("\(i + 1). profili aşağı taşı")
+                    }
+                    .buttonStyle(.borderless)
                     TextField("Ad (ör. \(GeminiProfiles.defaultNames[i]))", text: profileName(i))
                         .disableAutocorrection(true)
                     TextField("Model (ör. \(GeminiProfiles.defaultModels[i]))", text: profileModel(i))
@@ -140,7 +152,7 @@ struct SettingsView: View {
                 }
                 .padding(.vertical, 4)
             }
-            HelpRow("Soru önce 1. profilin anahtarı ve modeliyle sorulur. Kotası dolarsa, sunucu hata verirse, 25 sn cevap vermezse ya da anahtar/model sorunluysa aynı soru kendiliğinden 2., sonra 3., sonra 4. profile gider; hiçbiri cevap vermezse sıra baştan aynı sırayla yeniden denenir. Yalnız anahtarı ve modeli dolu profiller kullanılır; boş bırakılan atlanır. Anahtarı aistudio.google.com'dan alın; ücretli ya da ücretsiz olmak modelin değil anahtarın özelliğidir (faturalandırma bağlı projenin anahtarı ücretlidir), kutuyu buna göre işaretleyin. Anahtarlar yalnız bu telefonun Keychain'inde saklanır. Dikkat: ücretsiz katmanda Google gönderdiğiniz içeriği ürünlerini geliştirmek için kullanabilir.")
+            HelpRow("Soru önce 1. profilin anahtarı ve modeliyle sorulur. Kotası dolarsa, sunucu hata verirse, 25 sn cevap vermezse ya da anahtar/model sorunluysa aynı soru kendiliğinden 2., sonra 3., sonra 4. profile gider; hiçbiri cevap vermezse sıra baştan aynı sırayla yeniden denenir. Yalnız anahtarı ve modeli dolu profiller kullanılır; boş bırakılan atlanır. Her profilin yanındaki yukarı / aşağı oklarıyla sırayı değiştirin (profil anahtarı ve modeliyle birlikte taşınır); en üsttekine önce sorulur. Cevabı geç ya da yanlış gelen modeli aşağı alın. Anahtarı aistudio.google.com'dan alın; ücretli ya da ücretsiz olmak modelin değil anahtarın özelliğidir (faturalandırma bağlı projenin anahtarı ücretlidir), kutuyu buna göre işaretleyin. Anahtarlar yalnız bu telefonun Keychain'inde saklanır. Dikkat: ücretsiz katmanda Google gönderdiğiniz içeriği ürünlerini geliştirmek için kullanabilir.")
         }
     }
 

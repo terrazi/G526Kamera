@@ -47,6 +47,45 @@ final class GeminiProfileSettingsTests: XCTestCase {
         XCTAssertFalse((defaults.data(forKey: "v3.geminiProfiles").map { String(decoding: $0, as: UTF8.self) } ?? "").contains("KEY-A"))
     }
 
+    func testMovingAProfileUpCarriesItsKeyAndTypeAndTheOrderIsRemembered() {
+        let defaults = makeDefaults()
+        let s = AppSettings(defaults: defaults)
+        s.geminiKeys = ["KEY-1", "KEY-2", "KEY-3", "KEY-4"]
+        XCTAssertTrue(s.moveGeminiProfile(at: 2, by: -1))
+        XCTAssertEqual(s.geminiProfiles.map { $0.model }, [GeminiProfiles.defaultModels[0], GeminiProfiles.defaultModels[2], GeminiProfiles.defaultModels[1], GeminiProfiles.defaultModels[3]])
+        XCTAssertEqual(s.geminiProfiles.map { $0.name }, [GeminiProfiles.defaultNames[0], GeminiProfiles.defaultNames[2], GeminiProfiles.defaultNames[1], GeminiProfiles.defaultNames[3]])
+        XCTAssertEqual(s.geminiKeys, ["KEY-1", "KEY-3", "KEY-2", "KEY-4"], "Anahtar profilinin yanında gider")
+        XCTAssertEqual(s.usableGeminiProfiles.map { $0.key }, ["KEY-1", "KEY-3", "KEY-2", "KEY-4"], "Zincir yeni sırayla sorar")
+        XCTAssertEqual(s.usableGeminiProfiles.map { $0.slot }, [1, 2, 3, 4])
+        let again = AppSettings(defaults: defaults)
+        XCTAssertEqual(again.geminiKeys, ["KEY-1", "KEY-3", "KEY-2", "KEY-4"], "Sıra kalıcıdır")
+        XCTAssertEqual(again.geminiProfiles.map { $0.model }, s.geminiProfiles.map { $0.model })
+    }
+
+    func testTheFreeFlagAndTheSlowFreeModelsCanBePushedBelowThePaidOne() {
+        let s = AppSettings(defaults: makeDefaults())
+        s.geminiKeys = ["A", "B", "C", "D"]
+        // Ücretli profil (4.) en üste alınır: önce o sorulur
+        for index in [3, 2, 1] { XCTAssertTrue(s.moveGeminiProfile(at: index, by: -1)) }
+        XCTAssertEqual(s.geminiProfiles.map { $0.free }, [false, true, true, true])
+        XCTAssertEqual(s.primaryKey, "D", "Bağlantı yoklaması da en üstteki profilin anahtarını kullanır")
+    }
+
+    func testTheFirstProfileCannotMoveUpAndTheLastCannotMoveDownAndNothingChanges() {
+        let s = AppSettings(defaults: makeDefaults())
+        s.geminiKeys = ["A", "B", "C", "D"]
+        XCTAssertFalse(s.moveGeminiProfile(at: 0, by: -1))
+        XCTAssertFalse(s.moveGeminiProfile(at: 3, by: 1))
+        XCTAssertFalse(s.moveGeminiProfile(at: 1, by: 2), "Yalnız birer adım")
+        XCTAssertFalse(s.moveGeminiProfile(at: 7, by: -1))
+        XCTAssertEqual(s.geminiKeys, ["A", "B", "C", "D"])
+        XCTAssertEqual(s.geminiProfiles.map { $0.name }, GeminiProfiles.defaultNames)
+        XCTAssertTrue(GeminiProfiles.canMove(1, by: -1))
+        XCTAssertTrue(GeminiProfiles.canMove(2, by: 1))
+        XCTAssertFalse(GeminiProfiles.canMove(0, by: -1))
+        XCTAssertFalse(GeminiProfiles.canMove(GeminiProfiles.slotCount - 1, by: 1))
+    }
+
     func testOldSingleKeyBecomesTheFirstProfileKey() {
         Keychain.testStore = [GeminiProfiles.keychainName(slot: 1): "ESKI-ANAHTAR"]
         let s = AppSettings(defaults: makeDefaults())

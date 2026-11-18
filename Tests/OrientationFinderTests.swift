@@ -277,12 +277,12 @@ final class OrientationFinderTests: XCTestCase {
         XCTAssertEqual([ViewDirection.up, .right, .down, .left].map { $0.side }, ["üst", "sağ", "alt", "sol"])
     }
 
-    func testTheSettingIsOnByDefaultAndRemembered() {
+    func testTheSettingIsOffByDefaultAndRemembered() {
         let defaults = UserDefaults(suiteName: "g526.testler.\(UUID().uuidString)")!
         let first = CameraSettings(defaults: defaults)
-        XCTAssertTrue(first.autoOrientation, "Varsayılan: yazının yönü kendiliğinden bulunur")
-        first.autoOrientation = false
-        XCTAssertFalse(CameraSettings(defaults: defaults).autoOrientation, "Ayar kalıcıdır")
+        XCTAssertFalse(first.autoOrientation, "Varsayılan kapalı (kullanıcı kararı 2026-11-18: yandan çekim uygulanabilir çıkmadı, normal çekim kusursuz olmalı)")
+        first.autoOrientation = true
+        XCTAssertTrue(CameraSettings(defaults: defaults).autoOrientation, "Ayar kalıcıdır")
     }
 }
 

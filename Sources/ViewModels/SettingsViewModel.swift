@@ -47,6 +47,18 @@ final class SettingsViewModel: ObservableObject {
 
     // MARK: Gemini anahtarları
 
+    /// Profili bir yukarı (-1) ya da aşağı (+1) taşır; deneme sonuçları ve model listesi profille birlikte gider. Deneme sürerken taşınmaz.
+    func moveProfile(slot: Int, by offset: Int) {
+        guard testingKeySlot == 0, listingModelsSlot == 0, settings.moveGeminiProfile(at: slot - 1, by: offset) else { return }
+        let other = slot + offset
+        let results = (keyResults[slot], keyResults[other])
+        keyResults[slot] = results.1
+        keyResults[other] = results.0
+        let lists = (modelLists[slot], modelLists[other])
+        modelLists[slot] = lists.1
+        modelLists[other] = lists.0
+    }
+
     func pasteKey(slot: Int) {
         guard (1...GeminiProfiles.slotCount).contains(slot) else { return }
         guard let key = GeminiKey.cleanedKey(fromClipboard: UIPasteboard.general.string) else {
