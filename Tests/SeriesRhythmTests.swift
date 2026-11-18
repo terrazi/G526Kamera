@@ -472,6 +472,8 @@ final class LargeUploadTests: XCTestCase {
         XCTAssertEqual(GeminiAnswerService.uploadLimit(bytes: 40_000_000), 300, accuracy: 0.001)
         XCTAssertEqual(GeminiAnswerService.inlineAllowance(bytes: 20_000_000), 0, "Eski boyutlarda bekleme değişmez")
         XCTAssertEqual(GeminiAnswerService.inlineAllowance(bytes: 50_000_000), 250, accuracy: 0.001)
+        XCTAssertEqual(GeminiAnswerService.fileModeLimit, 150, "Dosya yolunda süre yalnız modelin okumasına kalır; güçlü model yetişebilsin")
+        XCTAssertLessThan(GeminiAnswerService.fileUploadThreshold, 5_000_000, "Küçük PDF'ler de dosya olarak yüklenir (yükleme modelin süresinden yemesin)")
         XCTAssertGreaterThan(PageDocument.largeBudgetBytes, PageDocument.budgetBytes)
         XCTAssertLessThan(PageDocument.largeBudgetBytes, 50_000_000, "Gemini'nin PDF sınırı 50 MB")
     }

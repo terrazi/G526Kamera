@@ -69,8 +69,12 @@ final class GeminiAnswerService: Answering {
     /// Büyük PDF'i önce Gemini'ye dosya olarak yükle, isteğe yalnız adresini koy (Ayarlar > "Büyük PDF'i dosya olarak yükle"). Dosya bir kez yüklenir;
     /// model yoğun olup sıradaki modele geçilse de onlarca MB yeniden gönderilmez. Varsayılan kapalı (testler ve eski davranış); uygulama ayara bağlar
     var largeFiles: () -> Bool = { false }
-    /// PDF bu boyutu aşarsa dosya olarak yüklenir; küçükler eskisi gibi isteğin içinde gider (kanıtlanmış yol)
-    static let fileUploadThreshold = 16_500_000
+    /// PDF bu boyutu aşarsa dosya olarak yüklenir; daha küçükler isteğin içinde gider. Gerçek günlük 2026-11-18 23:10: isteğin içinde giden 9,4 MB'lık
+    /// PDF'te güçlü modellerin 120 sn'lik süresinin bir kısmı hücresel yüklemeye gitti, ikisi de yetişemedi ve cevap en zayıf modelden geldi; dosya
+    /// olarak yüklenen 35 MB'lık PDF'lerde ise cevap yüklemeden 11 sn sonra geldi. Bu yüzden küçük PDF'ler de dosya olarak yüklenir
+    static let fileUploadThreshold = 3_000_000
+    /// PDF dosya olarak yüklendiyse her modele verilen süre (sn): istek küçüktür, süre yalnız modelin okumasına kalır; güçlü model yetişebilsin
+    static let fileModeLimit: TimeInterval = 150
 
     /// Dosya yükleme için süre sınırı: 60 sn + MB başına 6 sn (40 MB ≈ 5 dk; yavaş hücresel)
     static func uploadLimit(bytes: Int) -> TimeInterval {
@@ -443,8 +447,13 @@ final class GeminiAnswerService: Answering {
                 return await self.fileBody(capture: capture, pdf: pdf, expectedNumber: expectedNumber, profile: profile, client: client, cache: cache)
             }
         }
+        // Dosya yolunda modeller her zaman kullanıcının sırasıyla (en güçlüsü önce) denenir: "dinlenme" sırayı değiştirmez (istek küçük olduğu için
+        // yoğun ya da kotası dolmuş model çabuk hata verir, boşa yükleme olmaz). Gerçek günlük 2026-11-18 23:18 ve 23:25: iki güçlü model hiç
+        // denenmeden cevap en zayıf modelden geldi ve dil bilgisi sorularında yanıldı
+        let fileMode = alternate != nil
         do {
-            return try await runChain(body: body, limit: limit, alternate: alternate, parse: GeminiAnswerService.parsePage)
+            return try await runChain(body: body, limit: fileMode ? max(limit, GeminiAnswerService.fileModeLimit) : limit,
+                                      alternate: alternate, slotOrder: fileMode, parse: GeminiAnswerService.parsePage)
         } catch let error as GeminiError where error.status == 400 && error.kind == .http && capture.sendsFrameRate {
             tlog("[kamera] kare hızı ayarıyla sayfa isteği reddedildi (\(error.message)); ayarsız yeniden deneniyor")
             return try await runChain(body: try GeminiAnswerService.captureBody(capture, expectedNumber: expectedNumber, fps: nil, page: true),
@@ -493,11 +502,13 @@ final class GeminiAnswerService: Answering {
     /// `parse`: model metninden cevap satırları (tek soruda bir, sayfada birkaç); boş dönerse cevap satırı verilmemiş sayılır.
     /// `alternate`: profil için başka bir gövde (PDF dosya olarak yüklendiyse adresli gövde); nil dönerse `body` gider. Adresli gövde reddedilirse
     /// (400 / 403 / 404) aynı profilde bir kez `body` ile yeniden denenir.
+    /// `slotOrder`: profiller dinlenmeye bakılmadan yuva sırasıyla denenir (bkz. `answerPage`).
     private func runChain(body: Data, limit: TimeInterval, alternate: ((GeminiProfileInfo, GeminiClient) async -> Data?)? = nil,
-                          parse: (String) -> [AnswerParser.Parsed]) async throws -> [GeminiReply] {
+                          slotOrder: Bool = false, parse: (String) -> [AnswerParser.Parsed]) async throws -> [GeminiReply] {
         let usable = GeminiProfiles.usable(profilesProvider())
         guard !usable.isEmpty else { throw GeminiError(Say.noKeyShort, .key) }
-        var active = order(usable)
+        var active = slotOrder ? usable : order(usable)
+        if slotOrder { tlog("[gemini] dosya yolu: modeller yuva sırasıyla denenecek (\(usable.map { $0.name }.joined(separator: " → ")))") }
         var lastError = GeminiError("Gemini cevap vermedi.", .error)
         var trail: [String] = []
         var failedNames: [String] = []
