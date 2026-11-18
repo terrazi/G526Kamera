@@ -723,8 +723,9 @@ enum FramingCoach {
 /// Aynı sayfada küçük bir kaydırma (düzeltme denemesi) örtüşmeyi bozmaz: o zaman sayaçlar sürer.
 struct FramingCoachTimer {
     struct Config {
-        /// Kamera bu süredir durgunsa değerlendirilir
-        var stillNeeded: TimeInterval = 0.35
+        /// Kamera bu süredir durgunsa değerlendirilir. Bekleme süreleri (`stillNeeded`, `lineWait`, `edgeWait`) kullanıcı isteğiyle kısaltıldı 2026-11-18:
+        /// ilk konumlandırma cümlesi geç geliyordu (0,35 / 1,5 / 0,9 idi)
+        var stillNeeded: TimeInterval = 0.25
         /// Durgunluk bundan kısaysa kamera oynuyor sayılır (sayfa değişmiş olabilir)
         var movingBelow: TimeInterval = 0.15
         /// İki konuşma arası en az süre
@@ -736,9 +737,9 @@ struct FramingCoachTimer {
         /// Aynı düzeltme art arda en çok kaç kez söylenir
         var maxSameCorrection = 3
         /// Hareketten sonra satırlar okunana kadar en çok bu kadar beklenir (sayfa değişti mi diye bakılır); sonra yeni sayfa sayılır
-        var lineWait: TimeInterval = 1.5
+        var lineWait: TimeInterval = 1.0
         /// Kâğıt kenarları bekleniyorsa (ayar açık) düzgün kadraj cümlesi için durgunluk en az bu kadar sürmeli: üç durum (tam / üst / alt) kenarlardan bilinir
-        var edgeWait: TimeInterval = 0.9
+        var edgeWait: TimeInterval = 0.6
         /// Bir sayfada (görünümde) en çok bu kadar cümle söylenir: ölçüm gürültüsü kulaklıkta sürekli konuşmaya dönüşmesin (yeni sayfada sıfırlanır)
         var maxPerView = 8
         /// Sözcük örtüşmesi bundan azsa görünüm yeni sayfadır
@@ -855,7 +856,8 @@ struct FramingCoachTimer {
             return nil
         }
         if moved {
-            if lines == nil {
+            // Önceki görünüm yoksa (oturumdaki ilk görünüm) karşılaştırılacak sayfa da yoktur: satırlar beklenmez
+            if lines == nil && !viewWords.isEmpty {
                 let since = waitingSince ?? time
                 waitingSince = since
                 if time - since < config.lineWait { return nil }   // satırlar okunana kadar: sayfa değişti mi bilinmiyor
