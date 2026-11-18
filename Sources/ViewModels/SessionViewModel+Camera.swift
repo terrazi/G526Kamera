@@ -938,7 +938,7 @@ extension SessionViewModel {
     }
 
     /// Bekleyen koç cümlesi bu süreden (sn) eskiyse söylenmez
-    static let coachPendingMaxAge: TimeInterval = 6
+    static let coachPendingMaxAge: TimeInterval = 2.5
 
     private func speakCoach(_ text: String) {
         cameraGuidanceSpeaking = true

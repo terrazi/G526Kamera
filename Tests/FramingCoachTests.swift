@@ -395,8 +395,7 @@ final class FramingCoachTimerTests: XCTestCase {
         XCTAssertNotNil(step(&t, cutRight, at: 10.3))
         XCTAssertNil(step(&t, tooSmall, at: 10.6))
         XCTAssertNil(step(&t, tooSmall, at: 10.9), "Konuşma arası dolmadı")
-        XCTAssertNil(step(&t, tooSmall, at: 12.0))
-        XCTAssertEqual(step(&t, tooSmall, at: 14.0), "Yaklaşın.")
+        XCTAssertEqual(step(&t, tooSmall, at: 12.0), "Yaklaşın.", "Konuşma arası (1,5 sn) dolunca hemen söylenir")
     }
 
     func testASuitablePageIsAnnouncedAsTakenAndNext() {
@@ -495,11 +494,11 @@ final class FramingCoachTimerTests: XCTestCase {
         _ = step(&t, cutRight, at: 10.0, lines: pageA)
         XCTAssertNotNil(step(&t, cutRight, at: 10.3, lines: pageA))
         XCTAssertNil(step(&t, cutRight, at: 20.0, still: 0, lines: nil))
-        for time in [20.5, 21.0, 21.5, 22.0, 22.5] {
+        for time in [20.5, 21.0, 21.5, 21.9] {
             XCTAssertNil(step(&t, cutRight, at: time, still: 0.6, lines: nil), "Satırlar okunana kadar beklenir")
         }
-        XCTAssertNil(step(&t, cutRight, at: 23.0, still: 1.1, lines: nil), "Süre doldu: yeni sayfa sayılır, ilk ölçüm")
-        XCTAssertNotNil(step(&t, cutRight, at: 23.3, still: 1.4, lines: nil), "Satır okunamadı: yine de söylenir")
+        XCTAssertNil(step(&t, cutRight, at: 22.0, still: 1.1, lines: nil), "Süre doldu: yeni sayfa sayılır, ilk ölçüm")
+        XCTAssertNotNil(step(&t, cutRight, at: 22.3, still: 1.4, lines: nil), "Satır okunamadı: yine de söylenir")
     }
 
     func testTheOkAfterACorrectionSurvivesASmallShiftOnTheSamePage() {
@@ -508,8 +507,7 @@ final class FramingCoachTimerTests: XCTestCase {
         XCTAssertNotNil(step(&t, cutRight, at: 10.3, lines: pageA))
         XCTAssertNil(step(&t, fine, at: 12.0, still: 0, lines: nil))
         XCTAssertNil(step(&t, fine, at: 13.0, still: 1.0, lines: pageA))
-        XCTAssertNil(step(&t, fine, at: 13.3, still: 1.3, lines: pageA))
-        XCTAssertEqual(step(&t, fine, at: 14.5, still: 1.6, lines: pageA),
+        XCTAssertEqual(step(&t, fine, at: 13.3, still: 1.3, lines: pageA),
                        "Tamam. Üstte: alfa beta gama delta. Altta: kırmızı mavi yeşil sarı.")
     }
 
@@ -576,9 +574,8 @@ final class FramingCoachTimerTests: XCTestCase {
         var t = FramingCoachTimer()
         XCTAssertNil(step(&t, fine, at: 10.0, still: 0.5, edges: true))
         XCTAssertNil(step(&t, fine, at: 10.3, still: 0.8, edges: true))
-        XCTAssertNil(step(&t, fine, at: 10.6, still: 1.1, edges: true))
-        XCTAssertNil(step(&t, fine, at: 10.9, still: 1.4, edges: true), "Kenarlar gelmedi: kısa bekleme sonrası sayılmaya başlar")
-        XCTAssertEqual(step(&t, fine, at: 11.2, still: 1.7, edges: true), "Uygun.")
+        XCTAssertNil(step(&t, fine, at: 10.6, still: 1.1, edges: true), "Kenarlar gelmedi: kısa bekleme (0,9 sn) sonrası sayılmaya başlar")
+        XCTAssertEqual(step(&t, fine, at: 10.9, still: 1.4, edges: true), "Uygun.")
     }
 
     func testACorrectionDoesNotWaitForThePaperEdges() {

@@ -360,21 +360,21 @@ enum FramingCoach {
 struct FramingCoachTimer {
     struct Config {
         /// Kamera bu süredir durgunsa değerlendirilir
-        var stillNeeded: TimeInterval = 0.45
+        var stillNeeded: TimeInterval = 0.35
         /// Durgunluk bundan kısaysa kamera oynuyor sayılır (sayfa değişmiş olabilir)
         var movingBelow: TimeInterval = 0.15
         /// İki konuşma arası en az süre
-        var speakGap: TimeInterval = 3.5
+        var speakGap: TimeInterval = 1.5
         /// Aynı değerlendirmenin yeniden söylenme aralığı
-        var repeatGap: TimeInterval = 12
+        var repeatGap: TimeInterval = 6
         /// Kaç ardışık ölçüm aynı çıkınca söylenir
         var stable = 2
         /// Aynı düzeltme art arda en çok kaç kez söylenir
         var maxSameCorrection = 3
         /// Hareketten sonra satırlar okunana kadar en çok bu kadar beklenir (sayfa değişti mi diye bakılır); sonra yeni sayfa sayılır
-        var lineWait: TimeInterval = 2.5
+        var lineWait: TimeInterval = 1.5
         /// Kâğıt kenarları bekleniyorsa (ayar açık) düzgün kadraj cümlesi için durgunluk en az bu kadar sürmeli: üç durum (tam / üst / alt) kenarlardan bilinir
-        var edgeWait: TimeInterval = 1.2
+        var edgeWait: TimeInterval = 0.9
         /// Bir sayfada (görünümde) en çok bu kadar cümle söylenir: ölçüm gürültüsü kulaklıkta sürekli konuşmaya dönüşmesin (yeni sayfada sıfırlanır)
         var maxPerView = 8
         /// Sözcük örtüşmesi bundan azsa görünüm yeni sayfadır

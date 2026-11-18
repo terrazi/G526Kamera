@@ -40,7 +40,7 @@ final class FramePipeline {
     }
     var onGuidance: ((GuidanceSample) -> Void)?
     /// Ölçümler en sık bu aralıkla (saniye) yapılır
-    static let guidanceInterval: TimeInterval = 0.3
+    static let guidanceInterval: TimeInterval = 0.25
     /// Ardışık imzalar arası ortalama fark bunun altındaysa kare "durgun" sayılır
     static let stillDiff = 2.0
 
@@ -76,7 +76,7 @@ final class FramePipeline {
         set { lock.lock(); _pageEdges = newValue; lock.unlock() }
     }
     /// Vision'a girmek için kameranın en az bu kadar sn durgun olması gerekir (değerlendirme eşiğinin hemen altı)
-    static let edgeStill: TimeInterval = 0.4
+    static let edgeStill: TimeInterval = 0.3
     // Yalnızca analiz kuyruğunda değişir
     private var edgeTracker = PageEdgeTracker()
     private var edgeOrientation = ImageOrientation.normal
