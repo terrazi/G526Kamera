@@ -50,6 +50,14 @@ struct ViewLines: Equatable {
     /// Sıradaki soru: kadrajda yarım kalan (numarası görünen) soru, yoksa son tam sorunun ardından gelen numara; güvenilmezse nil
     var nextQuestion: Int?
 
+    /// Kadrajdaki okunaklı, kenara dayanmayan satırların sözcükleri (küçük harf, en az 4 harf): parçalı çekimde iki kadrajın örtüştüğü bununla ölçülür
+    var words: Set<String> = []
+    /// Alt uçtaki "açık blok"un sözcükleri (kullanıcı kararı 2026-11-18: kadraja sığmayan 3/4 sayfalık paragraf parça parça çekilir, her parça öncekiyle
+    /// örtüşür): alttan kesilen sorunun numara satırı ve kökü; paragrafta ya da biten soruda son üç satır. Sonraki kadraj bunları da içermelidir
+    var anchor: Set<String> = []
+    /// Açık bloğun en üstteki satırının baş sözcükleri: kullanıcıya "… satırı ekranda kalsın" diye söylenir
+    var anchorHead: String?
+
     /// Yazı okunabiliyor (bkz. `SeriesSelection.minChars`)
     var isReadable: Bool { return chars >= SeriesSelection.minChars }
 
@@ -166,6 +174,10 @@ struct ViewLines: Equatable {
         result.nextQuestion = blocks.next
         result.cutReason = blocks.reason
         result.paragraph = blocks.paragraph
+        let cover = coverage(lines, skipTop: skipTop)
+        result.words = cover.words
+        result.anchor = cover.anchor
+        result.anchorHead = cover.head
         var items: [Item] = []
         for line in lines {
             let top = 1 - Double(line.box.maxY)
@@ -201,6 +213,50 @@ struct ViewLines: Equatable {
             if let b = lastTail(items) { result.ends = [LineEnd(side: nil, words: b)] }
         }
         return result
+    }
+
+    // MARK: Parçalı çekimde örtüşme
+
+    /// Kadrajın sözcükleri ve alt uçtaki açık bloğun sözcükleri / baş sözcükleri (bkz. `words`, `anchor`, `anchorHead`). Yalnız kenara dayanmayan ve makul
+    /// okunmuş satırlar sayılır: yarım satırın sözcüğü güvenilmez. İki sütunda her sütunun açık bloğu birleştirilir; söylenecek satır en üsttekidir
+    /// (kaydırınca ilk o kadraj dışına çıkar)
+    static func coverage(_ lines: [(text: String, box: CGRect)], skipTop: Double = 0) -> (words: Set<String>, anchor: Set<String>, head: String?) {
+        struct R {
+            var text: String
+            var top: Double
+            var midX: Double
+        }
+        var rows: [R] = []
+        for line in lines {
+            let top = 1 - Double(line.box.maxY)
+            let bottom = 1 - Double(line.box.minY)
+            guard (top + bottom) / 2 >= skipTop, top >= skipTop + edgeEpsilon, bottom <= 1 - edgeEpsilon else { continue }
+            guard plausibleRatio(line.text) >= minPlausible else { continue }
+            rows.append(R(text: line.text, top: top, midX: Double(line.box.midX)))
+        }
+        guard !rows.isEmpty else { return ([], [], nil) }
+        func keyWords(_ text: String) -> [String] {
+            return words(text).filter { $0.count >= 4 && isPlausibleWord($0) }.map { $0.lowercased() }
+        }
+        let all = Set(rows.flatMap { keyWords($0.text) })
+        let left = rows.filter { $0.midX < 0.45 }
+        let right = rows.filter { $0.midX > 0.55 }
+        let columns = (left.count >= 3 && right.count >= 3) ? [left, right] : [rows]
+        var anchor = Set<String>()
+        var highest: R?
+        for column in columns {
+            let ordered = column.sorted { $0.top < $1.top }
+            let block: ArraySlice<R>
+            if let n = ordered.lastIndex(where: { matches(numberStart, $0.text) }), !ordered[(n + 1)...].contains(where: { matches(optionE, $0.text) }) {
+                block = ordered[n...].prefix(3)
+            } else {
+                block = ordered.suffix(3)
+            }
+            for row in block { anchor.formUnion(keyWords(row.text)) }
+            if let first = block.first, highest == nil || first.top < highest!.top { highest = first }
+        }
+        let head = highest.flatMap { plausibleHead(words($0.text)) }
+        return (all, anchor, head)
     }
 
     // MARK: Soru / paragraf bütünlüğü
@@ -488,14 +544,16 @@ struct FramingNote: Equatable {
         case wholePage, halves
         /// Düzeltme gerekmiyor: `good` kâğıt kenarı bilinmiyorken; `goodFull` tam sayfa, `goodUpper` üst yarı, `goodLower` alt yarı
         case good, goodFull, goodUpper, goodLower
+        /// Parçalı çekim: sayfanın bu parçası alındı ama sayfa bitmedi (alt uç açık); kullanıcı aşağı kaydırır, sıradaki parça bununla örtüşmelidir
+        case goodPart
 
-        var isGood: Bool { return self == .good || self == .goodFull || self == .goodUpper || self == .goodLower }
+        var isGood: Bool { return self == .good || self == .goodFull || self == .goodUpper || self == .goodLower || self == .goodPart }
 
         /// Yazı okunabiliyorsa değişebilecek (iptal olabilecek) değerlendirme: yazı tanıma sonucu gelene kadar beklenir (bkz. `FramingCoachTimer`).
         /// Kenar kesikleri, "uzaklaşın", "yazı yok", bozuk kare ve eksik metin yazı tanımaya bakmadan söylenir.
         var awaitsText: Bool {
             switch self {
-            case .blurry, .glare, .shiftLeft, .shiftRight, .tooSmall, .emptyTop, .middle, .good, .goodFull, .goodUpper, .goodLower: return true
+            case .blurry, .glare, .shiftLeft, .shiftRight, .tooSmall, .emptyTop, .middle, .good, .goodFull, .goodUpper, .goodLower, .goodPart: return true
             case .noText, .cutLeft, .cutRight, .tooWide, .damaged, .incomplete, .wholePage, .halves: return false
             }
         }
@@ -630,7 +688,7 @@ enum FramingCoach {
     /// görünüyorsa "Tüm sayfa için uzaklaşın", tam sayfa görünüp okunmuyorsa ya da küçük yazı yüzünden yaklaşmak gerekecekse `halves` (yarım yarım çekim).
     /// `halves`: tam görünen yarım ya da dilim kabul edilir; soru kesikse hangi yöne kaydırılacağı söylenir.
     static func note(_ m: PageMetrics, lines: ViewLines?, config c: GuidanceConfig = GuidanceConfig(), sharpFloor: Double = 0.45,
-                     verbose: Bool = false, firstReadable: Bool = false, plan: ShotPlan = .any) -> FramingNote {
+                     verbose: Bool = false, firstReadable: Bool = false, plan: ShotPlan = .any, continuing: Bool? = nil) -> FramingNote {
         if firstReadable && m.damaged {
             return FramingNote(kind: .damaged, text: verbose ? "Görüntü bozuk. Kamerayı sabit tutun." : "Bozuk, sabit tutun.")
         }
@@ -689,6 +747,9 @@ enum FramingCoach {
                 }
                 return FramingNote(kind: .wholePage, text: "Tüm sayfa için uzaklaşın.")
             }
+            if plan == .halves {
+                return halvesNote(lines, reading: reading, continuing: continuing, verbose: verbose)
+            }
             let topOK = lines.topComplete || topSeen
             let bottomOK = lines.bottomComplete || bottomSeen
             if !(topOK && bottomOK) {
@@ -739,6 +800,46 @@ enum FramingCoach {
         if let coverage = (verbose ? lines?.coverage : lines?.shortCoverage) { parts.append(coverage) }
         if parts.isEmpty { parts.append(verbose ? "Kadraj uygun." : okText) }
         return FramingNote(kind: .good, text: parts.joined(separator: " "))
+    }
+
+    /// PARÇALI ÇEKİM (kullanıcı kararı 2026-11-18: sayfanın 3/4'ünü kaplayan paragraf yarım kadraja da, tam sayfaya da sığmıyordu; her iki kadrajda "metin
+    /// kesik" deniyordu): yarımlarda dikey kesik hata sayılmaz, sayfa yukarıdan aşağı örtüşen parçalarla alınır. Üst parça: sayfanın üstü görünüyor (kâğıt
+    /// kenarı ya da kesik kanıtı yok). Alt uç açıksa ("açık blok": alttan kesilen soru ya da paragraf) kullanıcı aşağı kaydırır ve açık bloğun ilk satırının
+    /// ekranda kalması istenir: sıradaki parça bunun sözcüklerini içeriyorsa (`continuing`) boşluk kalmamıştır, soru tam görünmüştür. Alt parça: sayfanın
+    /// altı görünüyor. Yarımda "uzaklaşın" denmez. `continuing`: nil = açık parça yok; true / false = önceki parçanın sözcükleri bu kadrajda var / yok.
+    static func halvesNote(_ lines: ViewLines, reading: PageLayoutReading?, continuing: Bool?, verbose: Bool) -> FramingNote {
+        let topSeen = reading?.layout == .full || reading?.layout == .upperHalf
+        let bottomSeen = reading?.layout == .full || reading?.layout == .lowerHalf
+        let topAnchored: Bool
+        switch continuing {
+        case .some(true): topAnchored = true
+        case .some(false): topAnchored = topSeen
+        case .none: topAnchored = topSeen || lines.topComplete
+        }
+        // Kâğıt kenarları biliniyorsa sayfa bitti mi onlardan; bilinmiyorsa yazıdan
+        let bottomReached = reading != nil ? bottomSeen : lines.bottomComplete
+        let tails = questionsText(lines) == nil ? lines.shortCoverage : nil
+        if !topAnchored {
+            if continuing == false {
+                return FramingNote(kind: .incomplete, text: verbose ? "Önceki parçayla örtüşmüyor. Kamerayı biraz yukarı kaydırın." : "Örtüşme yok, biraz yukarı.")
+            }
+            // Sayfanın üstü alınmadı (ya da hiç parça yok): önce üst parça
+            return FramingNote(kind: .incomplete, text: ["Metin kesik, biraz yukarı.", lines.shortCoverage].compactMap { $0 }.joined(separator: " "))
+        }
+        if bottomReached {
+            if continuing == true, reading?.layout != .full {
+                return FramingNote(kind: .goodLower, text: "Alt parça, örtüşüyor.")
+            }
+            if let r = reading, r.layout != .middle {
+                let kind: FramingNote.Kind = r.layout == .upperHalf ? .goodUpper : (r.layout == .lowerHalf ? .goodLower : .goodFull)
+                let spoken = [layoutText(r, verbose: verbose), (r.layout == .full && !lines.paragraph) ? nil : tails].compactMap { $0 }
+                return FramingNote(kind: kind, text: spoken.joined(separator: " "))
+            }
+            return FramingNote(kind: .good, text: tails ?? (verbose ? "Kadraj uygun." : okText))
+        }
+        let label = continuing == true ? "Orta parça, örtüşüyor." : (topSeen ? "Üst parça." : "Parça.")
+        let move = lines.anchorHead.map { "Aşağı kaydırın; \($0) satırı kalsın." } ?? "Biraz aşağı kaydırın."
+        return FramingNote(kind: .goodPart, text: label + " " + move)
     }
 
     /// Yazı okunabildiği kanıtlanmış görünümde yazının küçüklüğü, bulanıklığı, parlaması ve "yazı yok" kararı iptal edilir (okunuyor: daha mükemmel
@@ -812,6 +913,10 @@ struct FramingCoachTimer {
         var wholeWait: TimeInterval = 4
         /// Bu kadar sayfada tam sayfa olmayıp yarımlara geçildiyse sonraki sayfalar doğrudan yarımlarla başlar (tam sayfa yine kabul edilir)
         var halvesLearned = 1
+        /// Parçalı çekimde açık parçanın sözcükleri bu kadar süre (sn) geçerlidir: sayfa çevrilmişse eski parçayla örtüşme aranmaz
+        var chainLife: TimeInterval = 25
+        /// Açık parçanın sözcüklerinin bu oranı yeni kadrajda görünüyorsa kadraj öncekiyle örtüşüyor sayılır
+        var chainOverlap = 0.5
     }
 
     var config = Config()
@@ -843,8 +948,16 @@ struct FramingCoachTimer {
     private var halvesStreak = 0
     /// Bu sayfa için yarımlara geçiş seriye sayıldı
     private var countedHalves = false
+    /// Parçalı çekim: son alınan parçanın açık (alttan kesik) bloğunun sözcükleri ve alındığı an; boşsa açık parça yok
+    private var chainAnchor: Set<String> = []
+    private var chainTime: TimeInterval = -1000
+    /// Son söylenen cümle sayfanın bitmediği bir parçaydı (çağıran sonuna "Alındı. Sonraki." eklemez: sıradaki parça aynı sayfanın devamıdır)
+    private(set) var lastWasOpen = false
 
     mutating func reset() {
+        chainAnchor = []
+        chainTime = -1000
+        lastWasOpen = false
         textWaitSince = nil
         wholeTries = 0
         halvesMode = false
@@ -885,6 +998,8 @@ struct FramingCoachTimer {
             wholeTries = 0
             countedHalves = false
         }
+        // Açık parçadan sonraki görünüm aynı sayfanın devamıdır (örtüşme aranır); başka durumda parça zinciri biter
+        if lastKind != .goodPart { chainAnchor = [] }
         candidate = nil
         consecutive = 0
         lastKind = nil
@@ -933,7 +1048,11 @@ struct FramingCoachTimer {
             if !words.isEmpty { viewWords = words }
         }
         let plan: ShotPlan = !firstReadable ? .any : (halvesMode ? .halves : (wholeFirst ? .wholePage : .any))
-        var note = FramingCoach.note(m, lines: lines, config: c, sharpFloor: sharpFloor, firstReadable: firstReadable, plan: plan)
+        var continuing: Bool?
+        if plan == .halves, !chainAnchor.isEmpty, time - chainTime <= config.chainLife {
+            continuing = chainAnchor.count < 3 || FramingCoach.overlap(chainAnchor, lines?.words ?? []) >= config.chainOverlap
+        }
+        var note = FramingCoach.note(m, lines: lines, config: c, sharpFloor: sharpFloor, firstReadable: firstReadable, plan: plan, continuing: continuing)
         let seeksWhole = plan == .wholePage && (note.kind == .wholePage || note.kind == .tooWide || note.kind == .incomplete)
         if seeksWhole, wholeTries >= config.wholeTries, time - lastTime >= config.wholeWait {
             // Tam sayfa için yeterince denendi ve olmadı: yarım yarım çekime geçilir
@@ -993,6 +1112,15 @@ struct FramingCoachTimer {
         lastWords = words
         spokenInView += 1
         lastWasGood = note.kind.isGood
+        lastWasOpen = note.kind == .goodPart
+        if plan == .halves {
+            if note.kind == .goodPart {
+                chainAnchor = lines?.anchor ?? []
+                chainTime = time
+            } else if note.kind.isGood {
+                chainAnchor = []
+            }
+        }
         lastCapture = note.kind.isGood ? FramingCoach.questionsText(lines) : nil
         if note.kind == .halves {
             halvesMode = true
@@ -1003,7 +1131,7 @@ struct FramingCoachTimer {
         }
         if plan == .wholePage && note.kind == .goodFull { halvesStreak = 0 }
         if seeksWhole && note.kind != .halves { wholeTries += 1 }
-        if plan == .halves && note.kind == .goodUpper { expectSecondHalf = true }
+        if plan == .halves && (note.kind == .goodUpper || note.kind == .goodPart) { expectSecondHalf = true }
         return text
     }
 }
