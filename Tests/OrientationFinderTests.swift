@@ -268,7 +268,7 @@ final class OrientationFinderTests: XCTestCase {
         // Yazı kamerada yan duruyor (dik görüntü kamera görüntüsünün saat yönünde 90° çevrilmişi): dik görüntüde "aşağı" kamerada "sağa"
         XCTAssertEqual(ViewDirection.down.turned(3), .right)
         XCTAssertEqual(ViewDirection.up.turned(3), .left)
-        XCTAssertEqual(ViewDirection.right.turned(3), .down)
+        XCTAssertEqual(ViewDirection.right.turned(3), .up, "Saat yönünün tersine çeyrek dönüş: sağ → yukarı")
         XCTAssertEqual(ViewDirection.up.turned(2), .down)
         XCTAssertEqual(ViewDirection.left.turned(1), .up)
         XCTAssertEqual(ViewDirection.up.turned(-1), .left)
