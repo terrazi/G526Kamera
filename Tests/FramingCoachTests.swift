@@ -846,20 +846,46 @@ final class ViewCompletenessTests: XCTestCase {
         XCTAssertFalse(ViewLines.make(rows).bottomComplete)
     }
 
-    func testAParagraphWithoutNumbersIsNeverCompleteFromTheTextAlone() {
-        let v = ViewLines.make([line("Sabahın erken saatlerinde köyün meydanında toplanan insanlar", top: 0.15),
-                                line("uzun bir süre konuşmadan öylece beklediler çünkü kimse", top: 0.25),
-                                line("ne söyleyeceğini tam olarak bilemiyordu ve hava soğuktu", top: 0.35)])
-        XCTAssertFalse(v.topComplete)
-        XCTAssertFalse(v.bottomComplete)
+    func testAParagraphWithoutNumbersHasNoEvidenceOfACutSoItIsNotQuestioned() {
+        let rows = [line("Sabahın erken saatlerinde köyün meydanında toplanan insanlar", top: 0.15),
+                    line("uzun bir süre konuşmadan öylece beklediler çünkü kimse", top: 0.25),
+                    line("ne söyleyeceğini tam olarak bilemiyordu ve hava soğuktu", top: 0.35)]
+        let v = ViewLines.make(rows)
+        XCTAssertTrue(v.topComplete)
+        XCTAssertTrue(v.bottomComplete)
         XCTAssertTrue(v.isReadable)
+        // Yazı kenara dayanıyorsa kanıt vardır
+        let touching = [(text: rows[0].text, box: CGRect(x: 0.1, y: 0.975, width: 0.8, height: 0.03)), rows[1],
+                        (text: rows[2].text, box: CGRect(x: 0.1, y: 0.002, width: 0.8, height: 0.03))]
+        XCTAssertFalse(ViewLines.make(touching).topComplete)
+        XCTAssertFalse(ViewLines.make(touching).bottomComplete)
+    }
+
+    func testViewsWhereTheQuestionNumbersAreNotReadAreStillAcceptedWhenNothingIsCut() {
+        // Gerçek günlük: ABCDE şıkları ve çok yazı var ama satır başındaki numara okunmadı
+        let rows = [line("Aşağıdaki cümlelerden hangisinin anlamı bu paragrafla uyuşur", top: 0.10),
+                    line("A) birinci seçenek metni burada", top: 0.20), line("B) ikinci seçenek metni burada", top: 0.30),
+                    line("C) üçüncü seçenek metni burada", top: 0.40), line("D) dördüncü seçenek metni burada", top: 0.50),
+                    line("E) beşinci seçenek metni burada", top: 0.60)]
+        let v = ViewLines.make(rows)
+        XCTAssertTrue(v.topComplete)
+        XCTAssertTrue(v.bottomComplete)
+    }
+
+    func testAnOptionRowAtTheTopOrAQuestionWithoutEReachingTheBottomIsEvidenceOfACut() {
+        let v = ViewLines.make([line("D) dördüncü seçenek metni burada", top: 0.10), line("E) beşinci seçenek metni burada", top: 0.20)])
+        XCTAssertFalse(v.topComplete, "Üstte önceki sorunun şıkları")
+        let reaching = question(12, first: 0.05) + question(13, first: 0.60, upTo: "C")
+        XCTAssertFalse(ViewLines.make(reaching).bottomComplete, "13. soru E'ye varmadan dibe uzanıyor")
+        let shortOfTheBottom = ViewLines.make(question(13, first: 0.10, upTo: "C"))
+        XCTAssertTrue(shortOfTheBottom.bottomComplete, "E okunmadı ama yazı dibe uzanmıyor: kanıt yok")
     }
 
     func testAtMostTwoContinuationLinesMayFollowTheEOption() {
         let tail1 = [line("E şıkkının devamı ikinci satırda", top: 0.75)]
         XCTAssertTrue(ViewLines.make(question(12, first: 0.10) + tail1).bottomComplete)
-        let passage = [line("Sonraki paragrafın birinci satırı burada", top: 0.75), line("Sonraki paragrafın ikinci satırı burada", top: 0.80),
-                       line("Sonraki paragrafın üçüncü satırı burada", top: 0.85)]
+        let passage = [line("Sonraki paragrafın birinci satırı burada", top: 0.80), line("Sonraki paragrafın ikinci satırı burada", top: 0.85),
+                       line("Sonraki paragrafın üçüncü satırı burada", top: 0.90)]
         XCTAssertFalse(ViewLines.make(question(12, first: 0.10) + passage).bottomComplete, "E'den sonra başka bir paragraf başlamış")
     }
 
@@ -867,7 +893,7 @@ final class ViewCompletenessTests: XCTestCase {
         let left = question(12, first: 0.12, x: 0.05, width: 0.4)
         let rightComplete = question(13, first: 0.12, x: 0.55, width: 0.4)
         XCTAssertTrue(ViewLines.make(left + rightComplete).bottomComplete)
-        let rightCut = question(13, first: 0.12, x: 0.55, width: 0.4, upTo: "C")
+        let rightCut = question(13, first: 0.60, x: 0.55, width: 0.4, upTo: "C")
         let v = ViewLines.make(left + rightCut)
         XCTAssertFalse(v.bottomComplete, "Sağ sütundaki soru kesik")
         XCTAssertTrue(v.topComplete)
@@ -1250,7 +1276,7 @@ final class FirstReadableTimerTests: XCTestCase {
         XCTAssertTrue(t.lastWasGood)
     }
 
-    func testAHalfPageIsNotTakenWhileTheWholePageIsStillTheGoalButAfterTwoTriesTheHalvesTakeOver() {
+    func testAHalfPageIsNotTakenWhileTheWholePageIsStillTheGoalButAfterOneTryTheHalvesTakeOver() {
         var t = FramingCoachTimer()
         let upper = page(edges(bottom: 1.0), y0: 0.15, y1: 0.95)
         let upperBlocks = ViewLines(chars: 160, topComplete: false, bottomComplete: true)
@@ -1258,13 +1284,12 @@ final class FirstReadableTimerTests: XCTestCase {
         XCTAssertNil(step(&t, upper, at: 10.0, lines: upperBlocks, whole: true))
         XCTAssertEqual(step(&t, upper, at: 10.3, lines: upperBlocks, whole: true), ask, "Yarım sayfa tamam olsa da önce tam sayfa istenir")
         XCTAssertFalse(t.lastWasGood)
-        XCTAssertEqual(step(&t, upper, at: 16.4, lines: upperBlocks, whole: true), ask, "İkinci deneme (tekrar aralığı sonrası)")
-        XCTAssertNil(step(&t, upper, at: 18.0, lines: upperBlocks, whole: true), "Kullanıcıya uyması için süre tanınır")
-        XCTAssertNil(step(&t, upper, at: 20.5, lines: upperBlocks, whole: true))
-        XCTAssertEqual(step(&t, upper, at: 20.8, lines: upperBlocks, whole: true), FramingCoach.halvesText, "İki denemede tam sayfa olmadı: yarımlara geçilir")
+        XCTAssertNil(step(&t, upper, at: 12.0, lines: upperBlocks, whole: true), "Kullanıcıya uyması için süre tanınır")
+        XCTAssertNil(step(&t, upper, at: 14.5, lines: upperBlocks, whole: true))
+        XCTAssertEqual(step(&t, upper, at: 14.8, lines: upperBlocks, whole: true), FramingCoach.halvesText, "Bir denemede tam sayfa olmadı: yarımlara geçilir")
         // Yarımlarda tam görünen üst yarı kabul edilir (düzeltmeden sonraki "Tamam." yerine sayfa durumu söylenir)
-        XCTAssertNil(step(&t, upper, at: 24.0, lines: upperBlocks, whole: true))
-        XCTAssertEqual(step(&t, upper, at: 24.3, lines: upperBlocks, whole: true), "Tamam. Üst yarı.")
+        XCTAssertNil(step(&t, upper, at: 18.0, lines: upperBlocks, whole: true))
+        XCTAssertEqual(step(&t, upper, at: 18.3, lines: upperBlocks, whole: true), "Tamam. Üst yarı.")
     }
 
     func testAWholePageTheProgramCannotReadMovesStraightToTheHalves() {
@@ -1293,7 +1318,7 @@ final class FirstReadableTimerTests: XCTestCase {
         XCTAssertEqual(step(&t, lower, at: 17.3, lines: lowerBlocks, whole: true), "Alt yarı. Üstte: zeta teta iota kapa. Altta: lamda omikron sigma tau.")
     }
 
-    func testAfterTwoPagesNeededTheHalvesTheNextPageStartsWithTheHalvesDirectly() {
+    func testAfterAPageNeededTheHalvesTheNextPageStartsWithTheHalvesDirectly() {
         var t = FramingCoachTimer()
         let weak = ViewLines(chars: 6, topComplete: false, bottomComplete: false)
         let upper = page(edges(bottom: 1.0), y0: 0.15, y1: 0.95)
@@ -1309,22 +1334,11 @@ final class FirstReadableTimerTests: XCTestCase {
         _ = step(&t, upper, at: 16.0, lines: nil, still: 0.1, whole: true)
         _ = step(&t, lower, at: 17.0, lines: lowerBlocks, whole: true)
         XCTAssertEqual(step(&t, lower, at: 17.3, lines: lowerBlocks, whole: true), "Alt yarı. Üstte: zeta teta iota kapa. Altta: lamda omikron sigma tau.")
-        // İkinci sayfa: yine tam sayfa okunmuyor (ikinci kez)
+        // İkinci sayfa: tam sayfa denenmeden yarımlarla başlar (yarım sayfa "uzaklaşın" denmeden kabul edilir)
         _ = step(&t, upper, at: 20.0, lines: nil, still: 0.1, whole: true)
-        _ = step(&t, page(edges()), at: 21.0, lines: weak, whole: true)
-        XCTAssertEqual(step(&t, page(edges()), at: 21.3, lines: weak, whole: true), FramingCoach.halvesText, "Önceki sayfa alındı: bu yeni sayfada tam sayfa yine denendi")
-        _ = step(&t, upper, at: 25.0, lines: upperBlocks, whole: true)
-        XCTAssertEqual(step(&t, upper, at: 25.3, lines: upperBlocks, whole: true), "Tamam. Üst yarı.")
-        _ = step(&t, upper, at: 26.0, lines: nil, still: 0.1, whole: true)
-        let lowerBlocks2 = ViewLines(starts: [LineEnd(side: nil, words: "alfa beta gama delta")], ends: [LineEnd(side: nil, words: "ocak şubat mart nisan")],
-                                     chars: 160, topComplete: true, bottomComplete: false)
-        _ = step(&t, lower, at: 27.0, lines: lowerBlocks2, whole: true)
-        XCTAssertEqual(step(&t, lower, at: 27.3, lines: lowerBlocks2, whole: true), "Alt yarı. Üstte: alfa beta gama delta. Altta: ocak şubat mart nisan.")
-        // Üçüncü sayfa: tam sayfa denenmeden yarımlarla başlar (yarım sayfa "uzaklaşın" denmeden kabul edilir)
-        _ = step(&t, upper, at: 30.0, lines: nil, still: 0.1, whole: true)
-        let third = ViewLines(starts: [LineEnd(side: nil, words: "kırmızı mavi yeşil sarı")], chars: 160, topComplete: false, bottomComplete: true)
-        _ = step(&t, upper, at: 31.0, lines: third, whole: true)
-        XCTAssertEqual(step(&t, upper, at: 31.3, lines: third, whole: true), "Üst yarı. Üstte: kırmızı mavi yeşil sarı.")
+        let second = ViewLines(starts: [LineEnd(side: nil, words: "kırmızı mavi yeşil sarı")], chars: 160, topComplete: false, bottomComplete: true)
+        _ = step(&t, upper, at: 21.0, lines: second, whole: true)
+        XCTAssertEqual(step(&t, upper, at: 21.3, lines: second, whole: true), "Üst yarı. Üstte: kırmızı mavi yeşil sarı.")
     }
 
     func testAnAcceptedViewCarriesTheDoneAndTheNextQuestionForTheCaptureSentence() {

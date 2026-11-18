@@ -30,9 +30,11 @@ struct ViewLines: Equatable {
     /// Güveni yeterli satırlardaki harf + rakam sayısı: yazı program tarafından okunabiliyor mu (kullanıcı kararı 2026-11-18: okunuyorsa daha mükemmel
     /// görüntü aranmaz, ilk yeterli görüntü alınır)
     var chars = 0
-    /// Kadrajın en üstündeki soru ya da paragraf TAM görünüyor mu: ilk satır soru numarasıyla ("12.") başlıyor ve kenara dayanıp kesilmiyor
+    /// Kadrajın en üstündeki soru ya da paragrafın KESİK olduğuna dair kanıt YOK: ilk satır kenara dayanmıyor ve numarasız bir şık satırıyla (önceki sorunun
+    /// kuyruğu) başlamıyor
     var topComplete = false
-    /// Kadrajın en altındaki soru ya da paragraf TAM görünüyor mu: son soru numarasından sonra E şıkkı görünüyor ve kenara dayanıp kesilmiyor
+    /// Kadrajın en altındaki soru ya da paragrafın KESİK olduğuna dair kanıt YOK: son satır kenara dayanmıyor; son soru numarasından sonra E şıkkı
+    /// görünüyor ya da yazı alt kenara yakın bitmiyor
     var bottomComplete = false
 
     /// Kadrajda başından sonuna (E şıkkı dahil) görünen soruların numaraları: ardışık ve artan değilse (yazı tanıma bir rakamı yanlış okumuş olabilir) boş
@@ -116,6 +118,9 @@ struct ViewLines: Equatable {
 
     private static let numberStart = try? NSRegularExpression(pattern: "^\\s*(\\d{1,3})\\s?[\\.\\)]\\s*\\S", options: [])
     private static let optionE = try? NSRegularExpression(pattern: "^\\s*\\(?E\\s?[\\)\\.]", options: [])
+    private static let optionAny = try? NSRegularExpression(pattern: "^\\s*\\(?[A-E]\\s?[\\)\\.]\\s*\\S", options: [])
+    /// Alt kenara bu kadar yakın biten (kadraj yüksekliğinin %12'si) yazının devamı kadrajın dışında olabilir
+    private static let nearEdge = 0.12
 
     private static func matches(_ pattern: NSRegularExpression?, _ text: String) -> Bool {
         guard let pattern = pattern else { return false }
@@ -147,11 +152,12 @@ struct ViewLines: Equatable {
         var cutBottom: Bool
     }
 
-    /// Kadrajın en üstündeki ve en altındaki soru / paragraf tam görünüyor mu (kullanıcı kararı 2026-11-18: bir sorunun ya da paragrafın metni tam
-    /// görünmeden kabul edilmez; gerekirse "Uzaklaşın" denip tüm sayfa istenir). Satırlar üstten alta, sütun sütun okunur (iki sütunda her biri ayrı).
-    /// ÜST tam: sütunun ilk satırı soru numarasıyla başlıyor ("12. …") ve kadrajın üst kenarına dayanmıyor (şık satırıyla ya da numarasız metinle
-    /// başlayan görünümde önceki sorunun / paragrafın başı kesiktir). ALT tam: sütundaki son soru numarasından sonra E şıkkı görünüyor, E'den sonra en
-    /// çok iki devam satırı var ve hiçbiri alt kenara dayanmıyor (E'den sonra daha çok satır başka bir paragrafın başlamış olduğunu gösterir).
+    /// Kadrajın en üstündeki ve en altındaki soru / paragrafın KESİK olduğuna dair kanıt var mı (kullanıcı kararı 2026-11-18: bir sorunun ya da paragrafın metni
+    /// tam görünmeden kabul edilmez; gerekirse "Uzaklaşın" denip tüm sayfa istenir). Gerçek günlük: yazı tanıma soru numarasını çoğu karede okumuyor; bu yüzden
+    /// "numarayla başlamıyor = kesik" denemez, yalnız KANIT aranır. Satırlar üstten alta, sütun sütun okunur (iki sütunda her biri ayrı).
+    /// ÜST kesik: ilk satır kadrajın kenarına dayanıyor ya da numarasız bir şık satırıyla başlıyor (önceki sorunun kuyruğu).
+    /// ALT kesik: son satır kenara dayanıyor; ya da son soru numarasından sonra E şıkkı yokken yazı alt kenara yakın bitiyor (soru dibe uzanıyor); ya da
+    /// E'den sonra alt kenara yakın bitecek kadar (en az üç) satır var (başka bir paragraf başlamış). Numara hiç görünmüyorsa (paragraf, başlık) kanıt yoktur.
     /// Kâğıdın üst / alt kenarı görünüyorsa (tam sayfa) çağıran bu denetimi aşar. Yazı bulunmazsa ikisi de false.
     static func completeness(_ lines: [(text: String, box: CGRect)], skipTop: Double = 0) -> Blocks {
         var rows: [Row] = []
@@ -191,14 +197,22 @@ struct ViewLines: Equatable {
                 }
                 if complete { done.append(start.number) } else { notDone.append(start.number) }
             }
-            if first.cutTop || !matches(numberStart, first.text) { topOK = false }
-            guard let n = ordered.lastIndex(where: { matches(numberStart, $0.text) }),
-                  let e = ordered[(n + 1)...].firstIndex(where: { matches(optionE, $0.text) }) else {
+            // KESİK KANITI (gerçek günlük 2026-11-18: yazı tanıma soru numarasını çoğu karede okumadığı için "numarayla başlamıyor = kesik" saymak her
+            // görüntüyü reddetti): ÜST kesik yalnız ilk satır kenara dayanıyorsa ya da numarasız bir ŞIK satırıyla başlıyorsa (önceki sorunun kuyruğu)
+            if first.cutTop || (matches(optionAny, first.text) && !matches(numberStart, first.text)) { topOK = false }
+            // ALT kesik: son satır kenara dayanıyorsa; ya da son soru numarasından sonra E şıkkı yokken yazı alt kenara yakın bitiyorsa (soru dibe uzanıyor);
+            // ya da E'den sonra alt kenara yakın bitecek kadar çok satır varsa (başka bir paragraf başlamış). Numara hiç görünmüyorsa (paragraf, başlık)
+            // kanıt yoktur: kesik sayılmaz
+            guard let last = ordered.last else { continue }
+            if last.cutBottom {
                 bottomOK = false
-                continue
+            } else if last.bottom >= 1 - nearEdge, let n = ordered.lastIndex(where: { matches(numberStart, $0.text) }) {
+                if let e = ordered[(n + 1)...].firstIndex(where: { matches(optionE, $0.text) }) {
+                    if ordered[(e + 1)...].count > 2 { bottomOK = false }
+                } else {
+                    bottomOK = false
+                }
             }
-            let after = ordered[(e + 1)...]
-            if after.count > 2 || ordered[e].cutBottom || after.contains(where: { $0.cutBottom }) { bottomOK = false }
         }
         var result = Blocks(top: topOK, bottom: bottomOK)
         // Numaralar yalnız ardışık ve artansa güvenilir (yazı tanıma bir rakamı yanlış okuyabilir; iki sütunda sol sütun önce gelir): yoksa söylenmez
@@ -609,12 +623,13 @@ struct FramingCoachTimer {
         var sameView = 0.4
         /// Sayfa karşılaştırmasında bundan kısa sözcükler ("ve", "bir", "için") sayılmaz
         var minWordLength = 4
-        /// Tam sayfa için bu kadar uzaklaşma söylendikten sonra tam sayfa olmuyorsa yarım yarım çekime geçilir (`firstReadable` + `wholeFirst`)
-        var wholeTries = 2
+        /// Tam sayfa için bu kadar uzaklaşma söylendikten sonra tam sayfa olmuyorsa yarım yarım çekime geçilir (`firstReadable` + `wholeFirst`). Gerçek günlük
+        /// 2026-11-18: iki denemede 75 sn'nin 52 sn'si tam sayfa aramakla geçti, bu yüzden tek deneme
+        var wholeTries = 1
         /// Son uzaklaşma cümlesinden bu kadar sn sonra (kullanıcıya uyması için süre) yarım yarım çekime geçilir
         var wholeWait: TimeInterval = 4
-        /// Üst üste bu kadar sayfada tam sayfa olmayıp yarımlara geçildiyse sonraki sayfalar doğrudan yarımlarla başlar
-        var halvesLearned = 2
+        /// Bu kadar sayfada tam sayfa olmayıp yarımlara geçildiyse sonraki sayfalar doğrudan yarımlarla başlar (tam sayfa yine kabul edilir)
+        var halvesLearned = 1
     }
 
     var config = Config()
