@@ -680,7 +680,7 @@ extension SessionViewModel {
             tlog("[kamera] kameraya \(cycle) turda bağlanılamadı (\(Int(now.timeIntervalSince(firstTry) / 60)) dk); yeniden denemeler durduruldu")
             break cycles
         }
-        let gap = SessionViewModel.retryGap(since: firstTry, now: now)
+        let gap = SessionViewModel.retryGap(rounds: cycle)
         tlog("[kamera] \(cycle). tur sonuçsuz (\(failure.message)); \(Int(gap)) sn sonra yeniden denenecek")
         statusNote = "Kameraya bağlanılamadı; \(Int(gap)) sn sonra yeniden denenecek"
         await deps.sleep(gap)

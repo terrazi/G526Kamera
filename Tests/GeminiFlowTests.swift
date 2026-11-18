@@ -153,7 +153,8 @@ final class GeminiAnswerServiceTests: XCTestCase {
             XCTFail("Hata bekleniyordu")
         } catch let error as GeminiError {
             XCTAssertEqual(error.kind, .model)
-            GeminiProfiles.defaultModels.forEach { XCTAssertTrue(error.message.contains($0), $0) }
+            // Sınama profilleri ilk üç varsayılan modeldir (dördüncü varsayılan model bu zincirde yok)
+            GeminiProfiles.defaultModels.prefix(3).forEach { XCTAssertTrue(error.message.contains($0), $0) }
         } catch {
             XCTFail("\(error)")
         }

@@ -178,10 +178,9 @@ final class AutoStartPlanTests: XCTestCase {
         XCTAssertFalse(SessionViewModel.outageTooLong(since: nil, now: start))
         XCTAssertFalse(SessionViewModel.outageTooLong(since: start, now: start.addingTimeInterval(3 * 3600 - 1)))
         XCTAssertTrue(SessionViewModel.outageTooLong(since: start, now: start.addingTimeInterval(3 * 3600)), "3 saat dolunca denemeler durur")
-        XCTAssertEqual(SessionViewModel.retryGap(since: start, now: start.addingTimeInterval(60)), SessionViewModel.Timing.connectionRetry)
-        XCTAssertEqual(SessionViewModel.retryGap(since: start, now: start.addingTimeInterval(700)), SessionViewModel.Timing.slowRetry,
-                       "İlk 10 dakikadan sonra denemeler seyrekleşir")
-        XCTAssertEqual(SessionViewModel.retryGap(since: nil, now: start), SessionViewModel.Timing.connectionRetry)
+        XCTAssertEqual(SessionViewModel.retryGap(rounds: 1), 30, "Tur sonuçsuzsa 30 sn beklenir")
+        XCTAssertEqual(SessionViewModel.retryGap(rounds: 5), 30)
+        XCTAssertEqual(SessionViewModel.retryGap(rounds: 6), 60, "5 denemeden sonra bekleme 60 sn olur")
     }
 
     func testThePaidKeyTakesTheFirstThreeSlotsAndAFreeKeyTheFourth() {
@@ -368,7 +367,7 @@ final class AutoStartFlowTests: XCTestCase {
         } else {
             XCTFail("\(runs)")
         }
-        XCTAssertTrue(h.sleepLog.entries.contains { $0.seconds == T.connectionRetry }, "Turlar arasında beklenir")
+        XCTAssertTrue(h.sleepLog.entries.contains { $0.seconds == T.quickRetry }, "Turlar arasında 30 sn beklenir")
         XCTAssertEqual(h.speaker.spoken.last, Say.autoShow(number: 1), "Kamera bağlanınca akış kaldığı yerden sürer")
         XCTAssertEqual(T.cameraPersistResetAfter, 3)
         XCTAssertEqual(T.outageLimit, 3 * 3600, "Denemeler en çok 3 saat sürer")

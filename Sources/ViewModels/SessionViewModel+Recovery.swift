@@ -390,7 +390,10 @@ extension SessionViewModel {
         guard canRecover, !Task.isCancelled else { return }
         // Kesinti 3 saati aştıysa yeniden denemeler durur (kullanıcı kararı 2026-11-19): bir kez söylenir, Kestirme çalışmaz; aygıt kendiliğinden dönerse
         // (ses yolu ya da ağ bildirimi) oturum kaldığı yerden sürer
-        if outageStart == nil { longOutageNoted = false }
+        if outageStart == nil {
+            longOutageNoted = false
+            failedRounds = 0
+        }
         if reason != .recognition, SessionViewModel.outageTooLong(since: outageStart, now: deps.now()) {
             if !longOutageNoted {
                 longOutageNoted = true
@@ -449,37 +452,34 @@ extension SessionViewModel {
             pauseAfterFailedRecovery(reason)
         case .gaveUp:
             if reason == .network, !deps.health.hasCellularService() {
-                warn("onarim", "\(Say.noSimNoInternet) \(Int(Timing.connectionRetry)) saniyede bir internete bakılacak.")
+                warn("onarim", "\(Say.noSimNoInternet) \(Int(SessionViewModel.retryGap(rounds: failedRounds + 1))) saniyede bir internete bakılacak.")
             } else {
-                warn("onarim", "Kestirmeler sorunu gideremedi; \(Int(Timing.connectionRetry)) saniyede bir yeniden denenecek.")
+                warn("onarim", "Kestirmeler sorunu gideremedi; \(Int(SessionViewModel.retryGap(rounds: failedRounds + 1))) saniye sonra yeniden denenecek.")
             }
             pauseAfterFailedRecovery(reason)
         }
     }
 
     private func pauseAfterFailedRecovery(_ reason: RecoveryReason) {
+        if reason != .recognition { failedRounds += 1 }
+        let gap = SessionViewModel.retryGap(rounds: failedRounds)
         switch reason {
         case .network:
             phase = .paused(.noConnection)
             statusNote = ""
-            retryTask = deps.scheduler.after(nextRetryGap) { [weak self] in self?.retryConnection() }
+            retryTask = deps.scheduler.after(gap) { [weak self] in self?.retryConnection() }
         case .hardware:
             // Başarısız onarımdan sonra sıfırlamayı hemen değil, daha seyrek dene (her 20 sn'de uçak modu açıp kapatılmasın)
-            enterHardwarePause(AudioRouting.verdict(deps.route.snapshot()), grace: nextRetryGap)
+            enterHardwarePause(AudioRouting.verdict(deps.route.snapshot()), grace: gap)
         case .recognition:
             break   // tanıma onarımı Kestirme kullanmaz; kendi akışı (repairRecognizer) bekleme ve yeniden denemeyi yönetir
         }
     }
 
-    /// Başarısız onarım turundan sonra bir sonraki tura kadar beklenen süre: kesintinin ilk 10 dakikasında `connectionRetry`, sonrasında `slowRetry`
-    /// (3 saat boyunca dakikada bir Kestirme çalıştırmak telefonu yorar)
-    var nextRetryGap: TimeInterval {
-        return SessionViewModel.retryGap(since: outageStart, now: deps.now())
-    }
-
-    nonisolated static func retryGap(since start: Date?, now: Date) -> TimeInterval {
-        guard let start = start, now.timeIntervalSince(start) >= Timing.fastRetryWindow else { return Timing.connectionRetry }
-        return Timing.slowRetry
+    /// Başarısız onarım turundan sonra bir sonraki tura kadar beklenen süre (kullanıcı kararı 2026-11-19): ilk 5 turda 30 sn, sonrasında 60 sn.
+    /// `rounds`: bu kesintide sonuçsuz kalan tur sayısı (az önce biten dahil)
+    nonisolated static func retryGap(rounds: Int) -> TimeInterval {
+        return rounds <= Timing.quickRetryRounds ? Timing.quickRetry : Timing.connectionRetry
     }
 
     /// Kesinti `Timing.outageLimit` süresini (3 saat) aştı mı

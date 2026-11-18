@@ -147,9 +147,10 @@ final class SessionViewModel: ObservableObject {
         static let headsetDropWatch: TimeInterval = 2
         /// Bağlantı (internet, kulaklık) bu kadar süredir kurulamıyorsa yeniden denemeler durur (kullanıcı kararı 2026-11-19: 3 saat)
         static let outageLimit: TimeInterval = 3 * 3600
-        /// Kesintinin ilk bu kadar süresinde denemeler arası `connectionRetry`, sonrasında `slowRetry` beklenir
-        static let fastRetryWindow: TimeInterval = 600
-        static let slowRetry: TimeInterval = 300
+        /// Başarısız onarım turundan sonra bekleme (kullanıcı kararı 2026-11-19): ilk `quickRetryRounds` turda `quickRetry` (30 sn), sonrasında
+        /// `connectionRetry` (60 sn)
+        static let quickRetry: TimeInterval = 30
+        static let quickRetryRounds = 5
         /// Oturum başında kameraya bağlanırken en çok kaç onarım yapılacağı (ilk deneme + 2 onarım = 3 deneme); olmazsa sesle devam edilir ve kamera yoklanır
         static let cameraStartRepairs = 2
         /// Oturum başında ilk bağlanma denemesinde en çok beklenen süre (sn): "Kameraya geç" telefonu kameranın ağına sokamadıysa 40 sn beklenmez,
@@ -466,6 +467,8 @@ final class SessionViewModel: ObservableObject {
     var autoTimer: ScheduledTask?
     /// Bağlantı 3 saattir kurulamadı: yeniden denemeler durduruldu ve bu söylendi (kesinti bitince sıfırlanır)
     var longOutageNoted = false
+    /// Bu kesintide sonuçsuz kalan onarım turlarının sayısı (bekleme süresini belirler; kesinti bitince sıfırlanır)
+    var failedRounds = 0
     var cameraGuidanceSpeaking = false
     /// Kadraj koçunun, önceki cümle sürerken gelen EN SON cümlesi: önceki bitince söylenir (eskiyse atılır). Üst üste konuşma olmaz, yeni sayfanın cümlesi kaybolmaz.
     var coachPending: (text: String, time: Date)?
@@ -563,6 +566,7 @@ final class SessionViewModel: ObservableObject {
         disarmAutoGate()
         auto = AutoStart.State()
         longOutageNoted = false
+        failedRounds = 0
         restorePendingShots()   // önceki çalışmadan telefonda kalan çekimler (gönderilmemişler) sırayla gönderilmek üzere geri yüklenir
         // Beklenmedik kapanmadan sonra ortak paragraf yazı olarak (kamerayla çekildiyse fotoğraf olarak) geri gelir: ses kaydı ve video bellekteydi, kayboldu
         if let saved = resume?.passage, !saved.remaining.isEmpty {
