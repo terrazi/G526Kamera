@@ -130,6 +130,7 @@ final class GeminiAnswerService: Answering {
     Program bulanık, boş ve birebir tekrar eden kareleri elemiş, NET kareleri ZAMAN SIRASIYLA bir PDF'e koymuştur (PDF'in her sayfası bir karedir; sayısı değişir). \
     Kamera dar bir alan gördüğü için ardışık kareler birbirini KISMEN ÖRTER: kamera kâğıt üzerinde kayar, aynı satırlar iki karede de görünebilir. \
     Kitapçığın kaç sayfası görüneceği belli değildir ve sayfalar eşit sürede gösterilmez; sayfa çevrilirken bulanık ya da yarım kareler olabilir. \
+    Kareler zaman sırasındadır ama kullanıcı sayfaları ya da bir sayfanın parçalarını sırasız göstermiş olabilir: bir görüntünün yerini sırasından değil içeriğinden (sayfa ve soru numarası, satır akışı, ortak satırlar) çıkar. \
     Her sayfada BİRDEN ÇOK soru ve soru grubuna ortak paragraflar olabilir.
 
     Bütün karelerde görünen BÜTÜN soruları (paragraflara bağlı sorular dahil) oku, her birini çöz ve HER SORU İÇİN AYRI BİR SATIR yaz, \
@@ -174,7 +175,10 @@ final class GeminiAnswerService: Answering {
             let list = labels.enumerated().map { "\($0.offset + 1)) \($0.element)" }.joined(separator: "; ")
             text += "\n\nÇekim ritimliydi: her kitapçık sayfası için önce sayfanın TAMAMI (küçük, yalnız düzeni ve soru numaralarını görmek için), sonra yukarıdan aşağı dört PARÇA çekildi; "
                 + "dört parça birbirini kısmen örter. Sayfanın tamamı haritadır, metni parçalardan oku; bir soru iki parçaya bölünmüşse parçaları ortak satırlardan birleştir ve soruyu bütün olarak çöz. "
-                + "PDF sayfalarının sırası: " + list + "."
+                + "PDF sayfalarının sırası ve programın verdiği etiketler: " + list + ". "
+                + "ETİKETLER YALNIZ İPUCUDUR, kesin değildir: kullanıcı parçaları sırasız ya da karışık göstermiş, bir parçayı atlamış ya da aynı yeri iki kez göstermiş olabilir; "
+                + "etiket ile içerik çelişirse İÇERİĞE güven. Her görüntünün hangi sayfaya ve sayfanın neresine ait olduğunu etiketten değil içerikten bul: sayfa numarası, soru numaraları, "
+                + "satırların akışı, komşu görüntülerle ortak satırlar. Aynı sayfanın parçalarını önce içeriğe göre yukarıdan aşağı sırala, sonra birleştir; farklı sayfaların parçalarını karıştırma."
         }
         let note = extra.trimmed
         if !note.isEmpty { text += "\n\nKullanıcının ek talimatı: \(note)" }

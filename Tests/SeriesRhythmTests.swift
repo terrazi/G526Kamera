@@ -187,6 +187,9 @@ final class RhythmPromptTests: XCTestCase {
         let text = GeminiAnswerService.pageText(expectedNumber: 1, hasVideo: false, extra: "", pages: 5, labels: labels)
         XCTAssertTrue(text.contains("1) 1. sayfa, tüm sayfa; 2) 1. sayfa, üst; 3) 1. sayfa, orta üst; 4) 1. sayfa, orta alt; 5) 1. sayfa, alt"), text)
         XCTAssertTrue(text.contains("Çekim ritimliydi"))
+        XCTAssertTrue(text.contains("ETİKETLER YALNIZ İPUCUDUR"), "Kullanıcı sırayı şaşırabilir: Gemini etikete değil içeriğe güvenir")
+        XCTAssertTrue(text.contains("içerikten bul"))
+        XCTAssertTrue(GeminiAnswerService.pageSystemPrompt.contains("sırasız göstermiş olabilir"), "Sistem komutu da sırasız çekimi söyler")
     }
 
     func testWithoutLabelsOrWithAMismatchThePromptStaysAsBefore() {
