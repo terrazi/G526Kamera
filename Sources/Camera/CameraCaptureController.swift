@@ -146,6 +146,9 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
     private var coachConfig = GuidanceConfig()
     private var coachSharpFloor = 0.45
     private var coachLines: (lines: ViewLines, time: TimeInterval)?
+    /// Koçun açıldığı an ve o oturumda söylediği cümle sayısı (günlük: ilk cümle ne kadar sonra geldi)
+    private var coachStartedAt: TimeInterval = 0
+    private var coachSaid = 0
     private var coachOCRBusy = false
     private var coachOCRTime: TimeInterval = -100
     /// Her kamera hareketinde artar: hareketten önce başlamış satır okumasının sonucu (önceki sayfa) atılır
@@ -558,6 +561,8 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         // Sayfanın üç durumu (tam sayfa, üst yarı, alt yarı) kâğıt kenarlarından bilinir (Vision): kamera durunca seyrek çalışır (bkz. `PageEdgeTracker`).
         // Pil tasarrufunda (önizleme kapalı) boru hattı kenar ölçmez; o zaman yalnız yazı ölçümüyle sürer.
         coachMoveEpoch = 0
+        coachStartedAt = ProcessInfo.processInfo.systemUptime
+        coachSaid = 0
         coachExpectsEdges = settings.guidancePageEdges && !settings.previewOff
         pipeline.pageEdgesOn = settings.guidancePageEdges
         coachOn = true
@@ -605,9 +610,12 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         let epoch = coachMoveEpoch
         let buffer = best.buffer
         let orientation = settings.imageOrientation
+        let began = ProcessInfo.processInfo.systemUptime
         Task { [weak self] in
             let lines = await Task.detached(priority: .utility) { ViewLinesReader.read(buffer, orientation: orientation) }.value
             guard let self = self else { return }
+            // Koçun ilk cümlesi geç geliyorsa neden yazı okumasının süresi mi diye günlükten görülsün
+            tlog("[kamera] koç okuması: \(String(format: "%.2f", ProcessInfo.processInfo.systemUptime - began)) sn")
             self.coachOCRBusy = false
             if let lines = lines, self.coachOn, epoch == self.coachMoveEpoch { self.coachLines = (lines: lines, time: time) }
         }
@@ -620,6 +628,8 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         var extra = ""
         if let detail = detail { extra += " [neden: \(detail)]" }
         if ignored > 0 { extra += " [elenen satır: \(ignored)]" }
+        if coachSaid == 0 { extra += " [ilk cümle: \(String(format: "%.1f", ProcessInfo.processInfo.systemUptime - coachStartedAt)) sn sonra]" }
+        coachSaid += 1
         tlog("[kamera] koç: \(text)\(extra)")
     }
 

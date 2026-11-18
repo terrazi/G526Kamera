@@ -972,6 +972,52 @@ final class ViewCompletenessTests: XCTestCase {
         XCTAssertFalse(ViewLines.make(noNumbers).paragraph)
     }
 
+    func testTextOfTheNeighbouringPageCutByTheFrameEdgeIsNotTheMainBody() {
+        // Açık kitapta sağdaki sayfanın yarım şeridi kadrajın sağ kenarına dayanıyor; ana gövde (iki sütun) sağlam
+        let left = question(12, first: 0.05, x: 0.05, width: 0.4, step: 0.06)
+        let right = question(13, first: 0.05, x: 0.52, width: 0.3, step: 0.06)
+        let strip = [line("A) evolutionary theory of", top: 0.10, x: 0.86, width: 0.14),
+                     line("that a negative con", top: 0.30, x: 0.86, width: 0.14),
+                     line("those supporting theories", top: 0.60, x: 0.86, width: 0.14),
+                     line("during the day and", top: 0.97, x: 0.86, width: 0.14)]
+        let v = ViewLines.make(left + right + strip)
+        XCTAssertEqual(v.ignored, 4, "Komşu sayfanın şeridi elendi")
+        XCTAssertTrue(v.topComplete)
+        XCTAssertTrue(v.bottomComplete)
+        XCTAssertFalse(v.bottomCut, "Komşu sayfanın alta dayanan satırı ana gövdeyi kesik göstermez")
+        XCTAssertNil(v.cutReason)
+        // Ana gövdenin kendisi sağ kenara dayanıyorsa (geniş satır, dış banda sığmıyor) elenmez
+        XCTAssertTrue(ViewLines.isBodyText(line("Sayfanın sağ tarafı kenara dayanıyor ve kesik", top: 0.3, x: 0.4, width: 0.6), aspect: 16.0 / 9.0))
+        XCTAssertFalse(ViewLines.isBodyText(line("Komşu sayfanın yarım şeridi", top: 0.3, x: 0.86, width: 0.14), aspect: 16.0 / 9.0))
+        XCTAssertFalse(ViewLines.isBodyText(line("Soldaki sayfanın yarım şeridi", top: 0.3, x: 0.0, width: 0.14), aspect: 16.0 / 9.0))
+    }
+
+    func testRecognitionGarbageIsNeitherSpokenNorTreatedAsTheStartOfAParagraph() {
+        XCTAssertTrue(ViewLines.isPlausibleWord("Sabahın"))
+        XCTAssertTrue(ViewLines.isPlausibleWord("problem-solve"))
+        XCTAssertTrue(ViewLines.isPlausibleWord("is"))
+        XCTAssertTrue(ViewLines.isPlausibleWord("12"))
+        XCTAssertTrue(ViewLines.isPlausibleWord("B"))
+        XCTAssertFalse(ViewLines.isPlausibleWord("rJroon"))
+        XCTAssertFalse(ViewLines.isPlausibleWord("I••w"))
+        XCTAssertFalse(ViewLines.isPlausibleWord("IIwi"))
+        XCTAssertFalse(ViewLines.isPlausibleWord("YNld"))
+        XCTAssertFalse(ViewLines.isPlausibleWord("ts"))
+        XCTAssertFalse(ViewLines.isPlausibleWord("W"))
+        let rows = [line("rJroon W lo I••w ahq", top: 0.10),
+                    line("Sabahın erken saatlerinde köyün meydanında toplanan insanlar", top: 0.20),
+                    line("uzun bir süre konuşmadan öylece beklediler çünkü kimse", top: 0.30),
+                    line("ne söyleyeceğini tam olarak bilemiyordu ve hava soğuktu.", top: 0.40)]
+        let v = ViewLines.make(rows)
+        XCTAssertTrue(v.topComplete, "Bozuk satırın küçük harfle başlaması paragrafın ortasından başlandığını göstermez")
+        XCTAssertEqual(v.starts.first?.words, "Sabahın erken saatlerinde köyün", "Bozuk satır atlanır, sıradaki okunabilen satır söylenir")
+        XCTAssertEqual(v.ends.first?.words, "bilemiyordu ve hava soğuktu")
+        // Hiçbir satır okunabilir değilse satır tarifi hiç söylenmez
+        let junk = ViewLines.make([line("rJroon W lo I••w ahq", top: 0.10), line("Jii*lply l IIwi l•ul zxq", top: 0.20), line("k tO FYDtd*Trsc4v rrx>ty", top: 0.30)])
+        XCTAssertTrue(junk.starts.isEmpty)
+        XCTAssertTrue(junk.ends.isEmpty)
+    }
+
     func testAViewThatStartsWithALowercaseLineStartsInTheMiddleOfAParagraph() {
         let tail = [line("Ne söyleyeceğini tam olarak bilemiyordu ve hava soğuktu.", top: 0.20),
                     line("Sonra içlerinden biri yavaşça öne çıkıp konuşmaya başladı.", top: 0.30),

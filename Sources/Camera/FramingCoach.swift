@@ -69,7 +69,9 @@ struct ViewLines: Equatable {
     }
 
     private struct Item {
-        var words: [String]
+        /// Satırın başındaki / sonundaki makul sözcükler (söylenecek); yazı tanıma bozuk okuduysa nil
+        var head: String?
+        var tail: String?
         var top: Double
         var bottom: Double
         var midX: Double
@@ -79,6 +81,58 @@ struct ViewLines: Equatable {
     static let gutterMin = 0.42
     static let gutterMax = 0.58
     static let gutterWidth = 0.14
+
+    /// Komşu sayfanın kadraja giren kesik şeridi: kutu kadrajın sol / sağ kenarına dayanıyor ve yalnız dış %28'lik banda sığıyor (kullanıcı bildirimi
+    /// 2026-11-18: açık kitapta iki sayfa birden görününce yandaki sayfanın yarım metni soru kesik sanılıyordu; ana gövde sağlamdı)
+    static let peripheralBand = 0.28
+
+    static func isPeripheral(_ box: CGRect) -> Bool {
+        let minX = Double(box.minX)
+        let maxX = Double(box.maxX)
+        return (maxX > 1 - edgeEpsilon && minX > 1 - peripheralBand) || (minX < edgeEpsilon && maxX < peripheralBand)
+    }
+
+    /// Yazı tanıma bozuk okuduğunda ("rJroon W lo I••w") çıkan sözcükler söylenmez ve karar vermekte kullanılmaz. Makul sözcük: yalnız harf, kesme işareti
+    /// ve tire; en az iki harf ve bir ünlü; harf sayısı kadar büyük harf (tamamı büyük) ya da yalnız ilk harf büyük; rakamlar ve A–E şık harfi geçer.
+    static func isPlausibleWord(_ word: String) -> Bool {
+        let letters = word.filter { $0.isLetter }
+        if letters.isEmpty { return !word.isEmpty && word.count <= 4 && word.allSatisfy { $0.isNumber } }
+        if letters.count == 1 { return word.count == 1 && "ABCDE".contains(letters) }
+        guard word.allSatisfy({ $0.isLetter || $0 == "'" || $0 == "’" || $0 == "-" }) else { return false }
+        guard letters.contains(where: { "aeıioöuüAEIİOÖUÜ".contains($0) }) else { return false }
+        let upper = letters.filter { $0.isUppercase }.count
+        if upper == 0 || upper == letters.count { return true }
+        return upper == 1 && letters.first?.isUppercase == true
+    }
+
+    /// Satırdaki makul sözcüklerin oranı (harfsiz sözcükler sayılmaz): bundan azsa satır bozuk okunmuştur
+    static func plausibleRatio(_ text: String) -> Double {
+        let candidates = words(text).filter { $0.contains(where: { $0.isLetter }) }
+        guard !candidates.isEmpty else { return 0 }
+        return Double(candidates.filter { isPlausibleWord($0) }.count) / Double(candidates.count)
+    }
+
+    static let minPlausible = 0.6
+
+    /// Baştan en çok `maxWords` ardışık makul sözcük; `minWords`'ten azsa nil
+    static func plausibleHead(_ words: [String]) -> String? {
+        var run: [String] = []
+        for w in words {
+            guard isPlausibleWord(w), run.count < maxWords else { break }
+            run.append(w)
+        }
+        return run.count >= minWords ? run.joined(separator: " ") : nil
+    }
+
+    /// Sondan en çok `maxWords` ardışık makul sözcük; `minWords`'ten azsa nil
+    static func plausibleTail(_ words: [String]) -> String? {
+        var run: [String] = []
+        for w in words.reversed() {
+            guard isPlausibleWord(w), run.count < maxWords else { break }
+            run.insert(w, at: 0)
+        }
+        return run.count >= minWords ? run.joined(separator: " ") : nil
+    }
 
     /// Soru / paragraf metni olabilecek bir satır mı. Elenenler: üç harf / rakamdan azı olan kırıntılar (çizgi "l", "I" diye okunur); dikey kutular (piksel olarak
     /// eninden uzun: sayfa kenarındaki dikey kitap adı, sütun çizgisi); sütunlar arasındaki orta oluğa sığan dar kutular. `aspect`: kare genişlik / yükseklik
@@ -90,6 +144,7 @@ struct ViewLines: Equatable {
         let h = Double(line.box.height)
         guard w > 0, h > 0 else { return false }
         if h > w * aspect { return false }
+        if isPeripheral(line.box) { return false }
         if Double(line.box.minX) >= gutterMin && Double(line.box.maxX) <= gutterMax && w < gutterWidth { return false }
         return true
     }
@@ -124,25 +179,26 @@ struct ViewLines: Equatable {
             if cutBottom { result.bottomCut = true }
             // Kenara dayanan yarım satırın sözcükleri güvenilmez: başlangıç / bitiş olarak kullanılmaz
             if cutTop || cutBottom || words.count < minWords { continue }
-            items.append(Item(words: words, top: top, bottom: bottom, midX: Double(line.box.midX)))
+            items.append(Item(head: plausibleHead(words), tail: plausibleTail(words), top: top, bottom: bottom, midX: Double(line.box.midX)))
         }
         guard !items.isEmpty else { return result }
 
-        func head(_ item: Item) -> String { return item.words.prefix(maxWords).joined(separator: " ") }
-        func tail(_ item: Item) -> String { return item.words.suffix(maxWords).joined(separator: " ") }
+        // Bozuk okunan satırlar (makul sözcüğü olmayan) başlangıç / bitiş sayılmaz: bir sonraki okunabilen satır söylenir
+        func firstHead(_ list: [Item]) -> String? { return list.filter { $0.head != nil }.min(by: { $0.top < $1.top })?.head }
+        func lastTail(_ list: [Item]) -> String? { return list.filter { $0.tail != nil }.max(by: { $0.bottom < $1.bottom })?.tail }
 
         let left = items.filter { $0.midX < 0.5 }
         let right = items.filter { $0.midX >= 0.5 }
         if left.count >= 2 && right.count >= 2 {
-            if let a = left.min(by: { $0.top < $1.top }), let b = right.min(by: { $0.top < $1.top }) {
-                result.starts = [LineEnd(side: "solda", words: head(a)), LineEnd(side: "sağda", words: head(b))]
+            if let a = firstHead(left), let b = firstHead(right) {
+                result.starts = [LineEnd(side: "solda", words: a), LineEnd(side: "sağda", words: b)]
             }
-            if let a = left.max(by: { $0.bottom < $1.bottom }), let b = right.max(by: { $0.bottom < $1.bottom }) {
-                result.ends = [LineEnd(side: "solda", words: tail(a)), LineEnd(side: "sağda", words: tail(b))]
+            if let a = lastTail(left), let b = lastTail(right) {
+                result.ends = [LineEnd(side: "solda", words: a), LineEnd(side: "sağda", words: b)]
             }
         } else {
-            if let a = items.min(by: { $0.top < $1.top }) { result.starts = [LineEnd(side: nil, words: head(a))] }
-            if let b = items.max(by: { $0.bottom < $1.bottom }) { result.ends = [LineEnd(side: nil, words: tail(b))] }
+            if let a = firstHead(items) { result.starts = [LineEnd(side: nil, words: a)] }
+            if let b = lastTail(items) { result.ends = [LineEnd(side: nil, words: b)] }
         }
         return result
     }
@@ -203,6 +259,8 @@ struct ViewLines: Equatable {
         var maxX: Double
         var cutTop: Bool
         var cutBottom: Bool
+        /// Satır makul sözcüklerden oluşuyor (yazı tanıma bozuk okumadı): küçük harf / dolu satır kuralları yalnız böyle satırlarda işler
+        var plausible: Bool
         var width: Double { return maxX - minX }
     }
 
@@ -221,7 +279,8 @@ struct ViewLines: Equatable {
             guard (top + bottom) / 2 >= skipTop, !words(line.text).isEmpty else { continue }
             rows.append(Row(text: line.text, top: top, bottom: bottom, midX: Double(line.box.midX),
                             minX: Double(line.box.minX), maxX: Double(line.box.maxX),
-                            cutTop: top < skipTop + edgeEpsilon, cutBottom: bottom > 1 - edgeEpsilon))
+                            cutTop: top < skipTop + edgeEpsilon, cutBottom: bottom > 1 - edgeEpsilon,
+                            plausible: plausibleRatio(line.text) >= minPlausible))
         }
         guard !rows.isEmpty else { return Blocks() }
         // İki sütun: satırların orta noktaları açıkça sol ve sağ yarıya dağılmışsa; tek sütunda uzun satırların ortası kadrajın ortasındadır
@@ -281,7 +340,7 @@ struct ViewLines: Equatable {
             } else if matches(optionAny, first.text) && !matches(numberStart, first.text) {
                 topOK = false
                 reasons.append("üst: \(side)şık satırıyla başlıyor")
-            } else if startsLowercase(first.text) {
+            } else if first.plausible && startsLowercase(first.text) {
                 // Paragraf başı: büyük harf ya da numarayla başlar; küçük harfle başlayan satır paragrafın ortasındandır
                 topOK = false
                 reasons.append("üst: \(side)önceki satırın devamı (küçük harfle başlıyor)")
@@ -316,7 +375,7 @@ struct ViewLines: Equatable {
             } else {
                 paragraphTail = true
             }
-            if !last.cutBottom, paragraphTail, ordered.count >= 3, !matches(optionAny, last.text) {
+            if !last.cutBottom, last.plausible, paragraphTail, ordered.count >= 3, !matches(optionAny, last.text) {
                 let fullWidth = ordered.map { $0.width }.max() ?? 0
                 if last.width >= 0.85 * fullWidth && !endsSentence(last.text) {
                     bottomOK = false
