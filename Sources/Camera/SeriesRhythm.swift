@@ -1,13 +1,15 @@
 import Foundation
 
-/// Toplu çekimin ritmi (kullanıcı kararı 2026-11-18): koç artık kadraj aramaz, tempo tutar. Her kitapçık sayfası için sabit bir sıra vardır:
-/// tüm sayfa → üst → orta üst → orta alt → alt (dilim başına `slotSeconds` sn) → sayfa çevirme (`turnSeconds` sn). Varsayılan 4 sn dilim ve 5 sn çevirme
-/// sayfa başına 25 sn eder: 125 sn = 5 sayfa. Her dilimin en net karesi alınır; dilimin ilk `settleSeconds` saniyesi (kullanıcı hâlâ yerleşiyor) sayılmaz.
+/// Toplu çekimin ritmi. Kullanıcı kararı 2026-11-18 akşam (ilk cihaz denemesinden sonra): bölüm, köşe, sıra ve "tüm sayfa" tarifleri KALKTI (neresi olduğu
+/// anlaşılmıyordu; sayfayı sığdırmak için uzaklaşınca yazı okunmuyor; sayfadaki soru sayısı ve paragraf boyu değişir, sabit bölme her zaman tutmaz).
+/// Kullanıcı sayfaları SERBESTÇE tarar (hedef: oturum başına 2 sayfa), program komut vermez; yalnız her `slotSeconds` saniyede geçen süreyi söyler
+/// ("10 saniye", "20 saniye"…). Tarama boyunca saniyede 2 kare (her yarım saniyenin en net karesi) alınır: 60 sn'de en çok 120 kare. Az sayfa, çok kare:
+/// önemli olan soruların doğru okunmasıdır. "Dilim" artık 10 sn'lik bir zaman aralığıdır ("sayfa" hesabı = dilim sayısı); sayfa çevirme payı yoktur.
 /// Ritim saf bir hesaptır (birim testle denenir); ses ve kare seçimi onu `CameraCaptureController` / `SeriesCollector` üzerinden kullanır.
 struct SeriesRhythm: Equatable {
     /// Bir sayfanın dilimleri, zaman sırasıyla
     enum Part: Int, CaseIterable {
-        case whole, top, upperMiddle, lowerMiddle, bottom, turn
+        case scan, turn
 
         /// Bir kare alınan dilim mi (sayfa çevirme alınmaz)
         var isShot: Bool { return self != .turn }
@@ -15,11 +17,7 @@ struct SeriesRhythm: Equatable {
         /// Günlük ve Gemini notu için ad
         var title: String {
             switch self {
-            case .whole: return "tüm sayfa"
-            case .top: return "üst"
-            case .upperMiddle: return "orta üst"
-            case .lowerMiddle: return "orta alt"
-            case .bottom: return "alt"
+            case .scan: return "tarama"
             case .turn: return "sayfa çevirme"
             }
         }
@@ -35,21 +33,50 @@ struct SeriesRhythm: Equatable {
         var into: TimeInterval
     }
 
-    var slotSeconds: TimeInterval = 4
-    var turnSeconds: TimeInterval = 5
-    /// Dilim başladıktan sonra bu kadar sn kare sayılmaz: sesli komut söylenir, kullanıcı telefonu yeni yere götürür
-    var settleSeconds: TimeInterval = 1.5
+    var slotSeconds: TimeInterval = 10
+    /// Sayfa çevirme payı yok (0): kullanıcı sayfayı istediği an çevirir, o andaki bulanık kareler elenir
+    var turnSeconds: TimeInterval = 0
+    /// Dilim başında kare atlanmaz (0): komut yok, kullanıcı yer değiştirmiyor
+    var settleSeconds: TimeInterval = 0
 
     static let standard = SeriesRhythm()
 
-    /// Bir sayfadaki alınan dilim sayısı (tüm sayfa + dört parça)
-    static let shotsPerPage = 5
-    /// Her diliminden alınan kare sayısı (kullanıcı kararı 2026-11-18: sayfa başına 10, beş sayfada 50 görüntü): dilimin yerleşmeden sonraki süresi bu kadar eşit
-    /// parçaya bölünür, her parçanın en net karesi alınır. Biri bulanık ya da bozuk çıkarsa öteki Gemini'ye yetişir
-    static let framesPerSlot = 2
-    /// "Tüm sayfa" karesi PDF'e bu ölçek ve JPEG kalitesiyle girer: yalnız düzeni ve soru numaralarını göstermesi yeter
-    static let wholeScale = 0.75
-    static let wholeQuality = 0.75
+    /// "Sayfa" başına dilim sayısı (artık her 10 sn'lik aralık tek dilimdir)
+    static let shotsPerPage = 1
+    /// Her 10 sn'lik dilimden alınan kare sayısı (kullanıcı kararı 2026-11-18 akşam: saniyede 2 kare, 60 sn'de 120 kare): dilim yarım saniyelik parçalara
+    /// bölünür, her parçanın en net ve bozuksuz karesi alınır. Kamera kaydırılırken bir kare bulanık ya da bozuk çıkarsa komşusu aynı yeri gösterir;
+    /// dilimde geçerli kare varsa o dilimin geçersiz kareleri gönderilmez (sayfa çevirirken çekilenler böyle elenir)
+    static let framesPerSlot = 20
+
+    /// Sayfa denetimi (kullanıcı kararı 2026-11-18 akşam): her `reviewSeconds` saniyenin (bir sayfalık tarama) sonunda o sürede alınan karelere bakılır;
+    /// kötüyse (geçerli kare `minGoodFrames`'ten az ya da karelerin `minGoodShare`'inden az) kullanıcıya neden söylenir (blok bozulması / bulanıklık) ve
+    /// o sayfa bir kez yeniden taranır (oturum `reviewSeconds` uzar). Çekim sırasında başka uyarı verilmez
+    static let reviewSeconds = 30
+    static let minGoodFrames = 10
+    static let minGoodShare = 1.0 / 3.0
+
+    /// Bir sayfalık taramanın kareleri kötü mü? Hiç kare yoksa da kötüdür
+    static func pageIsBad(valid: Int, damaged: Int, blurry: Int) -> Bool {
+        let total = valid + damaged + blurry
+        if valid < minGoodFrames { return true }
+        return Double(valid) < Double(total) * minGoodShare
+    }
+
+    /// Sayfa işe yaradıysa (ya da ikinci taramada da zayıf kaldıysa) söylenen yönlendirme
+    static func nextPageText(page: Int, good: Bool) -> String {
+        if good { return "\(Say.ordinalCapital(page)) sayfa tamam. Sonraki sayfaya geçin." }
+        return "\(Say.ordinalCapital(page)) sayfa yine zayıf; eldeki görüntüler gönderilecek. Sonraki sayfaya geçin."
+    }
+
+    /// Sayfa kötüyse söylenen cümle: neden (hangisi çoksa önce) ve ne yapılacağı
+    static func reviewText(page: Int, damaged: Int, blurry: Int) -> String {
+        let why: String
+        if damaged > 0 && blurry > 0 { why = damaged >= blurry ? "blok bozulmaları ve bulanıklık var" : "bulanıklık ve blok bozulmaları var" }
+        else if damaged > 0 { why = "blok bozulmaları var" }
+        else if blurry > 0 { why = "bulanıklık var" }
+        else { why = "yeterli görüntü gelmedi" }
+        return "\(Say.ordinalCapital(page)) sayfa okunamadı: \(why). Bu sayfayı yeniden, yavaşça tarayın."
+    }
 
     var pageSeconds: TimeInterval { return slotSeconds * Double(SeriesRhythm.shotsPerPage) + turnSeconds }
 
@@ -76,10 +103,10 @@ struct SeriesRhythm: Equatable {
             cursor += length
         }
         // Kayan nokta payı: sayfanın son anı bir sonraki sayfanın başı sayılır
-        return Position(page: page + 2, part: .whole, start: cursor, end: cursor + slotSeconds, into: 0)
+        return Position(page: page + 2, part: .scan, start: cursor, end: cursor + slotSeconds, into: 0)
     }
 
-    /// Dilimin sıra numarası: sayfa başına 6 dilim (sayfa çevirme dahil), 0'dan başlar
+    /// Dilimin sıra numarası: sayfa başına 2 dilim (kullanılmayan sayfa çevirme dahil), 0'dan başlar
     static func slotIndex(page: Int, part: Part) -> Int {
         return (page - 1) * Part.allCases.count + part.rawValue
     }
@@ -107,12 +134,13 @@ struct SeriesRhythm: Equatable {
         return (index / count + 1, part)
     }
 
-    /// Gemini'ye ve günlüğe giden kare etiketi: "2. sayfa, orta üst"
+    /// Gemini'ye ve günlüğe giden kare etiketi, karenin çekildiği zaman aralığıyla: "10–20. saniye"
     static func label(page: Int, part: Part) -> String {
-        return "\(page). sayfa, \(part.title)"
+        let length = Int(SeriesRhythm.standard.slotSeconds.rounded())
+        return "\((page - 1) * length)–\(page * length). saniye"
     }
 
-    /// Dilimin kaçıncı karesi olduğuyla: "2. sayfa, orta üst, 2. kare"
+    /// Dilimin kaçıncı karesi olduğuyla: "10–20. saniye, 2. kare"
     static func label(page: Int, part: Part, sub: Int) -> String {
         return label(page: page, part: part) + ", \(sub + 1). kare"
     }
@@ -122,12 +150,8 @@ struct SeriesRhythm: Equatable {
     func cue(at time: TimeInterval, totalPages: Int) -> String? {
         guard let p = position(at: time), abs(time - p.start) <= 0.05 else { return nil }
         switch p.part {
-        case .whole: return "\(Say.ordinalCapital(p.page)) sayfa, tüm sayfa."
-        case .top: return "Üst."
-        case .upperMiddle: return "Orta üst."
-        case .lowerMiddle: return "Orta alt."
-        case .bottom: return "Alt."
-        case .turn: return p.page >= totalPages ? nil : "Sayfayı çevirin."
+        case .scan: return p.page <= 1 ? nil : "\(Int(p.start.rounded())) saniye."   // başta "Başladı" denir; sonra yalnız geçen süre
+        case .turn: return nil
         }
     }
 }
@@ -179,10 +203,10 @@ enum SlotCheck {
         if damaged { return .damaged }
         let readable = (chars ?? 0) >= readableChars
         if !still && !readable { return .blurry }
-        guard let part = part, part.isShot, part != .whole, let lines = lines else { return nil }
+        guard let part = part, part.isShot, let lines = lines else { return nil }
         if !lines.isReadable && !readable { return .blurry }
-        if lines.completeQuestions >= 1 || lines.paragraph { return nil }
-        return .noQuestion
+        // Kamera kaydırılırken tek karede sorunun tamamı aranmaz: soru komşu karelerle tamamlanır (kullanıcı kararı 2026-11-18 akşam)
+        return nil
     }
 
     /// Örtüşme ölçülebilmesi için iki parçada da en az bu kadar okunmuş sözcük gerekir; azsa hüküm verilmez
@@ -224,7 +248,8 @@ final class RhythmClock {
     /// Görüntü kesilince saat en çok bu kadar sn bekletilir (sonra oturum zaten bırakılır)
     static let maxHoldSeconds: TimeInterval = 20
 
-    init(rhythm: SeriesRhythm = .standard, pages: Int, maxPerSlot: Int = 2, maxTotal: Int = 6) {
+    /// Varsayılan: tekrar yok (kullanıcı kararı 2026-11-18 akşam: komut verilmez). Tekrar düzeneği sınırlar verilince çalışır (testlerde ve ileride)
+    init(rhythm: SeriesRhythm = .standard, pages: Int, maxPerSlot: Int = 0, maxTotal: Int = 0) {
         self.rhythm = rhythm
         self.pages = max(1, pages)
         self.maxPerSlot = maxPerSlot
@@ -252,7 +277,18 @@ final class RhythmClock {
     var totalSeconds: Int { return baseSeconds + Int(offset.rounded()) }
 
     /// En çok eklenebilecek süre (sn)
-    var maxExtraSeconds: Int { return Int((Double(maxTotal) * rhythm.slotSeconds + RhythmClock.maxHoldSeconds).rounded()) }
+    var maxExtraSeconds: Int {
+        let redo = Double(baseSeconds)   // her sayfa en çok bir kez yeniden taranır
+        return Int((Double(maxTotal) * rhythm.slotSeconds + RhythmClock.maxHoldSeconds + redo).rounded())
+    }
+
+    /// Sayfa yeniden taranacak: saat `seconds` geri alınır (aynı süre yeniden başlar), oturum o kadar uzar; kare anahtarı yeni "nesil"e geçer
+    func redo(seconds: TimeInterval) {
+        lock.lock()
+        shift += seconds
+        retried += 1
+        lock.unlock()
+    }
 
     /// Kameradan görüntü gelmiyor: saat bir saniye bekletilir (ritim ilerlemez, oturum o kadar uzar). Sınır dolduysa false döner
     @discardableResult

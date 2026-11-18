@@ -500,7 +500,7 @@ enum Say {
     /// Oturum başlamadan, kestirme kulaklığı kapatmadan ÖNCE bir kez söylenir; çekim boyunca hiçbir şey söylenmez
     static func seriesStarting(seconds: Int, rhythm: Bool = false) -> String {
         if rhythm {
-            return "Kamera oturumu başlıyor: \(seconds) saniye. Her sayfa için sırayla tüm sayfayı, sonra yukarıdan aşağı dört parçayı göstereceksiniz; ben komut vereceğim. Süre dolunca haber vereceğim."
+            return "Kamera oturumu başlıyor: \(seconds) saniye. Sayfaları yakından ve yavaşça tarayın; komut vermeyeceğim, yalnız her on saniyede süreyi söyleyeceğim. Süre dolunca haber vereceğim."
         }
         return "Kamera oturumu başlıyor: \(seconds) saniye. Çekim sessiz sürer, kulaklık kapanacak. Sayfaları sırayla kameraya gösterin. Süre dolunca haber vereceğim."
     }

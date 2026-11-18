@@ -171,14 +171,14 @@ final class GeminiAnswerService: Answering {
                 : "\n\nBu mesajda sayfanın fotoğrafı var. Görüntülerdeki bütün soruları, her biri ayrı satırda cevapla."
         }
         if pages > 0, labels.count == pages, !labels.contains("") {
-            // Ritimli çekim: her kitapçık sayfası belli bir sırayla çekildi (tüm sayfa, sonra yukarıdan aşağı dört parça); parçalar birbirini örter
+            // Serbest tarama: kullanıcı kamerayı sayfaların üzerinde gezdirdi, saniyede 2 kare alındı; etiket karenin çekildiği zaman aralığıdır
             let list = labels.enumerated().map { "\($0.offset + 1)) \($0.element)" }.joined(separator: "; ")
-            text += "\n\nÇekim ritimliydi: her kitapçık sayfası için önce sayfanın TAMAMI (küçük, yalnız düzeni ve soru numaralarını görmek için), sonra yukarıdan aşağı dört PARÇA çekildi; "
-                + "dört parça birbirini kısmen örter. Her yerden İKİ kare vardır (\"1. kare\", \"2. kare\"): ikisi de aynı yeri gösterir, hangisi daha net ve bozuksuzsa onu oku, biri bulanık ya da bozuksa ötekiyle tamamla; aynı satırı iki kez soru sayma. Sayfanın tamamı haritadır, metni parçalardan oku; bir soru iki parçaya bölünmüşse parçaları ortak satırlardan birleştir ve soruyu bütün olarak çöz. "
+            text += "\n\nÇekim serbest taramaydı: kullanıcı kamerayı kitapçık sayfalarının üzerinde yakından ve yavaşça gezdirdi, saniyede İKİ kare alındı; sayfanın tamamını gösteren kare yoktur. "
+                + "Ardışık kareler birbirini büyük ölçüde örter: aynı satır birçok karede görünür. Her yeri en net ve bozuksuz göründüğü kareden oku; aynı soruyu ya da satırı birden çok kez sayma. Etiketinde \"(bozuk kare)\" ya da \"(bulanık kare)\" yazan kare zayıftır: yalnız başka karede olmayan yeri ondan oku. Sayfa çoğu zaman iki sütundur: sorular önce sol sütunda yukarıdan aşağı, sonra sağ sütunda akar. Bir soru birkaç kareye bölünmüşse parçaları ortak satırlardan birleştir ve soruyu bütün olarak çöz. "
                 + "PDF sayfalarının sırası ve programın verdiği etiketler: " + list + ". "
                 + "ETİKETLER YALNIZ İPUCUDUR, kesin değildir: kullanıcı parçaları sırasız ya da karışık göstermiş, bir parçayı atlamış ya da aynı yeri iki kez göstermiş olabilir; "
                 + "etiket ile içerik çelişirse İÇERİĞE güven. Her görüntünün hangi sayfaya ve sayfanın neresine ait olduğunu etiketten değil içerikten bul: sayfa numarası, soru numaraları, "
-                + "satırların akışı, komşu görüntülerle ortak satırlar. Aynı sayfanın parçalarını önce içeriğe göre yukarıdan aşağı sırala, sonra birleştir; farklı sayfaların parçalarını karıştırma."
+                + "satırların akışı, komşu görüntülerle ortak satırlar. Aynı sayfanın karelerini önce içeriğe göre sütun sütun, yukarıdan aşağı sırala, sonra birleştir; farklı sayfaların parçalarını karıştırma."
         }
         let note = extra.trimmed
         if !note.isEmpty { text += "\n\nKullanıcının ek talimatı: \(note)" }

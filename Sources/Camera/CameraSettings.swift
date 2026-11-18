@@ -37,7 +37,7 @@ final class CameraSettings: ObservableObject {
         static let countdown = "countdown"
         static let pageSeries = "pageSeries"
         /// 2026-11-18: ritimli çekimde süre 25 sn'lik sayfalardan oluşur (varsayılan 125 sn = 5 sayfa); eski "seriesTotalSeconds" (75 sn) anahtarı bırakıldı
-        static let seriesSeconds = "seriesSessionSeconds"
+        static let seriesSeconds = "seriesScanSeconds"   // eski "seriesSessionSeconds" (125 sn, 5 sayfa) bırakıldı: yeni varsayılan 60 sn geçerli olsun
         static let muteLapel = "muteLapel"
         static let lapelOffSeconds = "lapelOffSeconds"
         static let phoneMic = "phoneMic"
@@ -143,9 +143,10 @@ final class CameraSettings: ObservableObject {
     @Published var pageSeries: Bool { didSet { defaults.set(pageSeries, forKey: Key.pageSeries) } }
     /// Oturumun toplam süresi (25–200 sn, varsayılan 125 = 5 sayfa; 25'in katı): ritimli çekimde (`SeriesRhythm`) sayfa başına 25 sn, kullanıcı kararı 2026-11-18
     @Published var seriesSeconds: Int { didSet { defaults.set(seriesSeconds, forKey: Key.seriesSeconds) } }
-    static let seriesSecondsRange = 25...200
-    static let seriesSecondsStep = 25
-    static let defaultSeriesSeconds = 125
+    static let seriesSecondsRange = 30...180
+    static let seriesSecondsStep = 10
+    /// Kullanıcı kararı 2026-11-18 akşam: oturum 60 sn, hedef 2 sayfa, saniyede 2 kare (en çok 120 kare)
+    static let defaultSeriesSeconds = 60
     /// Kamera çalışırken program girişi OTOMATİK telefonun kendi mikrofonuna alır (kullanıcı kararı 2026-11-17: yaka mikrofonunu program devre dışı bıraksın,
     /// el ile kapatılmasın). "Başla" denince (kamera açılmadan hemen önce) geçilir, çekim bitip internete dönülünce yaka mikrofonuna dönülür; "Başla"yı yaka
     /// mikrofonu duyar. Yaka mikrofonu alıcısı takılı kalır ve vericinin 2,4 GHz radyosu açık kalır (iOS bunları kapatmaya izin vermez); yalnız ses girişi

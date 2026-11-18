@@ -55,8 +55,8 @@ final class PageSeriesTests: XCTestCase {
         let h = harness(seriesResults: [series()],
                         pageReplies: [.success([FakeAnswering.reply(1), FakeAnswering.reply(2), FakeAnswering.reply(3)])])
         _ = await h.startListening()
-        let ask = Say.askCameraSeries(seconds: 125)
-        XCTAssertEqual(h.speaker.spoken, [Say.readySeries(seconds: 125)], "Açılışta tek anons: hazırım + talimat; internet ve Gemini sınanmaz")
+        let ask = Say.askCameraSeries(seconds: 60)
+        XCTAssertEqual(h.speaker.spoken, [Say.readySeries(seconds: 60)], "Açılışta tek anons: hazırım + talimat; internet ve Gemini sınanmaz")
         reply(h, "başla")
         let done = await waitUntil(45) { h.vm.answers.count == 3 && self.questionOpen(h) }
         XCTAssertTrue(done, "\(h.speaker.spoken)")
@@ -65,7 +65,7 @@ final class PageSeriesTests: XCTestCase {
                                   "kestirme:Kameraya_Gec", "kestirme:Bluetooth_Yenile", "bağlantı açıldı"],
                        "Açılışta direkt kameraya geçilir, Bluetooth yeniden açılır ve bağlanılır; \"Başla\" denince kestirme çalışmadan çekilir, sonra internete dönülür, TEK PDF tek istekle gönderilir, sıradaki oturum için kamera yeniden hazırlanır")
         XCTAssertEqual(h.camera.seriesHeldAtStart, [true], "Çekim hazır bekleyen bağlantıyla başladı: yeniden bağlanma yok")
-        XCTAssertEqual(h.camera.seriesCalls.first?.seconds, 125, "Oturumun tek sınırı süredir: sayfa sayısı verilmez")
+        XCTAssertEqual(h.camera.seriesCalls.first?.seconds, 60, "Oturumun tek sınırı süredir: sayfa sayısı verilmez")
         XCTAssertEqual(h.camera.captures, 0, "Tek soruluk çekim kullanılmaz")
         XCTAssertEqual(h.answering.pageCalls.count, 1, "75 sayfalık PDF tek seferde gider")
         XCTAssertEqual(h.answering.pageCalls.first?.shot.pageCount, 75)
@@ -98,7 +98,7 @@ final class PageSeriesTests: XCTestCase {
         XCTAssertEqual(h.vm.phase, .listening)
         XCTAssertEqual(h.speaker.spoken.count, 1)
         let said = h.speaker.spoken.first ?? ""
-        XCTAssertTrue(said.contains("geri sayımla başlayacak; süreniz 125 saniye"), "Süre söylenir: \(said)")
+        XCTAssertTrue(said.contains("geri sayımla başlayacak; süreniz 60 saniye"), "Süre söylenir: \(said)")
         XCTAssertEqual(h.camera.seriesCalls.count, 0, "Komut gelmeden süre başlamaz")
         XCTAssertEqual(h.answering.pageCalls.count, 0)
     }
@@ -137,7 +137,7 @@ final class PageSeriesTests: XCTestCase {
         _ = await h.startListening()
         h.camera.linkLost = true   // kamera bekleme sırasında görüntü göndermeyi kesti
         reply(h, "başla")
-        let again = await waitUntil(45) { h.speaker.spoken.last == Say.askCameraSeries(seconds: 125) && self.questionOpen(h) && h.camera.holdingLive }
+        let again = await waitUntil(45) { h.speaker.spoken.last == Say.askCameraSeries(seconds: 60) && self.questionOpen(h) && h.camera.holdingLive }
         XCTAssertTrue(again, "\(h.speaker.spoken)")
         XCTAssertEqual(h.camera.seriesCalls.count, 1, "Süre başlamadı: tek (başarısız) bağlanma denemesi")
         XCTAssertEqual(h.camera.seriesHeldAtStart, [false], "Bağlantı canlı değildi")
@@ -223,7 +223,7 @@ final class PageSeriesTests: XCTestCase {
         for _ in 0..<(T.cameraAsks + 2) {
             await h.vm.choiceSilence()
         }
-        XCTAssertEqual(h.camera.seriesCalls.count, 0, "Komut gelmedikçe 125 sn kendiliğinden başlamaz")
+        XCTAssertEqual(h.camera.seriesCalls.count, 0, "Komut gelmedikçe 60 sn kendiliğinden başlamaz")
         XCTAssertEqual(h.vm.listenMode, .cameraChoice, "Komut beklenmeye devam edilir")
         XCTAssertTrue(h.camera.holding)
         XCTAssertFalse(h.speaker.spoken.contains(Say.cameraAutoStart))
@@ -294,7 +294,7 @@ final class PageSeriesTests: XCTestCase {
         guard spokenBefore > 0 else { return XCTFail("Oturum başlamadı: \(h.speaker.spoken)") }
         XCTAssertEqual(h.speaker.spoken.filter { $0 == Say.seriesGo }.count, 1, "\"Başladı.\" oturum başında bir kez")
         XCTAssertEqual(h.speaker.spoken[spokenBefore - 1], Say.seriesGo, "Çekimden hemen önce söylenen son cümle \"Başladı.\"dır: süre ondan sonra başlar")
-        XCTAssertFalse(h.speaker.spoken.contains(Say.seriesStarting(seconds: 125)), "Kamera hazırken uzun duyuru yoktur")
+        XCTAssertFalse(h.speaker.spoken.contains(Say.seriesStarting(seconds: 60)), "Kamera hazırken uzun duyuru yoktur")
         XCTAssertFalse(handlersSet, "Kameranın konuşma bağlantıları oturumda verilmez: çekim sessizdir")
         let seriesDone = Say.seriesDone(taken: 75, planned: 75)
         XCTAssertEqual(h.speaker.spoken[spokenBefore], seriesDone, "Çekim sırasında ve hemen ardından duyuruya kadar hiçbir şey söylenmez")
@@ -376,7 +376,7 @@ final class PageSeriesTests: XCTestCase {
         XCTAssertFalse(h.camera.holding, "Kamera kapalı")
         XCTAssertTrue(h.health.internet, "Kamera kapalı: internet açık")
         XCTAssertEqual(h.vm.listenMode, .cameraChoice, "Talimat beklenir")
-        XCTAssertEqual(h.speaker.spoken.last, Say.askCameraSeries(seconds: 125))
+        XCTAssertEqual(h.speaker.spoken.last, Say.askCameraSeries(seconds: 60))
         reply(h, "başla")
         let done = await waitUntil(45) { h.vm.answers.count == 2 && self.questionOpen(h) }
         XCTAssertTrue(done, "\(h.speaker.spoken)")
@@ -393,7 +393,7 @@ final class PageSeriesTests: XCTestCase {
         let countdown = [Say.seriesGetReady] + (1...5).reversed().map { Say.seriesCountdownNumber($0) }
         XCTAssertEqual(Array(spoken[(opening + 1)..<go]), countdown, "Kamera açılınca \"Hazır olun\" ve 5'ten 1'e geri sayım, ardından \"Başladı.\"")
         XCTAssertGreaterThanOrEqual(h.sleepLog.entries.filter { $0.seconds == 1.0 }.count, 5, "Sayılar saniyede bir söylenir")
-        XCTAssertEqual(spoken.last, Say.askCameraSeries(seconds: 125), "Bitince sıradaki talimat sorulur")
+        XCTAssertEqual(spoken.last, Say.askCameraSeries(seconds: 60), "Bitince sıradaki talimat sorulur")
         XCTAssertEqual(h.route.builtInModeCalls, [], "Telefonun mikrofonu ayarı kapalıyken giriş değişmez")
     }
 
@@ -436,7 +436,7 @@ final class PageSeriesTests: XCTestCase {
     func testTheCountdownWordsAreSpokenAsNumbersFromFiveToOne() {
         XCTAssertEqual((1...5).reversed().map { Say.seriesCountdownNumber($0) }, ["Beş", "Dört", "Üç", "İki", "Bir"])
         XCTAssertEqual(T.seriesCountdown, 5)
-        XCTAssertTrue(Say.askCameraSeries(seconds: 125).contains("geri sayımla başlayacak"), "Talimat geri sayımla başlanacağını söyler")
+        XCTAssertTrue(Say.askCameraSeries(seconds: 60).contains("geri sayımla başlayacak"), "Talimat geri sayımla başlanacağını söyler")
     }
 
     func testThePhonesMicIsChosenRightAfterStartAndTheLapelMicIsBackAfterTheCapture() async {
@@ -504,7 +504,7 @@ final class PageSeriesTests: XCTestCase {
         reply(h, "başla")
         let done = await waitUntil(45) { h.vm.answers.count == 1 && self.questionOpen(h) }
         XCTAssertTrue(done, "\(h.speaker.spoken)")
-        XCTAssertTrue(h.speaker.spoken.contains(Say.seriesStarting(seconds: 125, rhythm: h.vm.cameraSettings.seriesGuidance)))
+        XCTAssertTrue(h.speaker.spoken.contains(Say.seriesStarting(seconds: 60, rhythm: h.vm.cameraSettings.seriesGuidance)))
         XCTAssertEqual(h.camera.seriesHeldAtStart, [false])
         XCTAssertEqual(h.events.filter { $0 == "kestirme:Kameraya_Gec" }.count, 3, "Açılış, oturum öncesi ve sıradaki oturum için: üç geçiş")
     }
@@ -588,7 +588,7 @@ final class PageSeriesTests: XCTestCase {
         _ = await h.startListening()
         h.listener.say("şey acaba nasıl")
         h.scheduler.advance(by: T.numberUnclear + 0.1)
-        let again = await waitUntil(45) { h.speaker.spoken.last == Say.askCameraSeriesAgain(seconds: 125) && self.questionOpen(h) }
+        let again = await waitUntil(45) { h.speaker.spoken.last == Say.askCameraSeriesAgain(seconds: 60) && self.questionOpen(h) }
         XCTAssertTrue(again, "\(h.speaker.spoken)")
         XCTAssertEqual(h.camera.seriesCalls.count, 0)
     }
@@ -623,19 +623,20 @@ final class PageSeriesTests: XCTestCase {
         let defaults = UserDefaults(suiteName: "g526.testler.\(UUID().uuidString)")!
         let settings = CameraSettings(defaults: defaults)
         XCTAssertTrue(settings.pageSeries, "Toplu çekim varsayılan AÇIK")
-        XCTAssertEqual(settings.seriesSeconds, 125, "Oturum süresi varsayılan 125 sn (5 sayfa)")
-        defaults.set(1, forKey: "seriesSessionSeconds")
-        XCTAssertEqual(CameraSettings(defaults: defaults).seriesSeconds, 25, "En az 25 sn (1 sayfa)")
-        defaults.set(999, forKey: "seriesSessionSeconds")
+        XCTAssertEqual(settings.seriesSeconds, 60, "Oturum süresi varsayılan 60 sn (hedef 2 sayfa, saniyede 2 kare)")
+        defaults.set(1, forKey: "seriesScanSeconds")
+        XCTAssertEqual(CameraSettings(defaults: defaults).seriesSeconds, 30, "En az 30 sn")
+        defaults.set(999, forKey: "seriesScanSeconds")
         let clamped = CameraSettings(defaults: defaults)
-        XCTAssertEqual(clamped.seriesSeconds, 200, "En çok 200 sn (8 sayfa)")
-        defaults.set(140, forKey: "seriesSessionSeconds")
-        XCTAssertEqual(CameraSettings(defaults: defaults).seriesSeconds, 125, "Süre sayfa sayısına tamamlanır: söylenen süre çekilen süreyle aynı")
+        XCTAssertEqual(clamped.seriesSeconds, 180, "En çok 180 sn")
+        defaults.set(74, forKey: "seriesScanSeconds")
+        XCTAssertEqual(CameraSettings(defaults: defaults).seriesSeconds, 70, "Süre 10 sn'lik dilimlere tamamlanır: söylenen süre çekilen süreyle aynı")
         let old = UserDefaults(suiteName: "g526.testler.\(UUID().uuidString)")!
         old.set(15, forKey: "seriesSeconds")   // eski sürümün "sayfa başına sn" anahtarı yeni süreyi etkilemez
         old.set(5, forKey: "seriesPages")
-        old.set(75, forKey: "seriesTotalSeconds")   // eski 75 sn anahtarı da bırakıldı: yeni varsayılan 125 sn geçerli
-        XCTAssertEqual(CameraSettings(defaults: old).seriesSeconds, 125)
+        old.set(75, forKey: "seriesTotalSeconds")
+        old.set(125, forKey: "seriesSessionSeconds")   // 125 sn'lik (5 sayfa) eski anahtar da bırakıldı: yeni varsayılan 60 sn geçerli
+        XCTAssertEqual(CameraSettings(defaults: old).seriesSeconds, 60)
         clamped.pageSeries = false
         XCTAssertFalse(CameraSettings(defaults: defaults).pageSeries, "Ayar kalıcıdır")
     }
@@ -791,14 +792,14 @@ final class PageSeriesTests: XCTestCase {
     // MARK: Süre tek sınır, cevaplar arası 2 sn
 
     func testTheSessionAnnouncementTalksOnlyAboutTheDuration() {
-        let ask = Say.askCameraSeries(seconds: 125)
-        XCTAssertTrue(ask.contains("geri sayımla başlayacak; süreniz 125 saniye"), "Talimat: komut ve süre")
+        let ask = Say.askCameraSeries(seconds: 60)
+        XCTAssertTrue(ask.contains("geri sayımla başlayacak; süreniz 60 saniye"), "Talimat: komut ve süre")
         XCTAssertFalse(ask.contains("Evet"), "Evet / hayır sorulmaz: talimat beklenir")
         XCTAssertEqual(Say.seriesGo, "Başladı.")
-        let starting = Say.seriesStarting(seconds: 125)
-        XCTAssertTrue(starting.contains("125 saniye"))
+        let starting = Say.seriesStarting(seconds: 60)
+        XCTAssertTrue(starting.contains("60 saniye"))
         XCTAssertFalse(starting.lowercased().contains("her sayfa"), "Sayfa sayısı ya da sayfa başına süre söylenmez")
-        XCTAssertFalse(Say.askCameraSeries(seconds: 125).lowercased().contains("sayfa çekilecek"))
+        XCTAssertFalse(Say.askCameraSeries(seconds: 60).lowercased().contains("sayfa çekilecek"))
         XCTAssertFalse(Say.seriesDone(taken: 75, planned: 75).contains("sayfalık"), "PDF'in fotoğraf sayısı sayfa gibi söylenmez")
     }
 

@@ -949,10 +949,6 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
                 guard let rendered = Enhancer.render(buffers: [buffer], options: rendering) else { return nil }
                 return (data: rendered.data, width: rendered.width, height: rendered.height)
             },
-            // Ritim: parça dilimlerinde kadrajda baştan sona görünen soru var mı (kadraj koçunun satır okuyucusu; yön, yazı ilk okunduktan sonra bilinir)
-            coverage: rhythm == nil ? nil : { (buffer: CVPixelBuffer) -> ViewLines? in
-                return ViewLinesReader.read(buffer, orientation: finder.orientation(for: buffer, fallback: baseOrientation))
-            },
             log: { tlog($0) })
         let rawBefore = pipeline.framesSeen
         pipeline.seriesSink = collector
@@ -972,18 +968,20 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         var lostFor = 0
         var cutAt: Int?
         if let rhythm = rhythm {
-            tlog("[kamera] \(trial ? "deneme çekimi" : "toplu çekim") başladı: \(total) sn, RİTİM: \(pages) sayfa × \(Int(rhythm.pageSeconds)) sn (tüm sayfa + 4 parça, dilim \(Int(rhythm.slotSeconds)) sn, çevirme \(Int(rhythm.turnSeconds)) sn); her dilimin en net karesi yazı tanımadan geçer")
+            tlog("[kamera] \(trial ? "deneme çekimi" : "toplu çekim") başladı: \(total) sn, SERBEST TARAMA: komut yok, her \(Int(rhythm.slotSeconds)) sn'de süre söylenir; saniyede 2 kare (her yarım saniyenin en net karesi), en çok \(pages * SeriesRhythm.framesPerSlot) kare")
             if let cue = rhythm.cue(at: 0, totalPages: pages) { sayRhythm(cue) }
         } else {
             tlog("[kamera] \(trial ? "deneme çekimi" : "toplu çekim") başladı: \(seconds) sn (konuşma ve titreşim yok; her kare ölçülür, \(SeriesSelection.window) sn'lik pencerelerin en iyisi yazı tanımadan geçer)")
         }
         var second = 0
         var stalled = false
+        var reviewFrom = 0
+        var redone = Set<Int>()
         while second < total {
             second += 1
             if cancelled { break }
             if let clock = clock, let p = clock.position(at: Double(second) - 0.5) {
-                status("Çekim: \(second)/\(total) sn, \(p.page). sayfa, \(p.part.title)")
+                status("Çekim: \(second)/\(total) sn, \(p.part.title)")
             } else {
                 status("Çekim: \(second)/\(total) sn")
             }
@@ -1005,10 +1003,33 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
             } else if let clock = clock {
                 if stalled {
                     stalled = false
-                    let place = clock.position(at: Double(second)).map { $0.part.isShot ? "\($0.part.title) bölümünü gösterin" : "sayfayı çevirin" } ?? "devam edin"
-                    tlog("[kamera] ritim: görüntü geri geldi; \(place)")
-                    sayRhythm("Görüntü geldi, \(place).")
+                    tlog("[kamera] ritim: görüntü geri geldi")
+                    sayRhythm("Görüntü geldi, devam edin.")
                 }
+                // Sayfa denetimi: her 30 sn'lik taramanın sonunda o sayfanın kareleri kötüyse neden söylenir ve sayfa bir kez yeniden taranır
+                let net = Int((Double(second) - clock.offset).rounded())
+                var reviewed = false
+                if net > 0, net % SeriesRhythm.reviewSeconds == 0 {
+                    await collector.settle()
+                    let page = net / SeriesRhythm.reviewSeconds
+                    let q = collector.quality(from: Double(reviewFrom), to: Double(second))
+                    let bad = SeriesRhythm.pageIsBad(valid: q.valid, damaged: q.damaged, blurry: q.blurry)
+                    tlog("[kamera] sayfa denetimi: \(page). sayfa (\(reviewFrom)–\(second). sn): geçerli \(q.valid), bozuk \(q.damaged), bulanık \(q.blurry) → \(bad ? "KÖTÜ" : "yeterli")")
+                    reviewFrom = second
+                    if bad, !redone.contains(page) {
+                        redone.insert(page)
+                        clock.redo(seconds: Double(SeriesRhythm.reviewSeconds))
+                        total = clock.totalSeconds
+                        tlog("[kamera] sayfa denetimi: \(page). sayfa yeniden taranacak; oturum \(total) sn'ye uzadı")
+                        sayRhythm(SeriesRhythm.reviewText(page: page, damaged: q.damaged, blurry: q.blurry))
+                        reviewed = true
+                    } else if second < total {
+                        // Sayfa işe yaradı (ya da ikinci taramada da zayıf kaldı): kullanıcı sıradaki sayfaya yönlendirilir; süre anonsunun yerine geçer
+                        sayRhythm(SeriesRhythm.nextPageText(page: page, good: !bad))
+                        reviewed = true
+                    }
+                }
+                if reviewed { continue }
                 // Dilim bitti: kazananlar yazı tanımadan geçsin, sonra "geçerli kare var mı" bilinir (bozuk, bulanık ya da soru içermeyen kare geçerli sayılmaz)
                 if clock.endingSlotIndex(at: second) != nil { await collector.settle() }
                 var lastProblem: SlotProblem?
@@ -1071,14 +1092,7 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         }
         if outcome.readable == 0 { tlog("[kamera] toplu çekim: hiçbir karede yazı okunamadı; en net \(outcome.items.count) kare yine de gönderilecek (yazı tanıma zayıf kalmış olabilir)") }
         // Seçilen fotoğraflar zaman sırasıyla TEK PDF olur; toplam bütçeyi aşarsa fotoğraflar yeniden sıkıştırılır
-        var raw = outcome.items.map { $0.jpeg }
-        if rhythm != nil {
-            // "Tüm sayfa" karesi haritadır (düzen, soru numaraları): biraz küçültülür; metin dört parçadan okunur (bayt ve yükleme süresi azalır)
-            for (index, item) in outcome.items.enumerated() {
-                guard let slot = item.slot.flatMap({ SeriesRhythm.slot(index: $0) }), slot.part == .whole else { continue }
-                if let small = PageDocument.recompress(raw[index], quality: SeriesRhythm.wholeQuality, scale: SeriesRhythm.wholeScale) { raw[index] = small }
-            }
-        }
+        let raw = outcome.items.map { $0.jpeg }
         let (pdf, fitted) = await Task.detached(priority: .userInitiated) { () -> (Data?, Int) in
             let fit = PageDocument.fit(raw)
             return (PageDocument.make(jpegs: fit, title: "Toplu çekim"), fit.reduce(0) { $0 + $1.count })

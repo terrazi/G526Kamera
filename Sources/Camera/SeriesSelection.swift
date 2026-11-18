@@ -349,12 +349,10 @@ struct SeriesPool {
     /// Hiç yararlı kare yoksa yalnız zayıf kareler gider. Çekim boş dönmez (kare varsa).
     func selected(minPages: Int = SeriesSelection.minPages) -> [SeriesItem] {
         if keepAll {
-            // Ritim: dilimde geçerli (bozuk, bulanık ya da soru içermeyen olmayan) kare varsa o dilimin geçersiz kareleri gitmez; yalnız geçersiz varsa tek seçenek odur
-            let goodSlots = Set(items.filter { !$0.damaged && $0.problem == nil }.compactMap { $0.slot })
-            let kept = items.filter { item in
-                guard item.damaged || item.problem != nil, let slot = item.slot else { return true }
-                return !goodSlots.contains(slot)
-            }
+            // Serbest tarama (kullanıcı kararı 2026-11-18 akşam): kötü görüntü saklanmaz. Bozuk ve bulanık kareler hiç gönderilmez; yalnız oturumda tek bir
+            // geçerli kare bile yoksa (çekim boş dönmesin diye) eldekiler etiketleriyle gider
+            let good = items.filter { !$0.damaged && $0.problem == nil }
+            let kept = good.isEmpty ? items : good
             return kept.sorted { $0.time < $1.time }
         }
         let useful = items.filter { $0.isUseful }
@@ -456,6 +454,8 @@ final class SeriesCollector {
     private var slotWords: [Int: Set<String>] = [:]
     /// Son karenin geldiği an (görüntü kesildi mi diye bakılır)
     private var lastOfferTime: TimeInterval?
+    /// Ritim: değerlendirilen her kazanan karenin zamanı ve hükmü (sayfa denetimi için; nil = geçerli)
+    private var verdicts: [(time: TimeInterval, problem: SlotProblem?)] = []
     private var pool = SeriesPool()
     private var stats = Stats()
     private var pending = 0
@@ -547,6 +547,21 @@ final class SeriesCollector {
 
     func slotNeedsRetry(_ index: Int) -> Bool { return slotProblem(index) != nil }
 
+    /// Çekimin `from`–`to` saniyeleri (çekim başından beri, gerçek süre) arasında alınan karelerin dökümü. Önce `settle` çağrılmalıdır
+    func quality(from: TimeInterval, to: TimeInterval) -> (valid: Int, damaged: Int, blurry: Int) {
+        lock.lock()
+        defer { lock.unlock() }
+        var result = (valid: 0, damaged: 0, blurry: 0)
+        for v in verdicts where v.time - start >= from && v.time - start < to {
+            switch v.problem {
+            case nil: result.valid += 1
+            case .damaged?: result.damaged += 1
+            default: result.blurry += 1
+            }
+        }
+        return result
+    }
+
     /// Son kareden beri geçen süre (sn); hiç kare gelmediyse çekim başından beri
     func secondsSinceFrame(now: TimeInterval) -> TimeInterval {
         lock.lock()
@@ -597,16 +612,8 @@ final class SeriesCollector {
             let part = SeriesRhythm.slot(index: slotIndex)?.part
             var lines: ViewLines?
             let readable = (text?.chars ?? 0) >= SlotCheck.readableChars
-            if let part = part, part.isShot, part != .whole, !damaged, frame.still || readable { lines = coverage?(frame.buffer) }
+            if let part = part, part.isShot, !damaged, frame.still || readable { lines = coverage?(frame.buffer) }
             problem = SlotCheck.problem(damaged: damaged, still: frame.still, part: part, lines: lines, chars: text?.chars)
-            // Örtüşme: üstten sonraki her parça bir önceki parçayla ortak satır göstermeli (aynı sayfanın bir önceki dilimi)
-            if let lines = lines, let part = part, lines.isReadable {
-                lock.lock()
-                let previous = part == .top ? nil : slotWords[slotIndex - 1]
-                slotWords[slotIndex, default: []].formUnion(lines.words)
-                lock.unlock()
-                if problem == nil, let previous = previous, !SlotCheck.overlaps(previous: previous, current: lines.words) { problem = .noOverlap }
-            }
         }
         lock.lock()
         switch problem {
@@ -615,6 +622,7 @@ final class SeriesCollector {
         case .noOverlap?: stats.noOverlapWindows += 1
         default: break
         }
+        if clock != nil, frame.slot != nil { verdicts.append((time: frame.time, problem: problem)) }
         if let slotIndex = frame.slot, clock != nil {
             if let problem = problem { slotProblems[slotIndex, default: []].insert(problem) } else { goodSlots.insert(slotIndex) }
         }
