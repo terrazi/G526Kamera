@@ -454,6 +454,8 @@ final class SeriesCollector {
     private var slotProblems: [Int: Set<SlotProblem>] = [:]
     /// Ritim: her parça diliminde okunan sözcükler (bir sonraki parçanın bununla örtüştüğü denetlenir)
     private var slotWords: [Int: Set<String>] = [:]
+    /// Son karenin geldiği an (görüntü kesildi mi diye bakılır)
+    private var lastOfferTime: TimeInterval?
     private var pool = SeriesPool()
     private var stats = Stats()
     private var pending = 0
@@ -497,6 +499,7 @@ final class SeriesCollector {
             return
         }
         stats.offered += 1
+        lastOfferTime = time
         // Durgunluk: önceki kareyle fark eşiği aşınca kamera hareket ediyor sayılır (imza karşılaştırılamazsa da hareketli sayılır)
         if let previous = lastSignature, FrameAnalysis.difference(previous, signature) <= FramePipeline.stillDiff {
             // durgun: son hareket anı değişmez
@@ -544,6 +547,13 @@ final class SeriesCollector {
 
     func slotNeedsRetry(_ index: Int) -> Bool { return slotProblem(index) != nil }
 
+    /// Son kareden beri geçen süre (sn); hiç kare gelmediyse çekim başından beri
+    func secondsSinceFrame(now: TimeInterval) -> TimeInterval {
+        lock.lock()
+        defer { lock.unlock() }
+        return max(0, now - (lastOfferTime ?? start))
+    }
+
     /// Ritim: biten dilimin açık kazananını kapatır ve yazı tanıma işlerinin bitmesini bekler; bundan sonra `slotProblem` o dilimin bütün karelerini bilir.
     /// Dilim sonunda bir kez çağrılır (yeni kare o dilime artık gelmez)
     func settle() async {
@@ -586,8 +596,9 @@ final class SeriesCollector {
         if clock != nil, let slotIndex = frame.slot {
             let part = SeriesRhythm.slot(index: slotIndex)?.part
             var lines: ViewLines?
-            if let part = part, part.isShot, part != .whole, !damaged, frame.still { lines = coverage?(frame.buffer) }
-            problem = SlotCheck.problem(damaged: damaged, still: frame.still, part: part, lines: lines)
+            let readable = (text?.chars ?? 0) >= SlotCheck.readableChars
+            if let part = part, part.isShot, part != .whole, !damaged, frame.still || readable { lines = coverage?(frame.buffer) }
+            problem = SlotCheck.problem(damaged: damaged, still: frame.still, part: part, lines: lines, chars: text?.chars)
             // Örtüşme: üstten sonraki her parça bir önceki parçayla ortak satır göstermeli (aynı sayfanın bir önceki dilimi)
             if let lines = lines, let part = part, lines.isReadable {
                 lock.lock()

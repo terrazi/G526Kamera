@@ -122,6 +122,8 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
     /// (el sıkışma + ilk anahtar kare ≈ 4–6 sn): 8 sn bunun hemen öncesinde keserdi (günlükte 75 sn'lik oturum 37. saniyede, 28 fotoğrafla bırakıldı).
     /// Kesinti anında fotoğraf alınmaz; görüntü dönünce çekim kalan süre boyunca sürer.
     static let seriesLostSeconds = 20
+    /// Ritimde bu kadar sn kare gelmezse ritim bekletilir ve kullanıcıya söylenir
+    static let seriesStallSeconds: TimeInterval = 3
 
     let settings: CameraSettings
     private let client = CameraClient()
@@ -976,6 +978,7 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
             tlog("[kamera] \(trial ? "deneme çekimi" : "toplu çekim") başladı: \(seconds) sn (konuşma ve titreşim yok; her kare ölçülür, \(SeriesSelection.window) sn'lik pencerelerin en iyisi yazı tanımadan geçer)")
         }
         var second = 0
+        var stalled = false
         while second < total {
             second += 1
             if cancelled { break }
@@ -991,7 +994,21 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
                 try? await Task.sleep(nanoseconds: UInt64(min(rest, 0.25) * 1_000_000_000))
             }
             if cancelled { break }
-            if let clock = clock {
+            if let clock = clock, collector.secondsSinceFrame(now: ProcessInfo.processInfo.systemUptime) >= CameraCaptureController.seriesStallSeconds {
+                // Kameradan kare gelmiyor: ritim bekletilir (komut ve "tekrar gösterin" yok), kullanıcıya bir kez söylenir; görüntü dönünce kaldığı yerden sürer
+                if !stalled {
+                    stalled = true
+                    tlog("[kamera] ritim: kameradan \(Int(CameraCaptureController.seriesStallSeconds)) sn'dir kare gelmiyor; ritim bekletiliyor")
+                    sayRhythm("Kameradan görüntü gelmiyor. Bekleyin, yerinizden ayrılmayın.")
+                }
+                if clock.hold() { total = clock.totalSeconds }
+            } else if let clock = clock {
+                if stalled {
+                    stalled = false
+                    let place = clock.position(at: Double(second)).map { $0.part.isShot ? "\($0.part.title) bölümünü gösterin" : "sayfayı çevirin" } ?? "devam edin"
+                    tlog("[kamera] ritim: görüntü geri geldi; \(place)")
+                    sayRhythm("Görüntü geldi, \(place).")
+                }
                 // Dilim bitti: kazananlar yazı tanımadan geçsin, sonra "geçerli kare var mı" bilinir (bozuk, bulanık ya da soru içermeyen kare geçerli sayılmaz)
                 if clock.endingSlotIndex(at: second) != nil { await collector.settle() }
                 var lastProblem: SlotProblem?

@@ -171,11 +171,16 @@ enum SlotProblem: Int, Comparable, CaseIterable {
 /// (`ViewLines`, kadraj koçunun soru bütünlüğü denetimi) istenir: yazı okunmalı ve baştan sona görünen en az bir soru ya da paragraf olmalı. Yazı okuma hiç
 /// çalışmadıysa (`lines` nil) kare ELENMEZ: hızlı yazı tanıma bu kamerada zayıf kalabilir, bu yüzden "okuyamadım" tek başına veto sayılmaz
 enum SlotCheck {
-    static func problem(damaged: Bool, still: Bool, part: SeriesRhythm.Part?, lines: ViewLines?) -> SlotProblem? {
+    /// Karede bu kadar harf okunabiliyorsa kare bulanık DEĞİLDİR, kamera o an oynuyor olsa bile (gerçek günlük 2026-11-18 21:01: elde tutulan kamera
+    /// neredeyse hiç "durgun" ölçülmedi; 500–600 harfi okunan net kareler bulanık sayıldı, 42 karenin 29'u boşuna geçersiz oldu)
+    static let readableChars = 60
+
+    static func problem(damaged: Bool, still: Bool, part: SeriesRhythm.Part?, lines: ViewLines?, chars: Int? = nil) -> SlotProblem? {
         if damaged { return .damaged }
-        if !still { return .blurry }
+        let readable = (chars ?? 0) >= readableChars
+        if !still && !readable { return .blurry }
         guard let part = part, part.isShot, part != .whole, let lines = lines else { return nil }
-        if !lines.isReadable { return .blurry }
+        if !lines.isReadable && !readable { return .blurry }
         if lines.completeQuestions >= 1 || lines.paragraph { return nil }
         return .noQuestion
     }
@@ -215,6 +220,9 @@ final class RhythmClock {
     private var shift: TimeInterval = 0
     private var attempts: [Int: Int] = [:]
     private var retried = 0
+    private var held: TimeInterval = 0
+    /// Görüntü kesilince saat en çok bu kadar sn bekletilir (sonra oturum zaten bırakılır)
+    static let maxHoldSeconds: TimeInterval = 20
 
     init(rhythm: SeriesRhythm = .standard, pages: Int, maxPerSlot: Int = 2, maxTotal: Int = 6) {
         self.rhythm = rhythm
@@ -244,7 +252,18 @@ final class RhythmClock {
     var totalSeconds: Int { return baseSeconds + Int(offset.rounded()) }
 
     /// En çok eklenebilecek süre (sn)
-    var maxExtraSeconds: Int { return Int((Double(maxTotal) * rhythm.slotSeconds).rounded()) }
+    var maxExtraSeconds: Int { return Int((Double(maxTotal) * rhythm.slotSeconds + RhythmClock.maxHoldSeconds).rounded()) }
+
+    /// Kameradan görüntü gelmiyor: saat bir saniye bekletilir (ritim ilerlemez, oturum o kadar uzar). Sınır dolduysa false döner
+    @discardableResult
+    func hold() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard held < RhythmClock.maxHoldSeconds else { return false }
+        held += 1
+        shift += 1
+        return true
+    }
 
     /// Oturum zamanından (çekim başından beri sn) ritim zamanına: tekrarlar kadar geri
     func rhythmTime(_ time: TimeInterval) -> TimeInterval { return time - offset }

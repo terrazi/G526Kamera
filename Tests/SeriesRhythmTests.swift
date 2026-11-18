@@ -314,7 +314,7 @@ final class DamagedSlotRetryTests: XCTestCase {
         }
         XCTAssertEqual(clock.retries, 6)
         XCTAssertEqual(clock.totalSeconds, 125 + 24)
-        XCTAssertEqual(clock.maxExtraSeconds, 24)
+        XCTAssertEqual(clock.maxExtraSeconds, 44)
     }
 
     func testTheLastSlotOfTheLastPageCanBeRepeatedToo() {
@@ -390,6 +390,8 @@ final class SlotCheckTests: XCTestCase {
         XCTAssertNil(SlotCheck.problem(damaged: false, still: true, part: .upperMiddle, lines: lines(chars: 400, complete: 1)))
         XCTAssertNil(SlotCheck.problem(damaged: false, still: true, part: .bottom, lines: lines(chars: 400, paragraph: true)), "Soru yapısı olmayan paragraf da geçerlidir")
         XCTAssertNil(SlotCheck.problem(damaged: false, still: true, part: .top, lines: nil), "Yazı okuma çalışmadıysa kare yalnız bu yüzden elenmez")
+        XCTAssertNil(SlotCheck.problem(damaged: false, still: false, part: .whole, lines: nil, chars: 300), "Yazısı okunan kare, kamera oynasa da bulanık değildir")
+        XCTAssertEqual(SlotCheck.problem(damaged: false, still: false, part: .whole, lines: nil, chars: 20), .blurry)
     }
 
     func testPartsMustShareLinesWithThePreviousPartButDoubtNeverAsksForARepeat() {
@@ -436,9 +438,10 @@ final class ValidFrameRetryTests: XCTestCase {
     /// Kimlik 50'nin altındaki kareler kesik soru gösterir (yazı var, tam soru yok), 50 ve üstü tam soru; kimlik 40'ın altı yazısız
     private func collector(_ t0: Double, clock: RhythmClock) -> SeriesCollector {
         return SeriesCollector(start: t0, clock: clock,
-                               reader: { _ in
+                               reader: { buffer in
+                                   let id = CVPixelBufferGetWidth(buffer) - 8
                                    var t = TextScore()
-                                   t.chars = 120
+                                   t.chars = (id < 40 || (70..<80).contains(id)) ? 5 : 120   // 40'ın altı ve 70–79: yazısı okunmayan kare
                                    t.confidence = 0.9
                                    return t
                                },
@@ -499,13 +502,43 @@ final class ValidFrameRetryTests: XCTestCase {
         let clock = RhythmClock(pages: 5)
         let c = collector(t0, clock: clock)
         let other = [UInt8](repeating: 220, count: 576)
+        c.offer(buffer: buffer(id: 70), time: t0 + 4.5, sharpness: 100, signature: signature)
+        c.offer(buffer: buffer(id: 71), time: t0 + 6.0, sharpness: 100, signature: other)
+        c.offer(buffer: buffer(id: 72), time: t0 + 6.5, sharpness: 100, signature: signature)
+        c.offer(buffer: buffer(id: 73), time: t0 + 7.0, sharpness: 100, signature: other)
+        c.offer(buffer: buffer(id: 74), time: t0 + 7.5, sharpness: 100, signature: signature)
+        await c.settle()
+        XCTAssertEqual(c.slotProblem(1), .blurry, "Kamera hiç durgun kalmadı ve yazı okunmuyor")
+    }
+
+    func testAMovingCameraIsFineWhenTheTextIsStillReadable() async {
+        let t0 = 18000.0
+        let clock = RhythmClock(pages: 5)
+        let c = collector(t0, clock: clock)
+        let other = [UInt8](repeating: 220, count: 576)
         c.offer(buffer: buffer(id: 60), time: t0 + 4.5, sharpness: 100, signature: signature)
         c.offer(buffer: buffer(id: 61), time: t0 + 6.0, sharpness: 100, signature: other)
-        c.offer(buffer: buffer(id: 62), time: t0 + 6.5, sharpness: 100, signature: signature)
-        c.offer(buffer: buffer(id: 63), time: t0 + 7.0, sharpness: 100, signature: other)
-        c.offer(buffer: buffer(id: 64), time: t0 + 7.5, sharpness: 100, signature: signature)
+        c.offer(buffer: buffer(id: 62), time: t0 + 7.0, sharpness: 100, signature: signature)
         await c.settle()
-        XCTAssertEqual(c.slotProblem(1), .blurry, "Kamera hiç durgun kalmadı")
+        XCTAssertNil(c.slotProblem(1), "Kamera oynasa da yazısı okunan kare bulanık sayılmaz (gerçek günlük 2026-11-18)")
+        let outcome = await c.finish()
+        XCTAssertEqual(outcome.labels, ["1. sayfa, üst, 1. kare", "1. sayfa, üst, 2. kare"])
+    }
+
+    func testTheClockWaitsWhileNoFramesArrive() {
+        let t0 = 19000.0
+        let clock = RhythmClock(pages: 5)
+        let c = collector(t0, clock: clock)
+        XCTAssertEqual(c.secondsSinceFrame(now: t0 + 2), 2, accuracy: 0.001)
+        c.offer(buffer: buffer(id: 60), time: t0 + 5, sharpness: 100, signature: signature)
+        XCTAssertEqual(c.secondsSinceFrame(now: t0 + 9), 4, accuracy: 0.001)
+        XCTAssertTrue(clock.hold())
+        XCTAssertEqual(clock.totalSeconds, 126, "Bekletilen her saniye oturumu uzatır")
+        XCTAssertEqual(clock.position(at: 4.5)?.part, .whole, "Saat bir saniye geride: 4,5. saniye hâlâ ilk dilim")
+        XCTAssertEqual(clock.retries, 0, "Bekleme tekrar sayılmaz")
+        for _ in 0..<40 { clock.hold() }
+        XCTAssertEqual(clock.totalSeconds, 145, "En çok 20 sn bekletilir")
+        XCTAssertFalse(clock.hold())
     }
 
     func testAnInvalidFrameIsStillSentWhenTheSlotNeverGetsAValidOneAndItsLabelSaysSo() async {
