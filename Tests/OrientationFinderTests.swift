@@ -17,10 +17,10 @@ final class OrientationFinderTests: XCTestCase {
     }
 
     /// `chars[yön]` kadar harf okuyan sahte okuyucu; hangi yönlerin okunduğunu da kaydeder
-    private func search(_ chars: [ImageOrientation: Int], calls: inout [ImageOrientation], preferred: ImageOrientation = .normal)
-        -> (orientation: ImageOrientation, value: Int?) {
+    private func search(_ chars: [ImageOrientation: Int], calls: inout [ImageOrientation], preferred: ImageOrientation = .normal,
+                        hint: [ImageOrientation]? = nil) -> (orientation: ImageOrientation, value: Int?, hinted: Bool?) {
         var log: [ImageOrientation] = []
-        let result = OrientationFinder.find(preferred: preferred) { orientation -> (value: Int?, chars: Int) in
+        let result = OrientationFinder.find(preferred: preferred, hint: { hint }) { orientation -> (value: Int?, chars: Int) in
             log.append(orientation)
             let n = chars[orientation] ?? 0
             return (n, n)
@@ -82,6 +82,111 @@ final class OrientationFinderTests: XCTestCase {
         XCTAssertEqual(r.value, 0)
     }
 
+    // MARK: Metin kutusu ipucu (okumayı hızlandırır)
+
+    func testTheLikelyAxisIsTriedFirstSoUpsideDownTextNeedsOneExtraReadInsteadOfThree() {
+        var calls: [ImageOrientation] = []
+        let r = search([.normal: 5, .rotate180: 150], calls: &calls, hint: [.normal, .rotate180])
+        XCTAssertEqual(r.orientation, .rotate180)
+        XCTAssertEqual(r.hinted, true)
+        XCTAssertEqual(calls, [.normal, .rotate180], "İpucu yoksa ters yazı için dördü de okunurdu")
+        var side: [ImageOrientation] = []
+        let s = search([.normal: 5, .left90: 150], calls: &side, hint: [.right90, .left90])
+        XCTAssertEqual(s.orientation, .left90)
+        XCTAssertEqual(side, [.normal, .right90, .left90])
+    }
+
+    func testAWrongHintOnlyCostsTimeTheOtherOrientationsAreStillTried() {
+        var calls: [ImageOrientation] = []
+        let r = search([.normal: 5, .rotate180: 150], calls: &calls, hint: [.right90, .left90])
+        XCTAssertEqual(r.orientation, .rotate180, "İpucu yanılsa da yazı bulunur")
+        XCTAssertEqual(r.hinted, false)
+        XCTAssertEqual(calls, [.normal, .right90, .left90, .rotate180])
+    }
+
+    func testTheHintIsNotAskedWhenThePreferredOrientationAlreadyReads() {
+        var asked = false
+        let r = OrientationFinder.find(preferred: .normal, hint: { asked = true; return [.right90] }) { _ -> (value: Int?, chars: Int) in (1, 200) }
+        XCTAssertFalse(asked, "Tarama yalnız tercih edilen yön okunmuyorsa yapılır (ek süre yok)")
+        XCTAssertEqual(r.orientation, .normal)
+        XCTAssertNil(r.hinted)
+    }
+
+    func testAHintThatFindsNothingStillEndsWithThePreferredOrientation() {
+        var calls: [ImageOrientation] = []
+        let r = search([.normal: 10, .right90: 20], calls: &calls, hint: [.right90, .left90])
+        XCTAssertEqual(r.orientation, .normal)
+        XCTAssertNil(r.hinted)
+        XCTAssertEqual(calls.count, 4)
+    }
+
+    private func boxes(count: Int, width: Double, height: Double) -> [CGRect] {
+        return (0..<count).map { CGRect(x: 0.05, y: 0.05 + Double($0) * 0.05, width: width, height: height) }
+    }
+
+    func testWideTextBoxesMeanUprightOrUpsideDownAndTallOnesMeanSideways() {
+        let wide = boxes(count: 10, width: 0.4, height: 0.03)
+        XCTAssertEqual(OrientationProbe.hint(boxes: wide, aspect: 16.0 / 9.0, preferred: .normal), [.normal, .rotate180])
+        let tall = boxes(count: 10, width: 0.02, height: 0.4)
+        XCTAssertEqual(OrientationProbe.hint(boxes: tall, aspect: 16.0 / 9.0, preferred: .normal), [.right90, .left90])
+    }
+
+    func testThePreviouslyFoundOrientationLeadsWithinItsAxis() {
+        let wide = boxes(count: 10, width: 0.4, height: 0.03)
+        let tall = boxes(count: 10, width: 0.02, height: 0.4)
+        XCTAssertEqual(OrientationProbe.hint(boxes: wide, aspect: 16.0 / 9.0, preferred: .rotate180), [.rotate180, .normal])
+        XCTAssertEqual(OrientationProbe.hint(boxes: tall, aspect: 16.0 / 9.0, preferred: .left90), [.left90, .right90])
+    }
+
+    func testTooFewMixedOrRoundBoxesGiveNoHint() {
+        XCTAssertNil(OrientationProbe.hint(boxes: boxes(count: 3, width: 0.4, height: 0.03), aspect: 16.0 / 9.0, preferred: .normal))
+        // Yatay ve dikey kutuların toplam alanı eşit: baskın bir eksen yok
+        let mixed = boxes(count: 5, width: 0.4, height: 0.03) + boxes(count: 5, width: 0.02, height: 0.6)
+        XCTAssertNil(OrientationProbe.hint(boxes: mixed, aspect: 16.0 / 9.0, preferred: .normal))
+        // Kareye yakın kutular (tek harf, rakam) yön kanıtı sayılmaz
+        XCTAssertNil(OrientationProbe.hint(boxes: boxes(count: 12, width: 0.03, height: 0.03 * 16.0 / 9.0), aspect: 16.0 / 9.0, preferred: .normal))
+    }
+
+    func testTheHintIsDroppedAfterRepeatedMissesButKeptWhileItHelps() {
+        var trust = ProbeTrust()
+        XCTAssertTrue(trust.isTrusted)
+        trust.record(hit: false); trust.record(hit: false)
+        XCTAssertTrue(trust.isTrusted, "İki ıska yetmez")
+        trust.record(hit: false)
+        XCTAssertFalse(trust.isTrusted, "Üç ıska, hiç isabet yok: tarama bırakılır")
+        var helpful = ProbeTrust()
+        for _ in 0..<5 { helpful.record(hit: true) }
+        for _ in 0..<4 { helpful.record(hit: false) }
+        XCTAssertTrue(helpful.isTrusted, "İsabet ıskadan çoksa kullanılır")
+    }
+
+    func testTheFinderUsesTheProbeOnlyWhenNeededRecordsItsHitsAndStopsUsingItWhenItKeepsMissing() {
+        let finder = OrientationFinder()
+        var probeCalls = 0
+        let vertical = boxes(count: 10, width: 0.02, height: 0.4)
+        finder.probe = { _ in probeCalls += 1; return vertical }
+        // Okunuyorsa tarama yapılmaz
+        let a = finder.locate(buffer(), preferred: .normal) { _ -> (value: Int?, chars: Int) in (1, 200) }
+        XCTAssertEqual(a.orientation, .normal)
+        XCTAssertEqual(probeCalls, 0)
+        // Yan yazı: tarama dikey diyor ve doğru: isabet
+        let b = finder.locate(buffer(), preferred: .normal) { o -> (value: Int?, chars: Int) in (1, o == .right90 ? 150 : 3) }
+        XCTAssertEqual(b.orientation, .right90)
+        XCTAssertEqual(probeCalls, 1)
+        XCTAssertEqual(finder.probeTrust.hits, 1)
+        // Yazı aslında ters duruyor (tarama yanlış diyor): ıska; üç ıskadan sonra tarama bırakılır
+        for _ in 0..<3 {
+            let r = finder.locate(buffer(), preferred: .normal) { o -> (value: Int?, chars: Int) in (1, o == .rotate180 ? 150 : 3) }
+            XCTAssertEqual(r.orientation, .rotate180, "Tarama yanılsa da yazı bulunur")
+        }
+        XCTAssertEqual(finder.probeTrust.misses, 3)
+        XCTAssertEqual(probeCalls, 4)
+        _ = finder.locate(buffer(), preferred: .normal) { o -> (value: Int?, chars: Int) in (1, o == .rotate180 ? 150 : 3) }
+        XCTAssertEqual(probeCalls, 4, "İsabet (1) ıskadan (3) az: tarama artık yapılmaz")
+        finder.reset(base: .normal)
+        XCTAssertEqual(finder.probeTrust, ProbeTrust(), "Yeni çekimde tarama yeniden denenir")
+    }
+
     // MARK: Kare başına yön kaydı
 
     private func buffer() -> CVPixelBuffer {
@@ -92,6 +197,7 @@ final class OrientationFinderTests: XCTestCase {
 
     func testTheOrientationFoundForAFrameIsRememberedForItAndTriedFirstOnTheNextFrame() {
         let finder = OrientationFinder()
+        finder.probe = { _ in nil }
         finder.reset(base: .normal)
         let first = buffer(), second = buffer()
         var calls: [ImageOrientation] = []
@@ -128,6 +234,7 @@ final class OrientationFinderTests: XCTestCase {
 
     func testResetForgetsTheFramesAndStartsFromTheUsersOrientation() {
         let finder = OrientationFinder()
+        finder.probe = { _ in nil }
         finder.reset(base: .normal)
         let frame = buffer()
         _ = finder.readScore(frame, base: .normal, enabled: true) { _, orientation in

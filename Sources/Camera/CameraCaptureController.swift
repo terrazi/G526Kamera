@@ -146,6 +146,8 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
     private var coachConfig = GuidanceConfig()
     /// Yazının yönünü bulur (bkz. `OrientationFinder`): toplu çekimde her kare kendi yönüyle PDF'e girer
     private let orientationFinder = OrientationFinder()
+    /// Koçun kendi yön bulucusu (ipucu isabeti çekimden ayrı sayılır)
+    private let coachFinder = OrientationFinder()
     /// Koçun sesli yön sözcüklerinin dönüşü: dik (yazının okunduğu) görüntüden kameranın görüntüsüne çeyrek dönüş (bkz. `ViewDirection`)
     private var coachTurn = 0
     private var coachSharpFloor = 0.45
@@ -563,6 +565,7 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         coachOCRTime = -100
         pipeline.guidanceOrientation = settings.imageOrientation
         coachTurn = 0
+        coachFinder.reset(base: settings.imageOrientation)
         // Sayfanın üç durumu (tam sayfa, üst yarı, alt yarı) kâğıt kenarlarından bilinir (Vision): kamera durunca seyrek çalışır (bkz. `PageEdgeTracker`).
         // Pil tasarrufunda (önizleme kapalı) boru hattı kenar ölçmez; o zaman yalnız yazı ölçümüyle sürer.
         coachMoveEpoch = 0
@@ -618,12 +621,13 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         let base = settings.imageOrientation
         let auto = settings.autoOrientation
         let preferred = pipeline.guidanceOrientation
+        let finder = coachFinder
         let began = ProcessInfo.processInfo.systemUptime
         Task { [weak self] in
             // Yazı yönü: görünüm mevcut yönde okunmuyorsa yan ve ters yönler denenir (bkz. `OrientationFinder`); ölçüm dik görüntüde yapılır
             let found = await Task.detached(priority: .utility) { () -> (orientation: ImageOrientation, lines: ViewLines?) in
                 guard auto else { return (base, ViewLinesReader.read(buffer, orientation: base)) }
-                let result = OrientationFinder.find(preferred: preferred) { orientation -> (value: ViewLines?, chars: Int) in
+                let result = finder.locate(buffer, preferred: preferred) { orientation -> (value: ViewLines?, chars: Int) in
                     let lines = ViewLinesReader.read(buffer, orientation: orientation)
                     return (lines, lines?.chars ?? 0)
                 }
