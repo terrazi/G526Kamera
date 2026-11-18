@@ -400,11 +400,11 @@ final class FramingCoachTimerTests: XCTestCase {
     }
 
     func testASuitablePageIsAnnouncedAsSuitableAndCaptured() {
-        XCTAssertEqual(FramingCoach.withCapture(FramingCoach.okText), "Uygun, çekildi.")
-        XCTAssertEqual(FramingCoach.withCapture("Tamam."), "Tamam, çekildi.")
-        XCTAssertEqual(FramingCoach.withCapture("Tamam. Üstte: alfa beta gama delta."), "Tamam. Üstte: alfa beta gama delta. Çekildi.")
-        XCTAssertEqual(FramingCoach.withCapture("Tam sayfa."), "Tam sayfa. Uygun, çekildi.")
-        XCTAssertEqual(FramingCoach.withCapture("Alt boş."), "Alt boş. Uygun, çekildi.")
+        XCTAssertEqual(FramingCoach.withCapture(FramingCoach.okText), "Uygun, alındı. Sonraki.")
+        XCTAssertEqual(FramingCoach.withCapture("Tamam."), "Tamam, alındı. Sonraki.")
+        XCTAssertEqual(FramingCoach.withCapture("Tamam. Üstte: alfa beta gama delta."), "Tamam. Üstte: alfa beta gama delta. Alındı. Sonraki.")
+        XCTAssertEqual(FramingCoach.withCapture("Tam sayfa."), "Tam sayfa. Uygun, alındı. Sonraki.")
+        XCTAssertEqual(FramingCoach.withCapture("Alt boş."), "Alt boş. Uygun, alındı. Sonraki.")
     }
 
     func testTheTimerSaysWhetherTheSentenceItJustGaveWasASuitablePage() {
@@ -412,7 +412,7 @@ final class FramingCoachTimerTests: XCTestCase {
         XCTAssertFalse(t.lastWasGood)
         _ = step(&t, cutRight, at: 10.0)
         XCTAssertEqual(step(&t, cutRight, at: 10.3), "Biraz sağa.")
-        XCTAssertFalse(t.lastWasGood, "bir düzeltme çekildi diye anons edilmez")
+        XCTAssertFalse(t.lastWasGood, "bir düzeltme alındı diye anons edilmez")
         _ = step(&t, fine, at: 14.0)
         XCTAssertEqual(step(&t, fine, at: 14.3), "Tamam.")
         XCTAssertTrue(t.lastWasGood)

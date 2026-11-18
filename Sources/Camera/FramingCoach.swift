@@ -248,14 +248,15 @@ enum FramingCoach {
     /// Düzgün kadraj ("düzeltme gerekmiyor") için kısa söyleniş; düzeltmeden sonra tek başına "Tamam." olur
     static let okText = "Uygun."
 
-    /// Düzgün kadrajda (kullanıcı kararı 2026-11-18) uygunluğun yanında sayfanın ÇEKİLDİĞİ de söylenir: görünüm durgun ve okunaklıyken kareler zaten kaydedilmektedir.
-    /// "Uygun." → "Uygun, çekildi."; düzeltmeden sonraki "Tamam." → "Tamam, çekildi."; "Tamam. Üstte: …" → "Tamam. Üstte: … Çekildi."; sayfa durumu
-    /// ("Tam sayfa.", "Alt yarı. …") → sonuna " Uygun, çekildi." eklenir. Düzeltme isteyen cümlelere eklenmez (çağıran yalnız düzgün kadrajda çağırır).
+    /// Düzgün kadrajda (kullanıcı kararı 2026-11-18) uygunluğun yanında sayfanın ALINDIĞI ve sıradakine geçilebileceği söylenir: görünüm durgun ve okunaklıyken
+    /// kareler zaten kaydedilmektedir. "Uygun." → "Uygun, alındı. Sonraki."; düzeltmeden sonraki "Tamam." → "Tamam, alındı. Sonraki.";
+    /// "Tamam. Üstte: …" → "Tamam. Üstte: … Alındı. Sonraki."; sayfa durumu ("Tam sayfa.", "Alt yarı. …") → sonuna " Uygun, alındı. Sonraki." eklenir.
+    /// Düzeltme isteyen cümlelere eklenmez (çağıran yalnız düzgün kadrajda çağırır).
     static func withCapture(_ text: String) -> String {
-        if text == okText { return "Uygun, çekildi." }
-        if text == "Tamam." { return "Tamam, çekildi." }
-        if text.hasPrefix("Tamam.") { return text + " Çekildi." }
-        return text + " Uygun, çekildi."
+        if text == okText { return "Uygun, alındı. Sonraki." }
+        if text == "Tamam." { return "Tamam, alındı. Sonraki." }
+        if text.hasPrefix("Tamam.") { return text + " Alındı. Sonraki." }
+        return text + " Uygun, alındı. Sonraki."
     }
 
     /// "azıcık" → "Azıcık" (Türkçe büyük harfle)
