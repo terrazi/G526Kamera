@@ -89,6 +89,12 @@ extension SessionViewModel {
                 offerCamera = true
                 return
             }
+            // Kullanıcı hazır olmayabilir: "Başladı."dan önce 5 sn geri sayım (kullanıcı kararı 2026-11-18); kamera bu sırada açık ve canlı bekler
+            guard await speakSeriesCountdown() else {
+                tlog("[kamera] geri sayım kesildi; süre başlamadı, onarımdan sonra yeniden sorulacak")
+                offerCamera = true
+                return
+            }
         }
         let ready = deps.camera.holding
         guard await speakNotice(ready ? Say.seriesGo : Say.seriesStarting(seconds: seconds)) else {

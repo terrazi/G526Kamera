@@ -137,6 +137,8 @@ final class SessionViewModel: ObservableObject {
         static let lapelBackWait: TimeInterval = 15
         /// Telefonun mikrofonu seçilince yola girmesi için en çok beklenen süre (sn)
         static let phoneMicSettle: TimeInterval = 2
+        /// Toplu çekimde kamera açıldıktan sonra süre başlamadan önceki sesli geri sayım (sn; kullanıcı kararı 2026-11-18: kullanıcı hazır olmayabilir)
+        static let seriesCountdown = 5
         /// Oturum başında kameraya bağlanırken en çok kaç onarım yapılacağı (ilk deneme + 2 onarım = 3 deneme); olmazsa sesle devam edilir ve kamera yoklanır
         static let cameraStartRepairs = 2
         /// Oturum başında ilk bağlanma denemesinde en çok beklenen süre (sn): "Kameraya geç" telefonu kameranın ağına sokamadıysa 40 sn beklenmez,

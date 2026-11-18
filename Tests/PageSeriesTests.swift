@@ -390,8 +390,17 @@ final class PageSeriesTests: XCTestCase {
             return XCTFail("\(spoken)")
         }
         XCTAssertLessThan(opening, go, "Önce \"Kamera açılıyor.\", görüntü gelince \"Başladı.\"")
+        let countdown = [Say.seriesGetReady] + (1...5).reversed().map { Say.seriesCountdownNumber($0) }
+        XCTAssertEqual(Array(spoken[(opening + 1)..<go]), countdown, "Kamera açılınca \"Hazır olun\" ve 5'ten 1'e geri sayım, ardından \"Başladı.\"")
+        XCTAssertGreaterThanOrEqual(h.sleepLog.entries.filter { $0.seconds == 1.0 }.count, 5, "Sayılar saniyede bir söylenir")
         XCTAssertEqual(spoken.last, Say.askCameraSeries(seconds: 75), "Bitince sıradaki talimat sorulur")
         XCTAssertEqual(h.route.builtInModeCalls, [], "Telefonun mikrofonu ayarı kapalıyken giriş değişmez")
+    }
+
+    func testTheCountdownWordsAreSpokenAsNumbersFromFiveToOne() {
+        XCTAssertEqual((1...5).reversed().map { Say.seriesCountdownNumber($0) }, ["Beş", "Dört", "Üç", "İki", "Bir"])
+        XCTAssertEqual(T.seriesCountdown, 5)
+        XCTAssertTrue(Say.askCameraSeries(seconds: 75).contains("beş saniye geri sayım"), "Talimat geri sayımı da söyler")
     }
 
     func testThePhonesMicIsChosenRightAfterStartAndTheLapelMicIsBackAfterTheCapture() async {

@@ -17,6 +17,22 @@ extension SessionViewModel {
         return cameraSettings.pageSeries && cameraSettings.cameraAfterGo
     }
 
+    /// Kamera "Başla"dan sonra açıldı, süre başlamadan önce: "Hazır olun." ve `Timing.seriesCountdown` sn geri sayım (saniyede bir sayı). Dönen false: duyuru kesildi
+    /// ya da iş iptal edildi (süre başlamaz).
+    func speakSeriesCountdown() async -> Bool {
+        guard await speakNotice(Say.seriesGetReady, remember: false) else { return false }
+        var number = Timing.seriesCountdown
+        while number >= 1 {
+            let started = deps.now()
+            guard await speakNotice(Say.seriesCountdownNumber(number), remember: false) else { return false }
+            let rest = 1.0 - deps.now().timeIntervalSince(started)
+            if rest > 0 { await deps.sleep(rest) }
+            guard !Task.isCancelled else { return false }
+            number -= 1
+        }
+        return true
+    }
+
     /// Kamera hazır bekliyor: toplu çekim açık ve kamera bağlantısı açık tutuluyor (telefon kameranın ağında, internet bilerek kapalı)
     var seriesCameraReady: Bool {
         return cameraSettings.pageSeries && deps.camera.holding
