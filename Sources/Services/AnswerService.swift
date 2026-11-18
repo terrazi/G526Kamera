@@ -542,6 +542,8 @@ final class GeminiAnswerService: Answering {
                     let parsedList = parse(try GeminiAnswerService.replyText(from: object))
                     if parsedList.isEmpty { throw GeminiError("Gemini cevap satırı vermedi.", .empty) }
                     restingUntil[profile.identity] = nil
+                    // Günlükte yalnız model adı görünürse aynı modeli kullanan iki profil (ücretsiz / ücretli anahtar) ayırt edilemiyor: profil de yazılır
+                    tlog("[gemini] cevap \(profile.slot). sıradaki profilden geldi: \(profile.name) (\(profile.model), \(profile.free ? "ücretsiz" : "ücretli") anahtar)")
                     let note = trail.isEmpty ? "" : "Cevap \(profile.name) modelinden geldi: " + trail.joined(separator: " ")
                     let spokenNote = (!profile.free && !failedNames.isEmpty) ? Say.paidModelUsed : ""
                     return parsedList.map { parsed in
