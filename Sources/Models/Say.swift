@@ -460,12 +460,12 @@ enum Say {
     // MARK: Sürüm 4: sayfa bazlı toplu çekim (bir oturumda birkaç sayfa, çekim boyunca ses ve titreşim yok)
     /// Hazır bekleme (kamera bağlı, telefon kameranın Wi-Fi'sinde, hücresel kapalı): talimat beklenir, "Başla" deyince süre hemen başlar
     static func askCameraSeries(seconds: Int) -> String {
-        return "Kamera oturumu için talimatınızı bekliyorum. Başla deyince kamera açılacak ve beş saniye geri sayım yapılacak; Başladı diyince \(seconds) saniyelik süreniz başlayacak."
+        return "Kamera oturumu için talimatınızı bekliyorum. Başla deyince geri sayımla başlayacak; süreniz \(seconds) saniye."
     }
     /// "Başla" denince, kamera açılmadan önce (kamera "Başla"dan sonra açılır; kameraya geçişte kulaklık kısa süre düşebilir)
     static let seriesConnecting = "Kamera açılıyor."
     /// Kamera açıldı, süre henüz başlamadı: kullanıcı sayfayı hazırlasın; ardından beşten bire sayılır ve "Başladı." denir (kullanıcı kararı 2026-11-18)
-    static let seriesGetReady = "Kamera hazır. Hazır olun."
+    static let seriesGetReady = "Hazır olun."
     static func seriesCountdownNumber(_ n: Int) -> String {
         let words = ["", "Bir", "İki", "Üç", "Dört", "Beş", "Altı", "Yedi", "Sekiz", "Dokuz", "On"]
         return n >= 1 && n < words.count ? words[n] : String(n)

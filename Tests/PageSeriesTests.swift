@@ -98,7 +98,7 @@ final class PageSeriesTests: XCTestCase {
         XCTAssertEqual(h.vm.phase, .listening)
         XCTAssertEqual(h.speaker.spoken.count, 1)
         let said = h.speaker.spoken.first ?? ""
-        XCTAssertTrue(said.contains("Başladı diyince 75 saniyelik süreniz başlayacak"), "Süre söylenir: \(said)")
+        XCTAssertTrue(said.contains("geri sayımla başlayacak; süreniz 75 saniye"), "Süre söylenir: \(said)")
         XCTAssertEqual(h.camera.seriesCalls.count, 0, "Komut gelmeden süre başlamaz")
         XCTAssertEqual(h.answering.pageCalls.count, 0)
     }
@@ -400,7 +400,7 @@ final class PageSeriesTests: XCTestCase {
     func testTheCountdownWordsAreSpokenAsNumbersFromFiveToOne() {
         XCTAssertEqual((1...5).reversed().map { Say.seriesCountdownNumber($0) }, ["Beş", "Dört", "Üç", "İki", "Bir"])
         XCTAssertEqual(T.seriesCountdown, 5)
-        XCTAssertTrue(Say.askCameraSeries(seconds: 75).contains("beş saniye geri sayım"), "Talimat geri sayımı da söyler")
+        XCTAssertTrue(Say.askCameraSeries(seconds: 75).contains("geri sayımla başlayacak"), "Talimat geri sayımla başlanacağını söyler")
     }
 
     func testThePhonesMicIsChosenRightAfterStartAndTheLapelMicIsBackAfterTheCapture() async {
@@ -753,7 +753,7 @@ final class PageSeriesTests: XCTestCase {
 
     func testTheSessionAnnouncementTalksOnlyAboutTheDuration() {
         let ask = Say.askCameraSeries(seconds: 75)
-        XCTAssertTrue(ask.contains("Başladı diyince 75 saniyelik süreniz başlayacak"), "Talimat: komut ve süre")
+        XCTAssertTrue(ask.contains("geri sayımla başlayacak; süreniz 75 saniye"), "Talimat: komut ve süre")
         XCTAssertFalse(ask.contains("Evet"), "Evet / hayır sorulmaz: talimat beklenir")
         XCTAssertEqual(Say.seriesGo, "Başladı.")
         let starting = Say.seriesStarting(seconds: 75)
