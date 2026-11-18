@@ -436,16 +436,20 @@ enum FramingCoach {
             if !(topOK && bottomOK) {
                 if plan == .halves && (topOK || bottomOK) {
                     // Yarımda yalnız bir uç kesik: soru kadrajın yukarısında / aşağısında devam ediyor, kamera o yöne kaydırılır
-                    return FramingNote(kind: .incomplete, text: topOK ? "Metin kesik, biraz aşağı." : "Metin kesik, biraz yukarı.")
+                    let direction = topOK ? "Metin kesik, biraz aşağı." : "Metin kesik, biraz yukarı."
+                    return FramingNote(kind: .incomplete, text: [direction, lines.shortCoverage].compactMap { $0 }.joined(separator: " "))
                 }
                 return FramingNote(kind: .incomplete, text: verbose ? "Soru ya da paragraf tam görünmüyor. Tüm sayfa için uzaklaşın." : "Metin kesik, uzaklaşın.")
             }
-            // Yeterli görüntü: yalnız sayfanın durumu ve kabul
+            // Yeterli görüntü: sayfanın durumu ve kabul. Yarımlarda ilk ve son satırdan birkaç sözcük de okunur (kullanıcı kararı 2026-11-18: kullanıcı
+            // okunanı gözüyle gördüğü sayfadaki satırlarla karşılaştırıp kaydırmayı buna göre doğru yapar); tam sayfada satır tarifi gerekmez
+            let tails = plan == .halves ? lines.shortCoverage : nil
             if let r = reading, r.layout != .middle {
                 let kind: FramingNote.Kind = r.layout == .upperHalf ? .goodUpper : (r.layout == .lowerHalf ? .goodLower : .goodFull)
-                return FramingNote(kind: kind, text: layoutText(r, verbose: verbose))
+                let spoken = [layoutText(r, verbose: verbose), r.layout == .full ? nil : tails].compactMap { $0 }
+                return FramingNote(kind: kind, text: spoken.joined(separator: " "))
             }
-            return FramingNote(kind: .good, text: verbose ? "Kadraj uygun." : okText)
+            return FramingNote(kind: .good, text: tails ?? (verbose ? "Kadraj uygun." : okText))
         }
         if let reading = reading, reading.layout == .middle {
             let tail = verbose ? " Tam sayfa için uzaklaşın; yarım sayfa için kamerayı yukarı ya da aşağı kaydırın." : " Uzaklaşın ya da kaydırın."
