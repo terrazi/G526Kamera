@@ -37,6 +37,11 @@ struct ViewLines: Equatable {
     /// görünüyor ya da yazı alt kenara yakın bitmiyor
     var bottomComplete = false
 
+    /// Gürültü sayılıp atlanan satır sayısı (dikey yazı, çizgi kırıntısı, orta oluktaki kitap adı…): bkz. `isBodyText`
+    var ignored = 0
+    /// Üst / alt "kesik" sayılmışsa NEDEN (yalnız günlük için: cihazda yanlış "Metin kesik" uyarısı çözümlenebilsin)
+    var cutReason: String?
+
     /// Kadrajda başından sonuna (E şıkkı dahil) görünen soruların numaraları: ardışık ve artan değilse (yazı tanıma bir rakamı yanlış okumuş olabilir) boş
     var questions: [Int] = []
     /// Sıradaki soru: kadrajda yarım kalan (numarası görünen) soru, yoksa son tam sorunun ardından gelen numara; güvenilmezse nil
@@ -67,9 +72,32 @@ struct ViewLines: Equatable {
         var midX: Double
     }
 
+    /// Orta oluk bandı: bu aralığa tümüyle sığan dar kutular iki sütunu ayıran süs / kitap adıdır, soru metni değildir
+    static let gutterMin = 0.42
+    static let gutterMax = 0.58
+    static let gutterWidth = 0.14
+
+    /// Soru / paragraf metni olabilecek bir satır mı. Elenenler: üç harf / rakamdan azı olan kırıntılar (çizgi "l", "I" diye okunur); dikey kutular (piksel olarak
+    /// eninden uzun: sayfa kenarındaki dikey kitap adı, sütun çizgisi); sütunlar arasındaki orta oluğa sığan dar kutular. `aspect`: kare genişlik / yükseklik
+    /// (1920×1080'de 16/9): kutular 0–1 oranındadır, dikeylik piksel olarak ölçülür.
+    static func isBodyText(_ line: (text: String, box: CGRect), aspect: Double) -> Bool {
+        let letters = line.text.filter { ch in ch.isLetter || ch.isNumber }.count
+        guard letters >= 3 else { return false }
+        let w = Double(line.box.width)
+        let h = Double(line.box.height)
+        guard w > 0, h > 0 else { return false }
+        if h > w * aspect { return false }
+        if Double(line.box.minX) >= gutterMin && Double(line.box.maxX) <= gutterMax && w < gutterWidth { return false }
+        return true
+    }
+
     /// `lines`: Vision satırları, kutu başlangıcı SOL ALT, oranlar 0–1. `skipTop`: üstten bu orandaki bant (kameranın saat yazısı) yok sayılır.
-    static func make(_ lines: [(text: String, box: CGRect)], skipTop: Double = 0) -> ViewLines {
+    static func make(_ input: [(text: String, box: CGRect)], skipTop: Double = 0, aspect: Double = 16.0 / 9.0) -> ViewLines {
         var result = ViewLines()
+        // Sütunları ayıran dikey kitap adı / çizgi gibi soruyla ilgisi olmayan "satırlar" baştan elenir (kullanıcı bildirimi 2026-11-18: kadraj soruyu tam
+        // alıyordu ama koç "Metin kesik" diyordu)
+        let lines = input.filter { isBodyText($0, aspect: aspect) }
+        result.ignored = input.count - lines.count
         for line in lines where (2 - Double(line.box.maxY) - Double(line.box.minY)) / 2 >= skipTop {   // saat bandındaki yazı sayılmaz
             result.chars += line.text.filter { ch in ch.isLetter || ch.isNumber }.count
         }
@@ -78,6 +106,7 @@ struct ViewLines: Equatable {
         result.bottomComplete = blocks.bottom
         result.questions = blocks.questions
         result.nextQuestion = blocks.next
+        result.cutReason = blocks.reason
         var items: [Item] = []
         for line in lines {
             let top = 1 - Double(line.box.maxY)
@@ -117,10 +146,24 @@ struct ViewLines: Equatable {
     // MARK: Soru / paragraf bütünlüğü
 
     private static let numberStart = try? NSRegularExpression(pattern: "^\\s*(\\d{1,3})\\s?[\\.\\)]\\s*\\S", options: [])
-    private static let optionE = try? NSRegularExpression(pattern: "^\\s*\\(?E\\s?[\\)\\.]", options: [])
-    private static let optionAny = try? NSRegularExpression(pattern: "^\\s*\\(?[A-E]\\s?[\\)\\.]\\s*\\S", options: [])
+    private static let optionE = try? NSRegularExpression(pattern: "^\\s*\\(?E\\s?[\\)\\.\\]]", options: [])
+    private static let optionAny = try? NSRegularExpression(pattern: "^\\s*\\(?[A-E]\\s?[\\)\\.\\]]\\s*\\S", options: [])
+    /// Satırın içinde (başında ya da bir sözcük sonra) E şıkkı: iki sütunun satırı tek kutuda birleşmişse sağ sütunun E'si ortada kalır
+    private static let optionEInside = try? NSRegularExpression(pattern: "(^|\\s)\\(?E\\s?[\\)\\.\\]]\\s*\\S", options: [])
     /// Alt kenara bu kadar yakın biten (kadraj yüksekliğinin %12'si) yazının devamı kadrajın dışında olabilir
     private static let nearEdge = 0.12
+
+    /// Satır küçük harfle başlıyor: önceki satırın devamıdır (paragrafın başı kadrajın üstünde kalmış)
+    private static func startsLowercase(_ text: String) -> Bool {
+        guard let c = text.trimmingCharacters(in: .whitespacesAndNewlines).first else { return false }
+        return c.isLetter && c.isLowercase
+    }
+
+    /// Satır bir cümleyi bitiriyor (nokta, soru / ünlem işareti, iki nokta, üç nokta, kapanış tırnağı): paragrafın son satırı böyle biter
+    private static func endsSentence(_ text: String) -> Bool {
+        guard let c = text.trimmingCharacters(in: .whitespacesAndNewlines).last else { return true }
+        return ".?!…:;\"”’»)".contains(c)
+    }
 
     private static func matches(_ pattern: NSRegularExpression?, _ text: String) -> Bool {
         guard let pattern = pattern else { return false }
@@ -141,6 +184,8 @@ struct ViewLines: Equatable {
         var bottom = false
         var questions: [Int] = []
         var next: Int?
+        /// Üst / alt kesik sayıldıysa nedeni (günlük için)
+        var reason: String?
     }
 
     private struct Row {
@@ -148,8 +193,11 @@ struct ViewLines: Equatable {
         var top: Double
         var bottom: Double
         var midX: Double
+        var minX: Double
+        var maxX: Double
         var cutTop: Bool
         var cutBottom: Bool
+        var width: Double { return maxX - minX }
     }
 
     /// Kadrajın en üstündeki ve en altındaki soru / paragrafın KESİK olduğuna dair kanıt var mı (kullanıcı kararı 2026-11-18: bir sorunun ya da paragrafın metni
@@ -166,6 +214,7 @@ struct ViewLines: Equatable {
             let bottom = 1 - Double(line.box.minY)
             guard (top + bottom) / 2 >= skipTop, !words(line.text).isEmpty else { continue }
             rows.append(Row(text: line.text, top: top, bottom: bottom, midX: Double(line.box.midX),
+                            minX: Double(line.box.minX), maxX: Double(line.box.maxX),
                             cutTop: top < skipTop + edgeEpsilon, cutBottom: bottom > 1 - edgeEpsilon))
         }
         guard !rows.isEmpty else { return Blocks() }
@@ -173,16 +222,32 @@ struct ViewLines: Equatable {
         let left = rows.filter { $0.midX < 0.45 }
         let right = rows.filter { $0.midX > 0.55 }
         let columns: [[Row]]
+        // İki sütunda oluğu aşan geniş satırlar (yazı tanıma iki sütunun satırını tek kutuda birleştirebilir): sütunlara girmez, ama kenara dayanıyorsa kesiktir
+        // ve E şıkkını içerebilir. Dar orta satırlar (başlık, kitap adı) soru metni değildir: yok sayılır
+        var merged: [Row] = []
         if left.count >= 3 && right.count >= 3 {
             columns = [left, right]
+            merged = rows.filter { $0.midX >= 0.45 && $0.midX <= 0.55 && $0.width >= 0.5 }
         } else {
             columns = [rows]
         }
         var topOK = true
         var bottomOK = true
+        var reasons: [String] = []
         var done: [Int] = []
         var notDone: [Int] = []
-        for column in columns {
+        for row in merged {
+            if row.cutTop {
+                topOK = false
+                reasons.append("üst: oluğu aşan satır kenara dayalı")
+            }
+            if row.cutBottom {
+                bottomOK = false
+                reasons.append("alt: oluğu aşan satır kenara dayalı")
+            }
+        }
+        for (columnIndex, column) in columns.enumerated() {
+            let side = columns.count == 2 ? (columnIndex == 0 ? "sol " : "sağ ") : ""
             let ordered = column.sorted { $0.top < $1.top }
             guard let first = ordered.first else { continue }
             // Sütundaki numaralı sorular: E şıkkına kadar görünen ve numara satırı kenara dayanmayan soru "tam"dır, öteki yarım kalmıştır
@@ -190,7 +255,10 @@ struct ViewLines: Equatable {
             for (k, start) in starts.enumerated() {
                 let end = k + 1 < starts.count ? starts[k + 1].index : ordered.count
                 let slice = ordered[start.index..<end]
-                var complete = !ordered[start.index].cutTop && slice.contains { matches(optionE, $0.text) }
+                let fromTop = ordered[start.index].top
+                let toTop = k + 1 < starts.count ? ordered[starts[k + 1].index].top : Double.infinity
+                let mergedE = merged.contains { $0.top >= fromTop && $0.top < toTop && matches(optionEInside, $0.text) }
+                var complete = !ordered[start.index].cutTop && (slice.contains { matches(optionE, $0.text) } || mergedE)
                 if complete, k == starts.count - 1, let e = slice.firstIndex(where: { matches(optionE, $0.text) }) {
                     let after = ordered[(e + 1)...]
                     if after.count > 2 || ordered[e].cutBottom || after.contains(where: { $0.cutBottom }) { complete = false }
@@ -199,22 +267,57 @@ struct ViewLines: Equatable {
             }
             // KESİK KANITI (gerçek günlük 2026-11-18: yazı tanıma soru numarasını çoğu karede okumadığı için "numarayla başlamıyor = kesik" saymak her
             // görüntüyü reddetti): ÜST kesik yalnız ilk satır kenara dayanıyorsa ya da numarasız bir ŞIK satırıyla başlıyorsa (önceki sorunun kuyruğu)
-            if first.cutTop || (matches(optionAny, first.text) && !matches(numberStart, first.text)) { topOK = false }
+            if first.cutTop {
+                topOK = false
+                reasons.append("üst: \(side)ilk satır kenara dayalı")
+            } else if matches(optionAny, first.text) && !matches(numberStart, first.text) {
+                topOK = false
+                reasons.append("üst: \(side)şık satırıyla başlıyor")
+            } else if startsLowercase(first.text) {
+                // Paragraf başı: büyük harf ya da numarayla başlar; küçük harfle başlayan satır paragrafın ortasındandır
+                topOK = false
+                reasons.append("üst: \(side)önceki satırın devamı (küçük harfle başlıyor)")
+            }
             // ALT kesik: son satır kenara dayanıyorsa; ya da son soru numarasından sonra E şıkkı yokken yazı alt kenara yakın bitiyorsa (soru dibe uzanıyor);
             // ya da E'den sonra alt kenara yakın bitecek kadar çok satır varsa (başka bir paragraf başlamış). Numara hiç görünmüyorsa (paragraf, başlık)
             // kanıt yoktur: kesik sayılmaz
             guard let last = ordered.last else { continue }
             if last.cutBottom {
                 bottomOK = false
+                reasons.append("alt: \(side)son satır kenara dayalı")
             } else if last.bottom >= 1 - nearEdge, let n = ordered.lastIndex(where: { matches(numberStart, $0.text) }) {
                 if let e = ordered[(n + 1)...].firstIndex(where: { matches(optionE, $0.text) }) {
-                    if ordered[(e + 1)...].count > 2 { bottomOK = false }
-                } else {
+                    if ordered[(e + 1)...].count > 2 {
+                        bottomOK = false
+                        reasons.append("alt: \(side)E'den sonra çok satır var")
+                    }
+                } else if !merged.contains(where: { $0.top >= ordered[n].top && matches(optionEInside, $0.text) }) {
                     bottomOK = false
+                    reasons.append("alt: \(side)son soruda E şıkkı yok, yazı dibe uzanıyor")
+                }
+            }
+            // PARAGRAF SONU: numaralı soru yoksa ya da son sorunun E'sinden sonra paragraf başlamışsa, son satır DOLU uzunlukta (sütunun en uzun satırının %85'i) ve
+            // cümle bitirmiyorsa paragraf aşağıda sürüyordur; paragrafın son satırı genelde kısadır ve nokta ile biter
+            let paragraphTail: Bool
+            if let n = ordered.lastIndex(where: { matches(numberStart, $0.text) }) {
+                if let e = ordered[(n + 1)...].firstIndex(where: { matches(optionE, $0.text) }) {
+                    paragraphTail = ordered[(e + 1)...].count > 2
+                } else {
+                    paragraphTail = false
+                }
+            } else {
+                paragraphTail = true
+            }
+            if !last.cutBottom, paragraphTail, ordered.count >= 3, !matches(optionAny, last.text) {
+                let fullWidth = ordered.map { $0.width }.max() ?? 0
+                if last.width >= 0.85 * fullWidth && !endsSentence(last.text) {
+                    bottomOK = false
+                    reasons.append("alt: \(side)paragraf sürüyor (dolu satır, cümle bitmemiş)")
                 }
             }
         }
         var result = Blocks(top: topOK, bottom: bottomOK)
+        result.reason = reasons.isEmpty ? nil : reasons.joined(separator: "; ")
         // Numaralar yalnız ardışık ve artansa güvenilir (yazı tanıma bir rakamı yanlış okuyabilir; iki sütunda sol sütun önce gelir): yoksa söylenmez
         done.sort()
         let consecutive = zip(done, done.dropFirst()).allSatisfy { $1 == $0 + 1 }
@@ -289,7 +392,11 @@ enum ViewLinesReader {
             }
         }
         let skip = orientation == .normal ? GuidanceAnalyzer.skipTop : 0
-        return ViewLines.make(lines, skipTop: skip)
+        // Resim 90° çevriliyorsa Vision'a giden görüntünün genişlik / yüksekliği yer değiştirir (dikey kutuların ölçüsü buna bağlıdır)
+        var width = Double(CVPixelBufferGetWidth(pixelBuffer))
+        var height = Double(CVPixelBufferGetHeight(pixelBuffer))
+        if orientation == .right90 || orientation == .left90 { swap(&width, &height) }
+        return ViewLines.make(lines, skipTop: skip, aspect: height > 0 ? width / height : 16.0 / 9.0)
     }
 }
 

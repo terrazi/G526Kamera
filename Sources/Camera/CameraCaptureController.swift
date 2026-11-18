@@ -589,7 +589,7 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         if let text = coach.step(metrics: sample.metrics, lines: lines, time: sample.time, stillFor: sample.stillFor,
                                  guidance: coachConfig, sharpFloor: coachSharpFloor, expectEdges: coachExpectsEdges, firstReadable: true, wholeFirst: true) {
             // Düzgün kadrajda uygunluğun yanında sayfanın alındığı ve sıradakine geçilebileceği de söylenir (kullanıcı kararı 2026-11-18)
-            sayCoach(coach.lastWasGood ? FramingCoach.withCapture(text, capture: coach.lastCapture) : text)
+            sayCoach(coach.lastWasGood ? FramingCoach.withCapture(text, capture: coach.lastCapture) : text, detail: lines?.cutReason, ignored: lines?.ignored ?? 0)
         }
     }
 
@@ -614,9 +614,13 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
     }
 
     /// Koç cümlesi: "Uyarıları sesli söyle" ayarından bağımsızdır (kullanıcı toplu çekimde sesli konumlandırmayı kendisi açtı)
-    private func sayCoach(_ text: String) {
+    private func sayCoach(_ text: String, detail: String? = nil, ignored: Int = 0) {
         onSay?(text)
-        tlog("[kamera] koç: \(text)")
+        // "Metin kesik" gibi uyarıların nedeni ve elenen gürültü satırı sayısı günlüğe yazılır: cihazda yanlış uyarı çözümlenebilsin
+        var extra = ""
+        if let detail = detail { extra += " [neden: \(detail)]" }
+        if ignored > 0 { extra += " [elenen satır: \(ignored)]" }
+        tlog("[kamera] koç: \(text)\(extra)")
     }
 
     private func awaitTrigger(seconds: TimeInterval) async -> Trigger {

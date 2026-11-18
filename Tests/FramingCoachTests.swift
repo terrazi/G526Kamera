@@ -849,7 +849,7 @@ final class ViewCompletenessTests: XCTestCase {
     func testAParagraphWithoutNumbersHasNoEvidenceOfACutSoItIsNotQuestioned() {
         let rows = [line("Sabahın erken saatlerinde köyün meydanında toplanan insanlar", top: 0.15),
                     line("uzun bir süre konuşmadan öylece beklediler çünkü kimse", top: 0.25),
-                    line("ne söyleyeceğini tam olarak bilemiyordu ve hava soğuktu", top: 0.35)]
+                    line("ne söyleyeceğini tam olarak bilemiyordu ve hava soğuktu.", top: 0.35)]
         let v = ViewLines.make(rows)
         XCTAssertTrue(v.topComplete)
         XCTAssertTrue(v.bottomComplete)
@@ -879,6 +879,88 @@ final class ViewCompletenessTests: XCTestCase {
         XCTAssertFalse(ViewLines.make(reaching).bottomComplete, "13. soru E'ye varmadan dibe uzanıyor")
         let shortOfTheBottom = ViewLines.make(question(13, first: 0.10, upTo: "C"))
         XCTAssertTrue(shortOfTheBottom.bottomComplete, "E okunmadı ama yazı dibe uzanmıyor: kanıt yok")
+    }
+
+    func testAVerticalBookTitleBetweenTheColumnsIsNoiseAndNeverMakesTheQuestionLookCut() {
+        // Gerçek bildirim: sütunları ayıran dikey kitap adı tüm yüksekliği kaplayıp kenara dayanıyor, soru "kesik" sanılıyordu
+        let left = question(12, first: 0.05, x: 0.05, width: 0.4, step: 0.06) + question(14, first: 0.45, x: 0.05, width: 0.4, step: 0.06)
+        let right = question(13, first: 0.05, x: 0.55, width: 0.4, step: 0.06) + question(15, first: 0.45, x: 0.55, width: 0.4, step: 0.06)
+        let title = (text: "ÖSYM TYT Türkçe Soru Bankası", box: CGRect(x: 0.485, y: 0.0, width: 0.03, height: 1.0))
+        let v = ViewLines.make(left + right + [title])
+        XCTAssertEqual(v.ignored, 1, "Dikey kutu elendi")
+        XCTAssertTrue(v.topComplete)
+        XCTAssertTrue(v.bottomComplete)
+        XCTAssertFalse(v.topCut)
+        XCTAssertFalse(v.bottomCut, "Dikey yazı kenara dayansa da yarım satır sayılmaz")
+        XCTAssertNil(v.cutReason)
+    }
+
+    func testARuleReadAsLetterAndShortCrumbsInTheGutterAreIgnored() {
+        let rows = question(12, first: 0.12, x: 0.05, width: 0.4) + question(13, first: 0.12, x: 0.55, width: 0.4)
+        let crumbs = [(text: "l", box: CGRect(x: 0.49, y: 0.0, width: 0.01, height: 0.2)),
+                      (text: "TYT Türkçe", box: CGRect(x: 0.44, y: 0.5, width: 0.12, height: 0.03)),
+                      (text: "|I", box: CGRect(x: 0.5, y: 0.9, width: 0.005, height: 0.1))]
+        let v = ViewLines.make(rows + crumbs)
+        XCTAssertEqual(v.ignored, 3)
+        XCTAssertTrue(v.topComplete)
+        XCTAssertTrue(v.bottomComplete)
+        XCTAssertEqual(v.questions, [12, 13])
+    }
+
+    func testAnUprightLineIsNotMistakenForVerticalText() {
+        // Dar ama yatay kutu (kısa satır) elenmez
+        XCTAssertTrue(ViewLines.isBodyText((text: "12. Soru", box: CGRect(x: 0.1, y: 0.5, width: 0.06, height: 0.03)), aspect: 16.0 / 9.0))
+        XCTAssertFalse(ViewLines.isBodyText((text: "Kitap adı yazısı", box: CGRect(x: 0.1, y: 0.1, width: 0.03, height: 0.8)), aspect: 16.0 / 9.0))
+        // Dikeylik piksel olarak ölçülür: aynı kutu yatay karede yatay, dikey karede (9/16) dikey sayılır
+        let box = CGRect(x: 0.1, y: 0.1, width: 0.05, height: 0.06)
+        XCTAssertTrue(ViewLines.isBodyText((text: "Kısa satır metni", box: box), aspect: 16.0 / 9.0))
+        XCTAssertFalse(ViewLines.isBodyText((text: "Kısa satır metni", box: box), aspect: 9.0 / 16.0))
+    }
+
+    func testALineMergedAcrossTheGutterKeepsTheQuestionsCompleteAndIsCutOnlyAtTheEdge() {
+        // Yazı tanıma iki sütunun E satırlarını tek kutuda birleştirdi: sütun içinde E yok ama birleşik satırda var
+        var left = question(12, first: 0.05, x: 0.05, width: 0.4, step: 0.06)
+        var right = question(13, first: 0.05, x: 0.55, width: 0.4, step: 0.06)
+        left += question(14, first: 0.64, x: 0.05, width: 0.4, upTo: "D", step: 0.06)
+        right += question(15, first: 0.64, x: 0.55, width: 0.4, upTo: "D", step: 0.06)
+        let merged = line("E) soldaki beşinci seçenek metni burada E) sağdaki beşinci seçenek metni", top: 0.94, x: 0.05, width: 0.9)
+        let v = ViewLines.make(left + right + [merged])
+        XCTAssertTrue(v.bottomComplete, "E birleşik satırda var: kesik kanıtı yok")
+        // Birleşik satır kadraj kenarına dayanıyorsa gerçekten kesiktir
+        let cut = (text: merged.text, box: CGRect(x: 0.05, y: 0.0, width: 0.9, height: 0.03))
+        let w = ViewLines.make(left + right + [cut])
+        XCTAssertFalse(w.bottomComplete)
+        XCTAssertNotNil(w.cutReason)
+    }
+
+    func testTheCutReasonNamesTheEvidence() {
+        let v = ViewLines.make(question(12, first: 0.05) + question(13, first: 0.60, upTo: "C"))
+        XCTAssertFalse(v.bottomComplete)
+        XCTAssertEqual(v.cutReason, "alt: son soruda E şıkkı yok, yazı dibe uzanıyor")
+    }
+
+    func testAParagraphWhoseLastFullLineEndsWithoutAnEndIsStillRunningBelow() {
+        let first = line("Sabahın erken saatlerinde köyün meydanında toplanan insanlar", top: 0.15)
+        let second = line("uzun bir süre konuşmadan öylece beklediler çünkü kimse", top: 0.25)
+        let running = ViewLines.make([first, second, line("ne söyleyeceğini tam olarak bilemiyordu ve hava soğuktu", top: 0.35)])
+        XCTAssertTrue(running.topComplete)
+        XCTAssertFalse(running.bottomComplete, "Dolu satır cümleyi bitirmiyor: paragraf aşağıda sürüyor")
+        XCTAssertEqual(running.cutReason, "alt: paragraf sürüyor (dolu satır, cümle bitmemiş)")
+        let ended = ViewLines.make([first, second, line("ne söyleyeceğini tam olarak bilemiyordu ve hava soğuktu.", top: 0.35)])
+        XCTAssertTrue(ended.bottomComplete, "Cümle bitti: paragraf tam")
+        let short = ViewLines.make([first, second, line("hava soğuktu", top: 0.35, width: 0.3)])
+        XCTAssertTrue(short.bottomComplete, "Kısa son satır paragrafın bittiğini gösterir")
+    }
+
+    func testAViewThatStartsWithALowercaseLineStartsInTheMiddleOfAParagraph() {
+        let tail = [line("Ne söyleyeceğini tam olarak bilemiyordu ve hava soğuktu.", top: 0.20),
+                    line("Sonra içlerinden biri yavaşça öne çıkıp konuşmaya başladı.", top: 0.30),
+                    line("Herkes onu dikkatle dinledi ve kimse tek söz etmedi.", top: 0.40)]
+        let middle = ViewLines.make([line("uzun bir süre konuşmadan öylece beklediler çünkü kimse", top: 0.10)] + tail)
+        XCTAssertFalse(middle.topComplete)
+        XCTAssertEqual(middle.cutReason, "üst: önceki satırın devamı (küçük harfle başlıyor)")
+        let start = ViewLines.make([line("Uzun bir süre konuşmadan öylece beklediler çünkü kimse", top: 0.10)] + tail)
+        XCTAssertTrue(start.topComplete)
     }
 
     func testAtMostTwoContinuationLinesMayFollowTheEOption() {
