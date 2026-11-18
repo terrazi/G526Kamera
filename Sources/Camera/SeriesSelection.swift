@@ -225,6 +225,8 @@ struct SeriesItem {
     var damaged = false
     /// Ritim modunda karenin dilim numarası (bkz. `SeriesRhythm.slotIndex`); klasik seçimde nil
     var slot: Int?
+    /// Ritimde dilimin kaçıncı karesi (0 ya da 1)
+    var sub = 0
 
     /// Karede soru görünüyor mu: yazı okunabilir (yeterli harf) ya da bir şık harfi / soru numarası görülmüş. Okunan kareler her zaman alınır;
     /// öteki (zayıf) kareler yalnız okunan kare azsa en nete göre tamamlanır. Bozuk kare hiçbir zaman yararlı sayılmaz (karışık yazı Gemini'yi yanıltır).
@@ -344,7 +346,15 @@ struct SeriesPool {
     /// azsa kalan yer, okunamayan (zayıf) karelerin en netleriyle doldurulur: yazı tanıma zayıf kalmış olabilir, Gemini bu kareleri çoğu zaman okur.
     /// Hiç yararlı kare yoksa yalnız zayıf kareler gider. Çekim boş dönmez (kare varsa).
     func selected(minPages: Int = SeriesSelection.minPages) -> [SeriesItem] {
-        if keepAll { return items.sorted { $0.time < $1.time } }
+        if keepAll {
+            // Ritim: dilimde sağlam kare varsa o dilimin bozuk kareleri gitmez (karışık yazı Gemini'yi yanıltır); yalnız bozuk varsa tek seçenek odur
+            let cleanSlots = Set(items.filter { !$0.damaged }.compactMap { $0.slot })
+            let kept = items.filter { item in
+                guard item.damaged, let slot = item.slot else { return true }
+                return !cleanSlots.contains(slot)
+            }
+            return kept.sorted { $0.time < $1.time }
+        }
         let useful = items.filter { $0.isUseful }
         var chosen: [SeriesItem] = []
         if let best = useful.map({ $0.quality }).max() {
@@ -380,8 +390,9 @@ final class SeriesCollector {
         /// Kamera bu kareden önce kaç sn durgundu (bir önceki kareyle imza farkı `FramePipeline.stillDiff` altında kaldığı süre)
         var stillFor: TimeInterval = 0
         var still: Bool { return stillFor >= SeriesSelection.minStill }
-        /// Ritim modunda karenin dilim numarası
+        /// Ritim modunda karenin dilim numarası ve dilimin kaçıncı parçası
         var slot: Int?
+        var sub = 0
     }
 
     struct Stats: Equatable {
@@ -490,8 +501,10 @@ final class SeriesCollector {
             // Ritim: yalnız bir dilimin yerleşme süresinden sonraki kareleri sayılır (sayfa çevirirken ve yeni yere giderken gelenler atılır)
             if let slot = clock.shotSlot(at: time - start) {
                 frame.slot = slot.index
+                frame.sub = slot.sub
                 if frame.damaged { damagedSlots.insert(slot.index) } else { cleanSlots.insert(slot.index) }
-                closed = slots.offer(slot: slot.index, score: score, payload: frame)
+                // Her dilimin her parçasından (yerleşmeden sonraki sürenin yarısı) en net kare: anahtar zamanla artar
+                closed = slots.offer(slot: slot.index * SeriesRhythm.framesPerSlot + slot.sub, score: score, payload: frame)
             }
         } else {
             closed = windows.offer(time: time, sharpness: score, payload: frame)
@@ -555,7 +568,7 @@ final class SeriesCollector {
             return
         }
         let item = SeriesItem(time: frame.time, jpeg: rendered.data, width: rendered.width, height: rendered.height,
-                              sharpness: frame.sharpness, text: text, signature: frame.signature, damaged: damaged, slot: frame.slot)
+                              sharpness: frame.sharpness, text: text, signature: frame.signature, damaged: damaged, slot: frame.slot, sub: frame.sub)
         lock.lock()
         let mergedBefore = pool.merged
         pool.add(item)
@@ -564,7 +577,7 @@ final class SeriesCollector {
         let wasMerged = pool.merged > mergedBefore
         lock.unlock()
         let verdict = damaged ? "BOZUK kare (bloklaşmış), yalnız sağlam kare yetmezse alınır" : (item.isUseful ? "alındı" : "zayıf aday (okunamadı)")
-        let place = frame.slot.flatMap { SeriesRhythm.slot(index: $0) }.map { "\(SeriesRhythm.label(page: $0.page, part: $0.part)): " } ?? ""
+        let place = frame.slot.flatMap { SeriesRhythm.slot(index: $0) }.map { "\(SeriesRhythm.label(page: $0.page, part: $0.part, sub: frame.sub)): " } ?? ""
         log("[seri] \(place)\(stamp(frame.time)): \(wasMerged ? "aynı görünüm, en iyisi kaldı" : verdict) (net \(sharp), blok \(String(format: "%.2f", frame.blockiness)), durgun \(String(format: "%.1f", frame.stillFor)) sn, \(text.map { $0.summary } ?? "yazı tanıma yok"))")
         finishOne()
     }
@@ -597,7 +610,7 @@ final class SeriesCollector {
         var outcome = Outcome(items: chosen, readable: chosen.filter { $0.isUseful }.count, stats: result, questionNumbers: seen, diagnosis: diagnosis)
         if clock != nil {
             outcome.labels = chosen.map { item in
-                item.slot.flatMap { SeriesRhythm.slot(index: $0) }.map { SeriesRhythm.label(page: $0.page, part: $0.part) } ?? ""
+                item.slot.flatMap { SeriesRhythm.slot(index: $0) }.map { SeriesRhythm.label(page: $0.page, part: $0.part, sub: item.sub) } ?? ""
             }
         }
         return outcome

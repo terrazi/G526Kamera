@@ -63,6 +63,17 @@ final class SeriesRhythmTests: XCTestCase {
         XCTAssertEqual(cues, 5 * 6 - 1, "Beş sayfada 6 dilim komutu; son çevirme sessiz")
     }
 
+    func testEachSlotIsSplitInTwoAndTheLabelNamesTheFrame() {
+        XCTAssertEqual(SeriesRhythm.framesPerSlot, 2)
+        XCTAssertEqual(SeriesRhythm.framesPerSlot * SeriesRhythm.shotsPerPage * rhythm.pages(in: 125), 50, "Sayfa başına 10, beş sayfada 50 görüntü")
+        XCTAssertEqual(rhythm.shotSlot(at: 1.5)?.sub, 0)
+        XCTAssertEqual(rhythm.shotSlot(at: 2.74)?.sub, 0)
+        XCTAssertEqual(rhythm.shotSlot(at: 2.75)?.sub, 1)
+        XCTAssertEqual(rhythm.shotSlot(at: 3.9)?.sub, 1)
+        XCTAssertEqual(rhythm.shotSlot(at: 25 + 8 + 3.0)?.sub, 1)
+        XCTAssertEqual(SeriesRhythm.label(page: 2, part: .upperMiddle, sub: 1), "2. sayfa, orta üst, 2. kare")
+    }
+
     func testEveryFrameLabelNamesThePageAndThePart() {
         let first = SeriesRhythm.slotIndex(page: 1, part: .whole)
         let third = SeriesRhythm.slotIndex(page: 3, part: .lowerMiddle)
@@ -128,17 +139,17 @@ final class RhythmCollectorTests: XCTestCase {
         c.offer(buffer: buffer(id: 150 + page), time: t0 + base + 22, sharpness: 900, signature: signature)
     }
 
-    func testOnePhotoPerSlotIsKeptEvenWhenAllLookTheSameAndNothingIsSkipped() async {
+    func testTwoPhotosPerSlotAreKeptEvenWhenAllLookTheSameAndNothingIsSkipped() async {
         let t0 = 5000.0
         let c = collector(t0)
         feedPage(c, t0: t0, page: 1, firstID: 1)
         feedPage(c, t0: t0, page: 2, firstID: 11)
         let outcome = await c.finish()
-        XCTAssertEqual(outcome.items.count, 10, "Her sayfada 5 dilim, iki sayfada 10 fotoğraf; aynı görünüm diye birleşmez")
+        XCTAssertEqual(outcome.items.count, 20, "Her sayfada 5 dilim × 2 kare = 10 fotoğraf, iki sayfada 20; aynı görünüm diye birleşmez")
         XCTAssertEqual(outcome.stats.busySkipped, 0)
         XCTAssertEqual(outcome.stats.merged, 0)
-        // her dilimin en net sayılan karesi (ikincisi): 2, 4, 6, 8, 10, sonra 12, 14, …
-        XCTAssertEqual(outcome.items.map { $0.jpeg.first }, [2, 4, 6, 8, 10, 12, 14, 16, 18, 20].map { UInt8($0) })
+        // her dilimin her yarısından bir kare: 1, 2 (tüm sayfa), 3, 4 (üst), …
+        XCTAssertEqual(outcome.items.map { $0.jpeg.first }, (1...20).map { UInt8($0) })
     }
 
     func testFramesFromTheSettlingTimeAndThePageTurnNeverEnterThePdf() async {
@@ -156,8 +167,9 @@ final class RhythmCollectorTests: XCTestCase {
         feedPage(c, t0: t0, page: 2, firstID: 11)
         let outcome = await c.finish()
         XCTAssertEqual(outcome.labels.count, outcome.items.count)
-        XCTAssertEqual(Array(outcome.labels.prefix(6)), ["1. sayfa, tüm sayfa", "1. sayfa, üst", "1. sayfa, orta üst", "1. sayfa, orta alt", "1. sayfa, alt", "2. sayfa, tüm sayfa"])
-        XCTAssertEqual(outcome.labels.last, "2. sayfa, alt")
+        XCTAssertEqual(Array(outcome.labels.prefix(6)), ["1. sayfa, tüm sayfa, 1. kare", "1. sayfa, tüm sayfa, 2. kare", "1. sayfa, üst, 1. kare", "1. sayfa, üst, 2. kare",
+                                                         "1. sayfa, orta üst, 1. kare", "1. sayfa, orta üst, 2. kare"])
+        XCTAssertEqual(outcome.labels.last, "2. sayfa, alt, 2. kare")
     }
 
     func testASlotWithoutFramesIsSimplyMissingAndTheOthersKeepTheirLabels() async {
@@ -167,7 +179,22 @@ final class RhythmCollectorTests: XCTestCase {
         c.offer(buffer: buffer(id: 1), time: t0 + 4 + 2.0, sharpness: 100, signature: signature)
         c.offer(buffer: buffer(id: 2), time: t0 + 16 + 2.0, sharpness: 100, signature: signature)
         let outcome = await c.finish()
-        XCTAssertEqual(outcome.labels, ["1. sayfa, üst", "1. sayfa, alt"])
+        XCTAssertEqual(outcome.labels, ["1. sayfa, üst, 1. kare", "1. sayfa, alt, 1. kare"])
+    }
+
+    func testADamagedFrameIsDroppedWhenTheSameSlotHasACleanOneButKeptWhenNothingElseExists() async {
+        let t0 = 10000.0
+        let damaged = FrameAnalysis.damagedBlockiness + 0.5
+        let mixed = collector(t0)
+        mixed.offer(buffer: buffer(id: 1), time: t0 + 2.0, sharpness: 100, signature: signature, blockiness: 1.0)       // 1. yarı sağlam
+        mixed.offer(buffer: buffer(id: 2), time: t0 + 3.0, sharpness: 100, signature: signature, blockiness: damaged)   // 2. yarı yalnız bozuk
+        let a = await mixed.finish()
+        XCTAssertEqual(a.items.map { $0.jpeg.first }, [1], "Dilimde sağlam kare varsa bozuk olan gitmez")
+        let onlyBad = collector(t0)
+        onlyBad.offer(buffer: buffer(id: 3), time: t0 + 2.0, sharpness: 100, signature: signature, blockiness: damaged)
+        onlyBad.offer(buffer: buffer(id: 4), time: t0 + 3.0, sharpness: 100, signature: signature, blockiness: damaged)
+        let b = await onlyBad.finish()
+        XCTAssertEqual(b.items.count, 2, "Hiç sağlam kare yoksa bozuklar tek seçenektir (yeniden çekim hakkı bitmişse)")
     }
 
     func testTheClassicCollectorStaysUnlabeled() async {
@@ -187,6 +214,7 @@ final class RhythmPromptTests: XCTestCase {
         let text = GeminiAnswerService.pageText(expectedNumber: 1, hasVideo: false, extra: "", pages: 5, labels: labels)
         XCTAssertTrue(text.contains("1) 1. sayfa, tüm sayfa; 2) 1. sayfa, üst; 3) 1. sayfa, orta üst; 4) 1. sayfa, orta alt; 5) 1. sayfa, alt"), text)
         XCTAssertTrue(text.contains("Çekim ritimliydi"))
+        XCTAssertTrue(text.contains("İKİ kare"), "Her yerden iki kare vardır; aynı satır iki kez soru sayılmaz")
         XCTAssertTrue(text.contains("ETİKETLER YALNIZ İPUCUDUR"), "Kullanıcı sırayı şaşırabilir: Gemini etikete değil içeriğe güvenir")
         XCTAssertTrue(text.contains("içerikten bul"))
         XCTAssertTrue(GeminiAnswerService.pageSystemPrompt.contains("sırasız göstermiş olabilir"), "Sistem komutu da sırasız çekimi söyler")
@@ -328,6 +356,6 @@ final class DamagedSlotRetryTests: XCTestCase {
         let outcome = await c.finish()
         XCTAssertEqual(outcome.items.count, 1)
         XCTAssertEqual(outcome.items.first?.jpeg.first, 2, "Tekrarın temiz karesi bozuk olanın yerine geçer")
-        XCTAssertEqual(outcome.labels, ["1. sayfa, tüm sayfa"])
+        XCTAssertEqual(outcome.labels, ["1. sayfa, tüm sayfa, 1. kare"])
     }
 }

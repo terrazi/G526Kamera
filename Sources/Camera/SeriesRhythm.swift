@@ -44,6 +44,9 @@ struct SeriesRhythm: Equatable {
 
     /// Bir sayfadaki alınan dilim sayısı (tüm sayfa + dört parça)
     static let shotsPerPage = 5
+    /// Her diliminden alınan kare sayısı (kullanıcı kararı 2026-11-18: sayfa başına 10, beş sayfada 50 görüntü): dilimin yerleşmeden sonraki süresi bu kadar eşit
+    /// parçaya bölünür, her parçanın en net karesi alınır. Biri bulanık ya da bozuk çıkarsa öteki Gemini'ye yetişir
+    static let framesPerSlot = 2
     /// "Tüm sayfa" karesi PDF'e bu ölçek ve JPEG kalitesiyle girer: yalnız düzeni ve soru numaralarını göstermesi yeter
     static let wholeScale = 0.75
     static let wholeQuality = 0.75
@@ -81,10 +84,13 @@ struct SeriesRhythm: Equatable {
         return (page - 1) * Part.allCases.count + part.rawValue
     }
 
-    /// Bu anda gelen karenin ait olduğu dilim: yalnız alınan bir diliminin yerleşme süresinden sonraki kısmı; sayfa çevirmede ve yerleşirken nil
-    func shotSlot(at time: TimeInterval) -> (index: Int, page: Int, part: Part)? {
+    /// Bu anda gelen karenin ait olduğu dilim: yalnız alınan bir diliminin yerleşme süresinden sonraki kısmı; sayfa çevirmede ve yerleşirken nil.
+    /// `sub`: dilimin kaçıncı parçası (0'dan `framesPerSlot - 1`'e); her parçanın en net karesi alınır
+    func shotSlot(at time: TimeInterval) -> (index: Int, page: Int, part: Part, sub: Int)? {
         guard let p = position(at: time), p.part.isShot, p.into >= settleSeconds else { return nil }
-        return (SeriesRhythm.slotIndex(page: p.page, part: p.part), p.page, p.part)
+        let width = max(0.001, (slotSeconds - settleSeconds) / Double(SeriesRhythm.framesPerSlot))
+        let sub = min(max(0, Int((p.into - settleSeconds) / width)), SeriesRhythm.framesPerSlot - 1)
+        return (SeriesRhythm.slotIndex(page: p.page, part: p.part), p.page, p.part, sub)
     }
 
     /// Bu anda biten alınan dilim (anın ±0,05 sn'si içinde sonu olan); sayfa çevirme ve dilim ortası için nil. Bozuk kare tekrarı bu anda kararlaştırılır
@@ -104,6 +110,11 @@ struct SeriesRhythm: Equatable {
     /// Gemini'ye ve günlüğe giden kare etiketi: "2. sayfa, orta üst"
     static func label(page: Int, part: Part) -> String {
         return "\(page). sayfa, \(part.title)"
+    }
+
+    /// Dilimin kaçıncı karesi olduğuyla: "2. sayfa, orta üst, 2. kare"
+    static func label(page: Int, part: Part, sub: Int) -> String {
+        return label(page: page, part: part) + ", \(sub + 1). kare"
     }
 
     /// Dilim başında kulaklıktan söylenecek kısa komut. `time` bir dilimin başlangıcıysa (±0,05 sn) söylenir, değilse nil. Son sayfanın çevirme payı sessizdir
@@ -179,7 +190,7 @@ final class RhythmClock {
 
     func position(at time: TimeInterval) -> SeriesRhythm.Position? { return rhythm.position(at: rhythmTime(time)) }
 
-    func shotSlot(at time: TimeInterval) -> (index: Int, page: Int, part: SeriesRhythm.Part)? { return rhythm.shotSlot(at: rhythmTime(time)) }
+    func shotSlot(at time: TimeInterval) -> (index: Int, page: Int, part: SeriesRhythm.Part, sub: Int)? { return rhythm.shotSlot(at: rhythmTime(time)) }
 
     /// Her saniye çağrılır (`second`: çekim başından beri tam saniye). Biten dilimde yalnız bozuk kare varsa (`needsRetry`) dilim tekrarlanır ve saat geri alınır;
     /// yoksa dilim başı komutu verilir (varsa). `needsRetry` kilidin dışında çağrılır.

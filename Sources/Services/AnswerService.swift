@@ -174,7 +174,7 @@ final class GeminiAnswerService: Answering {
             // Ritimli çekim: her kitapçık sayfası belli bir sırayla çekildi (tüm sayfa, sonra yukarıdan aşağı dört parça); parçalar birbirini örter
             let list = labels.enumerated().map { "\($0.offset + 1)) \($0.element)" }.joined(separator: "; ")
             text += "\n\nÇekim ritimliydi: her kitapçık sayfası için önce sayfanın TAMAMI (küçük, yalnız düzeni ve soru numaralarını görmek için), sonra yukarıdan aşağı dört PARÇA çekildi; "
-                + "dört parça birbirini kısmen örter. Sayfanın tamamı haritadır, metni parçalardan oku; bir soru iki parçaya bölünmüşse parçaları ortak satırlardan birleştir ve soruyu bütün olarak çöz. "
+                + "dört parça birbirini kısmen örter. Her yerden İKİ kare vardır (\"1. kare\", \"2. kare\"): ikisi de aynı yeri gösterir, hangisi daha net ve bozuksuzsa onu oku, biri bulanık ya da bozuksa ötekiyle tamamla; aynı satırı iki kez soru sayma. Sayfanın tamamı haritadır, metni parçalardan oku; bir soru iki parçaya bölünmüşse parçaları ortak satırlardan birleştir ve soruyu bütün olarak çöz. "
                 + "PDF sayfalarının sırası ve programın verdiği etiketler: " + list + ". "
                 + "ETİKETLER YALNIZ İPUCUDUR, kesin değildir: kullanıcı parçaları sırasız ya da karışık göstermiş, bir parçayı atlamış ya da aynı yeri iki kez göstermiş olabilir; "
                 + "etiket ile içerik çelişirse İÇERİĞE güven. Her görüntünün hangi sayfaya ve sayfanın neresine ait olduğunu etiketten değil içerikten bul: sayfa numarası, soru numaraları, "
