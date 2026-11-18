@@ -412,6 +412,16 @@ final class FakeCamera: CameraCapturing {
     private(set) var seriesCalls: [(seconds: Int, limit: TimeInterval?)] = []
     var onSeries: (() -> Void)?
 
+    /// Otomatik başlatma: hazır bekleyen kameraya bakışların sırayla sonuçları (bitince nil: görüntü okunamadı) ve yapılan bakış sayısı
+    var sights: [QuestionSight?] = []
+    private(set) var spotCalls = 0
+
+    func spotQuestions() async -> QuestionSight? {
+        spotCalls += 1
+        guard isHeld, !sights.isEmpty else { return nil }
+        return sights.removeFirst()
+    }
+
     /// Toplu çekim hazır bekleyen bağlantıyı kullanır ve bitince kapatır (gerçek kamerada `captureSeries` bağlantıyı devralır)
     var holding: Bool { return isHeld }
     /// Doğruysa açık tutulan bağlantı kopmuştur (görüntü gelmiyor); yeni bir `holdOpen` bağlantıyı onarır

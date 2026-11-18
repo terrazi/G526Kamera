@@ -102,6 +102,7 @@ extension SessionViewModel {
             offerCamera = true
             return
         }
+        noteAutoRoundStarted()   // otomatik zamanlı başlatma: bundan sonraki taramalar "sıradaki soru + süre" düzeniyle yürür
         let attemptStart = deps.now()
         phase = .answering
         networkMayBeOnCamera = true
@@ -259,6 +260,7 @@ extension SessionViewModel {
         currentEntry = nil
         deps.journal.savePending(nil)
         tlog("[sayfa] sayfada soru bulunamadı")
+        haltAutoAfterEmptyPage()   // otomatik zamanlı başlatma: boş taramalar art arda sürmesin
         completeReadPage()
         phase = .speaking
         guard await speakNotice(Say.pageNoQuestion) else { return }

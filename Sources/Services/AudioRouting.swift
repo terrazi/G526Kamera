@@ -53,12 +53,18 @@ enum AudioRouting {
     /// sayılır. Kamera işi bitince kapanır (bkz. SessionViewModel+PhoneMic). Bluetooth mikrofon yine geçersizdir.
     static var phoneMicInUse = false
 
+    /// Kulaklık mikrofonu kipi (kullanıcı kararı 2026-11-19: yaka mikrofonu iptal; Bluetooth kulaklık mikrofonuyla birlikte hep açık kalır). Açıkken ses
+    /// oturumu Bluetooth'un görüşme profiliyle (HFP) kurulur: çıkış da giriş de kulaklıktır. Giriş ARANMAZ (`micOK` hep doğru): mikrofon çalışmasa da
+    /// oturum sürer; güvenliği çıkış belirler (HFP'de kulaklık yoksa ses telefona düşer ve `headphonesOK` yanlış olur). "Başlat"ta ayardan okunur
+    /// (`AppSettings.headsetMic`); sınamalarda kapalıdır.
+    static var headsetMicMode = false
+
     static func verdict(_ snapshot: RouteSnapshot) -> RouteVerdict {
         let outputs = snapshot.outputs
         let inputs = snapshot.inputs
         let headphonesOK = !outputs.isEmpty && outputs.allSatisfy { headphonePorts.contains($0) }
         let builtInOK = builtInMicAllowed || phoneMicInUse
-        let micOK = !inputs.isEmpty && inputs.allSatisfy { externalMicPorts.contains($0) || (builtInOK && $0 == .builtInMic) }
+        let micOK = headsetMicMode || (!inputs.isEmpty && inputs.allSatisfy { externalMicPorts.contains($0) || (builtInOK && $0 == .builtInMic) })
         return RouteVerdict(headphonesOK: headphonesOK, micOK: micOK, hint: hint(outputs: outputs, headphonesOK: headphonesOK))
     }
 
@@ -137,7 +143,11 @@ protocol AudioRouteProviding: AnyObject {
 @MainActor
 final class AudioSessionGuard: AudioRouteProviding {
     static let category: AVAudioSession.Category = .playAndRecord
-    static let options: AVAudioSession.CategoryOptions = [.allowBluetoothA2DP]
+    /// Kulaklık mikrofonu kipinde (bkz. `AudioRouting.headsetMicMode`) yalnız görüşme profili (HFP) açılır: giriş ve çıkış kulaklıktır. A2DP birlikte
+    /// verilmez (iOS ikisi varken HFP'yi seçer; tek seçenek yolun ne olacağını belirsiz bırakmaz). Eski düzende yalnız A2DP: giriş harici mikrofondur.
+    nonisolated static var options: AVAudioSession.CategoryOptions {
+        return AudioRouting.headsetMicMode ? [.allowBluetooth] : [.allowBluetoothA2DP]
+    }
 
     var onChange: (@MainActor (RouteSnapshot) -> Void)?
     var onInterruption: (@MainActor (Bool) -> Void)?
@@ -203,7 +213,8 @@ final class AudioSessionGuard: AudioRouteProviding {
         var inputs = route.inputs.map { $0.portType }
         var assumed = false
         if inputs.isEmpty, let preferred = session.preferredInput,
-           AudioRouting.externalMicPorts.contains(preferred.portType) || (builtInMode && preferred.portType == .builtInMic),
+           AudioRouting.externalMicPorts.contains(preferred.portType) || (builtInMode && preferred.portType == .builtInMic)
+            || (AudioRouting.headsetMicMode && preferred.portType == .bluetoothHFP),
            (session.availableInputs ?? []).contains(where: { $0.uid == preferred.uid }) {
             inputs = [preferred.portType]
             assumed = true
@@ -243,7 +254,29 @@ final class AudioSessionGuard: AudioRouteProviding {
         try? session.setPreferredInput(builtIn)
     }
 
+    /// Kulaklık mikrofonu kipi: giriş Bluetooth kulaklığın kendi mikrofonuna sabitlenir (yaka mikrofonu alıcısı takılı kalsa da kullanılmaz). Tercih verilmişse
+    /// ve mikrofon yoldaysa dokunmaz; yolda değilse en çok 3 kez yeniden verir (sınırsız yol bildirimi döngüsü olmasın).
+    private func preferHeadsetInput() {
+        guard let headset = (session.availableInputs ?? []).first(where: { $0.portType == .bluetoothHFP }) else { return }
+        if session.preferredInput?.uid == headset.uid {
+            if session.currentRoute.inputs.contains(where: { $0.uid == headset.uid }) {
+                reassertCount = 0
+                return
+            }
+            guard reassertCount < 3 else { return }
+            reassertCount += 1
+            try? session.setPreferredInput(nil)
+            try? session.setPreferredInput(headset)
+            return
+        }
+        try? session.setPreferredInput(headset)
+    }
+
     func preferExternalInput() {
+        if AudioRouting.headsetMicMode {
+            preferHeadsetInput()
+            return
+        }
         if builtInMode {
             preferBuiltInInput()
             return

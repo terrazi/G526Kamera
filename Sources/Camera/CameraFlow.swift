@@ -172,6 +172,9 @@ protocol CameraCapturing: AnyObject {
     /// Kadraj kontrolü: hazır bekleyen (canlı) kamerada kısa süre taze kareler toplanır, en netinin yazısı okunur. Çekim yapılmaz, bağlantı açık kalır.
     /// Kamera hazır değilse nil.
     func checkView() async -> ViewCheck?
+    /// Otomatik başlatma (kullanıcı kararı 2026-11-19): hazır bekleyen (canlı) kamerada kısa süre taze kareler toplanır, en netinin yazısı güçlü kiple okunur ve
+    /// karede görünen SORULAR bulunur (numara + metin + en az iki şık; bkz. `QuestionSpotter`). Çekim yapılmaz, bağlantı açık kalır. Kamera hazır değilse nil.
+    func spotQuestions() async -> QuestionSight?
     /// Son oturumun akış ölçümü özeti ("akış 1: 1920×1080, 9.0 kare/sn, 2100 kbit/sn …"); yeterli kare gelmediyse nil. Kamera kapanınca yazılır.
     var lastStreamSummary: String? { get }
     /// Akış denemesi (kullanıcı kararı 2026-11-17): 1, 2 ve 3 numaralı akışlar sırayla açılır, her birinin gerçek boyutu / kare hızı / bitrate'i ölçülür ve
@@ -205,6 +208,7 @@ extension CameraCapturing {
     func holdOpen(connectLimit: TimeInterval?) async -> Result<Void, CameraFailure> { return .failure(.unavailable) }
     func holdOpen() async -> Result<Void, CameraFailure> { return await holdOpen(connectLimit: nil) }
     func closeHeld() {}
+    func spotQuestions() async -> QuestionSight? { return nil }
     var holding: Bool { return false }
     var holdingLive: Bool { return holding }
     var phoneHasWiFiAddress: Bool { return true }

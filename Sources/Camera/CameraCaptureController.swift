@@ -882,6 +882,22 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         return check
     }
 
+    /// Otomatik başlatma için canlı görüntüye bakış: yaklaşık 0,7 sn taze kare toplanır, en neti güçlü yazı okumayla okunur (≈ 0,2 sn)
+    func spotQuestions() async -> QuestionSight? {
+        guard holdingLive, !shooting else { return nil }
+        let from = ProcessInfo.processInfo.systemUptime
+        try? await Task.sleep(nanoseconds: 700_000_000)
+        guard holdingLive, !shooting else { return nil }
+        let fresh = pipeline.store.frames(from: from, to: ProcessInfo.processInfo.systemUptime + 1)
+        guard let best = fresh.max(by: { $0.sharpness < $1.sharpness }) else { return QuestionSight() }
+        let orientation = settings.imageOrientation
+        let buffer = best.buffer
+        let lines = await Task.detached(priority: .userInitiated) { QuestionSpotReader.read(buffer, orientation: orientation) }.value
+        var sight = QuestionSpotter.sight(lines ?? [])
+        sight.frames = fresh.count
+        return sight
+    }
+
     private func runSeries(seconds: Int, connectLimit: TimeInterval?, trial: Bool) async -> Result<PageSeries, CameraFailure> {
         // "Başla" denince kamera zaten bağlı ve görüntü akıyorsa (hazır bekleme, bkz. `holdOpen`) o bağlantı kullanılır: yeniden bağlanma yoktur,
         // süre hemen başlar. Bağlantı kopmuşsa kapatılır ve baştan bağlanılır.

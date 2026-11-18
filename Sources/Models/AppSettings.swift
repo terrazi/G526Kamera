@@ -19,6 +19,7 @@ final class AppSettings: ObservableObject {
         static let dimScreen = "v3.dimScreen"
         static let spokenWarnings = "v3.spokenWarnings"
         static let instantDetection = "v3.instantDetection"
+        static let headsetMic = "v4.headsetMic"
         static let shortcutOutput = "v3.shortcutOutput"
         static let phoneVoice = "v3.phoneVoice"
         static let shortcutPresetApplied = "v3.shortcutPresetApplied"
@@ -86,6 +87,17 @@ final class AppSettings: ObservableObject {
         defaults.set(true, forKey: "v4.internetPresetMoved")
         let current = internetShortcut.trimmed
         if current.isEmpty || current == PresetShortcut.legacyInternet { internetShortcut = PresetShortcut.internet }
+    }
+
+    /// Gemini profilleri yeni düzene bir kez çevrilir (kullanıcı kararı 2026-11-19: ücretli modeller, en iyisi en başta; 4. model ücretsiz ve orta halli).
+    /// Ücretli anahtar ilk üç yuvaya kopyalanır (dosya bir kez yüklenir, üç model de görür). Ücretli anahtar kayıtlı değilse dokunulmaz ve bir sonraki
+    /// açılışta yeniden bakılır. Sonrasında kullanıcı Ayarlar'dan dilediği gibi değiştirebilir.
+    func applyPaidLineupOnce() {
+        guard !defaults.bool(forKey: "v4.paidLineupApplied") else { return }
+        guard let lineup = GeminiProfiles.paidLineup(profiles: geminiProfiles, keys: geminiKeys) else { return }
+        defaults.set(true, forKey: "v4.paidLineupApplied")
+        geminiProfiles = lineup.profiles
+        geminiKeys = lineup.keys
     }
 
     /// Tekrar modunda iki cevap arasındaki boşluk (sn): Ayarlar'daki kaydırıcının aralığı
@@ -231,6 +243,13 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(spokenWarnings, forKey: Key.spokenWarnings) }
     }
 
+    /// Ses girişi Bluetooth kulaklığın kendi mikrofonudur (kullanıcı kararı 2026-11-19: yaka mikrofonu iptal; kulaklık mikrofonuyla birlikte hep açık kalır,
+    /// komutlar verilebilir). Açıkken yaka mikrofonu aranmaz ve "yaka mikrofonu yok" diye duraklatılmaz; telefonun hoparlörü de mikrofonu da kullanılmaz.
+    /// Kapalıyken eski düzen: giriş yalnız Lightning'e takılı harici mikrofondur. "Başlat"ta uygulanır (bkz. `AudioRouting.headsetMicMode`).
+    @Published var headsetMic: Bool {
+        didSet { defaults.set(headsetMic, forKey: Key.headsetMic) }
+    }
+
     /// Anında tespit: mikrofon ve internet için yarım saniyelik nabız; kopmayı bildirim beklemeden yakalar ve hemen onarır
     @Published var instantDetection: Bool {
         didSet { defaults.set(instantDetection, forKey: Key.instantDetection) }
@@ -326,6 +345,7 @@ final class AppSettings: ObservableObject {
         closeGuard = defaults.object(forKey: Key.closeGuard) as? Bool ?? true
         spokenWarnings = defaults.object(forKey: Key.spokenWarnings) as? Bool ?? true
         instantDetection = defaults.object(forKey: Key.instantDetection) as? Bool ?? true
+        headsetMic = defaults.object(forKey: Key.headsetMic) as? Bool ?? true
         phoneVoiceID = defaults.string(forKey: Key.phoneVoice) ?? ""
         let saved = defaults.data(forKey: Key.geminiProfiles).flatMap { try? JSONDecoder().decode([GeminiProfile].self, from: $0) }
         geminiProfiles = GeminiProfiles.migrated(saved ?? [])

@@ -276,6 +276,11 @@ extension SessionViewModel {
         await deps.sleep(Timing.silenceProbe)
         guard !Task.isCancelled, phase == .listening else { return }
         let micAlive = deps.listener.isRunning && (deps.listener.secondsSinceAudio ?? .infinity) < 3
+        if !micAlive, micOptional, AudioRouting.verdict(deps.route.snapshot()).isSafe {
+            noteMicUnavailable("sessizlik yoklamasında ses tamponu gelmedi")   // mikrofon zorunlu değil: Kestirme çalışmaz, otomatik tetikler sürer
+            watchdog.kick()
+            return
+        }
         guard micAlive, AudioRouting.verdict(deps.route.snapshot()).isSafe else {
             await runRecovery(.hardware, force: true)
             return
@@ -383,6 +388,23 @@ extension SessionViewModel {
         // İptal edilmiş bir görev (kuyruğa alınmış ama başlamadan başka bir olay işi iptal etmiş) hiçbir şeye dokunmaz:
         // yoksa aşamayı "onarılıyor" yapıp çıkar ve oturum kalıcı olarak takılırdı
         guard canRecover, !Task.isCancelled else { return }
+        // Kesinti 3 saati aştıysa yeniden denemeler durur (kullanıcı kararı 2026-11-19): bir kez söylenir, Kestirme çalışmaz; aygıt kendiliğinden dönerse
+        // (ses yolu ya da ağ bildirimi) oturum kaldığı yerden sürer
+        if outageStart == nil { longOutageNoted = false }
+        if reason != .recognition, SessionViewModel.outageTooLong(since: outageStart, now: deps.now()) {
+            if !longOutageNoted {
+                longOutageNoted = true
+                tlog("[onarım] \(reason.title): kesinti \(Int(Timing.outageLimit / 3600)) saati aştı; yeniden denemeler durduruldu")
+                warn("onarim", Say.outageGaveUp)
+            }
+            if reason == .network {
+                phase = .paused(.noConnection)
+                statusNote = ""
+            } else {
+                enterHardwarePause(AudioRouting.verdict(deps.route.snapshot()), grace: nil)
+            }
+            return
+        }
         // Toplu çekim: kamera hazır bekliyor, internet BİLEREK kapalı (hücresel kapalı, telefon kameranın Wi-Fi'sinde). Onarım Kestirmeleri kamerayı koparırdı
         if reason == .network, seriesCameraReady { return }
         // Çevrimdışı çekim kipi (SIM kart yok): dinlerken internetin olmaması sınavı durdurmaz; çekimler birikir, internet gelince gönderilir
@@ -440,13 +462,30 @@ extension SessionViewModel {
         case .network:
             phase = .paused(.noConnection)
             statusNote = ""
-            retryTask = deps.scheduler.after(Timing.connectionRetry) { [weak self] in self?.retryConnection() }
+            retryTask = deps.scheduler.after(nextRetryGap) { [weak self] in self?.retryConnection() }
         case .hardware:
             // Başarısız onarımdan sonra sıfırlamayı hemen değil, daha seyrek dene (her 20 sn'de uçak modu açıp kapatılmasın)
-            enterHardwarePause(AudioRouting.verdict(deps.route.snapshot()), grace: Timing.connectionRetry)
+            enterHardwarePause(AudioRouting.verdict(deps.route.snapshot()), grace: nextRetryGap)
         case .recognition:
             break   // tanıma onarımı Kestirme kullanmaz; kendi akışı (repairRecognizer) bekleme ve yeniden denemeyi yönetir
         }
+    }
+
+    /// Başarısız onarım turundan sonra bir sonraki tura kadar beklenen süre: kesintinin ilk 10 dakikasında `connectionRetry`, sonrasında `slowRetry`
+    /// (3 saat boyunca dakikada bir Kestirme çalıştırmak telefonu yorar)
+    var nextRetryGap: TimeInterval {
+        return SessionViewModel.retryGap(since: outageStart, now: deps.now())
+    }
+
+    nonisolated static func retryGap(since start: Date?, now: Date) -> TimeInterval {
+        guard let start = start, now.timeIntervalSince(start) >= Timing.fastRetryWindow else { return Timing.connectionRetry }
+        return Timing.slowRetry
+    }
+
+    /// Kesinti `Timing.outageLimit` süresini (3 saat) aştı mı
+    nonisolated static func outageTooLong(since start: Date?, now: Date) -> Bool {
+        guard let start = start else { return false }
+        return now.timeIntervalSince(start) >= Timing.outageLimit
     }
 
     private func retryConnection() {

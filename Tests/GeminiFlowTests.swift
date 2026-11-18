@@ -14,7 +14,7 @@ func testProfiles(_ key: String = "AIza-TEST", count: Int = 3) -> () -> [GeminiP
     return {
         (1...count).map {
             GeminiProfileInfo(slot: $0, name: GeminiProfiles.defaultNames[$0 - 1], model: GeminiProfiles.defaultModels[$0 - 1],
-                              key: key.trimmed, free: GeminiProfiles.defaultFree[$0 - 1])
+                              key: key.trimmed, free: $0 < 4)   // sınamalarda ilk üç profil ücretsiz, dördüncü ücretli anahtardır (varsayılan düzenden bağımsız)
         }
     }
 }
@@ -440,7 +440,7 @@ final class GeminiProfileChainTests: XCTestCase {
         return {
             keys.enumerated().map { i, key in
                 GeminiProfileInfo(slot: i + 1, name: GeminiProfiles.defaultNames[i], model: GeminiProfiles.defaultModels[i],
-                                  key: key, free: GeminiProfiles.defaultFree[i])
+                                  key: key, free: i < 3)
             }
         }
     }

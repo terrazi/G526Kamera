@@ -78,7 +78,13 @@ extension SessionViewModel {
         routeVerdict = verdict
         refreshInputs()
         setCheck("kulaklik", "Bluetooth kulaklık", ok: verdict.headphonesOK, detail: verdict.headphonesOK ? "bağlı" : verdict.hint)
-        setCheck("mikrofon", "Yaka mikrofonu", ok: verdict.micOK, detail: verdict.micOK ? "bağlı" : "Lightning girişindeki mikrofon alıcısı görünmüyor")
+        if AudioRouting.headsetMicMode {
+            // Kulaklık mikrofonu kipi: mikrofon zorunlu değildir (otomatik tetikler mikrofona bağlı değil); yolda görünüp görünmediği bilgi olarak yazılır
+            let inRoute = deps.route.snapshot().inputs.contains(.bluetoothHFP)
+            setCheck("mikrofon", "Kulaklık mikrofonu", ok: true, detail: inRoute ? "bağlı" : "henüz yolda görünmüyor (dinleme açılınca girer)")
+        } else {
+            setCheck("mikrofon", "Yaka mikrofonu", ok: verdict.micOK, detail: verdict.micOK ? "bağlı" : "Lightning girişindeki mikrofon alıcısı görünmüyor")
+        }
         guard verdict.isSafe else {
             // Sessizce bekle: ses yolu düzelince kontrol baştan yapılır
             pendingStart = true

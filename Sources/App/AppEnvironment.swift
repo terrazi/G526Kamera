@@ -31,6 +31,7 @@ final class AppEnvironment: ObservableObject {
         settings.applyShortcutPresetOnce()
         settings.applyCameraPresetOnce(camera: camera)
         settings.moveInternetPresetOnce()
+        settings.applyPaidLineupOnce()
         let folderStore = FolderStore()
         let recorder = PCMRecorder()
         let route = AudioSessionGuard()
@@ -53,7 +54,7 @@ final class AppEnvironment: ObservableObject {
         shortcuts.onReturned = { journal.setAway(false) }
         let answering = GeminiAnswerService(profiles: { settings.geminiProfileInfos() })
         answering.largeFiles = { camera.largeUpload }
-        let deps = SessionDependencies(route: route,
+        var deps = SessionDependencies(route: route,
                                        listener: listener,
                                        recorder: recorder,
                                        speaker: speaker,
@@ -72,6 +73,9 @@ final class AppEnvironment: ObservableObject {
                                        system: SystemHealthMonitor(),
                                        volume: SystemVolumeControl(),
                                        journal: journal)
+        // Bağlantı onarımı (kullanıcı kararı 2026-11-19): kopan aygıtın kestirmesi 3 kez, açılmazsa uçak modu kestirmesi; tur başarısızsa beklenip
+        // yeniden denenir (en çok 3 saat; bkz. `SessionViewModel.Timing.outageLimit`)
+        deps.recoveryConfig = RecoveryCoordinator.Config(maxCycles: 1, deviceTries: 3)
         let session = SessionViewModel(settings: settings, deps: deps, camera: camera)
         self.settings = settings
         self.camera = camera

@@ -13,6 +13,14 @@ final class RecoveryCoordinator {
         /// Üç adım da başarısız olursa yeni tur öncesi bekleme ve en çok tur sayısı
         var cycleGap: TimeInterval = 20
         var maxCycles = 3
+        /// Kopan aygıtın kendi kestirmesi (hücresel, Bluetooth) sıfırlamadan önce bu kadar kez denenir (kullanıcı kararı 2026-11-19: 3 denemede
+        /// açılmazsa uçak modu kestirmesi çalışır). Varsayılan 1: eski düzen; uygulama 3 verir (bkz. `AppEnvironment`).
+        var deviceTries = 1
+    }
+
+    /// Adımların çalışma sırası: sıfırlama dışındaki her adım `deviceTries` kez art arda denenir, sıfırlama bir kez
+    nonisolated static func expanded(_ steps: [RecoveryStep], deviceTries: Int) -> [RecoveryStep] {
+        return steps.flatMap { step in step == .reset ? [step] : Array(repeating: step, count: max(1, deviceTries)) }
     }
 
     enum Result: Equatable {
@@ -58,8 +66,9 @@ final class RecoveryCoordinator {
         // Kendiliğinden düzelmiş olabilir: boşuna kestirme çalıştırma
         if !force, await verify(reason) { return .recovered(by: nil) }
 
-        let steps = reason.steps(force: force).filter { !name($0).trimmed.isEmpty }
-        guard !steps.isEmpty else { return .notConfigured }
+        let configured = reason.steps(force: force).filter { !name($0).trimmed.isEmpty }
+        guard !configured.isEmpty else { return .notConfigured }
+        let steps = RecoveryCoordinator.expanded(configured, deviceTries: config.deviceTries)
 
         for cycle in 1...max(1, config.maxCycles) {
             for step in steps {

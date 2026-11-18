@@ -34,11 +34,22 @@ enum GeminiProfiles {
         return slot == 1 ? "geminiKeyV3" : "geminiKeyV3_\(slot)"
     }
 
-    /// Varsayılan sıra = performans sırası: 1. Gemini 3.6 Flash, 2. Gemini 3.5 Flash-Lite, 3. Gemini 3.1 Flash-Lite
-    /// (üçü de ücretsiz katman anahtarı), 4. ücretli Gemini 3.1 Flash-Lite (kendi ücretli anahtarı, en sonda).
-    static let defaultNames = ["Gemini 3.6 Flash", "Gemini 3.5 Flash-Lite", "Gemini 3.1 Flash-Lite", "Ücretli Gemini 3.1 Flash-Lite"]
-    static let defaultModels = ["gemini-3.6-flash", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3.1-flash-lite"]
-    static let defaultFree = [true, true, true, false]
+    /// Varsayılan sıra (kullanıcı kararı 2026-11-19: ücretli modeller kullanılır, en iyisi en başta; 4. model ücretsiz, orta halli bir modeldir):
+    /// 1. Gemini 4 Argon, 2. Gemini 3.8 Flash, 3. Gemini 3.7 Flash (üçü de ücretli anahtar), 4. Gemini 3.5 Flash-Lite (ücretsiz anahtar).
+    /// Model adları Google'ın model sayfasındaki uç adlarıdır (2026-11-19'da bakıldı). Bir model anahtarda açık değilse zincir sıradakine geçer.
+    static let defaultNames = ["Ücretli Gemini 4 Argon", "Ücretli Gemini 3.8 Flash", "Ücretli Gemini 3.7 Flash", "Gemini 3.5 Flash-Lite"]
+    static let defaultModels = ["gemini-4-argon", "gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.5-flash-lite"]
+    static let defaultFree = [false, false, false, true]
+
+    /// Kayıtlı profilleri yeni düzene çevirir (bir kez; bkz. `AppSettings.applyPaidLineupOnce`): ücretli anahtar ilk üç yuvaya, bir ücretsiz anahtar
+    /// dördüncü yuvaya yazılır, modeller ve adlar varsayılana döner. Ücretli anahtar yoksa hiçbir şeye dokunulmaz (nil).
+    static func paidLineup(profiles: [GeminiProfile], keys: [String]) -> (profiles: [GeminiProfile], keys: [String])? {
+        let pairs = Array(zip(profiles, keys))
+        guard let paid = pairs.first(where: { !$0.0.free && !$0.1.trimmed.isEmpty })?.1.trimmed else { return nil }
+        let free = pairs.first(where: { $0.0.free && !$0.1.trimmed.isEmpty })?.1.trimmed ?? ""
+        let lineup = defaults()
+        return (lineup, lineup.map { $0.free ? free : paid })
+    }
 
     static func defaults() -> [GeminiProfile] {
         return (0..<slotCount).map { GeminiProfile(name: defaultNames[$0], model: defaultModels[$0], free: defaultFree[$0]) }

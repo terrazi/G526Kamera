@@ -10,6 +10,11 @@ import Foundation
 extension SessionViewModel {
     /// Çekimden ÖNCE çağrılır. Ayar kapalıysa hemen true döner. Dönen false: duyuru kesildi ya da iş iptal edildi (çekim başlamaz).
     func muteLapelForCapture() async -> Bool {
+        // Kulaklık mikrofonu kipi (kullanıcı kararı 2026-11-19): yaka mikrofonu yoktur, kulaklık mikrofonuyla birlikte tarama boyunca açık kalır
+        guard !AudioRouting.headsetMicMode else {
+            tlog("[ses yolu] çekim başlıyor (kulaklık mikrofonu kipi; giriş değiştirilmedi): \(AudioRouting.describe(deps.route.snapshot()))")
+            return true
+        }
         // Telefonun mikrofonu OTOMATİK seçilir (Ayarlar > Kamera; bkz. SessionViewModel+PhoneMic); yaka mikrofonunu el ile kapatma uyarısı ayrı bir ayardır
         await enterPhoneMic()
         guard cameraSettings.muteLapel else {
@@ -42,6 +47,7 @@ extension SessionViewModel {
     /// Çekim bitti (internet ve kulaklık geldi): yaka mikrofonunun açılması istenir. Telefonun kendi mikrofonu bu çağrının sonunda yeniden geçersiz olur;
     /// alıcı ses yoluna girmemişse en çok `Timing.lapelBackWait` sn beklenir (yoksa dinlemeye geçerken "mikrofon yok" duraklaması çıkardı).
     func releaseLapelAfterCapture() async {
+        guard !AudioRouting.headsetMicMode else { return }
         guard AudioRouting.builtInMicAllowed else {
             leavePhoneMic()   // yalnız otomatik geçiş varsa: söylenecek bir şey yok, giriş yaka mikrofonuna döner
             return

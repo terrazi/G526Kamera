@@ -44,6 +44,13 @@ final class CameraSettings: ObservableObject {
         static let muteLapel = "muteLapel"
         static let lapelOffSeconds = "lapelOffSeconds"
         static let phoneMic = "phoneMic"
+        static let autoStart = "autoStart"
+        static let autoOpenEnabled = "autoOpenEnabled"
+        static let autoOpenMinutes = "autoOpenMinutes"
+        static let autoLatestEnabled = "autoLatestEnabled"
+        static let autoLatestMinutes = "autoLatestMinutes"
+        static let autoFirstNumber = "autoFirstNumber"
+        static let autoQuestionCount = "autoQuestionCount"
         static let videoToGemini = "videoToGemini"
         static let videoQuestion = "videoQuestion"
         static let videoHighRes = "videoHighRes"
@@ -163,6 +170,41 @@ final class CameraSettings: ObservableObject {
     /// mikrofonu duyar. Yaka mikrofonu alıcısı takılı kalır ve vericinin 2,4 GHz radyosu açık kalır (iOS bunları kapatmaya izin vermez); yalnız ses girişi
     /// değişir. Toplu çekim için geçerlidir.
     @Published var phoneMic: Bool { didSet { defaults.set(phoneMic, forKey: Key.phoneMic) } }
+    /// Otomatik zamanlı başlatma (kullanıcı kararı 2026-11-19; bkz. `AutoStart`): toplu çekimde program "Başla" komutunu beklemek zorunda kalmaz. Kamera açılış
+    /// saatinde açılır, "Kameranın başlaması için lütfen 1. soruyu okutunuz" denir; tarama, kamera o soruyu görünce (5'ten sayım), en geç başlama saati gelince
+    /// (15'ten sayım) ya da "Başla" denince başlar. Sonraki taramalar sırayla, aralarında 15 sn boşlukla kendiliğinden sürer. Kapalıyken eski düzen: her tarama "Başla" ile başlar.
+    @Published var autoStart: Bool { didSet { defaults.set(autoStart, forKey: Key.autoStart) } }
+    /// Kamera açılış saati kullanılsın mı (kapalıysa kamera "Başlat"tan hemen sonra açılır) ve saati (gün içi dakika)
+    @Published var autoOpenEnabled: Bool { didSet { defaults.set(autoOpenEnabled, forKey: Key.autoOpenEnabled) } }
+    @Published var autoOpenMinutes: Int { didSet { defaults.set(autoOpenMinutes, forKey: Key.autoOpenMinutes) } }
+    /// En geç başlama saati kullanılsın mı (kapalıysa ilk tarama yalnız soru görülünce ya da "Başla" ile başlar) ve saati (gün içi dakika)
+    @Published var autoLatestEnabled: Bool { didSet { defaults.set(autoLatestEnabled, forKey: Key.autoLatestEnabled) } }
+    @Published var autoLatestMinutes: Int { didSet { defaults.set(autoLatestMinutes, forKey: Key.autoLatestMinutes) } }
+    /// İlk taramayı başlatacak soru numarası (varsayılan 1)
+    @Published var autoFirstNumber: Int { didSet { defaults.set(autoFirstNumber, forKey: Key.autoFirstNumber) } }
+    /// Sınavın soru sayısı (kullanıcı kararı 2026-11-19): bu sayıya ulaşılınca yeni tarama istenmez; bütün cevaplar baştan, numara + şehir kodlu şık +
+    /// doğru cevap metniyle, aralarında 2 sn boşlukla okunur ve sınav kapanır. 0: belirtilmedi (taramalar "Testi bitir" denene kadar sürer).
+    @Published var autoQuestionCount: Int { didSet { defaults.set(autoQuestionCount, forKey: Key.autoQuestionCount) } }
+    static let defaultAutoOpenMinutes = 9 * 60
+    static let defaultAutoLatestMinutes = 9 * 60 + 5
+
+    /// DatePicker için: saat bugünün bir saati olarak
+    var autoOpenTime: Date {
+        get { return CameraSettings.date(minutes: autoOpenMinutes) }
+        set { autoOpenMinutes = CameraSettings.minutes(of: newValue) }
+    }
+    var autoLatestTime: Date {
+        get { return CameraSettings.date(minutes: autoLatestMinutes) }
+        set { autoLatestMinutes = CameraSettings.minutes(of: newValue) }
+    }
+    static func date(minutes: Int) -> Date {
+        let clamped = min(max(minutes, 0), 24 * 60 - 1)
+        return Calendar.current.date(bySettingHour: clamped / 60, minute: clamped % 60, second: 0, of: Date()) ?? Date()
+    }
+    static func minutes(of date: Date) -> Int {
+        let parts = Calendar.current.dateComponents([.hour, .minute], from: date)
+        return (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
+    }
     /// Kamera "Başla"dan SONRA açılır (kullanıcı kararı 2026-11-17: hazır beklerken açık tutulan kamera bağlantısı yaka mikrofonunun parazitiyle kopuyordu).
     /// "Başla" denince: "Kamera açılıyor", kameraya geçilir, görüntü gelince "Başladı" ve süre başlar. Ayarlarda GÖRÜNMEZ ve kaydedilmez: eski hazır bekleme
     /// düzeni (açılışta kameraya bağlanıp "Başla"yı beklemek) kullanıcı isteğiyle kapalıdır; yalnız sınamalar onu denemek için kapatır.
@@ -251,6 +293,17 @@ final class CameraSettings: ObservableObject {
             CameraSettings.clampSeconds(defaults.object(forKey: Key.seriesSeconds) as? Int,
                                         range: CameraSettings.seriesSecondsRange, fallback: CameraSettings.defaultSeriesSeconds))
         phoneMic = defaults.object(forKey: Key.phoneMic) as? Bool ?? true
+        autoStart = defaults.object(forKey: Key.autoStart) as? Bool ?? true
+        autoOpenEnabled = defaults.object(forKey: Key.autoOpenEnabled) as? Bool ?? false
+        autoOpenMinutes = CameraSettings.clampSeconds(defaults.object(forKey: Key.autoOpenMinutes) as? Int,
+                                                      range: 0...(24 * 60 - 1), fallback: CameraSettings.defaultAutoOpenMinutes)
+        autoLatestEnabled = defaults.object(forKey: Key.autoLatestEnabled) as? Bool ?? false
+        autoLatestMinutes = CameraSettings.clampSeconds(defaults.object(forKey: Key.autoLatestMinutes) as? Int,
+                                                        range: 0...(24 * 60 - 1), fallback: CameraSettings.defaultAutoLatestMinutes)
+        autoFirstNumber = CameraSettings.clampSeconds(defaults.object(forKey: Key.autoFirstNumber) as? Int,
+                                                      range: AutoStart.firstNumberRange, fallback: 1)
+        autoQuestionCount = CameraSettings.clampSeconds(defaults.object(forKey: Key.autoQuestionCount) as? Int,
+                                                        range: AutoStart.questionCountRange, fallback: 0)
         muteLapel = defaults.object(forKey: Key.muteLapel) as? Bool ?? false
         lapelOffSeconds = CameraSettings.clampSeconds(defaults.object(forKey: Key.lapelOffSeconds) as? Int,
                                                       range: CameraSettings.lapelOffSecondsRange, fallback: CameraSettings.defaultLapelOffSeconds)

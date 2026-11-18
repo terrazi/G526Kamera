@@ -475,6 +475,57 @@ enum Say {
     static func readySeries(seconds: Int) -> String {
         return seriesReadyLead + " " + askCameraSeries(seconds: seconds)
     }
+    // MARK: Otomatik zamanlı başlatma (kullanıcı kararı 2026-11-19; bkz. `AutoStart`)
+
+    /// "Başlat"tan sonra, kamera açılış saati beklenirken (kamera kapalı, internet açık)
+    static func autoWaiting(clock: String) -> String {
+        return "Kamera açılış saati \(clock). Beklemeden başlatmak için başla deyin."
+    }
+    /// Kamera açıldı: taramanın başlaması için beklenen soru istenir. `number` nil: hangi sorunun sırada olduğu bilinmiyor
+    static func autoShow(number: Int?) -> String {
+        guard let number = number else { return "Kameranın başlaması için lütfen sıradaki soruyu okutunuz." }
+        return "Kameranın başlaması için lütfen \(number). soruyu okutunuz."
+    }
+    /// Sonraki taramalar (kullanıcı kararı 2026-11-19): iki sayfalık taramalar arasında 15 sn boşluk; son 5 saniyede beşten bire sayılır. `next`: cevabı
+    /// alınmamış en küçük soru numarası (kullanıcı hangi sayfayı hazırlayacağını bilsin)
+    static func autoGap(seconds: Int, next: Int) -> String {
+        return "Yeni iki sayfalık tarama \(seconds) saniye sonra başlayacak. Sıradaki soru \(next)."
+    }
+    /// Beklenen soru görüldü: ardından beşten bire sayılır ve "Başladı." denir
+    static func autoSeen(number: Int) -> String {
+        return "\(number). soru görüldü."
+    }
+    /// Geri sayım sürerken soru kadrajdan çıktı: süre başlamaz, soru yeniden beklenir
+    static func autoLost(number: Int?) -> String {
+        guard let number = number else { return "Soru görünmüyor. Lütfen yeniden okutunuz." }
+        return "\(number). soru görünmüyor. Lütfen yeniden okutunuz."
+    }
+    /// En geç başlama saati (ya da sonraki taramalarda bekleme süresi) doldu: ardından on beşten bire sayılır
+    static func autoDeadline(number: Int?, seconds: Int) -> String {
+        let lead = number.map { "\($0). soru okutulmadı." } ?? "Soru okutulmadı."
+        return lead + " Kayıt \(seconds) saniye sonra kendiliğinden başlayacak."
+    }
+    /// Karede soru görünüyor ama numarası okunamadı: ardından beşten bire sayılır
+    static func autoUnread(number: Int?) -> String {
+        guard let number = number else { return "Sorunun numarası okunamadı, yine de başlıyorum." }
+        return "\(number). soru okunamadı, yine de başlıyorum."
+    }
+    /// Taramada hiç soru bulunamadı: döngü durur (boş taramalar art arda sürmesin), "Başla" beklenir
+    static let autoHalted = "Bu taramada soru görülmedi; otomatik tarama durdu. Devam etmek için başla deyin."
+    /// Geri sayım sözcüğü (1–20): "On beş", "On dört" … "Bir"
+    static func countWord(_ n: Int) -> String {
+        let ones = ["", "Bir", "İki", "Üç", "Dört", "Beş", "Altı", "Yedi", "Sekiz", "Dokuz"]
+        switch n {
+        case 1...9: return ones[n]
+        case 10: return "On"
+        case 11...19: return "On " + ones[n - 10].lowercased(with: Locale(identifier: "tr_TR"))
+        case 20: return "Yirmi"
+        default: return String(n)
+        }
+    }
+    /// Bağlantı 3 saattir kurulamadı (kullanıcı kararı 2026-11-19): yeniden denemeler durur
+    static let outageGaveUp = "Bağlantı üç saattir kurulamadı; yeniden denemeler durduruldu. Aygıtları kontrol edip programı yeniden başlatın."
+
     /// Hazır beklerken "hayır" ya da "vazgeç" denirse: oturum başlamaz, beklemeye devam edilir
     static let seriesWaiting = "Tamam. Hazır olduğunuzda başla deyin."
     /// Kamera önceden bağlıyken "Başla" denince: süre bu cümle bitince başlar

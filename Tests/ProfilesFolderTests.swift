@@ -23,7 +23,7 @@ final class GeminiProfileSettingsTests: XCTestCase {
         XCTAssertEqual(s.geminiProfiles.count, GeminiProfiles.slotCount)
         XCTAssertEqual(s.geminiProfiles.map { $0.name }, GeminiProfiles.defaultNames)
         XCTAssertEqual(s.geminiProfiles.map { $0.model }, GeminiProfiles.defaultModels)
-        XCTAssertEqual(s.geminiProfiles.map { $0.free }, [true, true, true, false], "Dördüncü profil ücretli anahtardır")
+        XCTAssertEqual(s.geminiProfiles.map { $0.free }, [false, false, false, true], "İlk üç profil ücretli anahtardır, dördüncü ücretsiz")
         XCTAssertEqual(s.geminiKeys, ["", "", "", ""])
         XCTAssertTrue(s.usableGeminiProfiles.isEmpty, "Anahtarsız profil kullanılmaz")
         XCTAssertEqual(s.primaryKey, "")
@@ -65,9 +65,9 @@ final class GeminiProfileSettingsTests: XCTestCase {
     func testTheFreeFlagAndTheSlowFreeModelsCanBePushedBelowThePaidOne() {
         let s = AppSettings(defaults: makeDefaults())
         s.geminiKeys = ["A", "B", "C", "D"]
-        // Ücretli profil (4.) en üste alınır: önce o sorulur
+        // Dördüncü profil (varsayılan düzende ücretsiz olan) en üste alınır: önce o sorulur
         for index in [3, 2, 1] { XCTAssertTrue(s.moveGeminiProfile(at: index, by: -1)) }
-        XCTAssertEqual(s.geminiProfiles.map { $0.free }, [false, true, true, true])
+        XCTAssertEqual(s.geminiProfiles.map { $0.free }, [true, false, false, false])
         XCTAssertEqual(s.primaryKey, "D", "Bağlantı yoklaması da en üstteki profilin anahtarını kullanır")
     }
 

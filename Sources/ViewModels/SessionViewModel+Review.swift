@@ -119,6 +119,7 @@ extension SessionViewModel {
         let files = sessionFolder.map { deps.library.answerFiles(in: $0) } ?? []
         guard !files.isEmpty else {
             tlog("[tekrar] okunacak cevap dosyası yok")
+            auto.finishing = false
             if origin == .endRequest {
                 await finishEnding()
             } else {
@@ -135,7 +136,8 @@ extension SessionViewModel {
         watchedTicks = 0
         statusNote = "Cevap 1/\(files.count) okunuyor"
         tlog("[tekrar] \(files.count) cevap okunuyor (test sürüyor)")
-        replay.start(files: files, gap: settings.replayGap)
+        // Soru sayısına ulaşılıp sınav kendiliğinden kapanırken iki cevap arasında 2 sn boşluk verilir (kullanıcı kararı 2026-11-19)
+        replay.start(files: files, gap: auto.finishing ? AutoStart.finalGap : settings.replayGap)
     }
 
     /// Okuma yarıda bırakılır (kesinti, iptal, oturum sonu): çalan dosya susar, bitiş bildirimleri yok sayılır
@@ -151,6 +153,12 @@ extension SessionViewModel {
         statusNote = ""
         let report = Say.reviewReport(count: reviewCount, failed: failed)
         tlog("[tekrar] \(report)")
+        if auto.finishing {
+            // Soru sayısına ulaşılmıştı: menü sorulmaz, sınav kapanır
+            auto.finishing = false
+            work = Task { [weak self] in await self?.finishEnding(prefix: report + " ") }
+            return
+        }
         work = Task { [weak self] in await self?.promptReviewMenu(report) }
     }
 
@@ -160,6 +168,7 @@ extension SessionViewModel {
         statusNote = ""
         tlog("[tekrar] okuma durdu: \(reason)")
         warn("tekrar", reason)
+        auto.finishing = false   // okuma çalınamadı: sınav kendiliğinden kapanmaz, ne yapılacağı sorulur
         work = Task { [weak self] in await self?.promptReviewMenu(Say.reviewStopped) }
     }
 

@@ -14,7 +14,8 @@ extension SessionViewModel {
     /// Toplu çekimde kamera "Başla"dan SONRA açılır (kullanıcı kararı 2026-11-17): açılışta kameraya bağlanılmaz, talimat beklenirken kamera kapalıdır, internet
     /// açıktır; "Başla" denince kameraya geçilir (bkz. `runPageSeries`). Hazır bekleme düzeni (aşağıdaki `seriesCameraReady`) bu durumda hiç kurulmaz.
     var seriesAfterGo: Bool {
-        return cameraSettings.pageSeries && cameraSettings.cameraAfterGo
+        // Otomatik zamanlı başlatmada da kamera açılışta bağlanmaz: saatinde (ya da "Başla" denince) açılır
+        return cameraSettings.pageSeries && (cameraSettings.cameraAfterGo || cameraSettings.autoStart)
     }
 
     /// Kamera "Başla"dan sonra açıldı, süre başlamadan önce: "Hazır olun." ve `Timing.seriesCountdown` sn geri sayım (saniyede bir sayı). Dönen false: duyuru kesildi
@@ -66,6 +67,22 @@ extension SessionViewModel {
         guard !name.isEmpty else {
             tlog("[kamera] toplu çekim: Bluetooth kestirmesi yazılı değil; kulaklık kameraya geçişte düşerse kendiliğinden dönmesi beklenir")
             return
+        }
+        // "Kameraya Geç" uçak modunu kullanmıyorsa kulaklık düşmez (kullanıcı kararı 2026-11-19: kulaklık hep açık kalsın): yol kısa süre izlenir,
+        // kulaklık yerindeyse Bluetooth kapatılıp açılmaz (boşuna koparılmaz)
+        // Yalnız kulaklık mikrofonu kipinde bakılır (eski düzende kestirme her zaman çalışır)
+        if AudioRouting.headsetMicMode {
+            var checked = 0.0
+            var stillThere = AudioRouting.verdict(deps.route.snapshot()).headphonesOK
+            while stillThere, checked < Timing.headsetDropWatch, !Task.isCancelled {
+                await deps.sleep(0.5)
+                checked += 0.5
+                stillThere = AudioRouting.verdict(deps.route.snapshot()).headphonesOK
+            }
+            if stillThere {
+                tlog("[kamera] toplu çekim: kameraya geçildi, kulaklık yerinde; Bluetooth kestirmesi çalıştırılmadı")
+                return
+            }
         }
         let note = statusNote
         statusNote = "Kulaklık için Bluetooth açılıyor"

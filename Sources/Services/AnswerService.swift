@@ -512,6 +512,9 @@ final class GeminiAnswerService: Answering {
         var lastError = GeminiError("Gemini cevap vermedi.", .error)
         var trail: [String] = []
         var failedNames: [String] = []
+        /// Cevap vermeyen profillerden en az biri ücretsiz anahtardı: "ücretli modelden cevaplandı" yalnız ücretsizden ücretliye düşülünce söylenir
+        /// (varsayılan düzende ilk üç profil zaten ücretlidir; aralarındaki geçiş haber değildir)
+        var failedFree = false
         var round = 0
         roundLoop: while round < maxRounds && !active.isEmpty {
             try Task.checkCancellation()
@@ -545,7 +548,7 @@ final class GeminiAnswerService: Answering {
                     // Günlükte yalnız model adı görünürse aynı modeli kullanan iki profil (ücretsiz / ücretli anahtar) ayırt edilemiyor: profil de yazılır
                     tlog("[gemini] cevap \(profile.slot). sıradaki profilden geldi: \(profile.name) (\(profile.model), \(profile.free ? "ücretsiz" : "ücretli") anahtar)")
                     let note = trail.isEmpty ? "" : "Cevap \(profile.name) modelinden geldi: " + trail.joined(separator: " ")
-                    let spokenNote = (!profile.free && !failedNames.isEmpty) ? Say.paidModelUsed : ""
+                    let spokenNote = (!profile.free && failedFree) ? Say.paidModelUsed : ""
                     return parsedList.map { parsed in
                         GeminiReply(number: parsed.number, option: parsed.option, text: parsed.text,
                                     spoken: parsed.spoken, model: profile.model, note: note, spokenNote: spokenNote)
@@ -554,6 +557,7 @@ final class GeminiAnswerService: Answering {
                     let turn = round == 0 ? "" : "[\(round + 1). tur] "
                     trail.append("\(turn)\(profile.name) (\(profile.model)): \(error.message)")
                     failedNames.append(profile.name)
+                    if profile.free { failedFree = true }
                     lastError = error
                     guard GeminiAnswerService.fallbackWorthy(error) else { break roundLoop }
                     rest(profile, after: error)

@@ -12,7 +12,7 @@ extension SessionViewModel {
     /// Telefonun mikrofonu kipini açar (ayar kapalıysa ya da zaten açıksa hiçbir şey yapmaz). Önce bayrak açılır: yol değişince telefonun mikrofonu geçerli
     /// sayılsın ve "yaka mikrofonu yok" diye duraklatılmasın. Yola girene kadar en çok `Timing.phoneMicSettle` sn beklenir.
     func enterPhoneMic() async {
-        guard cameraSettings.phoneMic else { return }
+        guard cameraSettings.phoneMic, !AudioRouting.headsetMicMode else { return }
         let wasLeaving = phoneMicSettleTask != nil
         phoneMicSettleTask?.cancel()
         phoneMicSettleTask = nil

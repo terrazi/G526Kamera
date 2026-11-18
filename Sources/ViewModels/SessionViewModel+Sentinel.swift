@@ -55,6 +55,7 @@ extension SessionViewModel {
     /// Dinlerken mikrofon tamponları kesildiyse hemen onarır
     func watchMic() {
         guard phase == .listening else { return }
+        if auto.micGivenUp, micOptional { return }   // mikrofon zorunlu değil ve çalışmıyor: onarım döngüsüne girilmez, otomatik tetikler sürer
         if micCooldown > 0 {
             micCooldown -= 1
             return
@@ -80,6 +81,11 @@ extension SessionViewModel {
         if counted { micHealCount += 1 }
         micCooldown = Timing.micWarmupTicks
         tlog("[tespit] mikrofon: \(reason) (\(micHealCount). onarım)")
+        if micHealCount > Timing.maxMicHeals, micOptional {
+            micHealCount = 0
+            noteMicUnavailable(reason)
+            return
+        }
         if micHealCount > Timing.maxMicHeals {
             micHealCount = 0
             let headphonesFine = AudioRouting.verdict(deps.route.snapshot()).headphonesOK

@@ -139,6 +139,13 @@ final class SessionViewModel: ObservableObject {
         static let phoneMicSettle: TimeInterval = 2
         /// Toplu çekimde kamera açıldıktan sonra süre başlamadan önceki sesli geri sayım (sn; kullanıcı kararı 2026-11-18: kullanıcı hazır olmayabilir)
         static let seriesCountdown = 5
+        /// "Kameraya Geç" kestirmesinden sonra kulaklığın düşüp düşmediği bu kadar sn izlenir (düşmediyse Bluetooth kestirmesi çalışmaz)
+        static let headsetDropWatch: TimeInterval = 2
+        /// Bağlantı (internet, kulaklık) bu kadar süredir kurulamıyorsa yeniden denemeler durur (kullanıcı kararı 2026-11-19: 3 saat)
+        static let outageLimit: TimeInterval = 3 * 3600
+        /// Kesintinin ilk bu kadar süresinde denemeler arası `connectionRetry`, sonrasında `slowRetry` beklenir
+        static let fastRetryWindow: TimeInterval = 600
+        static let slowRetry: TimeInterval = 300
         /// Oturum başında kameraya bağlanırken en çok kaç onarım yapılacağı (ilk deneme + 2 onarım = 3 deneme); olmazsa sesle devam edilir ve kamera yoklanır
         static let cameraStartRepairs = 2
         /// Oturum başında ilk bağlanma denemesinde en çok beklenen süre (sn): "Kameraya geç" telefonu kameranın ağına sokamadıysa 40 sn beklenmez,
@@ -450,6 +457,11 @@ final class SessionViewModel: ObservableObject {
     var sendingShotID: UUID?
     var sendingShot: Bool { return sendingShotID != nil }
     var cameraReminders = 0
+    /// Otomatik zamanlı başlatmanın durumu ve kapının zamanlayıcısı (bkz. SessionViewModel+AutoStart)
+    var auto = AutoStart.State()
+    var autoTimer: ScheduledTask?
+    /// Bağlantı 3 saattir kurulamadı: yeniden denemeler durduruldu ve bu söylendi (kesinti bitince sıfırlanır)
+    var longOutageNoted = false
     var cameraGuidanceSpeaking = false
     /// Kadraj koçunun, önceki cümle sürerken gelen EN SON cümlesi: önceki bitince söylenir (eskiyse atılır). Üst üste konuşma olmaz, yeni sayfanın cümlesi kaybolmaz.
     var coachPending: (text: String, time: Date)?
@@ -542,6 +554,11 @@ final class SessionViewModel: ObservableObject {
     func start() {
         guard phase.isAtRest else { return }
         resetSession()
+        // Ses girişi kipi "Başlat"ta ayardan okunur (kullanıcı kararı 2026-11-19: yaka mikrofonu yerine kulaklığın kendi mikrofonu)
+        AudioRouting.headsetMicMode = settings.headsetMic
+        disarmAutoGate()
+        auto = AutoStart.State()
+        longOutageNoted = false
         restorePendingShots()   // önceki çalışmadan telefonda kalan çekimler (gönderilmemişler) sırayla gönderilmek üzere geri yüklenir
         // Beklenmedik kapanmadan sonra ortak paragraf yazı olarak (kamerayla çekildiyse fotoğraf olarak) geri gelir: ses kaydı ve video bellekteydi, kayboldu
         if let saved = resume?.passage, !saved.remaining.isEmpty {
@@ -772,6 +789,8 @@ final class SessionViewModel: ObservableObject {
         outputQuick = nil
         answerWait?.cancel()
         answerWait = nil
+        autoTimer?.cancel()
+        autoTimer = nil
     }
 
     // MARK: Uyarılar ve kontrol maddeleri
@@ -871,13 +890,24 @@ final class SessionViewModel: ObservableObject {
         }
         listenMode = mode
         deps.listener.hints = ListenHints.hints(for: mode)
+        var micStarted = true
         do {
             try deps.listener.start()
         } catch {
-            listenerFailed(error)
-            return
+            // Otomatik başlatmada mikrofon zorunlu değil (kulaklık mikrofonu açılamadıysa tarama saatle ve soru görülünce başlar); kalıcı eksik (izin,
+            // dikte modeli) yine oturumu kapatır
+            let permanent = (error as? ListenerError).map { !$0.isHardware } ?? false
+            guard micOptional, !permanent else {
+                listenerFailed(error)
+                return
+            }
+            micStarted = false
+            noteMicUnavailable(error.localizedDescription)
         }
-        clearWarning("mikrofon")
+        if micStarted {
+            clearWarning("mikrofon")
+            auto.micGivenUp = false
+        }
         phase = .listening
         quietTicks = 0   // sessizlik buradan sayılır (bkz. `SessionViewModel+Narration`)
         speechSealed = true   // kullanıcı söz sırasında: bundan sonra söylenen ilk anons yeni bir "son söz" grubu başlatır
@@ -889,6 +919,7 @@ final class SessionViewModel: ObservableObject {
         watchdog.kick()
         if !deps.network.isOnline { scheduleOfflineCheck() }
         batteryChanged()
+        if mode == .cameraChoice { armAutoGate() }   // otomatik zamanlı başlatma: saat ve kamera bu dinleme sürerken izlenir
     }
 
     func handleSpeech(_ event: SpeechEvent) {
@@ -937,6 +968,8 @@ final class SessionViewModel: ObservableObject {
             // Dinleme yeniden kurulur; art arda olursa (healMic) Kestirmelere başvurulur.
             if settings.instantDetection, AudioRouting.verdict(deps.route.snapshot()).isSafe {
                 healMic("konuşma tanıma hata verdi")
+            } else if micOptional {
+                noteMicUnavailable(message)
             } else {
                 work = Task { [weak self] in await self?.runRecovery(.hardware, force: true) }
             }
@@ -963,6 +996,10 @@ final class SessionViewModel: ObservableObject {
     func listenerFailed(_ error: Error) {
         if let known = error as? ListenerError, !known.isHardware {
             stopForGood(known.localizedDescription)
+            return
+        }
+        if micOptional {
+            noteMicUnavailable(error.localizedDescription)   // mikrofon zorunlu değil: Kestirme çalışmaz, otomatik tetikler sürer
             return
         }
         warn("mikrofon", error.localizedDescription)

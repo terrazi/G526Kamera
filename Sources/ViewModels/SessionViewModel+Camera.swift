@@ -60,6 +60,13 @@ extension SessionViewModel {
             guard await prepareSeriesCamera() else { return }
             guard !Task.isCancelled else { offerCamera = true; return }
         }
+        // Otomatik zamanlı başlatma (kullanıcı kararı 2026-11-19): "Başla" talimatı yerine saat söylenir ya da kamera açılıp beklenen soru istenir;
+        // "Başla" yine dinlenir (bkz. SessionViewModel+AutoStart)
+        if autoMode {
+            guard !Task.isCancelled else { offerCamera = true; return }
+            await autoAnnounce()
+            return
+        }
         guard !Task.isCancelled, await speakNotice(cameraAskText(again: again)) else {
             offerCamera = true
             return
@@ -86,6 +93,11 @@ extension SessionViewModel {
     func fireCameraChoice() {
         guard let reply = heardCameraChoice(log: true) else { return }
         clearWarning("duyulan")
+        disarmAutoGate()   // sesli "Başla" otomatik tetiklerden önce geldi: kapı kapanır
+        if reply == .yes, auto.halted {
+            auto.halted = false
+            tlog("[otomatik] \"Başla\" duyuldu: otomatik tarama yeniden açıldı")
+        }
         closeListening()
         listenMode = .question   // seçim yapıldı: bundan sonraki bir onarım "evet / hayır"ı yeniden sormaz, bekleyen çekimi gönderir
         phase = .speaking
@@ -127,6 +139,13 @@ extension SessionViewModel {
     /// Cevap gelmedi ya da anlaşılmadı: soru toplam `Timing.cameraAsks` kez sorulur. Sessizlikte "Cevap vermediniz, ikinci (üçüncü) defa
     /// soruyorum", anlaşılmayan sözde "Anlayamadım" denir. Sonuncuda da cevap gelmezse kameraya kendiliğinden geçilir ("evet" denmiş gibi).
     func cameraChoiceSilence(unclear: Bool = false) async {
+        // Otomatik zamanlı başlatmada sessizlik beklenen durumdur: hatırlatma söylenmez, saat ve kamera izlenmeye devam eder
+        if autoMode {
+            cameraReminders = 0
+            clearWarning("duyulan")
+            beginListening(mode: .cameraChoice)
+            return
+        }
         cameraReminders += 1
         if cameraReminders < Timing.cameraAsks {
             let text = cameraAskReminder(unclear: unclear, attempt: cameraReminders + 1)

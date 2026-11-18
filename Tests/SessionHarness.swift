@@ -80,6 +80,11 @@ final class SessionHarness {
         AudioRouting.phoneMicInUse = false
         // Kamera "Başla"dan sonra açılır (varsayılan); sınamaların çoğu eski hazır bekleme düzeniyle yazıldı, burada kapalı, yeni düzenin sınamaları açar
         cameraSettings.cameraAfterGo = false
+        // Otomatik zamanlı başlatma ve kulaklık mikrofonu kipi varsayılan olarak açıktır (kullanıcı kararı 2026-11-19); eski sınamaların "Başla" akışı ve
+        // yaka mikrofonu kuralları bozulmasın diye burada kapalı, onlara ait sınamalar açar
+        cameraSettings.autoStart = false
+        settings.headsetMic = false
+        AudioRouting.headsetMicMode = false
         cameraSettings.seriesGuidance = false   // sesli konumlandırma varsayılan açık; çekim sırasında konuşma yalnız ilgili sınamalarda açılır
         cameraSettings.guidanceDescribe = false
         if shortcutNames {
