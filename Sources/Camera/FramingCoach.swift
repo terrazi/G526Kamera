@@ -35,6 +35,11 @@ struct ViewLines: Equatable {
     /// Kadrajın en altındaki soru ya da paragraf TAM görünüyor mu: son soru numarasından sonra E şıkkı görünüyor ve kenara dayanıp kesilmiyor
     var bottomComplete = false
 
+    /// Kadrajda başından sonuna (E şıkkı dahil) görünen soruların numaraları: ardışık ve artan değilse (yazı tanıma bir rakamı yanlış okumuş olabilir) boş
+    var questions: [Int] = []
+    /// Sıradaki soru: kadrajda yarım kalan (numarası görünen) soru, yoksa son tam sorunun ardından gelen numara; güvenilmezse nil
+    var nextQuestion: Int?
+
     /// Yazı okunabiliyor (bkz. `SeriesSelection.minChars`)
     var isReadable: Bool { return chars >= SeriesSelection.minChars }
 
@@ -69,6 +74,8 @@ struct ViewLines: Equatable {
         let blocks = completeness(lines, skipTop: skipTop)
         result.topComplete = blocks.top
         result.bottomComplete = blocks.bottom
+        result.questions = blocks.questions
+        result.nextQuestion = blocks.next
         var items: [Item] = []
         for line in lines {
             let top = 1 - Double(line.box.maxY)
@@ -107,12 +114,28 @@ struct ViewLines: Equatable {
 
     // MARK: Soru / paragraf bütünlüğü
 
-    private static let numberStart = try? NSRegularExpression(pattern: "^\\s*\\d{1,3}\\s?[\\.\\)]\\s*\\S", options: [])
+    private static let numberStart = try? NSRegularExpression(pattern: "^\\s*(\\d{1,3})\\s?[\\.\\)]\\s*\\S", options: [])
     private static let optionE = try? NSRegularExpression(pattern: "^\\s*\\(?E\\s?[\\)\\.]", options: [])
 
     private static func matches(_ pattern: NSRegularExpression?, _ text: String) -> Bool {
         guard let pattern = pattern else { return false }
         return pattern.firstMatch(in: text, options: [], range: NSRange(text.startIndex..<text.endIndex, in: text)) != nil
+    }
+
+    /// "34. Aşağıdakilerden …" satırından 34
+    private static func questionNumber(_ text: String) -> Int? {
+        guard let pattern = numberStart,
+              let match = pattern.firstMatch(in: text, options: [], range: NSRange(text.startIndex..<text.endIndex, in: text)),
+              match.numberOfRanges > 1, let r = Range(match.range(at: 1), in: text) else { return nil }
+        return Int(text[r])
+    }
+
+    /// `completeness` sonucu: üst / alt tam mı, kadrajda tam görünen sorular ve sıradaki soru
+    struct Blocks {
+        var top = false
+        var bottom = false
+        var questions: [Int] = []
+        var next: Int?
     }
 
     private struct Row {
@@ -130,7 +153,7 @@ struct ViewLines: Equatable {
     /// başlayan görünümde önceki sorunun / paragrafın başı kesiktir). ALT tam: sütundaki son soru numarasından sonra E şıkkı görünüyor, E'den sonra en
     /// çok iki devam satırı var ve hiçbiri alt kenara dayanmıyor (E'den sonra daha çok satır başka bir paragrafın başlamış olduğunu gösterir).
     /// Kâğıdın üst / alt kenarı görünüyorsa (tam sayfa) çağıran bu denetimi aşar. Yazı bulunmazsa ikisi de false.
-    static func completeness(_ lines: [(text: String, box: CGRect)], skipTop: Double = 0) -> (top: Bool, bottom: Bool) {
+    static func completeness(_ lines: [(text: String, box: CGRect)], skipTop: Double = 0) -> Blocks {
         var rows: [Row] = []
         for line in lines {
             let top = 1 - Double(line.box.maxY)
@@ -139,7 +162,7 @@ struct ViewLines: Equatable {
             rows.append(Row(text: line.text, top: top, bottom: bottom, midX: Double(line.box.midX),
                             cutTop: top < skipTop + edgeEpsilon, cutBottom: bottom > 1 - edgeEpsilon))
         }
-        guard !rows.isEmpty else { return (false, false) }
+        guard !rows.isEmpty else { return Blocks() }
         // İki sütun: satırların orta noktaları açıkça sol ve sağ yarıya dağılmışsa; tek sütunda uzun satırların ortası kadrajın ortasındadır
         let left = rows.filter { $0.midX < 0.45 }
         let right = rows.filter { $0.midX > 0.55 }
@@ -151,9 +174,23 @@ struct ViewLines: Equatable {
         }
         var topOK = true
         var bottomOK = true
+        var done: [Int] = []
+        var notDone: [Int] = []
         for column in columns {
             let ordered = column.sorted { $0.top < $1.top }
             guard let first = ordered.first else { continue }
+            // Sütundaki numaralı sorular: E şıkkına kadar görünen ve numara satırı kenara dayanmayan soru "tam"dır, öteki yarım kalmıştır
+            let starts = ordered.indices.compactMap { i in questionNumber(ordered[i].text).map { (index: i, number: $0) } }
+            for (k, start) in starts.enumerated() {
+                let end = k + 1 < starts.count ? starts[k + 1].index : ordered.count
+                let slice = ordered[start.index..<end]
+                var complete = !ordered[start.index].cutTop && slice.contains { matches(optionE, $0.text) }
+                if complete, k == starts.count - 1, let e = slice.firstIndex(where: { matches(optionE, $0.text) }) {
+                    let after = ordered[(e + 1)...]
+                    if after.count > 2 || ordered[e].cutBottom || after.contains(where: { $0.cutBottom }) { complete = false }
+                }
+                if complete { done.append(start.number) } else { notDone.append(start.number) }
+            }
             if first.cutTop || !matches(numberStart, first.text) { topOK = false }
             guard let n = ordered.lastIndex(where: { matches(numberStart, $0.text) }),
                   let e = ordered[(n + 1)...].firstIndex(where: { matches(optionE, $0.text) }) else {
@@ -163,7 +200,19 @@ struct ViewLines: Equatable {
             let after = ordered[(e + 1)...]
             if after.count > 2 || ordered[e].cutBottom || after.contains(where: { $0.cutBottom }) { bottomOK = false }
         }
-        return (topOK, bottomOK)
+        var result = Blocks(top: topOK, bottom: bottomOK)
+        // Numaralar yalnız ardışık ve artansa güvenilir (yazı tanıma bir rakamı yanlış okuyabilir; iki sütunda sol sütun önce gelir): yoksa söylenmez
+        done.sort()
+        let consecutive = zip(done, done.dropFirst()).allSatisfy { $1 == $0 + 1 }
+        if let last = done.last, consecutive {
+            // Yarım kalan soru yalnız son tam sorudan SONRA geliyorsa sıradakidir (üst kenarda kesilen numara önceki sorudur)
+            let next = notDone.filter { $0 > last }.min() ?? last + 1
+            if next == last + 1 {
+                result.questions = done
+                result.next = next
+            }
+        }
+        return result
     }
 
     /// Üst taraf: "Üstte A ile başlıyor." ya da üst satır kesikse "Üst satır yarım kalıyor; ilk tam satır A ile başlıyor."
@@ -354,10 +403,25 @@ enum FramingCoach {
     /// Tam sayfa tek karede olmuyor ya da okunmuyor: yarım yarım çekilir (her yarıda soru tam görünür). "Uzaklaşın" ile "Yaklaşın" arasında gidip gelinmez
     static let halvesText = "Tam sayfa olmuyor; yarım yarım çekin."
 
-    static func withCapture(_ text: String) -> String {
-        if text == okText || text == "Tamam." { return capturedText }
-        if text.hasPrefix("Tamam. ") { return String(text.dropFirst("Tamam. ".count)) + " " + capturedText }
-        return text + " " + capturedText
+    static func withCapture(_ text: String, capture: String? = nil) -> String {
+        let tail = capture ?? capturedText
+        if text == okText || text == "Tamam." { return tail }
+        if text.hasPrefix("Tamam. ") { return String(text.dropFirst("Tamam. ".count)) + " " + tail }
+        return text + " " + tail
+    }
+
+    /// Alınan soruların ve sıradakinin söylenişi (kullanıcı kararı 2026-11-18): "34. ve 35. sorular tamam, sıradaki 36. soru." Kullanıcı bunu gözüyle
+    /// gördüğü sayfadaki numaralarla karşılaştırıp neyin alındığını, hangisine geçeceğini ve ne kadar kaydıracağını anlar; atlanan soru kendiliğinden
+    /// fark edilir. Numaralar güvenilir okunmadıysa nil (çağıran "Alındı. Sonraki." der; bkz. `ViewLines.questions`).
+    static func questionsText(_ lines: ViewLines?) -> String? {
+        guard let lines = lines, let first = lines.questions.first, let last = lines.questions.last, let next = lines.nextQuestion else { return nil }
+        let said: String
+        switch lines.questions.count {
+        case 1: said = "\(first). soru"
+        case 2: said = "\(first). ve \(last). sorular"
+        default: said = "\(first). ile \(last). arası sorular"
+        }
+        return "\(said) tamam, sıradaki \(next). soru."
     }
 
     /// "azıcık" → "Azıcık" (Türkçe büyük harfle)
@@ -443,7 +507,8 @@ enum FramingCoach {
             }
             // Yeterli görüntü: sayfanın durumu ve kabul. Yarımlarda ilk ve son satırdan birkaç sözcük de okunur (kullanıcı kararı 2026-11-18: kullanıcı
             // okunanı gözüyle gördüğü sayfadaki satırlarla karşılaştırıp kaydırmayı buna göre doğru yapar); tam sayfada satır tarifi gerekmez
-            let tails = plan == .halves ? lines.shortCoverage : nil
+            // Soru numaraları okunduysa ("34. ve 35. sorular tamam, sıradaki 36. soru") satır sözcükleri okunmaz: numaralar hem daha kısa hem daha güvenilir
+            let tails = (plan == .halves && questionsText(lines) == nil) ? lines.shortCoverage : nil
             if let r = reading, r.layout != .middle {
                 let kind: FramingNote.Kind = r.layout == .upperHalf ? .goodUpper : (r.layout == .lowerHalf ? .goodLower : .goodFull)
                 let spoken = [layoutText(r, verbose: verbose), r.layout == .full ? nil : tails].compactMap { $0 }
@@ -566,6 +631,8 @@ struct FramingCoachTimer {
     private var spokenInView = 0
     /// Son söylenen cümle düzgün kadraj cümlesi miydi (çağıran bunun sonuna "çekildi" ekler; bkz. `FramingCoach.withCapture`)
     private(set) var lastWasGood = false
+    /// Son söylenen cümle düzgün kadrajsa ve soru numaraları okunduysa "Alındı. Sonraki." yerine söylenecek cümle (bkz. `FramingCoach.questionsText`)
+    private(set) var lastCapture: String?
     /// Yazı tanıma sonucu beklenirken (`firstReadable`) bekleme başlangıcı
     private var textWaitSince: TimeInterval?
     /// Bu görünümde tam sayfa için söylenen uzaklaşma sayısı; `Config.wholeTries`'a ulaşıp tam sayfa olmazsa yarım yarım çekime geçilir (bkz. `ShotPlan`)
@@ -587,6 +654,7 @@ struct FramingCoachTimer {
         expectSecondHalf = false
         halvesStreak = 0
         countedHalves = false
+        lastCapture = nil
         candidate = nil
         consecutive = 0
         lastKind = nil
@@ -727,6 +795,7 @@ struct FramingCoachTimer {
         lastWords = words
         spokenInView += 1
         lastWasGood = note.kind.isGood
+        lastCapture = note.kind.isGood ? FramingCoach.questionsText(lines) : nil
         if note.kind == .halves {
             halvesMode = true
             if !countedHalves {

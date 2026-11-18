@@ -802,10 +802,11 @@ final class ViewCompletenessTests: XCTestCase {
     }
 
     /// Numaralı bir soru ve A–E şıkları, `first` üstten başlar
-    private func question(_ number: Int, first: Double, x: Double = 0.1, width: Double = 0.8, upTo last: String = "E") -> [(text: String, box: CGRect)] {
+    private func question(_ number: Int, first: Double, x: Double = 0.1, width: Double = 0.8, upTo last: String = "E",
+                          step: Double = 0.10) -> [(text: String, box: CGRect)] {
         var rows = [line("\(number). Aşağıdaki cümlelerin hangisinde yazım yanlışı vardır", top: first, x: x, width: width)]
         for (i, letter) in ["A", "B", "C", "D", "E"].enumerated() {
-            rows.append(line("\(letter)) \(i + 1). seçenek metni burada", top: first + 0.10 * Double(i + 1), x: x, width: width))
+            rows.append(line("\(letter)) \(i + 1). seçenek metni burada", top: first + step * Double(i + 1), x: x, width: width))
             if letter == last { break }
         }
         return rows
@@ -877,6 +878,71 @@ final class ViewCompletenessTests: XCTestCase {
         let clockOnly = ViewLines.make([line("12:45 kamera saat yazısı bandı ve tarih bilgisi", top: 0.02)], skipTop: 0.075)
         XCTAssertEqual(clockOnly.chars, 0)
         XCTAssertFalse(clockOnly.isReadable)
+    }
+
+    // MARK: Soru numaraları (alınan sorular ve sıradaki)
+
+    func testTheCompleteQuestionsAndTheNextOneAreNumbered() {
+        let v = ViewLines.make(question(34, first: 0.05, step: 0.05) + question(35, first: 0.35, step: 0.05))
+        XCTAssertEqual(v.questions, [34, 35])
+        XCTAssertEqual(v.nextQuestion, 36)
+    }
+
+    func testAQuestionCutAtTheBottomIsTheNextOneNotADoneOne() {
+        let v = ViewLines.make(question(34, first: 0.05, step: 0.05) + question(35, first: 0.35, step: 0.05) + question(36, first: 0.65, upTo: "C", step: 0.05))
+        XCTAssertEqual(v.questions, [34, 35])
+        XCTAssertEqual(v.nextQuestion, 36, "36. soru C şıkkında kesildi: sıradaki o")
+    }
+
+    func testTheTailOfAPreviousQuestionAtTheTopIsNotCounted() {
+        let tail = [line("C) üçüncü seçenek metni burada", top: 0.05), line("D) dördüncü seçenek metni burada", top: 0.10),
+                    line("E) beşinci seçenek metni burada", top: 0.15)]
+        let v = ViewLines.make(tail + question(37, first: 0.25, step: 0.05))
+        XCTAssertEqual(v.questions, [37])
+        XCTAssertEqual(v.nextQuestion, 38)
+    }
+
+    func testANumberThatIsNotConsecutiveIsNotTrustedSoNothingIsAnnounced() {
+        // 36. soru okunamadı (yazı tanıma kaçırdı): 35 ve 37 tamam görünüyor ama ardışık değil
+        let v = ViewLines.make(question(35, first: 0.05, step: 0.05) + question(37, first: 0.35, step: 0.05))
+        XCTAssertEqual(v.questions, [])
+        XCTAssertNil(v.nextQuestion)
+        // Yarım kalan soru sıradaki sayıyla tutmuyorsa da söylenmez
+        let odd = ViewLines.make(question(35, first: 0.05, step: 0.05) + question(38, first: 0.35, upTo: "B", step: 0.05))
+        XCTAssertEqual(odd.questions, [])
+        XCTAssertNil(odd.nextQuestion)
+    }
+
+    func testAQuestionWhoseNumberLineTouchesTheTopEdgeIsNotCounted() {
+        var rows = question(34, first: 0.05, step: 0.05)
+        rows[0] = (text: rows[0].text, box: CGRect(x: 0.1, y: 0.975, width: 0.8, height: 0.03))
+        let v = ViewLines.make(rows + question(35, first: 0.35, step: 0.05))
+        XCTAssertEqual(v.questions, [35])
+        XCTAssertEqual(v.nextQuestion, 36)
+    }
+
+    func testTwoColumnsAreNumberedLeftThenRight() {
+        let left = question(34, first: 0.05, x: 0.05, width: 0.4, step: 0.05) + question(35, first: 0.35, x: 0.05, width: 0.4, step: 0.05)
+        let right = question(36, first: 0.05, x: 0.55, width: 0.4, step: 0.05) + question(37, first: 0.35, x: 0.55, width: 0.4, step: 0.05)
+        let v = ViewLines.make(left + right)
+        XCTAssertEqual(v.questions, [34, 35, 36, 37])
+        XCTAssertEqual(v.nextQuestion, 38)
+    }
+
+    func testTheSpokenSentenceNamesTheDoneQuestionsAndTheNextOne() {
+        func said(_ q: [Int], _ next: Int?) -> String? {
+            return FramingCoach.questionsText(ViewLines(chars: 160, questions: q, nextQuestion: next))
+        }
+        XCTAssertEqual(said([34], 35), "34. soru tamam, sıradaki 35. soru.")
+        XCTAssertEqual(said([34, 35], 36), "34. ve 35. sorular tamam, sıradaki 36. soru.")
+        XCTAssertEqual(said([34, 35, 36, 37], 38), "34. ile 37. arası sorular tamam, sıradaki 38. soru.")
+        XCTAssertNil(said([], nil))
+        XCTAssertNil(said([34], nil))
+        XCTAssertNil(FramingCoach.questionsText(nil))
+        XCTAssertEqual(FramingCoach.withCapture("Üst yarı.", capture: "34. soru tamam, sıradaki 35. soru."), "Üst yarı. 34. soru tamam, sıradaki 35. soru.")
+        XCTAssertEqual(FramingCoach.withCapture("Uygun.", capture: "34. soru tamam, sıradaki 35. soru."), "34. soru tamam, sıradaki 35. soru.")
+        XCTAssertEqual(FramingCoach.withCapture("Tamam. Tam sayfa.", capture: "1. ile 8. arası sorular tamam, sıradaki 9. soru."), "Tam sayfa. 1. ile 8. arası sorular tamam, sıradaki 9. soru.")
+        XCTAssertEqual(FramingCoach.withCapture("Uygun."), FramingCoach.capturedText, "Numara yoksa eski cümle")
     }
 
     func testNoTextIsNeitherReadableNorComplete() {
@@ -1057,6 +1123,16 @@ final class FirstReadableNoteTests: XCTestCase {
         XCTAssertEqual(down.text, "Metin kesik, biraz aşağı. Üstte: kavram haritası nedir ve. Alt satır kesik; son tam: ikinci şıkkın metni burada.")
         // Tam sayfa isteyen plan satır okumaz
         XCTAssertEqual(planned(pageWith(edges(bottom: 1.0), y1: 0.95), lines: blocks, .wholePage).text, "Tüm sayfa için uzaklaşın.")
+    }
+
+    func testWhenTheQuestionNumbersAreKnownTheHalvesDoNotReadTheLines() {
+        let numbered = ViewLines(starts: [LineEnd(side: nil, words: "kavram haritası nedir ve")], ends: [LineEnd(side: nil, words: "doğru cevap hangisidir lütfen")],
+                                 chars: 160, topComplete: true, bottomComplete: true, questions: [34, 35], nextQuestion: 36)
+        XCTAssertEqual(planned(pageWith(edges(bottom: 1.0), y1: 0.95), lines: numbered, .halves).text, "Üst yarı.", "Numaralar satır sözcüklerinin yerine geçer")
+        // Düzeltme söylenirken (kesik uç) satır sözcükleri yine okunur
+        let cut = ViewLines(starts: [LineEnd(side: nil, words: "kavram haritası nedir ve")], chars: 160, topComplete: true, bottomComplete: false,
+                            questions: [34], nextQuestion: 35)
+        XCTAssertEqual(planned(metrics(), lines: cut, .halves).text, "Metin kesik, biraz aşağı. Üstte: kavram haritası nedir ve.")
     }
 
     func testWithoutFirstReadableNothingChanges() {
@@ -1249,6 +1325,25 @@ final class FirstReadableTimerTests: XCTestCase {
         let third = ViewLines(starts: [LineEnd(side: nil, words: "kırmızı mavi yeşil sarı")], chars: 160, topComplete: false, bottomComplete: true)
         _ = step(&t, upper, at: 31.0, lines: third, whole: true)
         XCTAssertEqual(step(&t, upper, at: 31.3, lines: third, whole: true), "Üst yarı. Üstte: kırmızı mavi yeşil sarı.")
+    }
+
+    func testAnAcceptedViewCarriesTheDoneAndTheNextQuestionForTheCaptureSentence() {
+        var t = FramingCoachTimer()
+        let numbered = ViewLines(chars: 160, topComplete: true, bottomComplete: true, questions: [34, 35], nextQuestion: 36)
+        _ = step(&t, page(edges()), at: 10.0, lines: numbered, whole: true)
+        XCTAssertEqual(step(&t, page(edges()), at: 10.3, lines: numbered, whole: true), "Tam sayfa.")
+        XCTAssertEqual(t.lastCapture, "34. ve 35. sorular tamam, sıradaki 36. soru.")
+        // Düzeltme cümlesinde yakalama cümlesi yoktur
+        var u = FramingCoachTimer()
+        let cut = ViewLines(chars: 160, topComplete: true, bottomComplete: false, questions: [34], nextQuestion: 35)
+        _ = step(&u, metrics(), at: 10.0, lines: cut)
+        XCTAssertEqual(step(&u, metrics(), at: 10.3, lines: cut), "Metin kesik, uzaklaşın.")
+        XCTAssertNil(u.lastCapture)
+        // Numara okunamadıysa yakalama cümlesi yok: çağıran "Alındı. Sonraki." der
+        var w = FramingCoachTimer()
+        _ = step(&w, page(edges()), at: 10.0, lines: complete, whole: true)
+        _ = step(&w, page(edges()), at: 10.3, lines: complete, whole: true)
+        XCTAssertNil(w.lastCapture)
     }
 
     func testWithoutTheWholeFirstFlagAHalfPageIsAcceptedAsBefore() {
