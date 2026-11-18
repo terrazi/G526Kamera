@@ -248,6 +248,16 @@ enum FramingCoach {
     /// Düzgün kadraj ("düzeltme gerekmiyor") için kısa söyleniş; düzeltmeden sonra tek başına "Tamam." olur
     static let okText = "Uygun."
 
+    /// Düzgün kadrajda (kullanıcı kararı 2026-11-18) uygunluğun yanında sayfanın ÇEKİLDİĞİ de söylenir: görünüm durgun ve okunaklıyken kareler zaten kaydedilmektedir.
+    /// "Uygun." → "Uygun, çekildi."; düzeltmeden sonraki "Tamam." → "Tamam, çekildi."; "Tamam. Üstte: …" → "Tamam. Üstte: … Çekildi."; sayfa durumu
+    /// ("Tam sayfa.", "Alt yarı. …") → sonuna " Uygun, çekildi." eklenir. Düzeltme isteyen cümlelere eklenmez (çağıran yalnız düzgün kadrajda çağırır).
+    static func withCapture(_ text: String) -> String {
+        if text == okText { return "Uygun, çekildi." }
+        if text == "Tamam." { return "Tamam, çekildi." }
+        if text.hasPrefix("Tamam.") { return text + " Çekildi." }
+        return text + " Uygun, çekildi."
+    }
+
     /// "azıcık" → "Azıcık" (Türkçe büyük harfle)
     static func capitalised(_ s: String) -> String {
         return String(s.prefix(1)).uppercased(with: Locale(identifier: "tr_TR")) + String(s.dropFirst())
@@ -383,6 +393,8 @@ struct FramingCoachTimer {
     private var viewWords: Set<String> = []
     private var waitingSince: TimeInterval?
     private var spokenInView = 0
+    /// Son söylenen cümle düzgün kadraj cümlesi miydi (çağıran bunun sonuna "çekildi" ekler; bkz. `FramingCoach.withCapture`)
+    private(set) var lastWasGood = false
 
     mutating func reset() {
         candidate = nil
@@ -396,6 +408,7 @@ struct FramingCoachTimer {
         viewWords = []
         waitingSince = nil
         spokenInView = 0
+        lastWasGood = false
     }
 
     /// Görünümün kimliği: ilk ve son tam satırın sözcükleri (küçük harf, kısa sözcükler atılır)
@@ -489,6 +502,7 @@ struct FramingCoachTimer {
         lastTime = time
         lastWords = words
         spokenInView += 1
+        lastWasGood = note.kind.isGood
         return text
     }
 }

@@ -399,6 +399,30 @@ final class FramingCoachTimerTests: XCTestCase {
         XCTAssertEqual(step(&t, tooSmall, at: 14.0), "Yaklaşın.")
     }
 
+    func testASuitablePageIsAnnouncedAsSuitableAndCaptured() {
+        XCTAssertEqual(FramingCoach.withCapture(FramingCoach.okText), "Uygun, çekildi.")
+        XCTAssertEqual(FramingCoach.withCapture("Tamam."), "Tamam, çekildi.")
+        XCTAssertEqual(FramingCoach.withCapture("Tamam. Üstte: alfa beta gama delta."), "Tamam. Üstte: alfa beta gama delta. Çekildi.")
+        XCTAssertEqual(FramingCoach.withCapture("Tam sayfa."), "Tam sayfa. Uygun, çekildi.")
+        XCTAssertEqual(FramingCoach.withCapture("Alt boş."), "Alt boş. Uygun, çekildi.")
+    }
+
+    func testTheTimerSaysWhetherTheSentenceItJustGaveWasASuitablePage() {
+        var t = FramingCoachTimer()
+        XCTAssertFalse(t.lastWasGood)
+        _ = step(&t, cutRight, at: 10.0)
+        XCTAssertEqual(step(&t, cutRight, at: 10.3), "Biraz sağa.")
+        XCTAssertFalse(t.lastWasGood, "bir düzeltme çekildi diye anons edilmez")
+        _ = step(&t, fine, at: 14.0)
+        XCTAssertEqual(step(&t, fine, at: 14.3), "Tamam.")
+        XCTAssertTrue(t.lastWasGood)
+        t.reset()
+        XCTAssertFalse(t.lastWasGood)
+        _ = step(&t, fine, at: 30.0)
+        XCTAssertEqual(step(&t, fine, at: 30.3), "Uygun.")
+        XCTAssertTrue(t.lastWasGood, "ilk değerlendirmesi düzgün olan her sayfa için uygunluk söylenir")
+    }
+
     func testOkIsSaidOnceAfterACorrectionAndNeverRepeatedForTheSameView() {
         var t = FramingCoachTimer()
         _ = step(&t, cutRight, at: 10.0)
