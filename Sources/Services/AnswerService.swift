@@ -47,10 +47,25 @@ extension Answering {
 /// kota dolarsa, sunucu hata verirse, cevap gecikirse ya da anahtar/model sorunluysa sıradaki profile geçilir.
 @MainActor
 final class GeminiAnswerService: Answering {
-    /// Son profil dışındakilerde cevap için beklenecek süre (sn); dolunca sıradaki profil denenir
-    static let perModelLimit: TimeInterval = 40
-    /// Kamera ile çekilen soruda (fotoğraf + video yüklenir, hücresel veriyle) son profil dışındakilerde beklenecek süre: yükleme de buna girer
-    static let capturePerModelLimit: TimeInterval = 100
+    /// Her profilde cevap için beklenecek süre (sn); dolunca sıradaki profil denenir (kullanıcı kararı 2026-11-18: modeller çok beklenmesin; 40 idi)
+    static let perModelLimit: TimeInterval = 25
+    /// Kamera ile çekilen soruda (fotoğraf + video yüklenir, hücresel veriyle) her profilde beklenecek süre: yükleme de buna girer (100 idi)
+    static let capturePerModelLimit: TimeInterval = 60
+    /// Bütün profiller sırayla denenip hiçbiri cevap vermezse sıra BAŞTAN, aynı sırayla yeniden denenir (kullanıcı kararı 2026-11-18: cevap alınana kadar);
+    /// her turda bekleme süresi bu çarpanla uzar (yavaş ağda ya da büyük yüklemede hiçbir model yetişemezse sonsuz boşa dönülmesin); son çarpan sonraki turlarda sürer
+    static let roundFactors: [Double] = [1, 1.5, 2]
+    /// En çok kaç tur denenir (tur = bütün profillerin sırayla denenmesi)
+    static let maxRounds = 5
+    /// Turlar arasında beklenecek süre (sn)
+    static let roundPause: TimeInterval = 3
+
+    /// Biraz sonra yeniden denenirse düzelebilecek hatalar: cevap gecikmesi, sunucu yoğunluğu, boş cevap, dakikalık kota. Anahtar sorunu, model adı sorunu
+    /// ve günlük kota beklemekle düzelmez: o profil sonraki turlara katılmaz.
+    static func retryable(_ error: GeminiError) -> Bool {
+        if error.timedOut || error.kind == .empty { return true }
+        if error.kind == .quota { return !error.message.contains("günlük") }
+        return [500, 502, 503, 504].contains(error.status)
+    }
 
     /// Sistem komutu: kullanıcının verdiği çerçeve + (1) şık sözcükleri (2) dikte hatalarına ve zayıf İngilizce telaffuzuna karşı empati
     static let systemPrompt = """
@@ -226,6 +241,8 @@ final class GeminiAnswerService: Answering {
     private let makeClient: (GeminiProfileInfo) -> GeminiClient
     private let limit: TimeInterval
     private let captureLimit: TimeInterval
+    private let maxRounds: Int
+    private let roundPause: TimeInterval
     private let now: () -> Date
     /// Bu profiller bu zamana kadar sona bırakılır (kotası doldu / cevap vermedi): her soruda boşuna beklenmesin
     private var restingUntil: [Int: Date] = [:]
@@ -233,11 +250,15 @@ final class GeminiAnswerService: Answering {
     init(profiles: @escaping () -> [GeminiProfileInfo],
          limit: TimeInterval = GeminiAnswerService.perModelLimit,
          captureLimit: TimeInterval = GeminiAnswerService.capturePerModelLimit,
+         maxRounds: Int = GeminiAnswerService.maxRounds,
+         roundPause: TimeInterval = GeminiAnswerService.roundPause,
          now: @escaping () -> Date = { Date() },
          makeClient: ((GeminiProfileInfo) -> GeminiClient)? = nil) {
         self.profilesProvider = profiles
         self.limit = limit
         self.captureLimit = captureLimit
+        self.maxRounds = max(1, maxRounds)
+        self.roundPause = roundPause
         self.now = now
         self.makeClient = makeClient ?? { profile in GeminiClient(key: { profile.key }, model: { profile.model }) }
     }
@@ -373,8 +394,8 @@ final class GeminiAnswerService: Answering {
     func answerPage(capture: CapturedQuestion, expectedNumber: Int) async throws -> [GeminiReply] {
         guard !GeminiProfiles.usable(profilesProvider()).isEmpty else { throw GeminiError(Say.noKeyShort, .key) }
         let body = try GeminiAnswerService.captureBody(capture, expectedNumber: expectedNumber, page: true)
-        // 75 fotoğraflık PDF (≈16 MB) hücresel veriyle yüklenir ve çok görüntü okunur: model başına bekleme üç katıdır
-        let limit = capture.pageCount > 20 ? captureLimit * 3 : captureLimit
+        // 75 fotoğraflık PDF (≈16 MB) hücresel veriyle yüklenir ve çok görüntü okunur: model başına bekleme iki katıdır (üç katıydı)
+        let limit = capture.pageCount > 20 ? captureLimit * 2 : captureLimit
         do {
             return try await runChain(body: body, limit: limit, parse: GeminiAnswerService.parsePage)
         } catch let error as GeminiError where error.status == 400 && error.kind == .http && capture.sendsFrameRate {
@@ -392,40 +413,53 @@ final class GeminiAnswerService: Answering {
         return replies[0]
     }
 
-    /// Profil zinciri: istek sırayla her profile gönderilir (kota, sunucu hatası, gecikme, anahtar ya da model sorununda sıradakine geçilir).
+    /// Profil zinciri: istek sırayla her profile gönderilir (kota, sunucu hatası, gecikme, anahtar ya da model sorununda sıradakine geçilir). Hiçbiri cevap
+    /// vermezse ve hatalar geçici ise (gecikme, yoğunluk, dakikalık kota) sıra BAŞTAN aynı sırayla yeniden denenir, en çok `maxRounds` tur.
     /// `parse`: model metninden cevap satırları (tek soruda bir, sayfada birkaç); boş dönerse cevap satırı verilmemiş sayılır.
     private func runChain(body: Data, limit: TimeInterval, parse: (String) -> [AnswerParser.Parsed]) async throws -> [GeminiReply] {
         let usable = GeminiProfiles.usable(profilesProvider())
         guard !usable.isEmpty else { throw GeminiError(Say.noKeyShort, .key) }
-        let sequence = order(usable)
+        var active = order(usable)
         var lastError = GeminiError("Gemini cevap vermedi.", .error)
         var trail: [String] = []
         var failedNames: [String] = []
-        for (index, profile) in sequence.enumerated() {
-            let isLast = index == sequence.count - 1
-            do {
-                let client = makeClient(profile)
-                // Son profil dışındakilerde sunucu hatasında yeniden deneme ve uzun bekleme yok: hemen sıradakine geçilir
-                let object = try await client.generate(model: profile.model, key: profile.key,
-                                                       body: GeminiAnswerService.body(body, forModel: profile.model),
-                                                       serverRetries: isLast ? GeminiClient.askServerRetries : 0,
-                                                       timeout: isLast ? nil : limit)
-                let parsedList = parse(try GeminiAnswerService.replyText(from: object))
-                if parsedList.isEmpty { throw GeminiError("Gemini cevap satırı vermedi.", .empty) }
-                restingUntil[profile.slot] = nil
-                let note = trail.isEmpty ? "" : "Cevap \(profile.name) modelinden geldi: " + trail.joined(separator: " ")
-                let spokenNote = (!profile.free && !failedNames.isEmpty) ? Say.paidModelUsed : ""
-                return parsedList.map { parsed in
-                    GeminiReply(number: parsed.number, option: parsed.option, text: parsed.text,
-                                spoken: parsed.spoken, model: profile.model, note: note, spokenNote: spokenNote)
+        var round = 0
+        roundLoop: while round < maxRounds && !active.isEmpty {
+            try Task.checkCancellation()
+            let factors = GeminiAnswerService.roundFactors
+            let wait = limit * factors[min(round, factors.count - 1)]
+            var again: [GeminiProfileInfo] = []
+            for profile in active {
+                do {
+                    let client = makeClient(profile)
+                    // Sunucu hatasında yeniden deneme ve uzun bekleme yok: hemen sıradakine geçilir; yeniden deneme turlarla yapılır
+                    let object = try await client.generate(model: profile.model, key: profile.key,
+                                                           body: GeminiAnswerService.body(body, forModel: profile.model),
+                                                           serverRetries: 0, timeout: wait)
+                    let parsedList = parse(try GeminiAnswerService.replyText(from: object))
+                    if parsedList.isEmpty { throw GeminiError("Gemini cevap satırı vermedi.", .empty) }
+                    restingUntil[profile.slot] = nil
+                    let note = trail.isEmpty ? "" : "Cevap \(profile.name) modelinden geldi: " + trail.joined(separator: " ")
+                    let spokenNote = (!profile.free && !failedNames.isEmpty) ? Say.paidModelUsed : ""
+                    return parsedList.map { parsed in
+                        GeminiReply(number: parsed.number, option: parsed.option, text: parsed.text,
+                                    spoken: parsed.spoken, model: profile.model, note: note, spokenNote: spokenNote)
+                    }
+                } catch let error as GeminiError {
+                    let turn = round == 0 ? "" : "[\(round + 1). tur] "
+                    trail.append("\(turn)\(profile.name) (\(profile.model)): \(error.message)")
+                    failedNames.append(profile.name)
+                    lastError = error
+                    guard GeminiAnswerService.fallbackWorthy(error) else { break roundLoop }
+                    rest(profile, after: error)
+                    if GeminiAnswerService.retryable(error) { again.append(profile) }
                 }
-            } catch let error as GeminiError {
-                trail.append("\(profile.name) (\(profile.model)): \(error.message)")
-                failedNames.append(profile.name)
-                lastError = error
-                guard !isLast, GeminiAnswerService.fallbackWorthy(error) else { break }
-                rest(profile, after: error)
             }
+            active = again
+            round += 1
+            if active.isEmpty || round >= maxRounds { break }
+            tlog("[gemini] hiçbir model cevap vermedi; \(round + 1). tur başlıyor (\(active.map { $0.name }.joined(separator: ", ")))")
+            if roundPause > 0 { try await Task.sleep(nanoseconds: UInt64(roundPause * 1_000_000_000)) }
         }
         var merged = GeminiError(trail.joined(separator: " "), lastError.kind, status: lastError.status)
         merged.timedOut = lastError.timedOut

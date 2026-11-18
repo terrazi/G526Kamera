@@ -20,10 +20,10 @@ gerçek kurulum `App/AppEnvironment`, testler sahtelerle (`Tests/Fakes`) kurar.
 - **"Şık şehri":** şıklar A=Adana, B=Bursa, C=Ceyhan, D=Denizli, E=Erzurum kod sözcükleridir; cevap bu sözcükle söylenir.
 - **4 yedekli Gemini profili:** her profilin adı, modeli, anahtarı ve "ücretsiz/ücretli anahtar" işareti vardır (ilk sürümdeki düzen).
   Anahtarlar Keychain'de (`geminiKeyV3`, `geminiKeyV3_2…4`), adlar ve modeller UserDefaults'ta saklanır; tek anahtarlı sürümün anahtarı
-  1. profile gelir. `GeminiAnswerService` soruyu 1→2→3→4 sırasıyla kendi anahtarlarıyla sorar: kota, sunucu hatası, 40 sn zaman aşımı,
+  1. profile gelir. `GeminiAnswerService` soruyu 1→2→3→4 sırasıyla kendi anahtarlarıyla sorar: kota, sunucu hatası, 25 sn zaman aşımı (fotoğraflı çekimde 60 sn),
   boş cevap, anahtar ya da model hatasında sıradakine geçer; hata veren profil bir süre sona bırakılır (kota 5 dk, günlük kota 1 saat,
   anahtar/model 15 dk, diğer 2 dk). İçerik engeli, çok büyük istek, harcama sınırı ve internetin hiç olmaması zinciri durdurur.
-  Son profile zaman aşımı konmaz. Cevap yedekten geldiyse sebep kırmızı kutuda yazılır. Gemini sesi de aynı anahtarları sırayla dener.
+  Hiçbir profil cevap vermezse sıra baştan, aynı sırayla yeniden denenir (en çok 5 tur; her turda bekleme uzar; anahtar/model sorunlu profil sonraki turlara katılmaz). Cevap yedekten geldiyse sebep kırmızı kutuda yazılır. Gemini sesi de aynı anahtarları sırayla dener.
   Açılışta ilk sağlam anahtar bulunana kadar profiller yoklanır; öncekilerin sorunu kırmızı kutuda yazılır.
 - **Kayıt klasörü:** kullanıcı Dosyalar uygulamasından bir klasör seçer; `UIDocumentPickerViewController` + güvenlik kapsamlı yer imi
   (bookmark) ile hatırlanır ve oturum boyunca erişim açık tutulur. Cevaplar (`soru_N`, `cevaplar.txt`) gün klasörleriyle buraya yazılır,

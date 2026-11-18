@@ -37,6 +37,9 @@ struct ViewLines: Equatable {
     /// görünüyor ya da yazı alt kenara yakın bitmiyor
     var bottomComplete = false
 
+    /// Kadrajdaki yazı bir PARAGRAF: numaralı soru ve A–E şık yapısı yok (kullanıcı kararı 2026-11-18: soru başı numara, sonu E şıkkı; bu yapı görülmüyorsa
+    /// metin paragraf sayılır ve ilk / son satırın sözcükleri söylenip kesikse yön istenir)
+    var paragraph = false
     /// Gürültü sayılıp atlanan satır sayısı (dikey yazı, çizgi kırıntısı, orta oluktaki kitap adı…): bkz. `isBodyText`
     var ignored = 0
     /// Üst / alt "kesik" sayılmışsa NEDEN (yalnız günlük için: cihazda yanlış "Metin kesik" uyarısı çözümlenebilsin)
@@ -107,6 +110,7 @@ struct ViewLines: Equatable {
         result.questions = blocks.questions
         result.nextQuestion = blocks.next
         result.cutReason = blocks.reason
+        result.paragraph = blocks.paragraph
         var items: [Item] = []
         for line in lines {
             let top = 1 - Double(line.box.maxY)
@@ -186,6 +190,8 @@ struct ViewLines: Equatable {
         var next: Int?
         /// Üst / alt kesik sayıldıysa nedeni (günlük için)
         var reason: String?
+        /// Numaralı soru ve şık yapısı yok: paragraf
+        var paragraph = false
     }
 
     private struct Row {
@@ -236,6 +242,7 @@ struct ViewLines: Equatable {
         var reasons: [String] = []
         var done: [Int] = []
         var notDone: [Int] = []
+        var numberedRows = 0
         for row in merged {
             if row.cutTop {
                 topOK = false
@@ -252,6 +259,7 @@ struct ViewLines: Equatable {
             guard let first = ordered.first else { continue }
             // Sütundaki numaralı sorular: E şıkkına kadar görünen ve numara satırı kenara dayanmayan soru "tam"dır, öteki yarım kalmıştır
             let starts = ordered.indices.compactMap { i in questionNumber(ordered[i].text).map { (index: i, number: $0) } }
+            numberedRows += starts.count
             for (k, start) in starts.enumerated() {
                 let end = k + 1 < starts.count ? starts[k + 1].index : ordered.count
                 let slice = ordered[start.index..<end]
@@ -318,6 +326,8 @@ struct ViewLines: Equatable {
         }
         var result = Blocks(top: topOK, bottom: bottomOK)
         result.reason = reasons.isEmpty ? nil : reasons.joined(separator: "; ")
+        // Paragraf: numaralı soru satırı yok ve A–E şık satırı en çok bir (yazı tanıma numarayı okumasa da şıklar sıralı görünür)
+        result.paragraph = numberedRows == 0 && rows.filter { matches(optionAny, $0.text) }.count < 2
         // Numaralar yalnız ardışık ve artansa güvenilir (yazı tanıma bir rakamı yanlış okuyabilir; iki sütunda sol sütun önce gelir): yoksa söylenmez
         done.sort()
         let consecutive = zip(done, done.dropFirst()).allSatisfy { $1 == $0 + 1 }
@@ -613,14 +623,19 @@ enum FramingCoach {
             let bottomSeen = reading?.layout == .full || reading?.layout == .lowerHalf
             if plan == .wholePage, let r = reading {
                 // Tam sayfa öncelikli: dört kenar kadrajdaysa kabul; değilse tüm sayfa için uzaklaşılır
-                if r.layout == .full { return FramingNote(kind: .goodFull, text: layoutText(r, verbose: verbose)) }
+                if r.layout == .full {
+                    // Paragrafta tam sayfada da ilk ve son satırdan sözcükler söylenir (kamera hangi alanı görüyor)
+                    let spoken = [layoutText(r, verbose: verbose), lines.paragraph ? lines.shortCoverage : nil].compactMap { $0 }
+                    return FramingNote(kind: .goodFull, text: spoken.joined(separator: " "))
+                }
                 return FramingNote(kind: .wholePage, text: "Tüm sayfa için uzaklaşın.")
             }
             let topOK = lines.topComplete || topSeen
             let bottomOK = lines.bottomComplete || bottomSeen
             if !(topOK && bottomOK) {
-                if plan == .halves && (topOK || bottomOK) {
-                    // Yarımda yalnız bir uç kesik: soru kadrajın yukarısında / aşağısında devam ediyor, kamera o yöne kaydırılır
+                if (plan == .halves || lines.paragraph) && (topOK || bottomOK) {
+                    // Yarımda (ve paragrafta) yalnız bir uç kesik: metin kadrajın yukarısında / aşağısında devam ediyor, kamera o yöne kaydırılır;
+                    // görünen ilk / son satırın sözcükleri kullanıcıya fiziksel sayfayla karşılaştırması için söylenir
                     let direction = topOK ? "Metin kesik, biraz aşağı." : "Metin kesik, biraz yukarı."
                     return FramingNote(kind: .incomplete, text: [direction, lines.shortCoverage].compactMap { $0 }.joined(separator: " "))
                 }
@@ -629,10 +644,10 @@ enum FramingCoach {
             // Yeterli görüntü: sayfanın durumu ve kabul. Yarımlarda ilk ve son satırdan birkaç sözcük de okunur (kullanıcı kararı 2026-11-18: kullanıcı
             // okunanı gözüyle gördüğü sayfadaki satırlarla karşılaştırıp kaydırmayı buna göre doğru yapar); tam sayfada satır tarifi gerekmez
             // Soru numaraları okunduysa ("34. ve 35. sorular tamam, sıradaki 36. soru") satır sözcükleri okunmaz: numaralar hem daha kısa hem daha güvenilir
-            let tails = (plan == .halves && questionsText(lines) == nil) ? lines.shortCoverage : nil
+            let tails = ((plan == .halves || lines.paragraph) && questionsText(lines) == nil) ? lines.shortCoverage : nil
             if let r = reading, r.layout != .middle {
                 let kind: FramingNote.Kind = r.layout == .upperHalf ? .goodUpper : (r.layout == .lowerHalf ? .goodLower : .goodFull)
-                let spoken = [layoutText(r, verbose: verbose), r.layout == .full ? nil : tails].compactMap { $0 }
+                let spoken = [layoutText(r, verbose: verbose), (r.layout == .full && !lines.paragraph) ? nil : tails].compactMap { $0 }
                 return FramingNote(kind: kind, text: spoken.joined(separator: " "))
             }
             return FramingNote(kind: .good, text: tails ?? (verbose ? "Kadraj uygun." : okText))

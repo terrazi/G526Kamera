@@ -952,6 +952,18 @@ final class ViewCompletenessTests: XCTestCase {
         XCTAssertTrue(short.bottomComplete, "Kısa son satır paragrafın bittiğini gösterir")
     }
 
+    func testTextWithoutQuestionNumbersAndOptionsIsAParagraphAndAQuestionIsNot() {
+        let para = ViewLines.make([line("Sabahın erken saatlerinde köyün meydanında toplanan insanlar", top: 0.15),
+                                   line("uzun bir süre konuşmadan öylece beklediler çünkü kimse", top: 0.25),
+                                   line("ne söyleyeceğini tam olarak bilemiyordu ve hava soğuktu.", top: 0.35)])
+        XCTAssertTrue(para.paragraph)
+        XCTAssertFalse(ViewLines.make(question(12, first: 0.10)).paragraph, "Numara ve şıklar var")
+        // Numara okunmadı ama şıklar sıralı görünüyor: soru
+        let noNumbers = [line("Aşağıdaki cümlelerden hangisinin anlamı bu paragrafla uyuşur", top: 0.10),
+                         line("A) birinci seçenek metni burada", top: 0.20), line("B) ikinci seçenek metni burada", top: 0.30)]
+        XCTAssertFalse(ViewLines.make(noNumbers).paragraph)
+    }
+
     func testAViewThatStartsWithALowercaseLineStartsInTheMiddleOfAParagraph() {
         let tail = [line("Ne söyleyeceğini tam olarak bilemiyordu ve hava soğuktu.", top: 0.20),
                     line("Sonra içlerinden biri yavaşça öne çıkıp konuşmaya başladı.", top: 0.30),
@@ -1211,6 +1223,31 @@ final class FirstReadableNoteTests: XCTestCase {
         XCTAssertEqual(planned(metrics(), lines: ViewLines(chars: 160, topComplete: true, bottomComplete: false), .halves).text, "Metin kesik, biraz aşağı.")
         XCTAssertEqual(planned(metrics(), lines: ViewLines(chars: 160, topComplete: false, bottomComplete: false), .halves).text, "Metin kesik, uzaklaşın.")
         XCTAssertEqual(planned(pageWith(edges(bottom: 1.0), y1: 0.95), lines: complete, .halves).kind, .goodUpper, "Yarımlarda tam görünen üst yarı kabul edilir")
+    }
+
+    func testAParagraphReadsItsFirstAndLastWordsAndAsksForAShiftWhenOneEndIsCut() {
+        let start = LineEnd(side: nil, words: "sabahın erken saatlerinde köyün")
+        let end = LineEnd(side: nil, words: "hava soğuktu ve kimse konuşmadı")
+        let whole = ViewLines(starts: [start], ends: [end], chars: 160, topComplete: true, bottomComplete: true, paragraph: true)
+        // Plan yokken (kadraj kontrolü) ve yarımlarda kabulde ilk / son satır söylenir
+        XCTAssertEqual(planned(metrics(), lines: whole, .any).text, "Üstte: sabahın erken saatlerinde köyün. Altta: hava soğuktu ve kimse konuşmadı.")
+        // Tam sayfada da (soru değil paragraf: kamera hangi alanı görüyor)
+        XCTAssertEqual(planned(pageWith(edges()), lines: whole, .wholePage).text,
+                       "Tam sayfa. Üstte: sabahın erken saatlerinde köyün. Altta: hava soğuktu ve kimse konuşmadı.")
+        // Soru yapısında tam sayfada satır okunmaz
+        let question = ViewLines(starts: [start], ends: [end], chars: 160, topComplete: true, bottomComplete: true)
+        XCTAssertEqual(planned(pageWith(edges()), lines: question, .wholePage).text, "Tam sayfa.")
+        // Paragrafın altı kesik: plan olmasa da "uzaklaşın" yerine yön ve görünen son sözcükler
+        let cut = ViewLines(starts: [start], ends: [end], bottomCut: true, chars: 160, topComplete: true, bottomComplete: false, paragraph: true)
+        XCTAssertEqual(planned(metrics(), lines: cut, .any).text,
+                       "Metin kesik, biraz aşağı. Üstte: sabahın erken saatlerinde köyün. Alt satır kesik; son tam: hava soğuktu ve kimse konuşmadı.")
+        let cutTop = ViewLines(starts: [start], ends: [end], topCut: true, chars: 160, topComplete: false, bottomComplete: true, paragraph: true)
+        XCTAssertTrue(planned(metrics(), lines: cutTop, .any).text.hasPrefix("Metin kesik, biraz yukarı."))
+        // İki uç da kesikse paragraf kadraja sığmıyor: uzaklaşılır
+        let both = ViewLines(chars: 160, topComplete: false, bottomComplete: false, paragraph: true)
+        XCTAssertEqual(planned(metrics(), lines: both, .any).text, "Metin kesik, uzaklaşın.")
+        // Soru yapısı olan kesik görünümde plan yokken eski davranış: uzaklaşın
+        XCTAssertEqual(planned(metrics(), lines: ViewLines(chars: 160, topComplete: true, bottomComplete: false), .any).text, "Metin kesik, uzaklaşın.")
     }
 
     func testInTheHalvesTheFirstAndTheLastLineAreReadSoTheUserCanComparePhysically() {

@@ -565,6 +565,69 @@ final class GeminiProfileChainTests: XCTestCase {
         XCTAssertEqual(FakeGeminiProtocol.urls.count, 1)
     }
 
+    func testWhenNoProfileAnswersTheChainStartsOverInTheSameOrderUntilAnAnswerComes() async throws {
+        FakeGeminiProtocol.reset()
+        queueReplies([errorReply(503, "yoğun"), errorReply(503, "yoğun"), errorReply(503, "yoğun"), errorReply(503, "yoğun"), textReply("Soru 4, Denizli, D")])
+        let service = GeminiAnswerService(profiles: profiles(["K1", "K2", "K3", "K4"]), roundPause: 0, makeClient: fakeProfileClient)
+        let reply = try await service.answer(question: "x", expectedNumber: 4, audio: nil)
+        XCTAssertEqual(reply.model, GeminiProfiles.defaultModels[0], "İkinci turda sıra yine 1. profilden başlar")
+        XCTAssertEqual(FakeGeminiProtocol.urls.count, 5)
+        XCTAssertEqual(sentKey(3), "K4")
+        XCTAssertEqual(sentKey(4), "K1")
+        XCTAssertTrue(reply.note.contains("[2. tur]") || reply.note.contains(GeminiProfiles.defaultNames[0]), reply.note)
+    }
+
+    func testAProfileWithAPermanentErrorDropsOutOfTheLaterRounds() async throws {
+        FakeGeminiProtocol.reset()
+        queueReplies([errorReply(503, "yoğun"), errorReply(403, "izin yok"), errorReply(503, "yoğun"), textReply("Soru 1, Adana, A")])
+        let service = GeminiAnswerService(profiles: profiles(["K1", "K2", "K3"]), roundPause: 0, makeClient: fakeProfileClient)
+        let reply = try await service.answer(question: "x", expectedNumber: 1, audio: nil)
+        XCTAssertEqual(reply.model, GeminiProfiles.defaultModels[0])
+        XCTAssertEqual(FakeGeminiProtocol.urls.count, 4, "İkinci turda anahtarı bozuk 2. profil boşuna denenmez")
+        XCTAssertEqual(sentKey(3), "K1")
+    }
+
+    func testPermanentErrorsEverywhereDoNotStartAnotherRound() async {
+        FakeGeminiProtocol.reset()
+        queueReplies([errorReply(403, "izin yok"), errorReply(404), errorReply(403, "izin yok")])
+        let service = GeminiAnswerService(profiles: profiles(["K1", "K2", "K3"]), roundPause: 0, makeClient: fakeProfileClient)
+        do {
+            _ = try await service.answer(question: "x", expectedNumber: 1, audio: nil)
+            XCTFail("Hata bekleniyordu")
+        } catch {
+            XCTAssertTrue(error is GeminiError)
+        }
+        XCTAssertEqual(FakeGeminiProtocol.urls.count, 3)
+    }
+
+    func testTheRoundsAreBoundedByMaxRounds() async {
+        FakeGeminiProtocol.reset()
+        queueReplies(Array(repeating: errorReply(503, "yoğun"), count: 6))
+        let service = GeminiAnswerService(profiles: profiles(["K1", "K2", "K3"]), maxRounds: 2, roundPause: 0, makeClient: fakeProfileClient)
+        do {
+            _ = try await service.answer(question: "x", expectedNumber: 1, audio: nil)
+            XCTFail("Hata bekleniyordu")
+        } catch let error as GeminiError {
+            XCTAssertEqual(error.status, 503)
+        } catch {
+            XCTFail("\(error)")
+        }
+        XCTAssertEqual(FakeGeminiProtocol.urls.count, 6, "İki tur × üç profil")
+    }
+
+    func testWhichErrorsAreWorthAnotherRound() {
+        var slow = GeminiError("x", .network)
+        slow.timedOut = true
+        XCTAssertTrue(GeminiAnswerService.retryable(slow))
+        XCTAssertTrue(GeminiAnswerService.retryable(GeminiError("x", .empty)))
+        XCTAssertTrue(GeminiAnswerService.retryable(GeminiError("x", .error, status: 503)))
+        XCTAssertTrue(GeminiAnswerService.retryable(GeminiError("Dakikalık istek sınırı aşıldı.", .quota)))
+        XCTAssertFalse(GeminiAnswerService.retryable(GeminiError("Günlük kota doldu (günlük).", .quota)))
+        XCTAssertFalse(GeminiAnswerService.retryable(GeminiError("x", .key)))
+        XCTAssertFalse(GeminiAnswerService.retryable(GeminiError("x", .model)))
+        XCTAssertLessThanOrEqual(GeminiAnswerService.perModelLimit, 30, "Modeller çok beklenmez")
+    }
+
     func testVoiceTriesTheSecondKeyWhenTheFirstIsRejected() async throws {
         FakeGeminiProtocol.reset()
         queueReplies([errorReply(403, "izin yok"), audioReply(Data([1, 0, 2, 0]))])
