@@ -112,9 +112,9 @@ final class CameraSettings: ObservableObject {
     @Published var guidanceDescribe: Bool { didSet { defaults.set(guidanceDescribe, forKey: Key.guidanceDescribe) } }
     /// Kadraj tarifine kâğıdın kenarlarını da kat (Apple belge algılaması)
     @Published var guidancePageEdges: Bool { didSet { defaults.set(guidancePageEdges, forKey: Key.guidancePageEdges) } }
-    /// Toplu çekimde sesli konumlandırma (kullanıcı kararı 2026-11-17, varsayılan KAPALI): çekim sürerken kadraj koçu kısa cümlelerle konuşur (kesik kenar,
+    /// Toplu çekimde sesli konumlandırma (kullanıcı kararı 2026-11-17; 2026-11-18: sesli konumlandırmanın her bileşeni varsayılan AÇIK): çekim sürerken kadraj koçu kısa cümlelerle konuşur (kesik kenar,
     /// kayma yönü, yakın / bulanık, üstte ve altta hangi satır). İşaretlenince "sesli konumlandırma desteği" de açılır: kadraj tarifi, sayfa kenarı ve
-    /// sesli uyarı. Kapalıyken toplu çekim eskisi gibi sessizdir.
+    /// sesli uyarı. Kapalıyken toplu çekim sessizdir.
     @Published var seriesGuidance: Bool {
         didSet {
             defaults.set(seriesGuidance, forKey: Key.seriesGuidance)
@@ -215,9 +215,9 @@ final class CameraSettings: ObservableObject {
         guidanceFrame = frameValue
         guidanceSharpness = defaults.object(forKey: Key.guidanceSharpness) as? Int ?? 1
         guidanceGlare = defaults.object(forKey: Key.guidanceGlare) as? Bool ?? true
-        guidanceDescribe = defaults.object(forKey: Key.guidanceDescribe) as? Bool ?? false
+        guidanceDescribe = defaults.object(forKey: Key.guidanceDescribe) as? Bool ?? true
         guidancePageEdges = defaults.object(forKey: Key.guidancePageEdges) as? Bool ?? true
-        seriesGuidance = defaults.object(forKey: Key.seriesGuidance) as? Bool ?? false
+        seriesGuidance = defaults.object(forKey: Key.seriesGuidance) as? Bool ?? true
 
         pageVideoSeconds = CameraSettings.clampSeconds(defaults.object(forKey: Key.pageVideoSeconds) as? Int,
                                                        range: VideoRecorder.pageSecondsRange, fallback: VideoRecorder.pageSegmentSeconds)

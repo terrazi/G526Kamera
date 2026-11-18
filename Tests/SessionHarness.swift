@@ -80,6 +80,8 @@ final class SessionHarness {
         AudioRouting.phoneMicInUse = false
         // Kamera "Başla"dan sonra açılır (varsayılan); sınamaların çoğu eski hazır bekleme düzeniyle yazıldı, burada kapalı, yeni düzenin sınamaları açar
         cameraSettings.cameraAfterGo = false
+        cameraSettings.seriesGuidance = false   // sesli konumlandırma varsayılan açık; çekim sırasında konuşma yalnız ilgili sınamalarda açılır
+        cameraSettings.guidanceDescribe = false
         if shortcutNames {
             settings.wifiShortcut = "WiFi_Ac"
             settings.cellularShortcut = "Hücresel_Ac"

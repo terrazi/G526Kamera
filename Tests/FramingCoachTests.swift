@@ -599,17 +599,23 @@ final class FramingCoachTimerTests: XCTestCase {
 // MARK: - Ayar
 
 final class SeriesGuidanceSettingTests: XCTestCase {
-    func testTheSettingIsOffByDefaultAndRemembered() {
+    func testEveryPartOfTheVoicePositioningIsOnByDefaultAndTheSeriesSettingIsRemembered() {
         let defaults = UserDefaults(suiteName: "g526.testler.\(UUID().uuidString)")!
         let first = CameraSettings(defaults: defaults)
-        XCTAssertFalse(first.seriesGuidance, "Varsayılan: toplu çekim eskisi gibi sessiz")
-        first.seriesGuidance = true
-        XCTAssertTrue(CameraSettings(defaults: defaults).seriesGuidance, "Ayar kalıcıdır")
+        XCTAssertTrue(first.seriesGuidance, "Varsayılan: toplu çekimde sesli konumlandırma açık")
+        XCTAssertTrue(first.guidanceEnabled)
+        XCTAssertTrue(first.guidanceVoice)
+        XCTAssertTrue(first.guidanceDescribe)
+        XCTAssertTrue(first.guidancePageEdges)
+        XCTAssertTrue(first.guidanceGlare)
+        first.seriesGuidance = false
+        XCTAssertFalse(CameraSettings(defaults: defaults).seriesGuidance, "Ayar kalıcıdır")
     }
 
     func testTurningItOnAlsoTurnsOnTheSceneDescriptionPageEdgesAndSpokenWarnings() {
         let defaults = UserDefaults(suiteName: "g526.testler.\(UUID().uuidString)")!
         let s = CameraSettings(defaults: defaults)
+        s.seriesGuidance = false   // varsayılan açık: kapalıyken açınca ilgili ayarlar da açılır
         s.guidanceDescribe = false
         s.guidancePageEdges = false
         s.guidanceVoice = false
