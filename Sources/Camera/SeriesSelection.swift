@@ -422,6 +422,10 @@ final class SeriesCollector {
         var damagedWindows = 0
         /// Penceredeki en iyi kare kamera durgunken gelmişse (durgun an) sayılır
         var stillWindows = 0
+        /// Ritim: geçersiz bulunan kazanan kareler, nedene göre (bozuklar `damagedWindows` içinde)
+        var blurryWindows = 0
+        var noQuestionWindows = 0
+        var noOverlapWindows = 0
     }
 
     struct Outcome {
@@ -448,6 +452,8 @@ final class SeriesCollector {
     /// Ritimde değerlendirilen kazananlardan: geçerli kare görülen dilimler ve dilim başına görülen sorunlar (bkz. `slotProblem`)
     private var goodSlots = Set<Int>()
     private var slotProblems: [Int: Set<SlotProblem>] = [:]
+    /// Ritim: her parça diliminde okunan sözcükler (bir sonraki parçanın bununla örtüştüğü denetlenir)
+    private var slotWords: [Int: Set<String>] = [:]
     private var pool = SeriesPool()
     private var stats = Stats()
     private var pending = 0
@@ -582,8 +588,22 @@ final class SeriesCollector {
             var lines: ViewLines?
             if let part = part, part.isShot, part != .whole, !damaged, frame.still { lines = coverage?(frame.buffer) }
             problem = SlotCheck.problem(damaged: damaged, still: frame.still, part: part, lines: lines)
+            // Örtüşme: üstten sonraki her parça bir önceki parçayla ortak satır göstermeli (aynı sayfanın bir önceki dilimi)
+            if let lines = lines, let part = part, lines.isReadable {
+                lock.lock()
+                let previous = part == .top ? nil : slotWords[slotIndex - 1]
+                slotWords[slotIndex, default: []].formUnion(lines.words)
+                lock.unlock()
+                if problem == nil, let previous = previous, !SlotCheck.overlaps(previous: previous, current: lines.words) { problem = .noOverlap }
+            }
         }
         lock.lock()
+        switch problem {
+        case .blurry?: stats.blurryWindows += 1
+        case .noQuestion?: stats.noQuestionWindows += 1
+        case .noOverlap?: stats.noOverlapWindows += 1
+        default: break
+        }
         if let slotIndex = frame.slot, clock != nil {
             if let problem = problem { slotProblems[slotIndex, default: []].insert(problem) } else { goodSlots.insert(slotIndex) }
         }

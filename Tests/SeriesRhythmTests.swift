@@ -392,6 +392,25 @@ final class SlotCheckTests: XCTestCase {
         XCTAssertNil(SlotCheck.problem(damaged: false, still: true, part: .top, lines: nil), "Yazı okuma çalışmadıysa kare yalnız bu yüzden elenmez")
     }
 
+    func testPartsMustShareLinesWithThePreviousPartButDoubtNeverAsksForARepeat() {
+        let a = Set((1...20).map { "sozcuk\($0)" })
+        let half = Set((11...30).map { "sozcuk\($0)" })
+        let other = Set((101...120).map { "baska\($0)" })
+        XCTAssertTrue(SlotCheck.overlaps(previous: a, current: half), "Yarı yarıya örtüşen parçalar")
+        XCTAssertFalse(SlotCheck.overlaps(previous: a, current: other), "Hiç ortak satır yok: arada yer atlanmış")
+        XCTAssertTrue(SlotCheck.overlaps(previous: Set(["yalnız", "birkaç", "sözcük"]), current: other), "Az sözcük okunduysa hüküm verilmez")
+    }
+
+    func testReadingBasedReasonsRepeatASlotOnlyOnce() {
+        XCTAssertEqual(SlotProblem.damaged.retryLimit(2), 2)
+        XCTAssertEqual(SlotProblem.blurry.retryLimit(2), 2)
+        XCTAssertEqual(SlotProblem.noQuestion.retryLimit(2), 1)
+        XCTAssertEqual(SlotProblem.noOverlap.retryLimit(2), 1)
+        let clock = RhythmClock(pages: 5)
+        guard case .retry = clock.step(at: 4, problem: { _ in .noQuestion }) else { return XCTFail("İlk tekrar") }
+        XCTAssertEqual(clock.step(at: 8, problem: { _ in .noQuestion }), .cue("Üst."), "Yazı okumaya dayanan neden ikinci kez tekrar ettirmez")
+    }
+
     func testTheSpokenSentenceNamesTheReasonAndTheProblemsAreOrdered() {
         XCTAssertTrue(RhythmClock.retryText(problem: .damaged, attempt: 1).contains("bozuldu"))
         XCTAssertTrue(RhythmClock.retryText(problem: .blurry, attempt: 1).contains("bulanık"))

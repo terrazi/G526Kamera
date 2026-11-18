@@ -1040,6 +1040,10 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
             return .failure(.cancelled)
         }
         let stats = outcome.stats
+        if let clock = clock {
+            // Ayar için: geçerli kare kuralı bu oturumda kaç kareyi neden geçersiz saydı, kaç tekrar yaptırdı
+            tlog("[kamera] ritim özeti: \(outcome.items.count) fotoğraf, \(clock.retries) tekrar (+\(Int(clock.offset.rounded())) sn); geçersiz kazanan kare: bozuk \(stats.damagedWindows), bulanık \(stats.blurryWindows), soru tam değil \(stats.noQuestionWindows), örtüşmüyor \(stats.noOverlapWindows)")
+        }
         let elapsed = max(1.0, ProcessInfo.processInfo.systemUptime - t0)
         let rawFrames = max(0, pipeline.framesSeen - rawBefore)
         tlog("[kamera] toplu çekim özeti: kameradan \(rawFrames) kare geldi (≈\(Int((Double(rawFrames) / elapsed).rounded()))/sn), \(stats.offered) kare ölçüldü (≈\(Int((Double(stats.offered) / elapsed).rounded()))/sn), \(stats.windows) pencere: \(stats.weak) tanesinin yazısı okunamadı (zayıf aday), \(stats.busySkipped) atlandı, \(stats.merged) tekrar birleşti, \(stats.kept) aday → \(outcome.items.count) fotoğraf (\(outcome.readable) tanesi okunan); yazı tanıma \(stats.read) kez çalıştı, \(stats.readFailed) kez çalışmadı; bozuk (bloklaşmış) kare \(stats.damagedFrames), tamamen bozuk pencere \(stats.damagedWindows), durgun anda alınan pencere \(stats.stillWindows); görülen soru numaraları: \(outcome.questionNumbers.map { String($0) }.joined(separator: ","))")

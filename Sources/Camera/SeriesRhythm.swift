@@ -141,6 +141,8 @@ enum SlotProblem: Int, Comparable, CaseIterable {
     case blurry = 1
     /// Yazı okunuyor ama kadrajda baştan sona görünen soru (ya da paragraf) yok: yalnız kesik soru parçaları
     case noQuestion = 2
+    /// Parça bir önceki parçayla hiç ortak satır göstermiyor: arada atlanmış yer olabilir (parçalar kasten birbirini örter, Gemini onları ortak satırlardan birleştirir)
+    case noOverlap = 3
 
     static func < (a: SlotProblem, b: SlotProblem) -> Bool { return a.rawValue < b.rawValue }
 
@@ -150,6 +152,16 @@ enum SlotProblem: Int, Comparable, CaseIterable {
         case .damaged: return "bozuk kare"
         case .blurry: return "bulanık kare"
         case .noQuestion: return "soru tam görünmüyor"
+        case .noOverlap: return "önceki parçayla örtüşmüyor"
+        }
+    }
+
+    /// Bu nedenle bir dilim en çok kaç kez tekrarlanır. Soru bütünlüğü ve örtüşme telefonun hızlı yazı okumasına dayanır (gerçek günlüklerde karelerin
+    /// yalnız üçte birinde bir sorunun numarası ve şıkları birlikte okunabildi): yanlış alarm süreyi yemesin diye bir kez; bozuk ve bulanık ölçümü kesindir
+    func retryLimit(_ maxPerSlot: Int) -> Int {
+        switch self {
+        case .damaged, .blurry: return maxPerSlot
+        case .noQuestion, .noOverlap: return min(1, maxPerSlot)
         }
     }
 }
@@ -166,6 +178,18 @@ enum SlotCheck {
         if !lines.isReadable { return .blurry }
         if lines.completeQuestions >= 1 || lines.paragraph { return nil }
         return .noQuestion
+    }
+
+    /// Örtüşme ölçülebilmesi için iki parçada da en az bu kadar okunmuş sözcük gerekir; azsa hüküm verilmez
+    static let minOverlapWords = 12
+    /// Ortak sözcük oranı (küçük kümeye göre) bunun altındaysa parçalar örtüşmüyor sayılır. Parçalar yarı yarıya örtüşecek biçimde çekilir; hızlı yazı
+    /// okuma aynı satırı her karede biraz başka okuduğu için eşik düşük tutulur (yalnız "hiç ortak satır yok" yakalanır)
+    static let minOverlap = 0.08
+
+    /// Parça bir öncekiyle ortak satır gösteriyor mu? Ölçülemiyorsa (sözcük az) true: şüphede tekrar istenmez
+    static func overlaps(previous: Set<String>, current: Set<String>) -> Bool {
+        guard previous.count >= minOverlapWords, current.count >= minOverlapWords else { return true }
+        return TextScore.containment(previous, current) >= minOverlap
     }
 }
 
@@ -262,7 +286,7 @@ final class RhythmClock {
             lock.lock()
             let tried = attempts[ending.index] ?? 0
             lock.unlock()
-            if tried < maxPerSlot, let why = problem(ending.index) {
+            if tried < maxPerSlot, let why = problem(ending.index), tried < why.retryLimit(maxPerSlot) {
                 lock.lock()
                 attempts[ending.index] = tried + 1
                 retried += 1
@@ -286,6 +310,9 @@ final class RhythmClock {
         case .noQuestion:
             if attempt <= 1 { return "Soru tam görünmüyor. Sayfadan ayrılmayın, soruyu ekrana alıp bu yeri tekrar gösterin." }
             return "Hâlâ soru tam değil. Sayfadan ayrılmayın, soruyu ortalayıp bir kez daha gösterin."
+        case .noOverlap:
+            if attempt <= 1 { return "Önceki parçayla örtüşmedi, arada yer kalmış olabilir. Sayfadan ayrılmayın, biraz yukarıdan bu yeri tekrar gösterin." }
+            return "Hâlâ örtüşmüyor. Sayfadan ayrılmayın, biraz daha yukarıdan bir kez daha gösterin."
         }
     }
 
