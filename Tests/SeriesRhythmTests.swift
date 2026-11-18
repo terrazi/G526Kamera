@@ -180,6 +180,7 @@ final class RhythmCollectorTests: XCTestCase {
     }
 }
 
+@MainActor
 final class RhythmPromptTests: XCTestCase {
     func testTheRhythmLabelsAreListedInThePromptInPdfOrder() {
         let labels = ["1. sayfa, tüm sayfa", "1. sayfa, üst", "1. sayfa, orta üst", "1. sayfa, orta alt", "1. sayfa, alt"]
