@@ -489,6 +489,14 @@ final class FramingCoachTimerTests: XCTestCase {
         }
     }
 
+    func testTheFirstViewOfTheSessionDoesNotWaitForTheLinesBeforeItIsEvaluated() {
+        var t = FramingCoachTimer()
+        // Kamera önce oynuyor, sonra duruyor; oturumda daha önce görünüm yok: satır beklemeden ilk ölçüm yapılır
+        XCTAssertNil(step(&t, cutRight, at: 10.0, still: 0, lines: nil))
+        XCTAssertNil(step(&t, cutRight, at: 10.3, still: 0.3, lines: nil), "İlk ölçüm")
+        XCTAssertEqual(step(&t, cutRight, at: 10.6, still: 0.6, lines: nil), "Biraz sağa.", "Satır beklenmediği için ikinci ölçümde konuşur")
+    }
+
     func testAfterAMoveTheTimerWaitsForTheLinesBeforeDecidingWhetherThePageChanged() {
         var t = FramingCoachTimer()
         _ = step(&t, cutRight, at: 10.0, lines: pageA)
@@ -1342,14 +1350,6 @@ final class FirstReadableTimerTests: XCTestCase {
         XCTAssertEqual(spoken.first?.1, "Yaklaşın.", "Yazı tanıma gelmediyse geometri konuşur")
         XCTAssertGreaterThanOrEqual(spoken.first?.0 ?? 0, 11.0, "En az lineWait (1 sn) beklenir")
         XCTAssertLessThanOrEqual(spoken.first?.0 ?? 99, 12.0, "Ama uzun değil: ilk cümle en geç 2 sn içinde")
-    }
-
-    func testTheFirstViewOfTheSessionDoesNotWaitForTheLinesBeforeItIsEvaluated() {
-        var t = FramingCoachTimer()
-        // Kamera önce oynuyor, sonra duruyor; oturumda daha önce görünüm yok: satır beklemeden ilk ölçüm yapılır
-        XCTAssertNil(step(&t, cutRight, at: 10.0, still: 0, lines: nil))
-        XCTAssertNil(step(&t, cutRight, at: 10.3, still: 0.3, lines: nil), "İlk ölçüm")
-        XCTAssertEqual(step(&t, cutRight, at: 10.6, still: 0.6, lines: nil), "Biraz sağa.", "Satır beklenmediği için ikinci ölçümde konuşur")
     }
 
     func testTheTextRecognitionResultCancelsTheWaitingRefinement() {
