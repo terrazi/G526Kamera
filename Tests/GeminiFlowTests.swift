@@ -536,8 +536,9 @@ final class GeminiProfileChainTests: XCTestCase {
 
     func testEveryProfileFailingKeepsEachProfilesReason() async {
         FakeGeminiProtocol.reset()
-        queueReplies([errorReply(429, "quota"), errorReply(403, "izin yok"), errorReply(404)])
-        let service = GeminiAnswerService(profiles: profiles(["K1", "K2", "K3"]), makeClient: fakeProfileClient)
+        // Kalıcı hatalar (anahtar / model): yeni tur başlamaz; geçici hatalarda (kota, yoğunluk, gecikme) sıra baştan denenirdi
+        queueReplies([errorReply(403, "izin yok"), errorReply(404), errorReply(403, "izin yok")])
+        let service = GeminiAnswerService(profiles: profiles(["K1", "K2", "K3"]), roundPause: 0, makeClient: fakeProfileClient)
         do {
             _ = try await service.answer(question: "x", expectedNumber: 1, audio: nil)
             XCTFail("Hata bekleniyordu")
