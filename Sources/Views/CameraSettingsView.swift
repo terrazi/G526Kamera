@@ -48,6 +48,8 @@ struct CameraSettingsSections: View {
                     Text(o.title).tag(o)
                 }
             }
+            Toggle("Yazının yönünü kendiliğinden bul", isOn: $camera.autoOrientation)
+            HelpRow("Kamera sayfaya alttan ya da yandan bakınca yazı yan ya da ters görünür. Açıkken yazı tanıma gerekirse yan ve ters yönleri de dener; yazı okunan yönde ölçülür, fotoğraflar PDF'e dik girer. Sesli yön cümleleri (sağa, sola, yukarı, aşağı) kameranın kendi duruşuna göre söylenir. Kapalıyken yalnız yukarıdaki Görüntü yönü geçerlidir. Cihazda doğrulanmadı.")
             HelpRow("Kadraj yönü: önizleme kutusu ve sesli yönlendirme bu seçime uyar. “Dikey”: kutu dikeydir (9:16) ve kamera görüntüsü 90° çevrilir, böylece kameranın gördüğünün tamamı kırpılmadan kutuya oturur. “Yatay”: kutu yataydır (16:9) ve görüntü olduğu gibi kullanılır (ters takılıysa 180°). Görüntü yönü: Dikey kadrajda “90° sağa” ya da “90° sola” (sayfa yan yatıyorsa öbürünü seçin), Yatay kadrajda “Normal” ya da “180°”. Seçtiğiniz yön önizlemeye, çekilen fotoğrafa, kaydedilen videoya ve sesli yönlendirmedeki sağ / sol / yukarı / aşağıya uygulanır. Fotoğraf kırpılmaz.")
             HelpRow("Kamera adı (UID) hazır yazılı gelir; başka bir kamera için silip yenisini yazabilirsiniz. IP boş bırakılırsa kamera kendiliğinden bulunur. Çekim sırasında telefon kameranın Wi-Fi ağına bağlıdır; çekim bitince program Wi-Fi'yi bırakıp hücresel veriyle Gemini'ye gönderir.")
         }

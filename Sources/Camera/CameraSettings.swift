@@ -26,6 +26,7 @@ final class CameraSettings: ObservableObject {
         static let guidanceVoice = "guidanceVoice"
         static let statusNotices = "statusNotices"
         static let imageOrientation = "imageOrientation"
+        static let autoOrientation = "autoOrientation"
         static let guidanceFrame = "guidanceFrame"
         static let guidanceSharpness = "guidanceSharpness"
         static let guidanceGlare = "guidanceGlare"
@@ -95,6 +96,10 @@ final class CameraSettings: ObservableObject {
     @Published var statusNotices: Bool { didSet { defaults.set(statusNotices, forKey: Key.statusNotices) } }
     /// Görüntü yönü: önizleme, fotoğraf, video ve sesli yönlendirme bu yöne göre çevrilir
     @Published var imageOrientation: ImageOrientation { didSet { defaults.set(imageOrientation.rawValue, forKey: Key.imageOrientation) } }
+    /// Yazının yönünü kendiliğinden bul (kullanıcı isteği 2026-11-18: çekim bazen alttan, bazen yandan olabilir): kare mevcut yönde okunmuyorsa yan ve ters yönler
+    /// denenir; yazı okunan yönde ölçülür ve kaydedilirken dik çevrilir, sesli yön cümleleri ise kameranın duruşuna göre söylenir (bkz. `OrientationFinder`).
+    /// Kapalıyken yalnız yukarıdaki "Görüntü yönü" geçerlidir.
+    @Published var autoOrientation: Bool { didSet { defaults.set(autoOrientation, forKey: Key.autoOrientation) } }
     /// Kadraj: 0 = yatay (varsayılan), 1 = dikey tam sayfa
     @Published var guidanceFrame: Int {
         didSet {
@@ -213,6 +218,7 @@ final class CameraSettings: ObservableObject {
         defaults.set(orient.rawValue, forKey: Key.imageOrientation)
         imageOrientation = orient
         guidanceFrame = frameValue
+        autoOrientation = defaults.object(forKey: Key.autoOrientation) as? Bool ?? true
         guidanceSharpness = defaults.object(forKey: Key.guidanceSharpness) as? Int ?? 1
         guidanceGlare = defaults.object(forKey: Key.guidanceGlare) as? Bool ?? true
         guidanceDescribe = defaults.object(forKey: Key.guidanceDescribe) as? Bool ?? true

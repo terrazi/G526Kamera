@@ -21,6 +21,22 @@ enum ImageOrientation: Int, CaseIterable {
         }
     }
 
+    /// Saat yönünde çeyrek dönüş sayısı (0, 1, 2, 3)
+    var quarterTurns: Int {
+        switch self {
+        case .normal: return 0
+        case .right90: return 1
+        case .rotate180: return 2
+        case .left90: return 3
+        }
+    }
+
+    /// Sesli yönlendirmede dönüş: yazının okunduğu dik görüntüden (`detected` yönüyle çevrilmiş) kullanıcının gördüğü görüntüye (`base`) saat yönünde çeyrek
+    /// dönüş sayısı. Kamera yazıdan farklı yönde tutulduğunda yön cümleleri kameranın duruşuna göre söylenir (bkz. `ViewDirection`).
+    static func turn(base: ImageOrientation, detected: ImageOrientation) -> Int {
+        return ((base.quarterTurns - detected.quarterTurns) % 4 + 4) % 4
+    }
+
     /// Dik açıyla çevrilince en/boy yer değiştirir
     var isQuarterTurn: Bool { return self == .right90 || self == .left90 }
 

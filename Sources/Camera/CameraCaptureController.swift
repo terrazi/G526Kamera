@@ -144,6 +144,10 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
     private var coach = FramingCoachTimer()
     private var coachOn = false
     private var coachConfig = GuidanceConfig()
+    /// Yazının yönünü bulur (bkz. `OrientationFinder`): toplu çekimde her kare kendi yönüyle PDF'e girer
+    private let orientationFinder = OrientationFinder()
+    /// Koçun sesli yön sözcüklerinin dönüşü: dik (yazının okunduğu) görüntüden kameranın görüntüsüne çeyrek dönüş (bkz. `ViewDirection`)
+    private var coachTurn = 0
     private var coachSharpFloor = 0.45
     private var coachLines: (lines: ViewLines, time: TimeInterval)?
     /// Koçun açıldığı an ve o oturumda söylediği cümle sayısı (günlük: ilk cümle ne kadar sonra geldi)
@@ -558,6 +562,7 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         coachOCRBusy = false
         coachOCRTime = -100
         pipeline.guidanceOrientation = settings.imageOrientation
+        coachTurn = 0
         // Sayfanın üç durumu (tam sayfa, üst yarı, alt yarı) kâğıt kenarlarından bilinir (Vision): kamera durunca seyrek çalışır (bkz. `PageEdgeTracker`).
         // Pil tasarrufunda (önizleme kapalı) boru hattı kenar ölçmez; o zaman yalnız yazı ölçümüyle sürer.
         coachMoveEpoch = 0
@@ -592,7 +597,8 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         var lines: ViewLines?
         if let cached = coachLines, sample.time - cached.time <= CameraCaptureController.coachLinesMaxAge { lines = cached.lines }
         if let text = coach.step(metrics: sample.metrics, lines: lines, time: sample.time, stillFor: sample.stillFor,
-                                 guidance: coachConfig, sharpFloor: coachSharpFloor, expectEdges: coachExpectsEdges, firstReadable: true, wholeFirst: true) {
+                                 guidance: coachConfig, sharpFloor: coachSharpFloor, expectEdges: coachExpectsEdges, firstReadable: true, wholeFirst: true,
+                                 turn: coachTurn) {
             // Düzgün kadrajda uygunluğun yanında sayfanın alındığı ve sıradakine geçilebileceği de söylenir (kullanıcı kararı 2026-11-18)
             sayCoach(coach.lastWasGood && !coach.lastWasOpen ? FramingCoach.withCapture(text, capture: coach.lastCapture) : text, detail: lines?.cutReason, ignored: lines?.ignored ?? 0)
         }
@@ -609,16 +615,36 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         coachOCRTime = time
         let epoch = coachMoveEpoch
         let buffer = best.buffer
-        let orientation = settings.imageOrientation
+        let base = settings.imageOrientation
+        let auto = settings.autoOrientation
+        let preferred = pipeline.guidanceOrientation
         let began = ProcessInfo.processInfo.systemUptime
         Task { [weak self] in
-            let lines = await Task.detached(priority: .utility) { ViewLinesReader.read(buffer, orientation: orientation) }.value
+            // Yazı yönü: görünüm mevcut yönde okunmuyorsa yan ve ters yönler denenir (bkz. `OrientationFinder`); ölçüm dik görüntüde yapılır
+            let found = await Task.detached(priority: .utility) { () -> (orientation: ImageOrientation, lines: ViewLines?) in
+                guard auto else { return (base, ViewLinesReader.read(buffer, orientation: base)) }
+                let result = OrientationFinder.find(preferred: preferred) { orientation -> (value: ViewLines?, chars: Int) in
+                    let lines = ViewLinesReader.read(buffer, orientation: orientation)
+                    return (lines, lines?.chars ?? 0)
+                }
+                return (result.orientation, result.value)
+            }.value
+            let lines = found.lines
             guard let self = self else { return }
+            if auto, self.coachOn, found.orientation != self.pipeline.guidanceOrientation { self.adoptCoachOrientation(found.orientation, base: base) }
             // Koçun ilk cümlesi geç geliyorsa neden yazı okumasının süresi mi diye günlükten görülsün
             tlog("[kamera] koç okuması: \(String(format: "%.2f", ProcessInfo.processInfo.systemUptime - began)) sn")
             self.coachOCRBusy = false
             if let lines = lines, self.coachOn, epoch == self.coachMoveEpoch { self.coachLines = (lines: lines, time: time) }
         }
+    }
+
+    /// Görünümün yazısı başka yönde okunuyor: ölçümler (yazı ölçüsü, kâğıt kenarları) o yönde yapılır; sesli yön sözcükleri kameranın duruşuna göre söylenir
+    private func adoptCoachOrientation(_ detected: ImageOrientation, base: ImageOrientation) {
+        pipeline.guidanceOrientation = detected
+        coachConfig.topBand = detected == .normal ? GuidanceAnalyzer.skipTop : 0
+        coachTurn = ImageOrientation.turn(base: base, detected: detected)
+        tlog("[kamera] yazı yönü: \(detected.title) (yön cümleleri kamera duruşuna göre, dönüş \(coachTurn))")
     }
 
     /// Koç cümlesi: "Uyarıları sesli söyle" ayarından bağımsızdır (kullanıcı toplu çekimde sesli konumlandırmayı kendisi açtı)
@@ -893,13 +919,19 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         let total = seconds
         let options = captureOptions()
         let enhance = options.enhance
-        let orientation = enhance.orientation
+        let baseOrientation = enhance.orientation
+        // Yazı yönü kare kare bulunur: yan ya da ters duran sayfa PDF'e dik girer (kullanıcı isteği 2026-11-18)
+        let finder = orientationFinder
+        let findOrientation = settings.autoOrientation
+        finder.reset(base: baseOrientation)
         let t0 = ProcessInfo.processInfo.systemUptime
         let collector = SeriesCollector(
             start: t0,
-            reader: { SeriesTextReader.read($0, orientation: orientation) },
+            reader: { buffer in finder.readScore(buffer, base: baseOrientation, enabled: findOrientation) { frame, orientation in SeriesTextReader.read(frame, orientation: orientation) } },
             renderer: { buffer in
-                guard let rendered = Enhancer.render(buffers: [buffer], options: enhance) else { return nil }
+                var rendering = enhance
+                rendering.orientation = finder.orientation(for: buffer, fallback: baseOrientation)
+                guard let rendered = Enhancer.render(buffers: [buffer], options: rendering) else { return nil }
                 return (data: rendered.data, width: rendered.width, height: rendered.height)
             },
             log: { tlog($0) })
