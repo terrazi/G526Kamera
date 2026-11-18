@@ -424,9 +424,12 @@ final class SeriesCollector {
 
     private let lock = NSLock()
     private var windows: WindowBest<Frame>
-    /// Ritim modu: pencereler yerine dilimlerin en iyisi seçilir
-    private let rhythm: SeriesRhythm?
+    /// Ritim modu: pencereler yerine dilimlerin en iyisi seçilir; saat dilimi kare zamanından bulur ve bozuk kare tekrarını yönetir (bkz. `RhythmClock`)
+    private let clock: RhythmClock?
     private var slots = SlotBest<Frame>()
+    /// Ritimde dilimlerde görülen sağlam ve bozuk kareler: yalnız bozuk görülen dilim tekrarlanır (`slotNeedsRetry`)
+    private var cleanSlots = Set<Int>()
+    private var damagedSlots = Set<Int>()
     private var pool = SeriesPool()
     private var stats = Stats()
     private var pending = 0
@@ -445,18 +448,19 @@ final class SeriesCollector {
     private let maxPending: Int
     private let minPages: Int
 
-    init(start: TimeInterval, maxPending: Int = SeriesSelection.maxPending, minPages: Int = SeriesSelection.minPages, rhythm: SeriesRhythm? = nil,
+    init(start: TimeInterval, maxPending: Int = SeriesSelection.maxPending, minPages: Int = SeriesSelection.minPages, rhythm: SeriesRhythm? = nil, clock: RhythmClock? = nil,
          reader: @escaping Reader, renderer: @escaping Renderer, log: @escaping (String) -> Void = { _ in }) {
         self.start = start
         // Ritimde her dilimin kazananı gerekir: yazı tanıma yetişemese de dilim atlanmaz (dilimler 4 sn arayla kapanır, kuyruk birikmez)
-        self.maxPending = rhythm == nil ? maxPending : Int.max
-        self.rhythm = rhythm
+        let clock = clock ?? rhythm.map { RhythmClock(rhythm: $0, pages: 1) }
+        self.maxPending = clock == nil ? maxPending : Int.max
+        self.clock = clock
         self.minPages = minPages
         self.windows = WindowBest<Frame>(start: start, length: SeriesSelection.window)
         self.reader = reader
         self.renderer = renderer
         self.log = log
-        pool.keepAll = rhythm != nil
+        pool.keepAll = clock != nil
     }
 
     /// Analiz edilmiş bir kare (analiz kuyruğundan çağrılır; hızlı döner)
@@ -482,10 +486,11 @@ final class SeriesCollector {
         let tier = frame.damaged ? 0.0 : (frame.still ? 2.0 : 1.0)
         let score = tier * 1_000_000 + sharpness
         var closed: Frame?
-        if let rhythm = rhythm {
+        if let clock = clock {
             // Ritim: yalnız bir dilimin yerleşme süresinden sonraki kareleri sayılır (sayfa çevirirken ve yeni yere giderken gelenler atılır)
-            if let slot = rhythm.shotSlot(at: time - start) {
+            if let slot = clock.shotSlot(at: time - start) {
                 frame.slot = slot.index
+                if frame.damaged { damagedSlots.insert(slot.index) } else { cleanSlots.insert(slot.index) }
                 closed = slots.offer(slot: slot.index, score: score, payload: frame)
             }
         } else {
@@ -493,6 +498,13 @@ final class SeriesCollector {
         }
         lock.unlock()
         if let closed = closed { submit(closed) }
+    }
+
+    /// Ritim: dilimde bozuk (bloklaşmış) kare görüldü ama hiç sağlam kare yok mu? Evetse kullanıcıya "sayfadan ayrılmayın, tekrar gösterin" denir ve dilim tekrarlanır
+    func slotNeedsRetry(_ index: Int) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return damagedSlots.contains(index) && !cleanSlots.contains(index)
     }
 
     private func submit(_ frame: Frame) {
@@ -568,7 +580,7 @@ final class SeriesCollector {
         lock.lock()
         defer { lock.unlock() }
         finished = true
-        return rhythm == nil ? windows.flush() : slots.flush()
+        return clock == nil ? windows.flush() : slots.flush()
     }
 
     private func snapshot() -> Outcome {
@@ -583,7 +595,7 @@ final class SeriesCollector {
                                          medianSharpness: CaptureDiagnosis.median(sharpnesses), questionNumbers: seen,
                                          damagedWindows: result.damagedWindows)
         var outcome = Outcome(items: chosen, readable: chosen.filter { $0.isUseful }.count, stats: result, questionNumbers: seen, diagnosis: diagnosis)
-        if rhythm != nil {
+        if clock != nil {
             outcome.labels = chosen.map { item in
                 item.slot.flatMap { SeriesRhythm.slot(index: $0) }.map { SeriesRhythm.label(page: $0.page, part: $0.part) } ?? ""
             }

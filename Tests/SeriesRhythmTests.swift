@@ -209,3 +209,122 @@ final class RhythmPromptTests: XCTestCase {
         XCTAssertEqual(restored.first?.rhythmLabels, ["1. sayfa, tüm sayfa", "1. sayfa, üst"])
     }
 }
+
+/// Kamerada blok bozulmaları olur (kullanıcı kararı 2026-11-18): kullanıcı bunu bilmeli, sayfadan ayrılmamalı, o yerin temiz çekimi yeniden yapılabilmeli.
+/// Bir alınan dilimde YALNIZ bozuk kare görülürse dilim tekrarlanır ve oturum uzar.
+final class DamagedSlotRetryTests: XCTestCase {
+    private let signature = [UInt8](repeating: 100, count: 576)
+
+    private func buffer(id: Int) -> CVPixelBuffer {
+        var pb: CVPixelBuffer?
+        CVPixelBufferCreate(kCFAllocatorDefault, 8 + id, 4, kCVPixelFormatType_32BGRA, nil, &pb)
+        return pb!
+    }
+
+    private func collector(_ t0: Double, clock: RhythmClock) -> SeriesCollector {
+        return SeriesCollector(start: t0, clock: clock, reader: { _ in nil },
+                               renderer: { buffer in (data: Data([UInt8(CVPixelBufferGetWidth(buffer) - 8)]), width: 1920, height: 1080) })
+    }
+
+    func testTheSlotThatJustEndedIsFoundOnlyAtItsEnd() {
+        let rhythm = SeriesRhythm.standard
+        XCTAssertEqual(rhythm.endingSlot(at: 4)?.part, .whole)
+        XCTAssertEqual(rhythm.endingSlot(at: 8)?.part, .top)
+        XCTAssertEqual(rhythm.endingSlot(at: 20)?.part, .bottom, "Alt dilim bitince (sayfa çevrilmeden) karar verilir")
+        XCTAssertEqual(rhythm.endingSlot(at: 120)?.page, 5)
+        XCTAssertNil(rhythm.endingSlot(at: 25), "Sayfa çevirme biterken yeniden çekim yoktur")
+        XCTAssertNil(rhythm.endingSlot(at: 6), "Dilimin ortası")
+        XCTAssertNil(rhythm.endingSlot(at: 0))
+    }
+
+    func testWithoutDamageTheClockOnlyGivesTheNormalCues() {
+        let clock = RhythmClock(pages: 5)
+        XCTAssertEqual(clock.step(at: 4, needsRetry: { _ in false }), .cue("Üst."))
+        XCTAssertEqual(clock.step(at: 5, needsRetry: { _ in false }), .silent)
+        XCTAssertEqual(clock.offset, 0)
+        XCTAssertEqual(clock.totalSeconds, 125)
+        XCTAssertEqual(clock.retries, 0)
+    }
+
+    func testADamagedSlotIsRepeatedTheUserIsToldToStayAndTheSessionGrows() {
+        let clock = RhythmClock(pages: 5)
+        guard case .retry(let text, let slot, let attempt) = clock.step(at: 4, needsRetry: { $0 == 0 }) else { return XCTFail("Bozuk dilim tekrarlanmalı") }
+        XCTAssertEqual(slot, 0)
+        XCTAssertEqual(attempt, 1)
+        XCTAssertEqual(text, "Görüntü bozuldu. Sayfadan ayrılmayın, bu yeri tekrar gösterin.")
+        XCTAssertEqual(clock.offset, 4)
+        XCTAssertEqual(clock.totalSeconds, 129, "Tekrar oturumu bir dilim uzatır")
+        XCTAssertEqual(clock.position(at: 4)?.part, .whole, "Saat geri alındı: aynı dilim yeniden başlıyor")
+        XCTAssertEqual(clock.position(at: 4)?.into, 0)
+        XCTAssertEqual(clock.step(at: 5, needsRetry: { _ in false }), .silent, "Tekrar sırasında başka komut yok")
+        XCTAssertEqual(clock.step(at: 8, needsRetry: { _ in false }), .cue("Üst."), "Tekrar temiz geçince ritim kaldığı yerden sürer")
+        XCTAssertEqual(clock.position(at: 8)?.part, .top)
+    }
+
+    func testTheSameSlotIsRepeatedAtMostTwiceAndTheSecondTextIsDifferent() {
+        let clock = RhythmClock(pages: 5)
+        _ = clock.step(at: 4, needsRetry: { _ in true })
+        guard case .retry(let text, _, let attempt) = clock.step(at: 8, needsRetry: { _ in true }) else { return XCTFail("İkinci tekrar") }
+        XCTAssertEqual(attempt, 2)
+        XCTAssertEqual(text, "Hâlâ bozuk. Sayfadan ayrılmayın, bir kez daha gösterin.")
+        XCTAssertEqual(clock.step(at: 12, needsRetry: { _ in true }), .cue("Üst."), "İki tekrardan sonra ritim sessizce sürer: o dilimin kalan en iyi karesi gider")
+        XCTAssertEqual(clock.offset, 8)
+    }
+
+    func testTheWholeSessionRepeatsAtMostSixTimes() {
+        let clock = RhythmClock(pages: 5)
+        var second = 0
+        while second < clock.totalSeconds {
+            second += 1
+            _ = clock.step(at: second, needsRetry: { _ in true })
+        }
+        XCTAssertEqual(clock.retries, 6)
+        XCTAssertEqual(clock.totalSeconds, 125 + 24)
+        XCTAssertEqual(clock.maxExtraSeconds, 24)
+    }
+
+    func testTheLastSlotOfTheLastPageCanBeRepeatedToo() {
+        let clock = RhythmClock(pages: 5)
+        guard case .retry(_, let slot, _) = clock.step(at: 120, needsRetry: { _ in true }) else { return XCTFail("Son dilim de tekrarlanır") }
+        XCTAssertEqual(SeriesRhythm.slot(index: slot)?.page, 5)
+        XCTAssertEqual(SeriesRhythm.slot(index: slot)?.part, .bottom)
+        XCTAssertEqual(clock.totalSeconds, 129)
+    }
+
+    func testOnlyASlotWithDamagedFramesAndNoCleanFrameNeedsARepeat() {
+        let t0 = 11000.0
+        let clock = RhythmClock(pages: 5)
+        let c = collector(t0, clock: clock)
+        let damaged = FrameAnalysis.damagedBlockiness + 0.5
+        c.offer(buffer: buffer(id: 1), time: t0 + 2.0, sharpness: 900, signature: signature, blockiness: damaged)
+        c.offer(buffer: buffer(id: 2), time: t0 + 3.0, sharpness: 900, signature: signature, blockiness: damaged)
+        XCTAssertTrue(c.slotNeedsRetry(0), "Dilimde yalnız bozuk kare var")
+        XCTAssertFalse(c.slotNeedsRetry(1), "Hiç kare görülmeyen dilim (kamera durmuş olabilir) bozukluk sayılmaz")
+        c.offer(buffer: buffer(id: 3), time: t0 + 3.5, sharpness: 100, signature: signature, blockiness: 1.0)
+        XCTAssertFalse(c.slotNeedsRetry(0), "Bir sağlam kare yetiyor")
+    }
+
+    func testFramesWhileSettlingDoNotCountAsDamage() {
+        let t0 = 12000.0
+        let c = collector(t0, clock: RhythmClock(pages: 5))
+        c.offer(buffer: buffer(id: 1), time: t0 + 0.5, sharpness: 900, signature: signature, blockiness: FrameAnalysis.damagedBlockiness + 0.5)
+        XCTAssertFalse(c.slotNeedsRetry(0), "Yerleşirken gelen bozuk kare sayılmaz")
+    }
+
+    func testTheCleanShotOfTheRepeatReplacesTheDamagedOne() async {
+        let t0 = 13000.0
+        let clock = RhythmClock(pages: 5)
+        let c = collector(t0, clock: clock)
+        c.offer(buffer: buffer(id: 1), time: t0 + 2.0, sharpness: 900, signature: signature, blockiness: FrameAnalysis.damagedBlockiness + 0.5)
+        guard case .retry = clock.step(at: 4, needsRetry: { c.slotNeedsRetry($0) }) else { return XCTFail("Dilim tekrarlanmalı") }
+        // saat geri alındı: oturumun 6. saniyesi yine "tüm sayfa" diliminin 2. saniyesi
+        c.offer(buffer: buffer(id: 2), time: t0 + 6.0, sharpness: 100, signature: signature, blockiness: 1.0)
+        XCTAssertFalse(c.slotNeedsRetry(0))
+        guard case .cue(let cue) = clock.step(at: 8, needsRetry: { c.slotNeedsRetry($0) }) else { return XCTFail("Temiz tekrardan sonra sıradaki komut") }
+        XCTAssertEqual(cue, "Üst.")
+        let outcome = await c.finish()
+        XCTAssertEqual(outcome.items.count, 1)
+        XCTAssertEqual(outcome.items.first?.jpeg.first, 2, "Tekrarın temiz karesi bozuk olanın yerine geçer")
+        XCTAssertEqual(outcome.labels, ["1. sayfa, tüm sayfa"])
+    }
+}

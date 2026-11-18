@@ -925,8 +925,10 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         shooting = true
         let rhythm: SeriesRhythm? = settings.seriesGuidance ? SeriesRhythm.standard : nil
         // Ritimde süre sayfa sayısına tamamlanır (yarım sayfa bırakılmaz)
-        let total = rhythm.map { $0.roundedSeconds(seconds) } ?? seconds
+        var total = rhythm.map { $0.roundedSeconds(seconds) } ?? seconds
         let pages = rhythm?.pages(in: seconds) ?? 0
+        // Ritim saati: bozuk (bloklaşmış) görüntüde dilim tekrarlanır, oturum uzar (bkz. `RhythmClock`)
+        let clock: RhythmClock? = rhythm.map { RhythmClock(rhythm: $0, pages: pages) }
         let options = captureOptions()
         let enhance = options.enhance
         let baseOrientation = enhance.orientation
@@ -937,7 +939,7 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         let t0 = ProcessInfo.processInfo.systemUptime
         let collector = SeriesCollector(
             start: t0,
-            rhythm: rhythm,
+            clock: clock,
             reader: { buffer in finder.readScore(buffer, base: baseOrientation, enabled: findOrientation) { frame, orientation in SeriesTextReader.read(frame, orientation: orientation) } },
             renderer: { buffer in
                 var rendering = enhance
@@ -957,7 +959,7 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         if trial {
             // Deneme çekimi: aynı kareler ayrıca videoya yazılır (saniyede 8 kare; kullanıcı el hareketini ve mesafeyi izler)
             let url = CameraCaptureController.newTrialVideoURL()
-            videoRecorder.start(to: url, orientation: settings.imageOrientation, maxSeconds: Double(total) + 1,
+            videoRecorder.start(to: url, orientation: settings.imageOrientation, maxSeconds: Double(total + (clock?.maxExtraSeconds ?? 0)) + 1,
                                 fps: VideoRecorder.trialFps, maxBitrate: VideoRecorder.trialMaxBitrate)
             videoURL = url
         }
@@ -969,9 +971,11 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         } else {
             tlog("[kamera] \(trial ? "deneme çekimi" : "toplu çekim") başladı: \(seconds) sn (konuşma ve titreşim yok; her kare ölçülür, \(SeriesSelection.window) sn'lik pencerelerin en iyisi yazı tanımadan geçer)")
         }
-        for second in 1...total {
+        var second = 0
+        while second < total {
+            second += 1
             if cancelled { break }
-            if let rhythm = rhythm, let p = rhythm.position(at: Double(second) - 0.5) {
+            if let clock = clock, let p = clock.position(at: Double(second) - 0.5) {
                 status("Çekim: \(second)/\(total) sn, \(p.page). sayfa, \(p.part.title)")
             } else {
                 status("Çekim: \(second)/\(total) sn")
@@ -983,7 +987,20 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
                 try? await Task.sleep(nanoseconds: UInt64(min(rest, 0.25) * 1_000_000_000))
             }
             if cancelled { break }
-            if let rhythm = rhythm, second < total, let cue = rhythm.cue(at: Double(second), totalPages: pages) { sayRhythm(cue) }
+            if let clock = clock {
+                switch clock.step(at: second, needsRetry: { collector.slotNeedsRetry($0) }) {
+                case .retry(let text, let slot, let attempt):
+                    // Bozuk kare: kullanıcı sayfadan ayrılmasın, aynı yer yeniden gösterilsin; oturum bir dilim uzar
+                    total = clock.totalSeconds
+                    let place = SeriesRhythm.slot(index: slot).map { SeriesRhythm.label(page: $0.page, part: $0.part) } ?? "?"
+                    tlog("[kamera] ritim: \(place) diliminde yalnız bozuk (bloklaşmış) kare var; \(attempt). tekrar, oturum \(total) sn'ye uzadı (toplam \(clock.retries) tekrar)")
+                    sayRhythm(text)
+                case .cue(let cue):
+                    if second < total { sayRhythm(cue) }
+                case .silent:
+                    break
+                }
+            }
             lostFor = isLive ? 0 : lostFor + 1
             if lostFor >= CameraCaptureController.seriesLostSeconds {
                 cutAt = second

@@ -87,6 +87,12 @@ struct SeriesRhythm: Equatable {
         return (SeriesRhythm.slotIndex(page: p.page, part: p.part), p.page, p.part)
     }
 
+    /// Bu anda biten alınan dilim (anın ±0,05 sn'si içinde sonu olan); sayfa çevirme ve dilim ortası için nil. Bozuk kare tekrarı bu anda kararlaştırılır
+    func endingSlot(at time: TimeInterval) -> (index: Int, page: Int, part: Part)? {
+        guard time > 0, let p = position(at: time - 0.01), p.part.isShot, abs(p.end - time) <= 0.05 else { return nil }
+        return (SeriesRhythm.slotIndex(page: p.page, part: p.part), p.page, p.part)
+    }
+
     /// Dilim numarasından sayfa ve dilim
     static func slot(index: Int) -> (page: Int, part: Part)? {
         guard index >= 0 else { return nil }
@@ -112,5 +118,96 @@ struct SeriesRhythm: Equatable {
         case .bottom: return "Alt."
         case .turn: return p.page >= totalPages ? nil : "Sayfayı çevirin."
         }
+    }
+}
+
+/// Ritim saati (kullanıcı kararı 2026-11-18: kamerada blok bozulmaları olur; kullanıcı bunu bilmeli, sayfadan ayrılmamalı, o yerin temiz çekimi yeniden yapılabilmeli).
+/// Bir alınan dilim bittiğinde dilimde YALNIZ bozuk kare görüldüyse dilim tekrarlanır: saat `slotSeconds` geri alınır (aynı dilim yeniden başlar), oturum o kadar uzar.
+/// Dilim başına en çok `maxPerSlot`, oturumda en çok `maxTotal` tekrar; sınırlar dolunca ritim kaldığı yerden sessizce sürer.
+/// Saat iki iş parçacığından okunur (kare toplayıcı kare zamanından dilimi bulur, kontrol döngüsü her saniye `step` çağırır); kilidin içinden dışarı çağrı yapılmaz.
+final class RhythmClock {
+    enum Step: Equatable {
+        /// Bu saniyede söylenecek bir şey yok
+        case silent
+        /// Dilim başı komutu
+        case cue(String)
+        /// Bozuk kare: dilim tekrarlanıyor (söylenecek cümle, dilim numarası, kaçıncı deneme)
+        case retry(String, slot: Int, attempt: Int)
+    }
+
+    let rhythm: SeriesRhythm
+    let pages: Int
+    let maxPerSlot: Int
+    let maxTotal: Int
+    private let lock = NSLock()
+    private var shift: TimeInterval = 0
+    private var attempts: [Int: Int] = [:]
+    private var retried = 0
+
+    init(rhythm: SeriesRhythm = .standard, pages: Int, maxPerSlot: Int = 2, maxTotal: Int = 6) {
+        self.rhythm = rhythm
+        self.pages = max(1, pages)
+        self.maxPerSlot = maxPerSlot
+        self.maxTotal = maxTotal
+    }
+
+    /// Tekrarlar yüzünden eklenen süre (sn)
+    var offset: TimeInterval {
+        lock.lock()
+        defer { lock.unlock() }
+        return shift
+    }
+
+    /// Bu oturumda yapılan tekrar sayısı
+    var retries: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return retried
+    }
+
+    /// Tekrarsız süre: sayfa sayısı × sayfa süresi
+    var baseSeconds: Int { return Int((Double(pages) * rhythm.pageSeconds).rounded()) }
+
+    /// Şu ana kadarki toplam süre (tekrarlar dahil)
+    var totalSeconds: Int { return baseSeconds + Int(offset.rounded()) }
+
+    /// En çok eklenebilecek süre (sn)
+    var maxExtraSeconds: Int { return Int((Double(maxTotal) * rhythm.slotSeconds).rounded()) }
+
+    /// Oturum zamanından (çekim başından beri sn) ritim zamanına: tekrarlar kadar geri
+    func rhythmTime(_ time: TimeInterval) -> TimeInterval { return time - offset }
+
+    func position(at time: TimeInterval) -> SeriesRhythm.Position? { return rhythm.position(at: rhythmTime(time)) }
+
+    func shotSlot(at time: TimeInterval) -> (index: Int, page: Int, part: SeriesRhythm.Part)? { return rhythm.shotSlot(at: rhythmTime(time)) }
+
+    /// Her saniye çağrılır (`second`: çekim başından beri tam saniye). Biten dilimde yalnız bozuk kare varsa (`needsRetry`) dilim tekrarlanır ve saat geri alınır;
+    /// yoksa dilim başı komutu verilir (varsa). `needsRetry` kilidin dışında çağrılır.
+    func step(at second: Int, needsRetry: (Int) -> Bool) -> Step {
+        lock.lock()
+        let time = Double(second) - shift
+        let used = retried
+        lock.unlock()
+        if let ending = rhythm.endingSlot(at: time), used < maxTotal {
+            lock.lock()
+            let tried = attempts[ending.index] ?? 0
+            lock.unlock()
+            if tried < maxPerSlot, needsRetry(ending.index) {
+                lock.lock()
+                attempts[ending.index] = tried + 1
+                retried += 1
+                shift += rhythm.slotSeconds
+                lock.unlock()
+                return .retry(RhythmClock.retryText(attempt: tried + 1), slot: ending.index, attempt: tried + 1)
+            }
+        }
+        if let cue = rhythm.cue(at: time, totalPages: pages) { return .cue(cue) }
+        return .silent
+    }
+
+    /// Bozuk görüntüde söylenen cümle: kullanıcı sayfadan ayrılmamalı, aynı yeri bir daha göstermeli
+    static func retryText(attempt: Int) -> String {
+        if attempt <= 1 { return "Görüntü bozuldu. Sayfadan ayrılmayın, bu yeri tekrar gösterin." }
+        return "Hâlâ bozuk. Sayfadan ayrılmayın, bir kez daha gösterin."
     }
 }
