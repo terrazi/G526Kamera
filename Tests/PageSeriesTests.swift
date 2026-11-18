@@ -108,7 +108,7 @@ final class PageSeriesTests: XCTestCase {
         h.vm.cameraSettings.seriesSeconds = 90
         _ = await h.startListening()
         XCTAssertEqual(h.speaker.spoken, [Say.readySeries(seconds: 90)])
-        XCTAssertTrue((h.speaker.spoken.first ?? "").contains("90 saniyelik"))
+        XCTAssertTrue((h.speaker.spoken.first ?? "").contains("süreniz 90 saniye"))
         reply(h, "başla")
         let done = await waitUntil(45) { h.vm.answers.count == 1 && self.questionOpen(h) }
         XCTAssertTrue(done, "\(h.speaker.spoken)")
@@ -395,6 +395,42 @@ final class PageSeriesTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(h.sleepLog.entries.filter { $0.seconds == 1.0 }.count, 5, "Sayılar saniyede bir söylenir")
         XCTAssertEqual(spoken.last, Say.askCameraSeries(seconds: 75), "Bitince sıradaki talimat sorulur")
         XCTAssertEqual(h.route.builtInModeCalls, [], "Telefonun mikrofonu ayarı kapalıyken giriş değişmez")
+    }
+
+    /// Hibrit sınav (her soruda kamera mı sesle mi): kamera "Başla"dan sonra açıldığı için "hayır" sesle okumaya geçer (internet açık); yaka mikrofonu
+    /// bu yolda hiç pasifleşmez
+    func testInAHybridExamNoMeansReadingByVoiceWithTheLapelMicAndThePhonesMicIsNeverTouched() async {
+        let h = afterGoHarness(seriesResults: [], replies: [], phoneMic: true)
+        h.settings.examType = .hybrid
+        _ = await h.startListening()
+        reply(h, "hayır")
+        let voice = await waitUntil(45) { h.speaker.spoken.last == Say.cameraDeclined && h.vm.listenMode == .question && h.vm.phase == .listening }
+        XCTAssertTrue(voice, "\(h.speaker.spoken)")
+        XCTAssertEqual(h.route.builtInModeCalls, [], "Sesle okumada telefonun mikrofonuna geçilmez")
+        XCTAssertFalse(AudioRouting.phoneMicInUse)
+        XCTAssertEqual(h.route.current, FakeRoute.good, "Giriş yaka mikrofonunda")
+        XCTAssertEqual(h.vm.routeVerdict?.isSafe, true)
+        XCTAssertTrue(h.health.internet, "Kamera kapalı: internet açık")
+        XCTAssertFalse(h.camera.holding)
+        XCTAssertEqual(h.camera.seriesCalls.count, 0)
+    }
+
+    /// Hibrit sınav: kamera oturumundan sonra yaka mikrofonu geri gelir; sıradaki soruda "hayır" denirse sesle okuma yaka mikrofonuyla sürer
+    func testInAHybridExamTheNextVoiceQuestionAfterACameraSessionUsesTheLapelMicAgain() async {
+        let h = afterGoHarness(seriesResults: [series()], replies: [.success([FakeAnswering.reply(1)])], phoneMic: true)
+        h.settings.examType = .hybrid
+        _ = await h.startListening()
+        reply(h, "başla")
+        let first = await waitUntil(45) { h.vm.answers.count == 1 && self.questionOpen(h) }
+        XCTAssertTrue(first, "\(h.speaker.spoken)")
+        XCTAssertEqual(h.route.builtInModeCalls, [true, false])
+        XCTAssertFalse(AudioRouting.phoneMicInUse, "Oturum bitti: telefonun mikrofonu bırakıldı")
+        reply(h, "hayır")
+        let voice = await waitUntil(45) { h.speaker.spoken.last == Say.cameraDeclined && h.vm.listenMode == .question && h.vm.phase == .listening }
+        XCTAssertTrue(voice, "\(h.speaker.spoken)")
+        XCTAssertEqual(h.route.builtInModeCalls, [true, false], "Sesli soruda giriş yeniden değişmez")
+        XCTAssertEqual(h.route.current, FakeRoute.good, "Giriş yaka mikrofonunda")
+        XCTAssertEqual(h.vm.routeVerdict?.isSafe, true, "Hiçbir anda \"yaka mikrofonu yok\" duraklaması çıkmadı")
     }
 
     func testTheCountdownWordsAreSpokenAsNumbersFromFiveToOne() {
