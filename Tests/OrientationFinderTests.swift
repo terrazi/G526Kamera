@@ -13,6 +13,8 @@ final class OrientationFinderTests: XCTestCase {
     private func score(_ chars: Int) -> TextScore {
         var s = TextScore()
         s.chars = chars
+        // Gerçek yazı işlev sözcükleri de içerir (bkz. `TextSense`): okunan her 15 harfte bir sözcük; az harf anlamlı sözcük vermez
+        s.sense = chars / 15
         return s
     }
 
