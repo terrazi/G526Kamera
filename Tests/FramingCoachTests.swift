@@ -399,12 +399,13 @@ final class FramingCoachTimerTests: XCTestCase {
         XCTAssertEqual(step(&t, tooSmall, at: 14.0), "Yaklaşın.")
     }
 
-    func testASuitablePageIsAnnouncedAsSuitableAndCaptured() {
-        XCTAssertEqual(FramingCoach.withCapture(FramingCoach.okText), "Uygun, alındı. Sonraki.")
-        XCTAssertEqual(FramingCoach.withCapture("Tamam."), "Tamam, alındı. Sonraki.")
-        XCTAssertEqual(FramingCoach.withCapture("Tamam. Üstte: alfa beta gama delta."), "Tamam. Üstte: alfa beta gama delta. Alındı. Sonraki.")
-        XCTAssertEqual(FramingCoach.withCapture("Tam sayfa."), "Tam sayfa. Uygun, alındı. Sonraki.")
-        XCTAssertEqual(FramingCoach.withCapture("Alt boş."), "Alt boş. Uygun, alındı. Sonraki.")
+    func testASuitablePageIsAnnouncedAsTakenAndNext() {
+        XCTAssertEqual(FramingCoach.withCapture(FramingCoach.okText), "Alındı. Sonraki.")
+        XCTAssertEqual(FramingCoach.withCapture("Tamam."), "Alındı. Sonraki.")
+        XCTAssertEqual(FramingCoach.withCapture("Tamam. Üstte: alfa beta gama delta."), "Üstte: alfa beta gama delta. Alındı. Sonraki.")
+        XCTAssertEqual(FramingCoach.withCapture("Tam sayfa."), "Tam sayfa. Alındı. Sonraki.")
+        XCTAssertEqual(FramingCoach.withCapture("Alt boş."), "Alt boş. Alındı. Sonraki.")
+        XCTAssertFalse(FramingCoach.withCapture(FramingCoach.okText).contains("Uygun"), "\"Uygun, çekildi\" denmez")
     }
 
     func testTheTimerSaysWhetherTheSentenceItJustGaveWasASuitablePage() {
