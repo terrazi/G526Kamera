@@ -947,6 +947,10 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
                 guard let rendered = Enhancer.render(buffers: [buffer], options: rendering) else { return nil }
                 return (data: rendered.data, width: rendered.width, height: rendered.height)
             },
+            // Ritim: parça dilimlerinde kadrajda baştan sona görünen soru var mı (kadraj koçunun satır okuyucusu; yön, yazı ilk okunduktan sonra bilinir)
+            coverage: rhythm == nil ? nil : { (buffer: CVPixelBuffer) -> ViewLines? in
+                return ViewLinesReader.read(buffer, orientation: finder.orientation(for: buffer, fallback: baseOrientation))
+            },
             log: { tlog($0) })
         let rawBefore = pipeline.framesSeen
         pipeline.seriesSink = collector
@@ -988,12 +992,19 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
             }
             if cancelled { break }
             if let clock = clock {
-                switch clock.step(at: second, needsRetry: { collector.slotNeedsRetry($0) }) {
+                // Dilim bitti: kazananlar yazı tanımadan geçsin, sonra "geçerli kare var mı" bilinir (bozuk, bulanık ya da soru içermeyen kare geçerli sayılmaz)
+                if clock.endingSlotIndex(at: second) != nil { await collector.settle() }
+                var lastProblem: SlotProblem?
+                switch clock.step(at: second, problem: { index in
+                    lastProblem = collector.slotProblem(index)
+                    return lastProblem
+                }) {
                 case .retry(let text, let slot, let attempt):
-                    // Bozuk kare: kullanıcı sayfadan ayrılmasın, aynı yer yeniden gösterilsin; oturum bir dilim uzar
+                    // Geçerli kare yok: kullanıcı sayfadan ayrılmasın, aynı yer yeniden gösterilsin; oturum bir dilim uzar
                     total = clock.totalSeconds
                     let place = SeriesRhythm.slot(index: slot).map { SeriesRhythm.label(page: $0.page, part: $0.part) } ?? "?"
-                    tlog("[kamera] ritim: \(place) diliminde yalnız bozuk (bloklaşmış) kare var; \(attempt). tekrar, oturum \(total) sn'ye uzadı (toplam \(clock.retries) tekrar)")
+                    let why = lastProblem.map { $0.note } ?? "?"
+                    tlog("[kamera] ritim: \(place) diliminde geçerli kare yok (\(why)); \(attempt). tekrar, oturum \(total) sn'ye uzadı (toplam \(clock.retries) tekrar)")
                     sayRhythm(text)
                 case .cue(let cue):
                     if second < total { sayRhythm(cue) }

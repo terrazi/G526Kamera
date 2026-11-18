@@ -227,6 +227,8 @@ struct SeriesItem {
     var slot: Int?
     /// Ritimde dilimin kaçıncı karesi (0 ya da 1)
     var sub = 0
+    /// Ritimde bulanık ya da soru içermeyen (geçersiz) bulunan kare; bozuk kare `damaged` ile ayrı tutulur. Dilimde geçerli kare varsa bunlar gitmez
+    var problem: SlotProblem?
 
     /// Karede soru görünüyor mu: yazı okunabilir (yeterli harf) ya da bir şık harfi / soru numarası görülmüş. Okunan kareler her zaman alınır;
     /// öteki (zayıf) kareler yalnız okunan kare azsa en nete göre tamamlanır. Bozuk kare hiçbir zaman yararlı sayılmaz (karışık yazı Gemini'yi yanıltır).
@@ -347,11 +349,11 @@ struct SeriesPool {
     /// Hiç yararlı kare yoksa yalnız zayıf kareler gider. Çekim boş dönmez (kare varsa).
     func selected(minPages: Int = SeriesSelection.minPages) -> [SeriesItem] {
         if keepAll {
-            // Ritim: dilimde sağlam kare varsa o dilimin bozuk kareleri gitmez (karışık yazı Gemini'yi yanıltır); yalnız bozuk varsa tek seçenek odur
-            let cleanSlots = Set(items.filter { !$0.damaged }.compactMap { $0.slot })
+            // Ritim: dilimde geçerli (bozuk, bulanık ya da soru içermeyen olmayan) kare varsa o dilimin geçersiz kareleri gitmez; yalnız geçersiz varsa tek seçenek odur
+            let goodSlots = Set(items.filter { !$0.damaged && $0.problem == nil }.compactMap { $0.slot })
             let kept = items.filter { item in
-                guard item.damaged, let slot = item.slot else { return true }
-                return !cleanSlots.contains(slot)
+                guard item.damaged || item.problem != nil, let slot = item.slot else { return true }
+                return !goodSlots.contains(slot)
             }
             return kept.sorted { $0.time < $1.time }
         }
@@ -378,6 +380,8 @@ struct SeriesPool {
 final class SeriesCollector {
     typealias Reader = (CVPixelBuffer) -> TextScore?
     typealias Renderer = (CVPixelBuffer) -> (data: Data, width: Int, height: Int)?
+    /// Ritim: karedeki satırlardan soru bütünlüğünü okur (bkz. `ViewLinesReader`); nil dönerse ya da verilmezse kare bu yüzden elenmez
+    typealias Coverage = (CVPixelBuffer) -> ViewLines?
 
     struct Frame {
         let buffer: CVPixelBuffer
@@ -441,6 +445,9 @@ final class SeriesCollector {
     /// Ritimde dilimlerde görülen sağlam ve bozuk kareler: yalnız bozuk görülen dilim tekrarlanır (`slotNeedsRetry`)
     private var cleanSlots = Set<Int>()
     private var damagedSlots = Set<Int>()
+    /// Ritimde değerlendirilen kazananlardan: geçerli kare görülen dilimler ve dilim başına görülen sorunlar (bkz. `slotProblem`)
+    private var goodSlots = Set<Int>()
+    private var slotProblems: [Int: Set<SlotProblem>] = [:]
     private var pool = SeriesPool()
     private var stats = Stats()
     private var pending = 0
@@ -455,12 +462,13 @@ final class SeriesCollector {
     private let queue = DispatchQueue(label: "g526.series", qos: .userInitiated)
     private let reader: Reader
     private let renderer: Renderer
+    private let coverage: Coverage?
     private let log: (String) -> Void
     private let maxPending: Int
     private let minPages: Int
 
     init(start: TimeInterval, maxPending: Int = SeriesSelection.maxPending, minPages: Int = SeriesSelection.minPages, rhythm: SeriesRhythm? = nil, clock: RhythmClock? = nil,
-         reader: @escaping Reader, renderer: @escaping Renderer, log: @escaping (String) -> Void = { _ in }) {
+         reader: @escaping Reader, renderer: @escaping Renderer, coverage: Coverage? = nil, log: @escaping (String) -> Void = { _ in }) {
         self.start = start
         // Ritimde her dilimin kazananı gerekir: yazı tanıma yetişemese de dilim atlanmaz (dilimler 4 sn arayla kapanır, kuyruk birikmez)
         let clock = clock ?? rhythm.map { RhythmClock(rhythm: $0, pages: 1) }
@@ -470,6 +478,7 @@ final class SeriesCollector {
         self.windows = WindowBest<Frame>(start: start, length: SeriesSelection.window)
         self.reader = reader
         self.renderer = renderer
+        self.coverage = coverage
         self.log = log
         pool.keepAll = clock != nil
     }
@@ -503,8 +512,9 @@ final class SeriesCollector {
                 frame.slot = slot.index
                 frame.sub = slot.sub
                 if frame.damaged { damagedSlots.insert(slot.index) } else { cleanSlots.insert(slot.index) }
-                // Her dilimin her parçasından (yerleşmeden sonraki sürenin yarısı) en net kare: anahtar zamanla artar
-                closed = slots.offer(slot: slot.index * SeriesRhythm.framesPerSlot + slot.sub, score: score, payload: frame)
+                // Her dilimin her parçasından (yerleşmeden sonraki sürenin yarısı) en net kare. Anahtar zamanla artar: tekrar (saat geri alınır) yeni bir
+                // "nesil" başlatır, böylece tekrardaki kareler ilk denemenin açık diliminin gerisinde sayılıp atılmaz
+                closed = slots.offer(slot: slot.generation * 100_000 + slot.index * SeriesRhythm.framesPerSlot + slot.sub, score: score, payload: frame)
             }
         } else {
             closed = windows.offer(time: time, sharpness: score, payload: frame)
@@ -513,11 +523,29 @@ final class SeriesCollector {
         if let closed = closed { submit(closed) }
     }
 
-    /// Ritim: dilimde bozuk (bloklaşmış) kare görüldü ama hiç sağlam kare yok mu? Evetse kullanıcıya "sayfadan ayrılmayın, tekrar gösterin" denir ve dilim tekrarlanır
-    func slotNeedsRetry(_ index: Int) -> Bool {
+    /// Ritim: dilimde geçerli kare yok mu, nedeni ne? Bozuk kare görüldü ama hiç sağlam kare yoksa hemen bilinir; bulanık ya da soru içermeyen kare ise
+    /// kazanan kareler yazı tanımadan geçtikten sonra (bkz. `settle`) bilinir. Hiç kare görülmeyen dilim (kamera durmuş olabilir) sorunlu sayılmaz.
+    /// Sorun varsa kullanıcıya "sayfadan ayrılmayın, tekrar gösterin" denir ve dilim tekrarlanır
+    func slotProblem(_ index: Int) -> SlotProblem? {
         lock.lock()
         defer { lock.unlock() }
-        return damagedSlots.contains(index) && !cleanSlots.contains(index)
+        if damagedSlots.contains(index) && !cleanSlots.contains(index) { return .damaged }
+        if goodSlots.contains(index) { return nil }
+        return slotProblems[index]?.min()
+    }
+
+    func slotNeedsRetry(_ index: Int) -> Bool { return slotProblem(index) != nil }
+
+    /// Ritim: biten dilimin açık kazananını kapatır ve yazı tanıma işlerinin bitmesini bekler; bundan sonra `slotProblem` o dilimin bütün karelerini bilir.
+    /// Dilim sonunda bir kez çağrılır (yeni kare o dilime artık gelmez)
+    func settle() async {
+        lock.lock()
+        let open = finished ? nil : slots.flush()
+        lock.unlock()
+        if let open = open { submit(open) }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            queue.async { continuation.resume() }
+        }
     }
 
     private func submit(_ frame: Frame) {
@@ -545,7 +573,18 @@ final class SeriesCollector {
     private func process(_ frame: Frame) {
         let text = reader(frame.buffer)
         let damaged = frame.damaged
+        // Ritim: kare geçerli mi? Yalnız dilimde okunan, bozuk olmayan ve durgun kareler için ikinci (satır) okuması yapılır; ötekiler zaten geçersizdir
+        var problem: SlotProblem?
+        if clock != nil, let slotIndex = frame.slot {
+            let part = SeriesRhythm.slot(index: slotIndex)?.part
+            var lines: ViewLines?
+            if let part = part, part.isShot, part != .whole, !damaged, frame.still { lines = coverage?(frame.buffer) }
+            problem = SlotCheck.problem(damaged: damaged, still: frame.still, part: part, lines: lines)
+        }
         lock.lock()
+        if let slotIndex = frame.slot, clock != nil {
+            if let problem = problem { slotProblems[slotIndex, default: []].insert(problem) } else { goodSlots.insert(slotIndex) }
+        }
         if damaged { stats.damagedWindows += 1 }
         if frame.still && !damaged { stats.stillWindows += 1 }
         if let text = text {
@@ -568,7 +607,8 @@ final class SeriesCollector {
             return
         }
         let item = SeriesItem(time: frame.time, jpeg: rendered.data, width: rendered.width, height: rendered.height,
-                              sharpness: frame.sharpness, text: text, signature: frame.signature, damaged: damaged, slot: frame.slot, sub: frame.sub)
+                              sharpness: frame.sharpness, text: text, signature: frame.signature, damaged: damaged, slot: frame.slot, sub: frame.sub,
+                              problem: problem == .damaged ? nil : problem)
         lock.lock()
         let mergedBefore = pool.merged
         pool.add(item)
@@ -576,7 +616,8 @@ final class SeriesCollector {
         if let text = text, !damaged { numbers.formUnion(text.questionNumbers) }
         let wasMerged = pool.merged > mergedBefore
         lock.unlock()
-        let verdict = damaged ? "BOZUK kare (bloklaşmış), yalnız sağlam kare yetmezse alınır" : (item.isUseful ? "alındı" : "zayıf aday (okunamadı)")
+        let verdict = damaged ? "BOZUK kare (bloklaşmış), yalnız sağlam kare yetmezse alınır"
+            : (problem.map { "GEÇERSİZ kare (\($0.note)), yalnız geçerli kare yetmezse alınır" } ?? (item.isUseful ? "alındı" : "zayıf aday (okunamadı)"))
         let place = frame.slot.flatMap { SeriesRhythm.slot(index: $0) }.map { "\(SeriesRhythm.label(page: $0.page, part: $0.part, sub: frame.sub)): " } ?? ""
         log("[seri] \(place)\(stamp(frame.time)): \(wasMerged ? "aynı görünüm, en iyisi kaldı" : verdict) (net \(sharp), blok \(String(format: "%.2f", frame.blockiness)), durgun \(String(format: "%.1f", frame.stillFor)) sn, \(text.map { $0.summary } ?? "yazı tanıma yok"))")
         finishOne()
@@ -610,7 +651,11 @@ final class SeriesCollector {
         var outcome = Outcome(items: chosen, readable: chosen.filter { $0.isUseful }.count, stats: result, questionNumbers: seen, diagnosis: diagnosis)
         if clock != nil {
             outcome.labels = chosen.map { item in
-                item.slot.flatMap { SeriesRhythm.slot(index: $0) }.map { SeriesRhythm.label(page: $0.page, part: $0.part, sub: item.sub) } ?? ""
+                let base = item.slot.flatMap { SeriesRhythm.slot(index: $0) }.map { SeriesRhythm.label(page: $0.page, part: $0.part, sub: item.sub) } ?? ""
+                if base.isEmpty { return base }
+                // Geçerli kare çıkmayan dilimin yine de gönderilen karesi: Gemini bunun zayıf olduğunu bilsin
+                if item.damaged { return base + " (\(SlotProblem.damaged.note))" }
+                return item.problem.map { base + " (\($0.note))" } ?? base
             }
         }
         return outcome

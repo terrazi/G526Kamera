@@ -132,6 +132,43 @@ struct SeriesRhythm: Equatable {
     }
 }
 
+/// Bir diliminin neden geçerli kare vermediği (kullanıcı kararı 2026-11-18: bulanık kare, bozuk kare ve bir sorunun tamamını ya da çoğunu içine almayan kare
+/// doğru kabul edilmez; dilimde geçerli kare yoksa dilim yeniden çektirilir). Sıra önceliktir: bir dilimde birden çok neden varsa küçük numaralısı söylenir
+enum SlotProblem: Int, Comparable, CaseIterable {
+    /// Blok bozulması (bloklaşmış kare)
+    case damaged = 0
+    /// Bulanık: kamera oynuyordu ya da yazı hiç okunamıyor (odak dışı, boş)
+    case blurry = 1
+    /// Yazı okunuyor ama kadrajda baştan sona görünen soru (ya da paragraf) yok: yalnız kesik soru parçaları
+    case noQuestion = 2
+
+    static func < (a: SlotProblem, b: SlotProblem) -> Bool { return a.rawValue < b.rawValue }
+
+    /// Günlükte ve Gemini'ye giden etikette (geçerli kare yoksa dilimin yine de gönderilen karesi için)
+    var note: String {
+        switch self {
+        case .damaged: return "bozuk kare"
+        case .blurry: return "bulanık kare"
+        case .noQuestion: return "soru tam görünmüyor"
+        }
+    }
+}
+
+/// Bir karenin geçerli olup olmadığına karar verir (saf mantık; birim testle denenir). nil: geçerli.
+/// Tüm sayfa dilimi yalnız bozuk ve bulanıklığa bakar (küçük yazıdan soru aranmaz: sayfa haritasıdır). Parça dilimlerinde ayrıca telefonun yazı okuyuşu
+/// (`ViewLines`, kadraj koçunun soru bütünlüğü denetimi) istenir: yazı okunmalı ve baştan sona görünen en az bir soru ya da paragraf olmalı. Yazı okuma hiç
+/// çalışmadıysa (`lines` nil) kare ELENMEZ: hızlı yazı tanıma bu kamerada zayıf kalabilir, bu yüzden "okuyamadım" tek başına veto sayılmaz
+enum SlotCheck {
+    static func problem(damaged: Bool, still: Bool, part: SeriesRhythm.Part?, lines: ViewLines?) -> SlotProblem? {
+        if damaged { return .damaged }
+        if !still { return .blurry }
+        guard let part = part, part.isShot, part != .whole, let lines = lines else { return nil }
+        if !lines.isReadable { return .blurry }
+        if lines.completeQuestions >= 1 || lines.paragraph { return nil }
+        return .noQuestion
+    }
+}
+
 /// Ritim saati (kullanıcı kararı 2026-11-18: kamerada blok bozulmaları olur; kullanıcı bunu bilmeli, sayfadan ayrılmamalı, o yerin temiz çekimi yeniden yapılabilmeli).
 /// Bir alınan dilim bittiğinde dilimde YALNIZ bozuk kare görüldüyse dilim tekrarlanır: saat `slotSeconds` geri alınır (aynı dilim yeniden başlar), oturum o kadar uzar.
 /// Dilim başına en çok `maxPerSlot`, oturumda en çok `maxTotal` tekrar; sınırlar dolunca ritim kaldığı yerden sessizce sürer.
@@ -188,13 +225,35 @@ final class RhythmClock {
     /// Oturum zamanından (çekim başından beri sn) ritim zamanına: tekrarlar kadar geri
     func rhythmTime(_ time: TimeInterval) -> TimeInterval { return time - offset }
 
+    /// Bu saniyede biten dilimin numarası (yoksa nil): toplayıcı, tekrar kararından önce o dilimin karelerini değerlendirir (`SeriesCollector.settle`)
+    func endingSlotIndex(at second: Int) -> Int? {
+        lock.lock()
+        let time = Double(second) - shift
+        lock.unlock()
+        return rhythm.endingSlot(at: time)?.index
+    }
+
     func position(at time: TimeInterval) -> SeriesRhythm.Position? { return rhythm.position(at: rhythmTime(time)) }
 
-    func shotSlot(at time: TimeInterval) -> (index: Int, page: Int, part: SeriesRhythm.Part, sub: Int)? { return rhythm.shotSlot(at: rhythmTime(time)) }
+    /// `generation`: o ana dek yapılan tekrar sayısı. Tekrarda saat geri alınır, aynı dilim yeniden başlar; kare toplayıcı anahtarı buna göre ayırır ki
+    /// tekrardaki kareler ilk denemenin açık diliminin gerisinde sayılıp atılmasın
+    func shotSlot(at time: TimeInterval) -> (index: Int, page: Int, part: SeriesRhythm.Part, sub: Int, generation: Int)? {
+        lock.lock()
+        let shifted = time - shift
+        let generation = retried
+        lock.unlock()
+        guard let s = rhythm.shotSlot(at: shifted) else { return nil }
+        return (index: s.index, page: s.page, part: s.part, sub: s.sub, generation: generation)
+    }
 
     /// Her saniye çağrılır (`second`: çekim başından beri tam saniye). Biten dilimde yalnız bozuk kare varsa (`needsRetry`) dilim tekrarlanır ve saat geri alınır;
     /// yoksa dilim başı komutu verilir (varsa). `needsRetry` kilidin dışında çağrılır.
     func step(at second: Int, needsRetry: (Int) -> Bool) -> Step {
+        return step(at: second, problem: { needsRetry($0) ? .damaged : nil })
+    }
+
+    /// Dilimde geçerli kare yoksa (`problem` nedeni verir) dilim tekrarlanır; söylenen cümle nedene göre değişir
+    func step(at second: Int, problem: (Int) -> SlotProblem?) -> Step {
         lock.lock()
         let time = Double(second) - shift
         let used = retried
@@ -203,20 +262,34 @@ final class RhythmClock {
             lock.lock()
             let tried = attempts[ending.index] ?? 0
             lock.unlock()
-            if tried < maxPerSlot, needsRetry(ending.index) {
+            if tried < maxPerSlot, let why = problem(ending.index) {
                 lock.lock()
                 attempts[ending.index] = tried + 1
                 retried += 1
                 shift += rhythm.slotSeconds
                 lock.unlock()
-                return .retry(RhythmClock.retryText(attempt: tried + 1), slot: ending.index, attempt: tried + 1)
+                return .retry(RhythmClock.retryText(problem: why, attempt: tried + 1), slot: ending.index, attempt: tried + 1)
             }
         }
         if let cue = rhythm.cue(at: time, totalPages: pages) { return .cue(cue) }
         return .silent
     }
 
-    /// Bozuk görüntüde söylenen cümle: kullanıcı sayfadan ayrılmamalı, aynı yeri bir daha göstermeli
+    /// Nedene göre söylenen cümle: kullanıcı sayfadan ayrılmamalı, aynı yeri bir daha göstermeli
+    static func retryText(problem: SlotProblem, attempt: Int) -> String {
+        switch problem {
+        case .damaged:
+            return retryText(attempt: attempt)
+        case .blurry:
+            if attempt <= 1 { return "Görüntü bulanık. Sayfadan ayrılmayın, telefonu sabit tutup bu yeri tekrar gösterin." }
+            return "Hâlâ bulanık. Sayfadan ayrılmayın, telefonu sabit tutup bir kez daha gösterin."
+        case .noQuestion:
+            if attempt <= 1 { return "Soru tam görünmüyor. Sayfadan ayrılmayın, soruyu ekrana alıp bu yeri tekrar gösterin." }
+            return "Hâlâ soru tam değil. Sayfadan ayrılmayın, soruyu ortalayıp bir kez daha gösterin."
+        }
+    }
+
+    /// Bozuk görüntüde söylenen cümle
     static func retryText(attempt: Int) -> String {
         if attempt <= 1 { return "Görüntü bozuldu. Sayfadan ayrılmayın, bu yeri tekrar gösterin." }
         return "Hâlâ bozuk. Sayfadan ayrılmayın, bir kez daha gösterin."

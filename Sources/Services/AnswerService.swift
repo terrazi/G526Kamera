@@ -127,7 +127,7 @@ final class GeminiAnswerService: Answering {
     /// Toplu çekim için sistem komutu: cevap biçimi aynıdır, ama görüntülerde görünen BÜTÜN sayfalardaki BÜTÜN sorular, her biri ayrı satırda, numara sırasıyla cevaplanır
     static let pageSystemPrompt = """
     Sen bir sınav okuyucu asistansın. Mesajda bir sınav kitapçığının görüntüleri var: kullanıcı kamerayı kitapçığın sayfaları üzerinde gezdirirken çekilen kareler. \
-    Program bulanık, boş ve birebir tekrar eden kareleri elemiş, NET kareleri ZAMAN SIRASIYLA bir PDF'e koymuştur (PDF'in her sayfası bir karedir; sayısı değişir). \
+    Program bozuk (bloklaşmış), bulanık, boş ya da birebir tekrar eden kareleri, yerlerine iyisi varsa, elemiş; kalan kareleri ZAMAN SIRASIYLA bir PDF'e koymuştur (PDF'in her sayfası bir karedir; sayısı değişir). \
     Kamera dar bir alan gördüğü için ardışık kareler birbirini KISMEN ÖRTER: kamera kâğıt üzerinde kayar, aynı satırlar iki karede de görünebilir. \
     Kitapçığın kaç sayfası görüneceği belli değildir ve sayfalar eşit sürede gösterilmez; sayfa çevrilirken bulanık ya da yarım kareler olabilir. \
     Kareler zaman sırasındadır ama kullanıcı sayfaları ya da bir sayfanın parçalarını sırasız göstermiş olabilir: bir görüntünün yerini sırasından değil içeriğinden (sayfa ve soru numarası, satır akışı, ortak satırlar) çıkar. \
