@@ -232,12 +232,21 @@ enum ViewLinesReader {
 
 // MARK: - Kadraj koçu
 
+/// Sayfa için çekim planı (kullanıcı kararı 2026-11-18: sistem kamerayı kendisi tutsaydı sayfayı nasıl çekerdi?): önce TÜM SAYFA tek seferde (kenarlar kadrajda
+/// ve yazı okunuyor); birkaç konumlandırma denemesinde tam sayfa olmuyorsa ya da tam sayfa okunmayacak kadar küçük kalıyorsa ÜST YARI / ALT YARI.
+/// `any`: plan yok (kadraj ne ise o kabul edilir; "Kadraj kontrolü" ve eski davranış).
+enum ShotPlan: Equatable {
+    case any, wholePage, halves
+}
+
 /// Koçun bir değerlendirmesi: ne durumda ve ne söylenecek
 struct FramingNote: Equatable {
     enum Kind: String, Equatable {
         case noText, blurry, glare, cutLeft, cutRight, shiftLeft, shiftRight, tooWide, tooSmall, emptyTop, middle
         /// Kare bozuk (bloklaşmış): hiçbir zaman kabul edilmez; `incomplete`: soru ya da paragraf tam görünmüyor (kullanıcı kararı 2026-11-18)
         case damaged, incomplete
+        /// Çekim planı (bkz. `ShotPlan`): `wholePage` tüm sayfa için uzaklaşılması, `halves` tam sayfanın olmadığı / okunmadığı için yarım yarım çekime geçilmesi
+        case wholePage, halves
         /// Düzeltme gerekmiyor: `good` kâğıt kenarı bilinmiyorken; `goodFull` tam sayfa, `goodUpper` üst yarı, `goodLower` alt yarı
         case good, goodFull, goodUpper, goodLower
 
@@ -248,7 +257,7 @@ struct FramingNote: Equatable {
         var awaitsText: Bool {
             switch self {
             case .blurry, .glare, .shiftLeft, .shiftRight, .tooSmall, .emptyTop, .middle, .good, .goodFull, .goodUpper, .goodLower: return true
-            case .noText, .cutLeft, .cutRight, .tooWide, .damaged, .incomplete: return false
+            case .noText, .cutLeft, .cutRight, .tooWide, .damaged, .incomplete, .wholePage, .halves: return false
             }
         }
     }
@@ -342,9 +351,8 @@ enum FramingCoach {
     /// Düzeltme isteyen cümlelere eklenmez (çağıran yalnız düzgün kadrajda çağırır).
     static let capturedText = "Alındı. Sonraki."
 
-    /// Dengeli yönlendirme (kullanıcı kararı 2026-11-18): "Uzaklaşın" / "Metin kesik, uzaklaşın" dendikten sonra yazı küçülüp "Yaklaşın" demek gerekirse
-    /// ikisi çelişir (gidip gelme); sayfa tek karede hem tam hem okunur görünmüyor demektir: yarım yarım çekilmesi söylenir (her yarıda soru tam görünür)
-    static let halvesText = "Sayfa küçük kalıyor; yarım yarım çekin."
+    /// Tam sayfa tek karede olmuyor ya da okunmuyor: yarım yarım çekilir (her yarıda soru tam görünür). "Uzaklaşın" ile "Yaklaşın" arasında gidip gelinmez
+    static let halvesText = "Tam sayfa olmuyor; yarım yarım çekin."
 
     static func withCapture(_ text: String) -> String {
         if text == okText || text == "Tamam." { return capturedText }
@@ -364,13 +372,23 @@ enum FramingCoach {
     /// başlıyor ya da altta E şıkkına varmadan bitiyor) kabul edilmez, tüm sayfa için "Uzaklaşın" denir (kâğıdın üst / alt kenarı görünüyorsa tam
     /// sayfa görünüyordur: sayılır). Okunduğu kanıtlanınca "yaklaşın, bulanık, parlama, üst boş, sayfa ortası" gibi iyileştirmeler söylenmez;
     /// yalnız yan kenar kesiği ve taşma (kadraja sığmama) düzeltilir.
+    /// `plan` (yalnız `firstReadable` ile): `wholePage`: önce tüm sayfa; kâğıdın dört kenarı görünüp yazı okunuyorsa kabul, sayfa yarım / ortadan bir dilim
+    /// görünüyorsa "Tüm sayfa için uzaklaşın", tam sayfa görünüp okunmuyorsa ya da küçük yazı yüzünden yaklaşmak gerekecekse `halves` (yarım yarım çekim).
+    /// `halves`: tam görünen yarım ya da dilim kabul edilir; soru kesikse hangi yöne kaydırılacağı söylenir.
     static func note(_ m: PageMetrics, lines: ViewLines?, config c: GuidanceConfig = GuidanceConfig(), sharpFloor: Double = 0.45,
-                     verbose: Bool = false, firstReadable: Bool = false) -> FramingNote {
+                     verbose: Bool = false, firstReadable: Bool = false, plan: ShotPlan = .any) -> FramingNote {
         if firstReadable && m.damaged {
             return FramingNote(kind: .damaged, text: verbose ? "Görüntü bozuk. Kamerayı sabit tutun." : "Bozuk, sabit tutun.")
         }
         var d = GuidanceAdvisor.decide(m, config: c, sharpFloor: sharpFloor)
         let proven = firstReadable && lines?.isReadable == true
+        if firstReadable, plan == .wholePage, let lines = lines, !lines.isReadable {
+            // Yazı tanıma bu görünümü okuyamadı: yaklaşmak gerekecekse ya da tam sayfa zaten kadrajdaysa (daha uzaklaşılamaz) tam sayfa olmaz
+            let small = d.advice == .closer || (d.advice.isMove && d.scale > 1)
+            if small || (d.advice == .ok && layout(m)?.layout == .full) {
+                return FramingNote(kind: .halves, text: halvesText)
+            }
+        }
         if proven { d = relaxed(d) }
         switch d.advice {
         case .noText:
@@ -408,7 +426,18 @@ enum FramingCoach {
             // Okunuyor: soru / paragraf tam görünüyor mu? Kâğıdın üst (alt) kenarı görünüyorsa üst (alt) taraf tamdır
             let topSeen = reading?.layout == .full || reading?.layout == .upperHalf
             let bottomSeen = reading?.layout == .full || reading?.layout == .lowerHalf
-            if !((lines.topComplete || topSeen) && (lines.bottomComplete || bottomSeen)) {
+            if plan == .wholePage, let r = reading {
+                // Tam sayfa öncelikli: dört kenar kadrajdaysa kabul; değilse tüm sayfa için uzaklaşılır
+                if r.layout == .full { return FramingNote(kind: .goodFull, text: layoutText(r, verbose: verbose)) }
+                return FramingNote(kind: .wholePage, text: "Tüm sayfa için uzaklaşın.")
+            }
+            let topOK = lines.topComplete || topSeen
+            let bottomOK = lines.bottomComplete || bottomSeen
+            if !(topOK && bottomOK) {
+                if plan == .halves && (topOK || bottomOK) {
+                    // Yarımda yalnız bir uç kesik: soru kadrajın yukarısında / aşağısında devam ediyor, kamera o yöne kaydırılır
+                    return FramingNote(kind: .incomplete, text: topOK ? "Metin kesik, biraz aşağı." : "Metin kesik, biraz yukarı.")
+                }
                 return FramingNote(kind: .incomplete, text: verbose ? "Soru ya da paragraf tam görünmüyor. Tüm sayfa için uzaklaşın." : "Metin kesik, uzaklaşın.")
             }
             // Yeterli görüntü: yalnız sayfanın durumu ve kabul
@@ -511,6 +540,12 @@ struct FramingCoachTimer {
         var sameView = 0.4
         /// Sayfa karşılaştırmasında bundan kısa sözcükler ("ve", "bir", "için") sayılmaz
         var minWordLength = 4
+        /// Tam sayfa için bu kadar uzaklaşma söylendikten sonra tam sayfa olmuyorsa yarım yarım çekime geçilir (`firstReadable` + `wholeFirst`)
+        var wholeTries = 2
+        /// Son uzaklaşma cümlesinden bu kadar sn sonra (kullanıcıya uyması için süre) yarım yarım çekime geçilir
+        var wholeWait: TimeInterval = 4
+        /// Üst üste bu kadar sayfada tam sayfa olmayıp yarımlara geçildiyse sonraki sayfalar doğrudan yarımlarla başlar
+        var halvesLearned = 2
     }
 
     var config = Config()
@@ -529,12 +564,25 @@ struct FramingCoachTimer {
     private(set) var lastWasGood = false
     /// Yazı tanıma sonucu beklenirken (`firstReadable`) bekleme başlangıcı
     private var textWaitSince: TimeInterval?
-    /// Bu görünümde "uzaklaşın" (taşma ya da eksik metin) söylendi ve sonra "yaklaşın" gerekmedi (bkz. `FramingCoach.halvesText`)
-    private var steppedBack = false
+    /// Bu görünümde tam sayfa için söylenen uzaklaşma sayısı; `Config.wholeTries`'a ulaşıp tam sayfa olmazsa yarım yarım çekime geçilir (bkz. `ShotPlan`)
+    private var wholeTries = 0
+    /// Bu sayfa için yarım yarım çekime geçildi
+    private var halvesMode = false
+    /// Yarım yarım çekimde üst yarı alındı: sıradaki görünüm aynı sayfanın alt yarısıdır (tam sayfa yeniden denenmez)
+    private var expectSecondHalf = false
+    /// Oturum boyunca öğrenme: üst üste kaç sayfada tam sayfa olmayıp yarımlara geçildi (`Config.halvesLearned`'a ulaşınca sonraki sayfalar doğrudan yarımlarla
+    /// başlar: kitapçığın sayfaları aynı boydadır, her sayfada tam sayfa denemesiyle süre yitirilmez). Tam sayfa kabul edilince sıfırlanır
+    private var halvesStreak = 0
+    /// Bu sayfa için yarımlara geçiş seriye sayıldı
+    private var countedHalves = false
 
     mutating func reset() {
         textWaitSince = nil
-        steppedBack = false
+        wholeTries = 0
+        halvesMode = false
+        expectSecondHalf = false
+        halvesStreak = 0
+        countedHalves = false
         candidate = nil
         consecutive = 0
         lastKind = nil
@@ -559,7 +607,15 @@ struct FramingCoachTimer {
     /// Yeni sayfa: önceki sayfanın konuşma durumu unutulur (konuşma arası `speakGap` korunur: cümleler üst üste binmez)
     private mutating func startNewView() {
         textWaitSince = nil
-        steppedBack = false
+        // Düzeltme sürerken görünüm değişti (kullanıcı aynı sayfada uzaklaşıp yaklaşıyor): plan ve deneme sayısı korunur, yoksa tam sayfa denemesi hiç bitmez.
+        // Sayfa kabul edildiyse ya da hiçbir şey söylenmediyse yeni sayfadır: plan baştan, önce tam sayfa. Yarım yarım çekimde üst yarıdan sonraki görünüm
+        // aynı sayfanın alt yarısıdır: yeniden tam sayfa denenmez
+        if lastKind == nil || lastKind?.isGood == true {
+            halvesMode = (halvesMode && expectSecondHalf) || halvesStreak >= config.halvesLearned
+            expectSecondHalf = false
+            wholeTries = 0
+            countedHalves = false
+        }
         candidate = nil
         consecutive = 0
         lastKind = nil
@@ -571,10 +627,12 @@ struct FramingCoachTimer {
 
     /// Söylenecek cümle ya da nil. `expectEdges`: kâğıt kenarı algılaması açık; düzgün kadraj cümlesi kenarlar gelene kadar bekler.
     /// `firstReadable` (canlı koç): okunabilen, tam görünen ve bozuk olmayan ilk görüntü kabul edilir (bkz. `FramingCoach.note`); yazı tanıma sonucu
-    /// gelene kadar (en çok `lineWait`) iptal olabilecek değerlendirmeler ("yaklaşın", "bulanık", "uygun"…) söylenmez
+    /// gelene kadar (en çok `lineWait`) iptal olabilecek değerlendirmeler ("yaklaşın", "bulanık", "uygun"…) söylenmez.
+    /// `wholeFirst` (kullanıcı kararı 2026-11-18): her yeni sayfada önce TÜM SAYFA tek seferde istenir (`ShotPlan.wholePage`); `Config.wholeTries` denemede
+    /// olmazsa ya da tam sayfa okunmuyorsa yarım yarım çekime geçilir (`ShotPlan.halves`), o sayfa için sürer
     mutating func step(metrics m: PageMetrics, lines: ViewLines?, time: TimeInterval, stillFor: TimeInterval,
                        guidance c: GuidanceConfig = GuidanceConfig(), sharpFloor: Double = 0.45, expectEdges: Bool = false,
-                       firstReadable: Bool = false) -> String? {
+                       firstReadable: Bool = false, wholeFirst: Bool = false) -> String? {
         if stillFor < config.movingBelow {
             moved = true
             waitingSince = nil
@@ -604,10 +662,12 @@ struct FramingCoachTimer {
             let words = FramingCoachTimer.viewSignature(lines, minLength: config.minWordLength)
             if !words.isEmpty { viewWords = words }
         }
-        var note = FramingCoach.note(m, lines: lines, config: c, sharpFloor: sharpFloor, firstReadable: firstReadable)
-        if firstReadable, steppedBack, [FramingNote.Kind.tooSmall, .shiftLeft, .shiftRight].contains(note.kind) {
-            // Uzaklaşınca yazı küçüldü: "yaklaşın" demek önceki uyarıyla çelişir; sayfa yarım yarım çekilir
-            note = FramingNote(kind: .tooSmall, text: FramingCoach.halvesText)
+        let plan: ShotPlan = !firstReadable ? .any : (halvesMode ? .halves : (wholeFirst ? .wholePage : .any))
+        var note = FramingCoach.note(m, lines: lines, config: c, sharpFloor: sharpFloor, firstReadable: firstReadable, plan: plan)
+        let seeksWhole = plan == .wholePage && (note.kind == .wholePage || note.kind == .tooWide || note.kind == .incomplete)
+        if seeksWhole, wholeTries >= config.wholeTries, time - lastTime >= config.wholeWait {
+            // Tam sayfa için yeterince denendi ve olmadı: yarım yarım çekime geçilir
+            note = FramingNote(kind: .halves, text: FramingCoach.halvesText)
         }
         if firstReadable {
             if lines != nil {
@@ -663,11 +723,16 @@ struct FramingCoachTimer {
         lastWords = words
         spokenInView += 1
         lastWasGood = note.kind.isGood
-        if note.kind == .incomplete || note.kind == .tooWide {
-            steppedBack = true
-        } else if note.kind.isGood {
-            steppedBack = false
+        if note.kind == .halves {
+            halvesMode = true
+            if !countedHalves {
+                halvesStreak += 1
+                countedHalves = true
+            }
         }
+        if plan == .wholePage && note.kind == .goodFull { halvesStreak = 0 }
+        if seeksWhole && note.kind != .halves { wholeTries += 1 }
+        if plan == .halves && note.kind == .goodUpper { expectSecondHalf = true }
         return text
     }
 }

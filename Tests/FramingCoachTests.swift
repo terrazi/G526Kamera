@@ -986,6 +986,59 @@ final class FirstReadableNoteTests: XCTestCase {
         XCTAssertEqual(n.text, "Üst yarı.", "Kabul edilen görüntüde satır tarifi okunmaz: hız")
     }
 
+    // MARK: Çekim planı
+
+    private func planned(_ m: PageMetrics, lines: ViewLines?, _ plan: ShotPlan) -> FramingNote {
+        return FramingCoach.note(m, lines: lines, sharpFloor: 0.45, firstReadable: true, plan: plan)
+    }
+
+    private func pageWith(_ e: PageEdges?, y0: Double = 0.15, y1: Double = 0.85) -> PageMetrics {
+        var m = metrics(y0: y0, y1: y1)
+        m.edges = e
+        return m
+    }
+
+    func testThePlanWholePageAcceptsAReadableFullPageAndAsksForTheWholePageWhenOnlyAHalfShows() {
+        let full = planned(pageWith(edges()), lines: ViewLines(chars: 160, topComplete: false, bottomComplete: false), .wholePage)
+        XCTAssertEqual(full.kind, .goodFull)
+        XCTAssertEqual(full.text, "Tam sayfa.")
+        // Üst yarıdaki soru tam görünse de tam sayfa istenir
+        let upper = planned(pageWith(edges(bottom: 1.0), y1: 0.95), lines: complete, .wholePage)
+        XCTAssertEqual(upper.kind, .wholePage)
+        XCTAssertEqual(upper.text, "Tüm sayfa için uzaklaşın.")
+        XCTAssertTrue(upper.isCorrection)
+        XCTAssertEqual(planned(pageWith(edges(top: 0.0), y0: 0.1, y1: 0.8), lines: complete, .wholePage).kind, .wholePage)
+        XCTAssertEqual(planned(pageWith(edges(top: 0.0, bottom: 1.0), y0: 0.1, y1: 0.9), lines: complete, .wholePage).kind, .wholePage)
+    }
+
+    func testThePlanWholePageFallsBackToTheTextBlocksWhenThePaperEdgesAreUnknown() {
+        XCTAssertEqual(planned(metrics(), lines: complete, .wholePage).kind, .good)
+        XCTAssertEqual(planned(metrics(), lines: ViewLines(chars: 160, topComplete: true, bottomComplete: false), .wholePage).kind, .incomplete)
+    }
+
+    func testThePlanWholePageGivesUpOnAFullPageTheProgramCannotReadAndOnSmallText() {
+        let weak = ViewLines(chars: 6, topComplete: false, bottomComplete: false)
+        let n = planned(pageWith(edges()), lines: weak, .wholePage)
+        XCTAssertEqual(n.kind, .halves)
+        XCTAssertEqual(n.text, FramingCoach.halvesText)
+        XCTAssertEqual(planned(metrics(x0: 0.4, x1: 0.6, y0: 0.4, y1: 0.6), lines: weak, .wholePage).kind, .halves, "Küçük yazı için yaklaşmak tam sayfayı bozar")
+        XCTAssertEqual(planned(metrics(x0: 0.4, x1: 0.6, y0: 0.4, y1: 0.6), lines: nil, .wholePage).kind, .tooSmall, "Yazı tanıma gelmeden karar verilmez")
+        XCTAssertEqual(planned(pageWith(edges()), lines: nil, .wholePage).kind, .goodFull, "Kenarlar bilinirken okuma sonucu yoksa eski yol (zamanlayıcı bekletir)")
+    }
+
+    func testABlurryFullPageIsToldToHoldSteadyNotToMoveToTheHalves() {
+        var m = pageWith(edges())
+        m.sharp = 0.2
+        XCTAssertEqual(planned(m, lines: ViewLines(chars: 6, topComplete: false, bottomComplete: false), .wholePage).kind, .blurry)
+    }
+
+    func testThePlanHalvesSaysWhichWayToMoveWhenOnlyOneEndOfTheQuestionIsCut() {
+        XCTAssertEqual(planned(metrics(), lines: ViewLines(chars: 160, topComplete: false, bottomComplete: true), .halves).text, "Metin kesik, biraz yukarı.")
+        XCTAssertEqual(planned(metrics(), lines: ViewLines(chars: 160, topComplete: true, bottomComplete: false), .halves).text, "Metin kesik, biraz aşağı.")
+        XCTAssertEqual(planned(metrics(), lines: ViewLines(chars: 160, topComplete: false, bottomComplete: false), .halves).text, "Metin kesik, uzaklaşın.")
+        XCTAssertEqual(planned(pageWith(edges(bottom: 1.0), y1: 0.95), lines: complete, .halves).kind, .goodUpper, "Yarımlarda tam görünen üst yarı kabul edilir")
+    }
+
     func testWithoutFirstReadableNothingChanges() {
         let small = metrics(x0: 0.4, x1: 0.6, y0: 0.4, y1: 0.6)
         XCTAssertEqual(FramingCoach.note(small, lines: complete, sharpFloor: 0.45).kind, .tooSmall)
@@ -1006,8 +1059,21 @@ final class FirstReadableTimerTests: XCTestCase {
 
     private let complete = ViewLines(chars: 160, topComplete: true, bottomComplete: true)
 
-    private func step(_ t: inout FramingCoachTimer, _ m: PageMetrics, at time: TimeInterval, lines: ViewLines?) -> String? {
-        return t.step(metrics: m, lines: lines, time: time, stillFor: 1, sharpFloor: 0.45, expectEdges: false, firstReadable: true)
+    private func step(_ t: inout FramingCoachTimer, _ m: PageMetrics, at time: TimeInterval, lines: ViewLines?, still: TimeInterval = 1,
+                      whole: Bool = false) -> String? {
+        return t.step(metrics: m, lines: lines, time: time, stillFor: still, sharpFloor: 0.45, expectEdges: false, firstReadable: true,
+                      wholeFirst: whole)
+    }
+
+    private func edges(top: Double = 0.1, bottom: Double = 0.9) -> PageEdges {
+        return PageEdges(points: [PageEdges.Point(x: 0.1, y: top), PageEdges.Point(x: 0.9, y: top),
+                                  PageEdges.Point(x: 0.9, y: bottom), PageEdges.Point(x: 0.1, y: bottom)], confidence: 0.9)
+    }
+
+    private func page(_ e: PageEdges, y0: Double = 0.15, y1: Double = 0.85) -> PageMetrics {
+        var m = metrics(y0: y0, y1: y1)
+        m.edges = e
+        return m
     }
 
     func testAReadableCompleteViewIsAcceptedAtTheSecondMeasurement() {
@@ -1060,20 +1126,7 @@ final class FirstReadableTimerTests: XCTestCase {
         XCTAssertFalse(u.lastWasGood)
     }
 
-    func testAfterStepBackTheTextGettingSmallDoesNotContradictWithComeCloser() {
-        var t = FramingCoachTimer()
-        let cut = ViewLines(chars: 160, topComplete: true, bottomComplete: false)
-        _ = step(&t, metrics(), at: 10.0, lines: cut)
-        XCTAssertEqual(step(&t, metrics(), at: 10.3, lines: cut), "Metin kesik, uzaklaşın.")
-        // Uzaklaşınca yazı küçüldü ve okunmuyor: "Yaklaşın." yerine yarım yarım çekim önerilir
-        let small = metrics(x0: 0.4, x1: 0.6, y0: 0.4, y1: 0.6)
-        let weak = ViewLines(chars: 6, topComplete: false, bottomComplete: false)
-        _ = step(&t, small, at: 12.0, lines: weak)
-        XCTAssertEqual(step(&t, small, at: 12.3, lines: weak), FramingCoach.halvesText)
-        XCTAssertFalse(t.lastWasGood)
-    }
-
-    func testWithoutAStepBackSmallTextStillSaysComeCloser() {
+    func testWithoutAPlanSmallTextStillSaysComeCloser() {
         var t = FramingCoachTimer()
         let small = metrics(x0: 0.4, x1: 0.6, y0: 0.4, y1: 0.6)
         let weak = ViewLines(chars: 6, topComplete: false, bottomComplete: false)
@@ -1090,5 +1143,99 @@ final class FirstReadableTimerTests: XCTestCase {
         let said = step(&t, metrics(), at: 12.3, lines: complete)
         XCTAssertEqual(said, "Tamam.", "Düzeltmeden sonra tamam; çağıran bunu 'Alındı. Sonraki.' yapar")
         XCTAssertEqual(FramingCoach.withCapture(said ?? ""), FramingCoach.capturedText)
+    }
+
+    // MARK: Çekim planı: önce tam sayfa, olmazsa yarımlar
+
+    func testTheWholePageComesFirstAFullPageThatIsReadableIsTakenAtOnce() {
+        var t = FramingCoachTimer()
+        XCTAssertNil(step(&t, page(edges()), at: 10.0, lines: complete, whole: true))
+        XCTAssertEqual(step(&t, page(edges()), at: 10.3, lines: complete, whole: true), "Tam sayfa.")
+        XCTAssertTrue(t.lastWasGood)
+    }
+
+    func testAHalfPageIsNotTakenWhileTheWholePageIsStillTheGoalButAfterTwoTriesTheHalvesTakeOver() {
+        var t = FramingCoachTimer()
+        let upper = page(edges(bottom: 1.0), y0: 0.15, y1: 0.95)
+        let upperBlocks = ViewLines(chars: 160, topComplete: false, bottomComplete: true)
+        let ask = "Tüm sayfa için uzaklaşın."
+        XCTAssertNil(step(&t, upper, at: 10.0, lines: upperBlocks, whole: true))
+        XCTAssertEqual(step(&t, upper, at: 10.3, lines: upperBlocks, whole: true), ask, "Yarım sayfa tamam olsa da önce tam sayfa istenir")
+        XCTAssertFalse(t.lastWasGood)
+        XCTAssertEqual(step(&t, upper, at: 16.4, lines: upperBlocks, whole: true), ask, "İkinci deneme (tekrar aralığı sonrası)")
+        XCTAssertNil(step(&t, upper, at: 18.0, lines: upperBlocks, whole: true), "Kullanıcıya uyması için süre tanınır")
+        XCTAssertNil(step(&t, upper, at: 20.5, lines: upperBlocks, whole: true))
+        XCTAssertEqual(step(&t, upper, at: 20.8, lines: upperBlocks, whole: true), FramingCoach.halvesText, "İki denemede tam sayfa olmadı: yarımlara geçilir")
+        // Yarımlarda tam görünen üst yarı kabul edilir (düzeltmeden sonraki "Tamam." yerine sayfa durumu söylenir)
+        XCTAssertNil(step(&t, upper, at: 24.0, lines: upperBlocks, whole: true))
+        XCTAssertEqual(step(&t, upper, at: 24.3, lines: upperBlocks, whole: true), "Tamam. Üst yarı.")
+    }
+
+    func testAWholePageTheProgramCannotReadMovesStraightToTheHalves() {
+        var t = FramingCoachTimer()
+        let weak = ViewLines(chars: 6, topComplete: false, bottomComplete: false)
+        _ = step(&t, page(edges()), at: 10.0, lines: weak, whole: true)
+        XCTAssertEqual(step(&t, page(edges()), at: 10.3, lines: weak, whole: true), FramingCoach.halvesText, "Tam sayfa kadrajda ama okunmuyor: ısrar edilmez")
+        XCTAssertFalse(t.lastWasGood)
+    }
+
+    func testAfterTheUpperHalfTheLowerHalfOfTheSamePageIsNotAskedAsAWholePageAgain() {
+        var t = FramingCoachTimer()
+        let weak = ViewLines(chars: 6, topComplete: false, bottomComplete: false)
+        _ = step(&t, page(edges()), at: 10.0, lines: weak, whole: true)
+        XCTAssertEqual(step(&t, page(edges()), at: 10.3, lines: weak, whole: true), FramingCoach.halvesText)
+        let upper = page(edges(bottom: 1.0), y0: 0.15, y1: 0.95)
+        let upperBlocks = ViewLines(chars: 160, topComplete: false, bottomComplete: true)
+        _ = step(&t, upper, at: 14.0, lines: upperBlocks, whole: true)
+        XCTAssertEqual(step(&t, upper, at: 14.3, lines: upperBlocks, whole: true), "Tamam. Üst yarı.")
+        // Kamera alt yarıya kayar: aynı sayfa, tam sayfa yeniden istenmez
+        XCTAssertNil(step(&t, upper, at: 16.0, lines: nil, still: 0.1, whole: true))
+        let lower = page(edges(top: 0.0), y0: 0.1, y1: 0.8)
+        let lowerBlocks = ViewLines(starts: [LineEnd(side: nil, words: "zeta teta iota kapa")], ends: [LineEnd(side: nil, words: "lamda omikron sigma tau")],
+                                    chars: 160, topComplete: true, bottomComplete: false)
+        XCTAssertNil(step(&t, lower, at: 17.0, lines: lowerBlocks, whole: true))
+        XCTAssertEqual(step(&t, lower, at: 17.3, lines: lowerBlocks, whole: true), "Alt yarı.")
+    }
+
+    func testAfterTwoPagesNeededTheHalvesTheNextPageStartsWithTheHalvesDirectly() {
+        var t = FramingCoachTimer()
+        let weak = ViewLines(chars: 6, topComplete: false, bottomComplete: false)
+        let upper = page(edges(bottom: 1.0), y0: 0.15, y1: 0.95)
+        let upperBlocks = ViewLines(chars: 160, topComplete: false, bottomComplete: true)
+        let lower = page(edges(top: 0.0), y0: 0.1, y1: 0.8)
+        let lowerBlocks = ViewLines(starts: [LineEnd(side: nil, words: "zeta teta iota kapa")], ends: [LineEnd(side: nil, words: "lamda omikron sigma tau")],
+                                    chars: 160, topComplete: true, bottomComplete: false)
+        // Birinci sayfa: tam sayfa okunmuyor, yarımlara geçilir; üst ve alt yarı alınır
+        _ = step(&t, page(edges()), at: 10.0, lines: weak, whole: true)
+        XCTAssertEqual(step(&t, page(edges()), at: 10.3, lines: weak, whole: true), FramingCoach.halvesText)
+        _ = step(&t, upper, at: 14.0, lines: upperBlocks, whole: true)
+        XCTAssertEqual(step(&t, upper, at: 14.3, lines: upperBlocks, whole: true), "Tamam. Üst yarı.")
+        _ = step(&t, upper, at: 16.0, lines: nil, still: 0.1, whole: true)
+        _ = step(&t, lower, at: 17.0, lines: lowerBlocks, whole: true)
+        XCTAssertEqual(step(&t, lower, at: 17.3, lines: lowerBlocks, whole: true), "Alt yarı.")
+        // İkinci sayfa: yine tam sayfa okunmuyor (ikinci kez)
+        _ = step(&t, upper, at: 20.0, lines: nil, still: 0.1, whole: true)
+        _ = step(&t, page(edges()), at: 21.0, lines: weak, whole: true)
+        XCTAssertEqual(step(&t, page(edges()), at: 21.3, lines: weak, whole: true), FramingCoach.halvesText, "Önceki sayfa alındı: bu yeni sayfada tam sayfa yine denendi")
+        _ = step(&t, upper, at: 25.0, lines: upperBlocks, whole: true)
+        XCTAssertEqual(step(&t, upper, at: 25.3, lines: upperBlocks, whole: true), "Tamam. Üst yarı.")
+        _ = step(&t, upper, at: 26.0, lines: nil, still: 0.1, whole: true)
+        let lowerBlocks2 = ViewLines(starts: [LineEnd(side: nil, words: "alfa beta gama delta")], ends: [LineEnd(side: nil, words: "ocak şubat mart nisan")],
+                                     chars: 160, topComplete: true, bottomComplete: false)
+        _ = step(&t, lower, at: 27.0, lines: lowerBlocks2, whole: true)
+        XCTAssertEqual(step(&t, lower, at: 27.3, lines: lowerBlocks2, whole: true), "Alt yarı.")
+        // Üçüncü sayfa: tam sayfa denenmeden yarımlarla başlar (yarım sayfa "uzaklaşın" denmeden kabul edilir)
+        _ = step(&t, upper, at: 30.0, lines: nil, still: 0.1, whole: true)
+        let third = ViewLines(starts: [LineEnd(side: nil, words: "kırmızı mavi yeşil sarı")], chars: 160, topComplete: false, bottomComplete: true)
+        _ = step(&t, upper, at: 31.0, lines: third, whole: true)
+        XCTAssertEqual(step(&t, upper, at: 31.3, lines: third, whole: true), "Üst yarı.")
+    }
+
+    func testWithoutTheWholeFirstFlagAHalfPageIsAcceptedAsBefore() {
+        var t = FramingCoachTimer()
+        let upper = page(edges(bottom: 1.0), y0: 0.15, y1: 0.95)
+        let blocks = ViewLines(chars: 160, topComplete: false, bottomComplete: true)
+        _ = step(&t, upper, at: 10.0, lines: blocks)
+        XCTAssertEqual(step(&t, upper, at: 10.3, lines: blocks), "Üst yarı.")
     }
 }

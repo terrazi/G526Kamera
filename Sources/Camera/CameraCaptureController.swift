@@ -587,7 +587,7 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         var lines: ViewLines?
         if let cached = coachLines, sample.time - cached.time <= CameraCaptureController.coachLinesMaxAge { lines = cached.lines }
         if let text = coach.step(metrics: sample.metrics, lines: lines, time: sample.time, stillFor: sample.stillFor,
-                                 guidance: coachConfig, sharpFloor: coachSharpFloor, expectEdges: coachExpectsEdges, firstReadable: true) {
+                                 guidance: coachConfig, sharpFloor: coachSharpFloor, expectEdges: coachExpectsEdges, firstReadable: true, wholeFirst: true) {
             // Düzgün kadrajda uygunluğun yanında sayfanın alındığı ve sıradakine geçilebileceği de söylenir (kullanıcı kararı 2026-11-18)
             sayCoach(coach.lastWasGood ? FramingCoach.withCapture(text) : text)
         }
