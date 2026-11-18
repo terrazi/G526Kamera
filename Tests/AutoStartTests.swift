@@ -352,6 +352,28 @@ final class AutoStartFlowTests: XCTestCase {
         XCTAssertTrue(h.speaker.spoken.contains(Say.autoUnread(number: 1)))
     }
 
+    func testWhenTheCameraDoesNotAnswerTheDeviceShortcutRunsThreeTimesThenTheResetAndTheNextRoundConnects() async {
+        let h = harness(seriesResults: [], pageReplies: [])
+        // Birinci tur: üç deneme ve sıfırlamadan sonraki deneme sonuçsuz; ikinci turun ilk denemesinde kamera bağlanır
+        h.camera.holdResults = Array(repeating: .failure(.notConnected), count: 4) + [.success(())]
+        h.vm.start()
+        let ready = await waitUntil(20) { self.waiting(h) && h.camera.holding }
+        XCTAssertTrue(ready, "\(h.speaker.spoken)")
+        XCTAssertEqual(h.camera.holdOpens, 5, "Vazgeçilmez: tur sonuçsuzsa beklenip yeniden denenir")
+        let runs = h.shortcuts.runs
+        XCTAssertEqual(runs.filter { $0 == "Kamera_Onar" }.count, 2, "Aygıtın kestirmesi: ilk deneme + iki onarım = üç deneme")
+        XCTAssertEqual(runs.filter { $0 == "Sistemi_Sifirla" }.count, 1, "Üç denemede açılmadı: uçak modu kestirmesi")
+        if let reset = runs.firstIndex(of: "Sistemi_Sifirla"), let repair = runs.lastIndex(of: "Kamera_Onar") {
+            XCTAssertGreaterThan(reset, repair, "Sıfırlama üç denemeden sonra çalışır")
+        } else {
+            XCTFail("\(runs)")
+        }
+        XCTAssertTrue(h.sleepLog.entries.contains { $0.seconds == T.connectionRetry }, "Turlar arasında beklenir")
+        XCTAssertEqual(h.speaker.spoken.last, Say.autoShow(number: 1), "Kamera bağlanınca akış kaldığı yerden sürer")
+        XCTAssertEqual(T.cameraPersistResetAfter, 3)
+        XCTAssertEqual(T.outageLimit, 3 * 3600, "Denemeler en çok 3 saat sürer")
+    }
+
     func testAnEmptyScanStopsTheLoopUntilTheStartWord() async {
         let h = harness(seriesResults: [], pageReplies: [])
         XCTAssertFalse(h.vm.auto.halted)

@@ -588,15 +588,24 @@ extension SessionViewModel {
         var repairMissing = false   // onarım kestirmesi telefonda yok ("kestirmesi bulunamadı"): aynı yok kestirme bir daha denenmez
         var onCameraNetwork = false   // kameraya geçiş kestirmesi çalıştı: telefon kameranın Wi-Fi'sindedir, onarım kestirmesi olmasa da kamera yeniden denenir
         let stay = cameraSettings.stayOnWifi   // "Wi-Fi'de kal": ilk denemede kestirme çalışmaz
-        var resetDone = false   // bağlantı sıfırlama (uçak modu) bir çekimde en çok BİR kez çalışır
-        for attempt in 0...Timing.cameraRepairs {
+        // Otomatik zamanlı başlatmada (kullanıcı kararı 2026-11-19) kamera için de aynı kural: aygıtın kestirmesi 3 kez denenir, açılmazsa uçak modu
+        // kestirmesi çalışır; tur yine başarısızsa beklenir ve bağlanılana kadar (en çok 3 saat) yeniden denenir. Eski düzende: toplam 5 deneme, sonra vazgeçilir.
+        let persistent = autoMode
+        let lastAttempt = persistent ? Timing.cameraPersistResetAfter : Timing.cameraRepairs
+        let resetAfter = persistent ? Timing.cameraPersistResetAfter : Timing.cameraResetAfter
+        let firstTry = deps.now()
+        var cycle = 0
+        cycles: while true {
+        cycle += 1
+        var resetDone = false   // bağlantı sıfırlama (uçak modu) bir turda en çok BİR kez çalışır
+        for attempt in 0...lastAttempt {
             var name = cameraName
             if attempt > 0 {
                 let repair = settings.shortcutName(for: .wifi)
                 name = repair.isEmpty || repairMissing ? cameraName : repair   // onarım kestirmesi yazılmamışsa ya da telefonda yoksa kameraya geçiş kestirmesi yeniden çalışır
                 var afterReset = false
-                if attempt == Timing.cameraResetAfter, !resetDone, !settings.shortcutName(for: .reset).isEmpty {
-                    // İki deneme (ilk + bir onarım) sonuçsuz: telefonun telsizleri uçak moduyla baştan kurulur, sonra "Kameraya Geç" ile yeniden denenir
+                if attempt == resetAfter, !resetDone, !settings.shortcutName(for: .reset).isEmpty {
+                    // Denemeler sonuçsuz (eski düzende iki, otomatik başlatmada üç): telefonun telsizleri uçak moduyla baştan kurulur, sonra "Kameraya Geç" ile yeniden denenir
                     resetDone = true
                     afterReset = true
                     await resetConnectionsForCamera(announce: true)
@@ -663,6 +672,19 @@ extension SessionViewModel {
             }
             if case .failure(let failure) = result, failure == .notConnected || failure == .noFrames { continue }
             break
+        }
+        // Tur bitti. Kameraya hâlâ ulaşılamıyorsa ve kalıcı deneme açıksa beklenip yeni tur başlar (en çok 3 saat)
+        guard persistent, case .failure(let failure) = result, failure == .notConnected || failure == .noFrames else { break cycles }
+        let now = deps.now()
+        guard !SessionViewModel.outageTooLong(since: firstTry, now: now), cycle < Timing.cameraPersistMaxCycles else {
+            tlog("[kamera] kameraya \(cycle) turda bağlanılamadı (\(Int(now.timeIntervalSince(firstTry) / 60)) dk); yeniden denemeler durduruldu")
+            break cycles
+        }
+        let gap = SessionViewModel.retryGap(since: firstTry, now: now)
+        tlog("[kamera] \(cycle). tur sonuçsuz (\(failure.message)); \(Int(gap)) sn sonra yeniden denenecek")
+        statusNote = "Kameraya bağlanılamadı; \(Int(gap)) sn sonra yeniden denenecek"
+        await deps.sleep(gap)
+        guard !Task.isCancelled, phase == .answering else { return .failure(.cancelled) }
         }
         return result
     }

@@ -129,6 +129,10 @@ final class SessionViewModel: ObservableObject {
         /// Bu kadar deneme sonuçsuz kalınca BİR kez bağlantı sıfırlama kestirmesi (uçak modu aç/kapa) çalışır, sonra "Kameraya Geç" ile yeniden denenir
         /// (kullanıcı önerisi 2026-11-16: kamera bağlantısı Wi-Fi onarımıyla düzelmiyorsa telsizleri baştan kur)
         static let cameraResetAfter = 2
+        /// Otomatik zamanlı başlatmada kamera için: aygıt kestirmesi bu kadar kez denenir, sonra uçak modu kestirmesi çalışır (tur = 3 deneme + sıfırlamadan
+        /// sonra bir deneme); turlar bağlanılana kadar yinelenir (en çok `outageLimit`; sınamalarda saat donuk olduğu için tur sayısı da sınırlıdır)
+        static let cameraPersistResetAfter = 3
+        static let cameraPersistMaxCycles = 120
         /// Sıfırlamadan sonra Bluetooth kulaklığın dönmesi için en çok beklenecek süre (sn): uçak modu kulaklığı da düşürür (günlükte ≈ 25 sn)
         static let cameraResetHeadsetWait: TimeInterval = 45
         /// Toplu çekim oturumundan sonra kulaklığın (Bluetooth) geri gelmesi için en çok beklenecek süre (sn); oturum boyunca ses yolu değişikliği duraklatma sayılmaz
