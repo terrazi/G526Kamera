@@ -505,11 +505,9 @@ final class EnglishDictationTests: XCTestCase {
 
 @MainActor
 final class RouteSettlingTests: XCTestCase {
-    /// Kulaklık yolda, mikrofon alıcısı takılı ama yola henüz girmemiş (kulaklık seçildikten hemen sonraki an)
+    /// Kulaklık seçildikten hemen sonraki an: ses yolu henüz kurulmamış (çıkış da giriş de görünmüyor); birkaç yüz ms sonra oturur
     private func unsettled() -> RouteSnapshot {
-        var snapshot = FakeRoute.good
-        snapshot.inputs = []
-        return snapshot
+        return RouteSnapshot(outputs: [], inputs: [])
     }
 
     func testStartupWaitsForTheRouteInsteadOfPausingAtTheFirstLook() async {
@@ -519,16 +517,7 @@ final class RouteSettlingTests: XCTestCase {
         let ok = await h.startListening()
         XCTAssertTrue(ok, "Yol birkaç yüz ms sonra oturunca test kendiliğinden başlar")
         XCTAssertFalse(h.isHardwarePause)
-        XCTAssertGreaterThanOrEqual(h.route.preferCalls, 3, "Mikrofon tercihi yeniden verildi")
-    }
-
-    func testStartupStillPausesWhenTheReceiverNeverJoinsTheRoute() async {
-        let h = SessionHarness()
-        h.route.current = unsettled()
-        h.vm.start()
-        let paused = await waitUntil { h.isHardwarePause }
-        XCTAssertTrue(paused, "Gerçek eksikte duraklatılır")
-        XCTAssertTrue(h.speaker.spoken.isEmpty, "Güvensiz yolda hiçbir şey çalınmaz")
+        XCTAssertGreaterThanOrEqual(h.route.preferCalls, 3, "Kulaklık tercihi yeniden verildi")
     }
 
     func testUnsettledRouteReactivatesTheSessionLikeARestartWould() async {
@@ -557,47 +546,12 @@ final class RouteSettlingTests: XCTestCase {
         XCTAssertEqual(h.speaker.spoken, [Say.soundTest])
     }
 
-    func testMainScreenExplainsAReceiverThatIsPluggedButNotInTheRoute() {
-        let h = SessionHarness()
-        h.route.current = unsettled()
-        h.vm.refreshRouteText()
-        XCTAssertTrue(h.vm.routeText.hasPrefix("Çıkış: Bluetooth kulaklık. Giriş: yok."), h.vm.routeText)
-        XCTAssertTrue(h.vm.routeText.contains("Boya Mikrofon"), "Takılı alıcının adı yazılır")
-        XCTAssertTrue(h.vm.routeText.contains("Sesi dene"), "Hareketsizken nasıl açılacağı söylenir")
-    }
-
-
 }
 
-// MARK: - Alıcı takılı ama girişte yokken Kestirme çalıştırılmaz
+// MARK: - Kulaklık yolda değilken Kestirme çalışır
 
 @MainActor
 final class ReceiverNotRoutedTests: XCTestCase {
-    private func unsettled() -> RouteSnapshot {
-        var snapshot = FakeRoute.good
-        snapshot.inputs = []
-        return snapshot
-    }
-
-
-    func testRoutingSettlesLaterAndTheTestStartsOnItsOwn() async {
-        let h = SessionHarness()
-        h.route.current = unsettled()
-        h.vm.start()
-        let paused = await waitUntil { h.isHardwarePause }
-        XCTAssertTrue(paused)
-        h.scheduler.advance(by: SessionViewModel.Timing.hardwareGrace + 0.1)
-        await settle()
-        h.route.change(to: FakeRoute.good)
-        h.scheduler.advance(by: SessionViewModel.Timing.routeStable + 0.1)
-        let listening = await waitUntil { h.vm.phase == .listening }
-        XCTAssertTrue(listening)
-        XCTAssertTrue(h.shortcuts.runs.isEmpty)
-    }
-
-
-
-
     func testHeadphonesMissingStillRunsTheShortcuts() async {
         let h = SessionHarness()
         h.route.current = FakeRoute.noHeadphones

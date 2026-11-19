@@ -67,8 +67,9 @@ final class StayOnWifiTests: XCTestCase {
         reply(h, "evet")
         let again = await waitUntil(45) { h.vm.answers.count == 1 && self.cameraQuestionOpen(h) }
         XCTAssertTrue(again, "\(h.speaker.spoken)")
-        XCTAssertEqual(h.events, ["çekim", "kestirme:Hücresele_Gec", "gönderim"])
+        XCTAssertEqual(h.events, ["çekim", "kestirme:Hücresel_Ac", "gönderim"], "Hücresel onarım kestirmesi çalışır (Wi-Fi'ye dokunmaz)")
         XCTAssertFalse(h.shortcuts.runs.contains("Kameraya_Gec"))
+        XCTAssertFalse(h.shortcuts.runs.contains("Hücresele_Gec"), "Geçiş kestirmelerine bu düzende gerek yoktur")
     }
 
     /// Telefon kameranın ağından düşmüşse ilk doğrudan deneme başarısız olur; onarım kestirmesi çalışır ve çekim tam süreyle yeniden denenir

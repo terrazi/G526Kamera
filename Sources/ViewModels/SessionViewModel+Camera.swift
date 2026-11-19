@@ -857,7 +857,14 @@ extension SessionViewModel {
     // MARK: Bağlantı geçişi
 
     /// Kestirme: Wi-Fi bırakılır, hücresel açılır; internet gelene kadar beklenir. İkinci kez denenir. İnternet geldi mi.
-    func returnToInternet(shortcut: String) async -> Bool {
+    func returnToInternet(shortcut requested: String) async -> Bool {
+        // "Bağlantılar hep açık": Wi-Fi'ye dokunmayan hücresel onarım kestirmesi ("Hücresel aç") çalışır; yazılı değilse internete dönüş kestirmesi.
+        // Böylece bu düzende "Hücresele geç" ve "Kameraya geç" kestirmelerine gerek kalmaz.
+        var shortcut = requested
+        if cameraSettings.stayOnWifi {
+            let repair = settings.shortcutName(for: .cellular)
+            if !repair.isEmpty { shortcut = repair }
+        }
         // "Wi-Fi'de kal": telefon kameranın ağında kalır, internet hücreselden gelir. İnternet varsa hiçbir kestirme çalışmaz;
         // yoksa hücresel kestirmesi (yalnız hücreseli yenileyen, Wi-Fi'ye dokunmayan) çalışır
         if cameraSettings.stayOnWifi {

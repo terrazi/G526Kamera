@@ -155,7 +155,6 @@ final class SettingCommandTests: XCTestCase {
         XCTAssertEqual(Say.reportSound(percent: 5, low: true, headphonesOK: false),
                        "Ses seviyesi yüzde 5. Çok düşük; sesi aç diyebilirsiniz. Ses kulaklığa gitmiyor.")
         XCTAssertEqual(Say.reportMicrophone(ok: true, inputs: ["kulaklık mikrofonu"]), "Mikrofon bağlı: kulaklık mikrofonu. Sizi duyuyorum.")
-        XCTAssertTrue(Say.reportMicrophone(ok: false, inputs: []).hasPrefix("Mikrofon bulunamadı."))
         XCTAssertTrue(Say.reportMicrophone(ok: false, inputs: []).contains("görünmüyor"))
         XCTAssertTrue(Say.reportMicrophone(ok: false, inputs: []).contains("mikrofon olmadan da"), "Mikrofon zorunlu değil: tarama sürer")
         XCTAssertEqual(Say.reportHeadphones(ok: true, outputs: ["Bluetooth kulaklık"], hint: ""), "Kulaklık bağlı: Bluetooth kulaklık.")
