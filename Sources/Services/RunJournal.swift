@@ -217,6 +217,26 @@ final class ClipboardFlag {
 
     private static let tokenKey = "journal.clipboardToken"
     private static let nameKey = "journal.clipboardMarker"
+    /// Yeniden açılma engeli (pano kullanılmasa da tutulur): Kestirmeler eylemi "Yeniden açılsın mı" buna bakar (bkz. `ReopenQuestionIntent`).
+    /// Değer engelin nedenidir (KAPALI, ONARIM, günlük yapıştırma); yoksa program yeniden açılabilir.
+    private static let blockKey = "journal.reopenBlock"
+    /// Ayarlar > "Pano işaretini kullan" (`AppSettings.clipboardMarker` ile aynı anahtar; varsayılan açık: eski otomasyon panoya bakar)
+    static let usesClipboardKey = "v4.clipboardMarker"
+
+    /// Engelin nedeni (nil: program yeniden açılabilir)
+    static func reopenBlockReason(defaults: UserDefaults = .standard) -> String? {
+        return defaults.string(forKey: blockKey)
+    }
+
+    static func reopenAllowed(defaults: UserDefaults = .standard) -> Bool {
+        return reopenBlockReason(defaults: defaults) == nil
+    }
+
+    var blockReason: String? { return ClipboardFlag.reopenBlockReason(defaults: defaults) }
+    func block(_ reason: String) { defaults.set(reason, forKey: ClipboardFlag.blockKey) }
+    func unblock() { defaults.removeObject(forKey: ClipboardFlag.blockKey) }
+    /// Panoya işaret yazılıyor mu (kapalıysa yalnız kalıcı bayrak tutulur, panoya dokunulmaz)
+    var usesClipboard: Bool { return defaults.object(forKey: ClipboardFlag.usesClipboardKey) as? Bool ?? true }
     /// Panodaki değişim sayacı bu değerse pano hâlâ bizim kopyaladığımız günlüğü (ve belki altında işareti) taşır
     private static let logCountKey = "journal.clipboardLogCount"
     private let defaults: UserDefaults
@@ -272,6 +292,7 @@ final class ClipboardFlag {
         copyLog(text)
         guard logOnBoard else { return }
         set(ClipboardFlag.closed)
+        block(ClipboardFlag.pasteHold)
         defaults.set(ClipboardFlag.pasteHold, forKey: ClipboardFlag.nameKey)
     }
 
@@ -295,6 +316,8 @@ final class ClipboardFlag {
     /// Pano kullanıcının kopyaladığı günlüğü taşıyorsa günlük korunur, işaret son satır olarak eklenir (otomasyon "SESLIKONTROL-" içeriyor mu diye
     /// metnin her yerine bakar, işaret nerede olursa olsun görür).
     func set(_ marker: String) {
+        block(marker)   // Kestirmeler eylemi bu bayrağa bakar; pano işareti yalnız eski otomasyon içindir
+        guard usesClipboard else { return }
         if logOnBoard, let log = keptLog() {
             write(log + "\n" + marker)
             defaults.set(changeCount(), forKey: ClipboardFlag.logCountKey)
@@ -372,13 +395,26 @@ final class RunJournal: RunJournaling {
 
     /// Pano işaretini ayara göre eşitler: engel açıkken işaret kalkar, kapalıyken KAPALI işareti yerinde durur (kullanıcı panoyu değiştirdiyse yeniden yazılır;
     /// panodaki kopyalanmış günlük korunur). Kestirmeye geçerken (`away`) ve düğmeyle kapatırken (`closing`) işarete dokunulmaz.
-    func syncCloseGuard(releasingPasteHold: Bool = false) {
+    /// `launch`: açılışta çağrıldı. Açılışta kalıcı engel bayrağına dokunulmaz: iOS programı Kestirmeler eylemi için arka planda başlatmış olabilir
+    /// (bayrak kalkarsa "bilerek kapatıldı" unutulur ve otomasyon programı geri açar). Bayrak program öne gelince kalkar.
+    func syncCloseGuard(releasingPasteHold: Bool = false, launch: Bool = false) {
         if away || closing { return }
         if closeGuardEnabled() {
             // Günlük yeni kopyalandıysa işaret, kullanıcı başka uygulamaya geçip yapıştırana kadar kalır (program geri açılmasın)
-            if !releasingPasteHold, case let .marker(name) = clipboard.state(), name == ClipboardFlag.pasteHold { return }
+            if !releasingPasteHold {
+                if case let .marker(name) = clipboard.state(), name == ClipboardFlag.pasteHold { return }
+                if clipboard.blockReason == ClipboardFlag.pasteHold { return }
+            }
             clipboard.clearIfOurs()
-        } else if clipboard.state() != .marker(ClipboardFlag.closed) {
+            if !launch { clipboard.unblock() }
+            userCopyHeld = false
+        } else {
+            clipboard.block(ClipboardFlag.closed)   // engel kapalı: hiçbir kapanma geri açılmaz
+            guard clipboard.usesClipboard else {
+                clipboard.clearIfOurs()   // pano kullanılmıyor: eskiden kalan işaret varsa silinir
+                return
+            }
+            guard clipboard.state() != .marker(ClipboardFlag.closed) else { return }
             // Engel kapalıyken işaret hep yerinde tutulur; ama kullanıcı panoya kendi metnini koyup programa döndüyse (günlük 19.11.2026: kopyalanan
             // API anahtarı yerine işaret yapıştırıldı) program öndeyken üstüne yazılmaz, uygulamadan çıkarken yazılır
             if appInForeground(), userCopyHeld || clipboard.state() == .overwritten {
@@ -417,7 +453,7 @@ final class RunJournal: RunJournaling {
         // Kullanıcı arada kendi metnini kopyaladıysa o silinmez. (Kapanma engeli ayarı kapalıysa işaret hemen yeniden yazılır.)
         if appInForeground(), clipboard.state() == .overwritten { userCopyHeld = true }   // açılıştan önce kopyalanan metin korunur (bkz. `syncCloseGuard`)
         clipboard.clearIfOurs()
-        syncCloseGuard()
+        syncCloseGuard(launch: true)
 
         let exit: PreviousExit = hadRun ? ExitAnalyzer.analyze(sessionOpen: wasOpen, deliberate: deliberate, previous: previousLog) : .firstRun
         let stamp = now().timeIntervalSince1970
@@ -463,6 +499,7 @@ final class RunJournal: RunJournaling {
         if away {
             clipboard.set(ClipboardFlag.repair)
         } else {
+            clipboard.unblock()   // kestirmeden dönüldü: onarım engeli kalkar
             clipboard.clearIfOurs()
             syncCloseGuard()   // engel kapalıysa onarım işareti yerine KAPALI işareti geri konur
         }

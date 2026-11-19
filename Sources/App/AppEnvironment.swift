@@ -108,6 +108,12 @@ final class AppEnvironment: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.journal.syncCloseGuard() }
             .store(in: &cancellables)
+        // "Pano işaretini kullan" kapatılınca panodaki işaret hemen silinir (yalnız kalıcı bayrak kalır)
+        settings.$clipboardMarker
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.journal.syncCloseGuard() }
+            .store(in: &cancellables)
     }
 
     /// Toplu çekim kipi açıkken Gemini ve internet yoklaması, telefon kameranın Wi-Fi'sindeyse hücresel yoldan da gidebilir (bkz. `CellularRoute`)

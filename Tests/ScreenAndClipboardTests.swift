@@ -357,6 +357,55 @@ final class ScreenAndClipboardTests: XCTestCase {
         XCTAssertEqual(board.value, "AIza-ikinci", "Açılışta da üstüne yazılmaz")
     }
 
+    /// Kestirmeler eylemi "Yeniden açılsın mı" (kullanıcı isteği 2026-11-19: pano yerine programa sorulsun). Cevap kalıcı bayraktan gelir: bilerek
+    /// kapatma ve kestirmeye geçiş engeller; bayrak yalnız program öne gelince kalkar (iOS eylem için programı arka planda başlatsa da değişmez).
+    func testTheReopenQuestionIsAnsweredFromAStoredFlagThatSurvivesABackgroundLaunch() {
+        let board = RelaunchTests.FakePasteboard()
+        let defaults = freshDefaults()
+        let journal = RunJournal(defaults: defaults, previousLog: [], clipboard: logFlag(board, defaults: defaults, file: tempLogFile()))
+        _ = journal.beginRun()
+        journal.syncCloseGuard(releasingPasteHold: true)   // program öne geldi
+        XCTAssertTrue(ClipboardFlag.reopenAllowed(defaults: defaults), "Oturum yokken ve sürerken: beklenmedik kapanma geri açılır")
+        journal.setAway(true)
+        XCTAssertEqual(ClipboardFlag.reopenBlockReason(defaults: defaults), ClipboardFlag.repair, "Kestirme çalışırken geri açılmaz")
+        journal.setAway(false)
+        XCTAssertTrue(ClipboardFlag.reopenAllowed(defaults: defaults), "Kestirmeden dönünce engel kalkar")
+        journal.syncCloseGuard()   // uygulamadan çıkış (kaydırma, başka uygulama)
+        XCTAssertTrue(ClipboardFlag.reopenAllowed(defaults: defaults), "Düğme dışındaki çıkış geri açılır")
+        journal.markDeliberateClose()
+        XCTAssertEqual(ClipboardFlag.reopenBlockReason(defaults: defaults), ClipboardFlag.closed, "\"Programı kapat\": geri açılmaz")
+        // iOS eylemi çalıştırmak için programı arka planda başlattı: açılış bayrağı kaldırmaz
+        let background = RunJournal(defaults: defaults, previousLog: [], clipboard: logFlag(board, defaults: defaults, file: tempLogFile()))
+        _ = background.beginRun()
+        XCTAssertFalse(ClipboardFlag.reopenAllowed(defaults: defaults), "Arka plan açılışı \"bilerek kapatıldı\"yı unutturmaz")
+        background.syncCloseGuard(releasingPasteHold: true)   // kullanıcı programı kendisi açtı: öne geldi
+        XCTAssertTrue(ClipboardFlag.reopenAllowed(defaults: defaults), "Program öne gelince engel kalkar")
+    }
+
+    func testWithTheClipboardMarkerSwitchedOffNothingIsWrittenToTheClipboardButTheFlagStillBlocks() {
+        let board = RelaunchTests.FakePasteboard()
+        let defaults = freshDefaults()
+        defaults.set(false, forKey: ClipboardFlag.usesClipboardKey)
+        var guardOn = true
+        let journal = RunJournal(defaults: defaults, previousLog: [], clipboard: logFlag(board, defaults: defaults, file: tempLogFile()))
+        journal.closeGuardEnabled = { guardOn }
+        _ = journal.beginRun()
+        board.userCopies("AIza-anahtar")
+        let count = board.changeCount
+        journal.setAway(true)
+        XCTAssertFalse(ClipboardFlag.reopenAllowed(defaults: defaults))
+        journal.setAway(false)
+        guardOn = false
+        journal.syncCloseGuard()
+        XCTAssertEqual(ClipboardFlag.reopenBlockReason(defaults: defaults), ClipboardFlag.closed, "Engel kapalı: hiçbir kapanma geri açılmaz")
+        guardOn = true
+        journal.markDeliberateClose()
+        XCTAssertEqual(board.value, "AIza-anahtar", "Panoya hiçbir şey yazılmadı: kopyalanan metin yerinde")
+        XCTAssertEqual(board.changeCount, count)
+        XCTAssertFalse(ClipboardFlag.reopenAllowed(defaults: defaults))
+        XCTAssertTrue(AppSettings(defaults: freshDefaults()).clipboardMarker, "Varsayılan açık: eski otomasyon çalışmaya devam eder")
+    }
+
     func testWithTheCloseGuardOffAReturnFromShortcutsPutsTheClosedMarkerBackAndAKeptLogSurvives() {
         let board = RelaunchTests.FakePasteboard()
         let file = tempLogFile()

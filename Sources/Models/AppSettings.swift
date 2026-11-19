@@ -272,6 +272,13 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(closeGuard, forKey: Key.closeGuard) }
     }
 
+    /// Pano işaretini kullan (varsayılan açık: eski otomasyon panoya bakar). Kestirmeler'deki otomasyon "Yeniden açılsın mı" eylemiyle yeniden
+    /// kurulduktan sonra kapatılır: program panoya hiçbir şey yazmaz (kullanıcı isteği 2026-11-19: işaret kopyalanan metnin yerine yapıştırılıyordu).
+    /// Anahtar `ClipboardFlag.usesClipboardKey` ile aynıdır: pano katmanı ayarı doğrudan okur.
+    @Published var clipboardMarker: Bool {
+        didSet { defaults.set(clipboardMarker, forKey: ClipboardFlag.usesClipboardKey) }
+    }
+
     /// Test sürerken (kırmızı uyarı yokken) ekran pil için kısılsın mı
     @Published var dimScreen: Bool {
         didSet { defaults.set(dimScreen, forKey: Key.dimScreen) }
@@ -323,6 +330,7 @@ final class AppSettings: ObservableObject {
         smartResume = defaults.object(forKey: Key.smartResume) as? Bool ?? true
         dimScreen = defaults.object(forKey: Key.dimScreen) as? Bool ?? false
         closeGuard = defaults.object(forKey: Key.closeGuard) as? Bool ?? true
+        clipboardMarker = defaults.object(forKey: ClipboardFlag.usesClipboardKey) as? Bool ?? true
         spokenWarnings = defaults.object(forKey: Key.spokenWarnings) as? Bool ?? true
         instantDetection = defaults.object(forKey: Key.instantDetection) as? Bool ?? true
         phoneVoiceID = defaults.string(forKey: Key.phoneVoice) ?? ""
