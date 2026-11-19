@@ -384,6 +384,10 @@ struct ContentView: View {
                     .buttonStyle(.borderedProminent)
                     .tint(.green)
                     .disabled(tester.running)   // deneme çekimi sürerken telefon kameranın ağındadır
+                // "Başlat" kapanan sınava kaldığı yerden devam eder; önceki kaydı kapatıp baştan başlamak için bu düğme kullanılır
+                Button("Yeni sınav başlat") { session.startNewExam() }
+                    .buttonStyle(.bordered)
+                    .disabled(tester.running)
                 trialButton
                 Button("Cevapları Tekrarla") { session.startReplay() }
                     .buttonStyle(.bordered)

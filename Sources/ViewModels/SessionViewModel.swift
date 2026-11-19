@@ -469,6 +469,8 @@ final class SessionViewModel: ObservableObject {
     var longOutageNoted = false
     /// Bu kesintide sonuçsuz kalan onarım turlarının sayısı (bekleme süresini belirler; kesinti bitince sıfırlanır)
     var failedRounds = 0
+    /// "Yeni sınav başlat" düğmesine basıldı: bu başlatmada önceki kayıt kapatılır, yeni sınav açılır (açılış denetimi tüketir)
+    var forceNewExam = false
     var cameraGuidanceSpeaking = false
     /// Kadraj koçunun, önceki cümle sürerken gelen EN SON cümlesi: önceki bitince söylenir (eskiyse atılır). Üst üste konuşma olmaz, yeni sayfanın cümlesi kaybolmaz.
     var coachPending: (text: String, time: Date)?
@@ -585,6 +587,14 @@ final class SessionViewModel: ObservableObject {
         startSentinel()
         startGapNarration()
         work = Task { [weak self] in await self?.runStartup() }
+    }
+
+    /// Ana ekrandaki "Yeni sınav başlat" düğmesi (kullanıcı kararı 2026-11-19: "Başlat" kapanan sınava kaldığı yerden devam eder; yeni sınav ancak bu
+    /// düğmeyle ya da önceki sınav tamamlanınca açılır)
+    func startNewExam() {
+        guard phase.isAtRest else { return }
+        forceNewExam = true
+        start()
     }
 
     /// "Testi bitir": her şeyi durdurur; cevaplar klasörde kalır, "Cevapları Tekrarla" açılır
@@ -1634,6 +1644,10 @@ final class SessionViewModel: ObservableObject {
         armCameraOffer()   // Sürüm 4: önceki kayıttan devam da olsa yeni sınav da olsa ilk soru için kamera sorulur
         let camera = cameraQuestionWillBeAsked
         var text = goOn ? Say.continuingPrevious(next: nextNumber, camera: camera) : (camera ? Say.startingNewCamera : Say.startingNew)
+        if goOn, autoMode {
+            // Otomatik zamanlı başlatma: eski sınavın durumu kısaca bildirilir; tarama ardından geri sayımla başlar (bkz. `autoStartGap`)
+            text = Say.autoResumeReport(answered: answers.count, total: cameraSettings.autoQuestionCount, last: answers.map { $0.number }.max())
+        }
         if setAside > 0 { text += " " + Say.leftoverShotsSetAside(count: setAside) }
         if sectionIndex > 0 {
             // Bölümlü sınav: yeni sınavda ilk bölüme başlandığı, önceki kayıttan devamda hangi bölümde olunduğu söylenir

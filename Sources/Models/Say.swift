@@ -513,6 +513,14 @@ enum Say {
         guard let number = number else { return "Sorunun numarası okunamadı, yine de başlıyorum." }
         return "\(number). soru okunamadı, yine de başlıyorum."
     }
+    /// "Başlat"ta yarıda kalmış sınav bulundu (kullanıcı kararı 2026-11-19): durumu kısaca bildirilir, kaldığı yerden devam edileceği söylenir; ardından
+    /// tarama geri sayımla başlar (`autoGap`). `total`: ayarlardaki soru sayısı (0: belirtilmedi), `last`: cevabı alınmış en büyük soru numarası
+    static func autoResumeReport(answered: Int, total: Int, last: Int?) -> String {
+        var text = "Önceki sınav yarıda kalmış. "
+        text += total > 0 ? "\(total) sorudan \(answered) soru cevaplandı" : "\(answered) soru cevaplandı"
+        if let last = last { text += "; son cevaplanan \(last). soru" }
+        return text + ". Kaldığı yerden devam ediyorum."
+    }
     /// Art arda taramalarda hiç soru bulunamadı: sınav kendiliğinden kapanır (sesli komut istenmez)
     static func autoEmptyStop(scans: Int) -> String {
         return "Art arda \(scans) taramada soru bulunamadı. Sınav kapatılıyor."

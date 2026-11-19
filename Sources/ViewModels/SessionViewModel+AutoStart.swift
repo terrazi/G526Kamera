@@ -25,6 +25,12 @@ extension SessionViewModel {
         return AudioRouting.headsetMicMode && autoMode && listenMode == .cameraChoice
     }
 
+    /// Taramalar sırayla mı yürüyor: bu oturumda en az bir tarama başladıysa ya da yarıda kalmış bir sınava devam ediliyorsa (kayıtlı cevap var).
+    /// O zaman ilk tetik aranmaz (saat, soru görme); tarama 15 sn'lik boşluk ve geri sayımla başlar.
+    var autoSequential: Bool {
+        return auto.rounds > 0 || !answers.isEmpty
+    }
+
     /// Bu oturumda cevabı alınmış soru numaraları
     var answeredNumbers: Set<Int> {
         return Set(answers.map { $0.number })
@@ -42,7 +48,12 @@ extension SessionViewModel {
     /// Ayarlardaki soru sayısına ulaşıldı (kullanıcı kararı 2026-11-19): yeni tarama istenmez. Bütün cevaplar baştan, sırayla, aralarında 2 sn boşlukla
     /// okunur (her cevap: soru numarası, şehir kodlu şık, doğru cevabın metni) ve sınav kapanır; "Devam, Tekrar ya da Bitir" sorulmaz.
     func autoFinishExam() async {
-        tlog("[otomatik] soru sayısına ulaşıldı (\(cameraSettings.autoQuestionCount) soru, cevaplanan \(answeredNumbers.count)): cevaplar baştan okunacak ve sınav kapanacak")
+        tlog("[otomatik] sınav kapanıyor (soru sayısı \(cameraSettings.autoQuestionCount), cevaplanan \(answeredNumbers.count)): cevaplar baştan okunacak")
+        // Soru sayısına ulaşıldıysa sınav TAMAMLANDI: bir sonraki "Başlat" yeni sınav açar. Boş taramalar yüzünden kapandıysa yarıda kalmıştır:
+        // bir sonraki "Başlat" kaldığı yerden sürer
+        if AutoStart.examComplete(count: cameraSettings.autoQuestionCount, nextMissing: autoTarget.number), let name = locationName {
+            settings.finishedExamFolder = name
+        }
         disarmAutoGate()
         endScope = .test
         auto.finishing = true
@@ -75,7 +86,7 @@ extension SessionViewModel {
             await autoAskForQuestion()
             return
         }
-        if auto.rounds == 0 {
+        if !autoSequential {
             if !auto.planned {
                 let now = deps.now()
                 auto.planned = true
@@ -149,7 +160,7 @@ extension SessionViewModel {
         auto.promptedAt = nil
         auto.unreadSince = nil
         auto.missed = 0
-        let later = auto.rounds > 0
+        let later = autoSequential
         guard await speakNotice(later ? Say.autoGap(seconds: AutoStart.gapSeconds, next: target.number) : Say.autoShow(number: target.number)) else {
             offerCamera = true
             return
@@ -186,7 +197,7 @@ extension SessionViewModel {
         let now = deps.now()
         guard deps.camera.holding else {
             // Kamera kapalı: ilk taramada açılış saati beklenir
-            if let openAt = auto.openAt, auto.rounds == 0, now < openAt {
+            if let openAt = auto.openAt, !autoSequential, now < openAt {
                 armAutoGate()
                 return
             }
@@ -194,7 +205,7 @@ extension SessionViewModel {
             return
         }
         if auto.promptedAt == nil { auto.promptedAt = now }
-        if auto.rounds > 0 {
+        if autoSequential {
             // Sonraki taramalar: soru beklenmez; boşluğun son 5 saniyesi gelince geri sayım başlar
             let due = auto.latestAt ?? (auto.promptedAt ?? now).addingTimeInterval(TimeInterval(AutoStart.gapSeconds - AutoStart.questionCountdown))
             if now >= due {

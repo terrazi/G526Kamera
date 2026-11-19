@@ -381,8 +381,18 @@ final class AutoStartFlowTests: XCTestCase {
         h.vm.noteEmptyScan()
         h.vm.noteEmptyScan()
         XCTAssertEqual(h.vm.auto.emptyScans, 2, "Gemini'nin soru bulamadığı taramalar sayılır")
-        XCTAssertEqual(AutoStart.emptyScanLimit(count: 0), 2, "Soru sayısı girilmemişse art arda iki boş taramada sınav kapanır")
-        XCTAssertEqual(AutoStart.emptyScanLimit(count: 40), 5, "Soru sayısı girilmişse kolay vazgeçilmez")
+        XCTAssertEqual(AutoStart.emptyScanLimit(count: 0), 10, "Soru sayısı girilmemişse art arda 10 boş taramada sınav kapanır")
+        XCTAssertEqual(AutoStart.emptyScanLimit(count: 40), 20, "Soru sayısı girilmişse 20 boş taramada")
+        // Kapanan sınav yarıda kaldığı yerden sürer; yeni sınav yalnız düğmeyle ya da önceki sınav tamamlandıysa açılır
+        XCTAssertFalse(AutoStart.startsNewExam(force: false, finished: "", previous: "20261119080000"), "\"Başlat\" yeni sınav açmaz")
+        XCTAssertFalse(AutoStart.startsNewExam(force: false, finished: "20261118230000", previous: "20261119080000"), "Tamamlanan başka bir sınavdı")
+        XCTAssertTrue(AutoStart.startsNewExam(force: false, finished: "20261119080000", previous: "20261119080000"), "Önceki sınav tamamlanmıştı")
+        XCTAssertTrue(AutoStart.startsNewExam(force: true, finished: "", previous: "20261119080000"), "\"Yeni sınav başlat\" düğmesi")
+        XCTAssertFalse(AutoStart.startsNewExam(force: false, finished: "x", previous: nil))
+        XCTAssertEqual(Say.autoResumeReport(answered: 8, total: 40, last: 8),
+                       "Önceki sınav yarıda kalmış. 40 sorudan 8 soru cevaplandı; son cevaplanan 8. soru. Kaldığı yerden devam ediyorum.")
+        XCTAssertEqual(Say.autoResumeReport(answered: 3, total: 0, last: nil), "Önceki sınav yarıda kalmış. 3 soru cevaplandı. Kaldığı yerden devam ediyorum.")
+        XCTAssertFalse(h.vm.autoSequential, "Cevap yokken ilk tetik aranır (saat, soru görme, sesli komut)")
         XCTAssertEqual(Say.autoEmptyStop(scans: 2), "Art arda 2 taramada soru bulunamadı. Sınav kapatılıyor.")
         // Program sesli komut istemez: çekim olmazsa "soruyu okuyun" denmez, tarama yeniden denenir
         XCTAssertTrue(Say.cameraFailed(.noFrames).hasSuffix(Say.readInstead))

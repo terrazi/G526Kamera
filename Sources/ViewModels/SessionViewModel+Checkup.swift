@@ -36,6 +36,12 @@ extension SessionViewModel {
                     }
                 }
                 nextNumber = max(nextNumber, resume.nextNumber, onDisk + 1)
+                // Otomatik zamanlı başlatma: beklenmedik kapanmadan dönüşte de kayıtlı cevaplar yüklenir (sıradaki soru ve sınavın bitişi onlardan
+                // hesaplanır; tarama ilk tetik aranmadan, geri sayımla sürer)
+                if cameraSettings.autoStart, cameraSettings.pageSeries, answers.isEmpty, let folder = sessionFolder {
+                    answers = deps.library.transcriptRecords(in: folder)
+                    answerOrder = answers.map { $0.number }
+                }
             }
         } catch {
             await failStart("Cevap klasörü açılamadı: \(error.localizedDescription)")
@@ -136,13 +142,17 @@ extension SessionViewModel {
             return
         }
         if choiceOffer != nil, autoMode {
-            // Otomatik zamanlı başlatma (kullanıcı kararı 2026-11-19): program sesli komut istemez. "Önceki kayıttan devam mı, yeni sınav mı" sorulmaz;
-            // "Başlat" her zaman yeni sınav açar (önceki kaydın cevapları kendi klasöründe durur). Beklenmedik kapanmadan dönüş ayrı yoldur (`resume`).
-            tlog("[açılış] otomatik zamanlı başlatma: önceki kayıt sorulmadı, yeni sınav açılıyor")
+            // Otomatik zamanlı başlatma (kullanıcı kararı 2026-11-19): program sesli komut istemez, "önceki kayıttan devam mı, yeni sınav mı" sorulmaz.
+            // Kapanan sınav yarıda kaldığı yerden sürer: durumu kısaca bildirilir ve tarama geri sayımla başlar. Yeni sınav yalnız "Yeni sınav başlat"
+            // düğmesiyle ya da önceki sınav tamamlanmışsa açılır.
+            let fresh = AutoStart.startsNewExam(force: forceNewExam, finished: settings.finishedExamFolder, previous: carry?.folder)
+            forceNewExam = false
+            tlog("[açılış] otomatik zamanlı başlatma: önceki kayıt sorulmadı, \(fresh ? "yeni sınav açılıyor" : "kaldığı yerden devam ediliyor")")
             pendingStart = false
-            await applyStartChoice(continuePrevious: false)
+            await applyStartChoice(continuePrevious: !fresh)
             return
         }
+        forceNewExam = false
         if let offer = choiceOffer {
             let askContinue = sectionIndex > 0 ? Say.readyAskContinueSection(section: sectionIndex, answers: offer.answers, next: offer.next)
                                                 : Say.readyAskContinue(answers: offer.answers, next: offer.next)

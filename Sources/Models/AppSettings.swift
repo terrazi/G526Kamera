@@ -20,6 +20,7 @@ final class AppSettings: ObservableObject {
         static let spokenWarnings = "v3.spokenWarnings"
         static let instantDetection = "v3.instantDetection"
         static let headsetMic = "v4.headsetMic"
+        static let finishedExamFolder = "v4.finishedExamFolder"
         static let shortcutOutput = "v3.shortcutOutput"
         static let phoneVoice = "v3.phoneVoice"
         static let shortcutPresetApplied = "v3.shortcutPresetApplied"
@@ -241,6 +242,13 @@ final class AppSettings: ObservableObject {
     /// Ekrana yazılan uyarılar kulaklıktan da söylensin mi (internet koptu, mikrofon yok, şarj azaldı…)
     @Published var spokenWarnings: Bool {
         didSet { defaults.set(spokenWarnings, forKey: Key.spokenWarnings) }
+    }
+
+    /// TAMAMLANAN son sınavın klasör adı (soru sayısına ulaşılıp cevaplar baştan okunarak kapanan sınav). "Başlat" bu sınava devam etmez, yeni sınav açar;
+    /// başka her kapanan sınav kaldığı yerden sürer (bkz. `AutoStart.startsNewExam`). Ayarlarda görünmez.
+    var finishedExamFolder: String {
+        get { return defaults.string(forKey: Key.finishedExamFolder) ?? "" }
+        set { defaults.set(newValue, forKey: Key.finishedExamFolder) }
     }
 
     /// Yalnız görüntülü sınav (kullanıcı kararı 2026-11-19: sesli ve hibrit sınav iptal). Açıkken sınav türü her "Başlat"ta görüntülüye çekilir, Ayarlar'da

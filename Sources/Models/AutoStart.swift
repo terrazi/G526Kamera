@@ -30,9 +30,18 @@ enum AutoStart {
     static let finalGap: Double = 2
 
     /// Art arda bu kadar taramada soru bulunamazsa sınav kendiliğinden kapanır (kullanıcı kararı 2026-11-19: program sesli komut istemez; boş taramalar
-    /// da sonsuza dek sürmez). Soru sayısı girilmemişse 2 (sayfalar bitmiş demektir); girilmişse 5 (soruların tamamı taranmadan kolay vazgeçilmez).
+    /// da sonsuza dek sürmez). Soru sayısı girilmemişse 10, girilmişse 20 tarama. Kapanan sınav bir sonraki "Başlat"ta kaldığı yerden sürer.
     static func emptyScanLimit(count: Int) -> Int {
-        return count > 0 ? 5 : 2
+        return count > 0 ? 20 : 10
+    }
+
+    /// "Başlat"ta önceki kayıt varken yeni sınav mı açılır (kullanıcı kararı 2026-11-19: kapanan sınav yarıda kaldığı yerden sürer, "Başlat" yeni sınav
+    /// açmaz). Yeni sınav yalnız iki durumda açılır: kullanıcı "Yeni sınav başlat" düğmesine bastıysa, ya da önceki sınav TAMAMLANDIYSA (soru sayısına
+    /// ulaşılıp cevaplar baştan okunarak kapandıysa; `finished` o sınavın klasör adıdır).
+    static func startsNewExam(force: Bool, finished: String, previous: String?) -> Bool {
+        if force { return true }
+        guard let previous = previous, !finished.isEmpty else { return false }
+        return finished == previous
     }
 
     /// Sıradaki istenecek soru: başlangıç sorusundan itibaren cevabı alınmamış en küçük numara (arada cevapsız kalan soru varsa o istenir)
