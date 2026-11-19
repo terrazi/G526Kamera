@@ -1045,17 +1045,18 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
                     let page = net / SeriesRhythm.reviewSeconds
                     let q = collector.quality(from: Double(reviewFrom), to: Double(second))
                     let framesBad = SeriesRhythm.pageIsBad(valid: q.valid, damaged: q.damaged, blurry: q.blurry)
-                    // Görülen soru numaraları (en az iki karede okunanlar); "tek delik" yalnız güçlü okuma çalışırken sayfayı kötü yapar
+                    // Görülen soru numaraları (en az iki karede okunanlar). Aralarındaki "delik" artık sayfayı kötü yapmaz ve söylenmez (kullanıcı 2026-11-19:
+                    // koç hep yanlış soruları eksik söylüyordu): yazı tanımanın okuduğu numaralar serbest taramada güvenilir değildir, 30 sn'lik dilim de
+                    // fiziksel sayfa değildir. Sayfayı yalnız ölçülen kare kalitesi (bozuk / bulanık) yeniden taratır.
                     let seen = SeriesRhythm.confirmedNumbers(q.numbers)
-                    let missing = pace.useAccurate ? SeriesRhythm.holes(in: seen) : []
                     // Hareket takibi (danışman): kaydırma hızı ve gezilen alan
                     var motion: MotionSummary?
                     if let tracker = tracker {
                         await tracker.drain()
                         motion = tracker.summary(from: t0 + Double(reviewFrom), to: t0 + Double(second))
                     }
-                    let bad = framesBad || !missing.isEmpty
-                    tlog("[kamera] sayfa denetimi: \(page). sayfa (\(reviewFrom)–\(second). sn): geçerli \(q.valid), bozuk \(q.damaged), bulanık \(q.blurry); görülen sorular: \(seen.map { String($0) }.joined(separator: ",")); görülmeyen: \(missing.map { String($0) }.joined(separator: ",")) → \(bad ? "KÖTÜ" : "yeterli")")
+                    let bad = framesBad
+                    tlog("[kamera] sayfa denetimi: \(page). sayfa (\(reviewFrom)–\(second). sn): geçerli \(q.valid), bozuk \(q.damaged), bulanık \(q.blurry); görülen sorular: \(seen.map { String($0) }.joined(separator: ",")) → \(bad ? "KÖTÜ" : "yeterli")")
                     if let motion = motion { tlog("[kamera] hareket takibi: \(motion.logText); atlanan kare \(tracker?.skipped ?? 0)\(motion.isFast ? "; HIZLI" : "")\(motion.barelyMoved ? "; AZ KAYDIRILDI" : "")") }
                     reviewFrom = second
                     if bad, !redone.contains(page) {
@@ -1063,9 +1064,7 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
                         clock.redo(seconds: Double(SeriesRhythm.reviewSeconds))
                         total = clock.totalSeconds
                         tlog("[kamera] sayfa denetimi: \(page). sayfa yeniden taranacak; oturum \(total) sn'ye uzadı")
-                        sayRhythm(framesBad
-                            ? SeriesRhythm.reviewText(page: page, damaged: q.damaged, blurry: q.blurry, fast: motion?.isFast ?? false)
-                            : SeriesRhythm.missingText(page: page, missing: missing))
+                        sayRhythm(SeriesRhythm.reviewText(page: page, damaged: q.damaged, blurry: q.blurry, fast: motion?.isFast ?? false))
                         reviewed = true
                     } else if second < total {
                         // Sayfa işe yaradı (ya da ikinci taramada da zayıf kaldı): kullanıcı sıradaki sayfaya yönlendirilir; süre anonsunun yerine geçer

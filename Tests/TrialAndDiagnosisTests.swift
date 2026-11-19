@@ -43,24 +43,24 @@ final class CaptureDiagnosisTests: XCTestCase {
         XCTAssertEqual(diagnosis(windows: 40, readable: 0, sharpness: 10).spoken, CaptureSay.blurry)
         XCTAssertEqual(diagnosis(windows: 40, readable: 0, sharpness: 400).spoken, CaptureSay.noText)
         XCTAssertEqual(diagnosis(windows: 40, readable: 3).spoken, CaptureSay.mostlyUnreadable)
-        XCTAssertEqual(diagnosis(windows: 40, readable: 30, numbers: [11, 12, 14]).spoken, CaptureSay.missingSeen([13]))
-        XCTAssertEqual(diagnosis(windows: 40, readable: 3, numbers: [11, 12, 14]).spoken, CaptureSay.mostlyUnreadable + " " + CaptureSay.missingSeen([13]))
-        XCTAssertEqual(diagnosis(windows: 40, readable: 30, numbers: [1, 3, 5, 7, 9, 11, 13, 15]).spoken, CaptureSay.manyMissingSeen, "Altıdan çok eksik numara tek tek sayılmaz")
+        // Görülen numaraların arasındaki boşluk söylenmez (kullanıcı 2026-11-19: yazı tanımanın okuduğu numaralarla verilen "görünmedi" bilgisi yanlış çıkıyordu)
+        XCTAssertEqual(diagnosis(windows: 40, readable: 30, numbers: [11, 12, 14]).spoken, "")
+        XCTAssertEqual(diagnosis(windows: 40, readable: 3, numbers: [11, 12, 14]).spoken, CaptureSay.mostlyUnreadable)
+        XCTAssertEqual(diagnosis(windows: 40, readable: 30, numbers: [1, 3, 5, 7, 9, 11, 13, 15]).spoken, "")
         XCTAssertTrue(CaptureSay.blurry.contains("uzaklaş"), "Bulanıklık çok yakınlıktan gelebilir: uzaklaşmak söylenir")
-        XCTAssertEqual(CaptureSay.missingSeen([13]), "Soru 13 görünmedi.")
-        XCTAssertEqual(CaptureSay.missingSeen([4, 7]), "Soru 4 ve 7 görünmedi.")
     }
 
-    func testTheAnswersOfAPageAreCheckedForSkippedQuestions() {
-        XCTAssertEqual(CaptureDiagnosis.missingAnswers(answered: [11, 12, 14], seen: []), [13], "Cevap numaraları arasındaki boşluk")
-        XCTAssertEqual(CaptureDiagnosis.missingAnswers(answered: [11, 12, 13], seen: [14, 15]), [14, 15], "Karelerde görülen ama cevaplanmayan son sorular")
-        XCTAssertEqual(CaptureDiagnosis.missingAnswers(answered: [11, 12, 13], seen: [30]), [], "Uzaktaki görülen numara (alt madde, puan, yıl) sayılmaz")
-        XCTAssertEqual(CaptureDiagnosis.missingAnswers(answered: [11, 12, 13], seen: [2]), [], "Cevapların gerisindeki görülen numara sayılmaz")
-        XCTAssertEqual(CaptureDiagnosis.missingAnswers(answered: [], seen: [1, 2, 3]), [], "Numaralı cevap yoksa söylenecek bir şey yok")
-        XCTAssertEqual(CaptureDiagnosis.missingAnswers(answered: [1, 400], seen: []), [], "Yanlış okunmuş numara: aralık çok açık")
-        XCTAssertEqual(CaptureDiagnosis.missingAnswers(answered: [5], seen: []), [])
-        XCTAssertEqual(CaptureDiagnosis.missingAnswers(answered: [1, 2, 3], seen: [1, 2, 3]), [])
-        XCTAssertEqual(CaptureSay.missingAnswers([13]), "Soru 13 cevaplanamadı; okunamamış ya da kadraja tam girmemiş olabilir. İsterseniz o kısımları daha sabit gösterip yeniden çekin.")
+    /// Yalnız cevaplanan iki numaranın arasında kalan sorular söylenir; taranmamış sayfalar, cevapların önü / arkası ve karelerde görülen numaralar sayılmaz
+    func testOnlyAQuestionBetweenTwoAnsweredOnesIsReportedAsSkipped() {
+        XCTAssertEqual(CaptureDiagnosis.missingAnswers(answered: [11, 12, 14]), [13], "İki komşusu cevaplanmış soru atlanmıştır")
+        XCTAssertEqual(CaptureDiagnosis.missingAnswers(answered: [1, 2, 5]), [3, 4], "Art arda iki eksik de söylenir")
+        XCTAssertEqual(CaptureDiagnosis.missingAnswers(answered: [11, 12, 13]), [], "Cevapların ardındaki numaralar (sıradaki sayfa) söylenmez")
+        XCTAssertEqual(CaptureDiagnosis.missingAnswers(answered: [1, 2, 3, 4, 27, 28]), [], "Büyük boşluk taranmamış sayfadır: söylenmez")
+        XCTAssertEqual(CaptureDiagnosis.missingAnswers(answered: [3, 8, 10]), [9], "Yalnız küçük boşluk; 4-7 söylenmez")
+        XCTAssertEqual(CaptureDiagnosis.missingAnswers(answered: []), [])
+        XCTAssertEqual(CaptureDiagnosis.missingAnswers(answered: [5]), [])
+        XCTAssertEqual(CaptureDiagnosis.missingAnswers(answered: [1, 400]), [])
+        XCTAssertEqual(CaptureSay.missingAnswers([13]), "Soru 13 cevaplanamadı. İsterseniz yeniden tarayın.")
     }
 
     func testTheMedianOfTheSharpnessValues() {
@@ -79,7 +79,7 @@ final class CaptureDiagnosisTests: XCTestCase {
         XCTAssertTrue(report.contains("PDF'e giren kare: 20 (yazısı okunan: 14)"), report)
         XCTAssertTrue(report.contains("Görülen soru numaraları: 1, 2, 4"), report)
         XCTAssertTrue(report.contains("Arada görünmeyen numaralar: 3"), report)
-        XCTAssertTrue(report.contains("Sonuç: " + CaptureSay.missingSeen([3])), report)
+        XCTAssertTrue(report.contains("Sonuç: Yazı yeterince okundu"), "Aradaki numara yalnız rapor satırında durur, sonuç cümlesine girmez: \(report)")
         let clean = diagnosis(windows: 40, readable: 30, numbers: [1, 2, 3]).report(seconds: 75, measured: 600, selected: 20, readable: 20)
         XCTAssertTrue(clean.contains("Sonuç: Yazı yeterince okundu; bu kadrajla çekim yapılabilir."), clean)
         XCTAssertTrue(clean.contains("Arada görünmeyen numaralar: yok"), clean)

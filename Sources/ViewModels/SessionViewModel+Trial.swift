@@ -98,11 +98,11 @@ extension SessionViewModel {
 
     // MARK: Cevaplanamayan sorular
 
-    /// Sayfanın cevapları okunduktan sonra söylenecek not: cevap numaraları arasında atlanan ya da telefonun karelerde gördüğü ama cevaplanmayan sorular.
+    /// Sayfanın cevapları okunduktan sonra söylenecek not: yalnız cevaplanan iki numaranın arasında atlanan sorular (bkz. `CaptureDiagnosis.missingAnswers`).
     /// `completeReadPage` sayfayı sıfırlamadan ÖNCE çağrılır. Söylenecek bir şey yoksa boş.
     func pageMissingNote() -> String {
         guard let page = pageBeingRead else { return "" }
-        let missing = CaptureDiagnosis.missingAnswers(answered: pageReplyNumbers, seen: page.seenNumbers)
+        let missing = CaptureDiagnosis.missingAnswers(answered: pageReplyNumbers)
         guard !missing.isEmpty else { return "" }
         tlog("[sayfa] cevaplanmayan sorular: \(missing.map { String($0) }.joined(separator: ",")) (cevaplananlar: \(pageReplyNumbers.map { String($0) }.joined(separator: ",")); karelerde görülenler: \(page.seenNumbers.map { String($0) }.joined(separator: ",")))")
         return missing.count <= CaptureDiagnosis.maxListed ? CaptureSay.missingAnswers(missing) : CaptureSay.manyMissingAnswers

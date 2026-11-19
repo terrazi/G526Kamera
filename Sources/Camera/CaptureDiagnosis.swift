@@ -34,8 +34,6 @@ struct CaptureDiagnosis: Equatable {
     static let lowReadableRatio = 0.25
     /// En çok bu kadar eksik numara tek tek söylenir; fazlası "birçok" denir
     static let maxListed = 6
-    /// Cevapların ilk ve son numarası arası bundan açıksa (yanlış okunmuş bir sayı) eksik aranmaz
-    static let maxSpan = 150
 
     var readableRatio: Double {
         return windows == 0 ? 0 : Double(readableWindows) / Double(windows)
@@ -67,18 +65,12 @@ struct CaptureDiagnosis: Equatable {
         return result
     }
 
-    /// Cevapların numaraları (Gemini'nin okuduğu) arasında atlananlar; ayrıca telefonun karelerde gördüğü ama cevaplanmayan, cevaplanan en büyük numaranın hemen
-    /// ardındaki (en çok `edgeReach` numara) sorular. Daha uzaktaki görülen numaralar (alt maddeler, puan, yıl gibi yanlış okumalar) sayılmaz.
-    /// Numaralı cevap yoksa ya da aralık `maxSpan`'dan açıksa boş.
-    static let edgeReach = 3
-
-    static func missingAnswers(answered: [Int], seen: [Int]) -> [Int] {
-        let done = Set(answered)
-        guard let low = done.min(), let high = done.max() else { return [] }
-        let edge = seen.filter { $0 > high && $0 <= high + edgeReach }
-        let top = max(high, edge.max() ?? high)
-        guard top - low <= maxSpan else { return [] }
-        return (low...top).filter { !done.contains($0) }
+    /// Cevaplanamayan sorular: yalnız Gemini'nin cevapladığı iki numaranın ARASINDA kalan, en çok `maxGapRun` uzunluğundaki boşluklar ("11, 12, 14"
+    /// cevaplandıysa 13). Kanıt cevapların kendisidir: iki komşusu da cevaplanmış bir soru gerçekten atlanmıştır. Daha büyük boşluklar (taranmamış sayfa),
+    /// cevapların önündeki ve arkasındaki numaralar ve yazı tanımanın karelerde gördüğü numaralar SÖYLENMEZ (kullanıcı 2026-11-19: "hep yanlış soruların
+    /// gönderilmediğini söylüyor, söylediği soruların taranan sorularla ilgisi yok"; eski kural aralığın tamamını ve komşu sayfadan görünen numaraları sayıyordu).
+    static func missingAnswers(answered: [Int]) -> [Int] {
+        return gaps(in: answered)
     }
 
     /// "4", "4 ve 7", "4, 7 ve 9"
@@ -100,10 +92,8 @@ struct CaptureDiagnosis: Equatable {
         case .noText: parts.append(CaptureSay.noText)
         case .mostlyUnreadable: parts.append(CaptureSay.mostlyUnreadable)
         }
-        let missing = missingNumbers
-        if !missing.isEmpty {
-            parts.append(missing.count <= CaptureDiagnosis.maxListed ? CaptureSay.missingSeen(missing) : CaptureSay.manyMissingSeen)
-        }
+        // Görülen numaraların arasındaki boşluk SÖYLENMEZ (yalnız deneme raporuna yazılır): yazı tanımanın okuduğu numaralar serbest taramada güvenilir
+        // değildir, "Soru N görünmedi" çoğu kez yanlış çıkıyordu
         return parts.joined(separator: " ")
     }
 
@@ -169,16 +159,12 @@ enum CaptureSay {
     static let blurry = "Görüntüler bulanık; kamera sayfaya çok yakın ya da odak dışı olabilir. Bir sonraki çekimde biraz uzaklaşıp sabit tutun."
     static let noText = "Hiçbir karede yazı okunamadı; sayfa kadrajda olmayabilir ya da yazı çok küçük. Kamerayı sayfaya doğrultup sabit tutun."
     static let mostlyUnreadable = "Karelerin çoğunda yazı okunamadı; kamerayı daha sabit tutun ve sayfaya çok yaklaşmayın."
-    static func missingSeen(_ numbers: [Int]) -> String {
-        return "Soru \(CaptureDiagnosis.numberList(numbers)) görünmedi."
-    }
-    static let manyMissingSeen = "Birçok soru numarası görünmedi."
 
     /// Cevaplar okunduktan sonra: görünen ama cevaplanamayan sorular
     static func missingAnswers(_ numbers: [Int]) -> String {
-        return "Soru \(CaptureDiagnosis.numberList(numbers)) cevaplanamadı; okunamamış ya da kadraja tam girmemiş olabilir. İsterseniz o kısımları daha sabit gösterip yeniden çekin."
+        return "Soru \(CaptureDiagnosis.numberList(numbers)) cevaplanamadı. İsterseniz yeniden tarayın."
     }
-    static let manyMissingAnswers = "Birçok soru cevaplanamadı; okunamamış ya da kadraja tam girmemiş olabilir. İsterseniz o kısımları daha sabit gösterip yeniden çekin."
+    static let manyMissingAnswers = "Aradaki birkaç soru cevaplanamadı. İsterseniz o sayfayı yeniden tarayın."
 
     // Kadraj kontrolü
     static let viewGood = "Kadraj iyi: yazı net okunuyor. Başlayabilirsiniz."

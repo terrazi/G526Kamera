@@ -295,20 +295,10 @@ final class PageNumbersTests: XCTestCase {
         XCTAssertEqual(SeriesRhythm.confirmedNumbers([:]), [])
     }
 
-    func testOnlyASingleHoleBetweenTwoSeenNumbersIsMissing() {
-        XCTAssertEqual(SeriesRhythm.holes(in: [11, 13]), [12])
-        XCTAssertEqual(SeriesRhythm.holes(in: [27, 29, 30]), [28])
-        XCTAssertEqual(SeriesRhythm.holes(in: [10, 11, 12, 13, 14, 17]), [], "Ardışık iki eksik kesin değildir: komşu sayfanın numarası kadraja girmiş olabilir")
-        XCTAssertEqual(SeriesRhythm.holes(in: [10, 11, 12]), [])
-        XCTAssertEqual(SeriesRhythm.holes(in: []), [])
-    }
-
-    func testTheSpokenReviewNamesTheSeenQuestionsTheMissingOneAndTheSpeed() {
+    func testTheSpokenReviewNamesTheSeenQuestionsAndTheSpeed() {
         XCTAssertEqual(SeriesRhythm.nextPageText(page: 1, good: true, seen: [10, 11, 12, 13, 14]),
                        "Birinci sayfa tamam. Görülen sorular: 10 ile 14 arası. Sonraki sayfaya geçin.")
         XCTAssertTrue(SeriesRhythm.nextPageText(page: 1, good: true, barelyMoved: true).contains("Kamera az kaydırıldı"))
-        XCTAssertEqual(SeriesRhythm.missingText(page: 1, missing: [12]), "Birinci sayfada 12. soru görülmedi. Bu sayfayı yeniden tarayın.")
-        XCTAssertTrue(SeriesRhythm.missingText(page: 2, missing: [12, 15]).contains("12 ve 15. sorular"))
         XCTAssertEqual(SeriesRhythm.reviewText(page: 1, damaged: 0, blurry: 5, fast: true),
                        "Birinci sayfa okunamadı: bulanıklık var; kamera hızlı kaydırıldı. Bu sayfayı yeniden, daha yavaş tarayın.")
         XCTAssertFalse(SeriesRhythm.reviewText(page: 1, damaged: 5, blurry: 0, fast: true).contains("hızlı"), "Bulanıklık yoksa hız söylenmez")

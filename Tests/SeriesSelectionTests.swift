@@ -373,7 +373,7 @@ final class SeriesSelectionTests: XCTestCase {
         XCTAssertEqual(outcome.diagnosis.questionNumbers, [11, 12, 14])
         XCTAssertEqual(outcome.diagnosis.missingNumbers, [13])
         XCTAssertEqual(outcome.diagnosis.hint, .good)
-        XCTAssertEqual(outcome.diagnosis.spoken, CaptureSay.missingSeen([13]))
+        XCTAssertEqual(outcome.diagnosis.spoken, "", "Görülen numaraların arasındaki boşluk söylenmez")
         XCTAssertEqual(outcome.stats.readable, 3)
         XCTAssertEqual(outcome.stats.weak, 0)
     }

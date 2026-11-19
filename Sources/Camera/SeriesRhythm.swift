@@ -70,13 +70,6 @@ struct SeriesRhythm: Equatable {
         return counts.filter { $0.key > 0 && $0.value >= confirmFrames }.keys.sorted()
     }
 
-    /// Görülmeyen sorular: iki yanındaki numara görülmüş, kendisi görülmemiş ("tek delik": 11 ve 13 var, 12 yok). Yalnız bu durum kesin sayılır:
-    /// baştaki / sondaki eksikler ve ardışık iki eksik (kadraja giren komşu sayfanın numaraları olabilir) eksik sayılmaz
-    static func holes(in numbers: [Int]) -> [Int] {
-        let seen = Set(numbers)
-        return numbers.filter { !seen.contains($0 + 1) && seen.contains($0 + 2) }.map { $0 + 1 }
-    }
-
     /// Sayfa işe yaradıysa (ya da ikinci taramada da zayıf kaldıysa) söylenen yönlendirme. `seen`: görülen soru numaraları (varsa söylenir);
     /// `barelyMoved`: hareket takibi kameranın hep aynı yerde kaldığını ölçtü (bkz. `MotionSummary.barelyMoved`)
     static func nextPageText(page: Int, good: Bool, seen: [Int] = [], barelyMoved: Bool = false) -> String {
@@ -86,13 +79,6 @@ struct SeriesRhythm: Equatable {
         if !seen.isEmpty { text += " Görülen sorular: \(Say.compactList(seen))." }
         if barelyMoved { text += " Kamera az kaydırıldı; sayfanın tamamı görünmemiş olabilir." }
         return text + " Sonraki sayfaya geçin."
-    }
-
-    /// Kareler yeterli ama bir soru numarası hiç görülmedi: sayfa yeniden taranır
-    static func missingText(page: Int, missing: [Int]) -> String {
-        let list = Say.compactList(missing)
-        let noun = missing.count == 1 ? "\(list). soru" : "\(list). sorular"
-        return "\(Say.ordinalCapital(page)) sayfada \(noun) görülmedi. Bu sayfayı yeniden tarayın."
     }
 
     /// Sayfa kötüyse söylenen cümle: neden (hangisi çoksa önce) ve ne yapılacağı
