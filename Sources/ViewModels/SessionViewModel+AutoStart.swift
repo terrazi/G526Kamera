@@ -9,14 +9,15 @@ import Foundation
 /// (`fireCameraChoice`); tetikler birbirini iptal eder. Bir kez tetiklendikten sonra taramalar sırayla sürer: cevaplar okununca kamera açılır, "Yeni iki
 /// sayfalık tarama 15 saniye sonra başlayacak." denir, son 5 saniyede beşten sayılır ve tarama başlar (soru görülmesi beklenmez). Ayarlardaki soru sayısı
 /// tamamlanınca bütün cevaplar baştan, 2 sn arayla okunur ve sınav kapanır (`autoFinishExam`). Soru sayısı girilmemişse ve Gemini taramada soru bulamazsa
-/// döngü durur (`auto.halted`), "Başla" beklenir.
+/// art arda iki tarama boş çıkarsa sınav kendiliğinden kapanır (`noteEmptyScan`, `autoFinishExam`). Program hiçbir adımda sesli komut İSTEMEZ:
+/// başlangıçta "önceki kayıttan devam mı" sorulmaz (yeni sınav açılır), çekim olmazsa sesle okumaya geçilmez (yeniden denenir).
 ///
 /// Kapı yalnız "Başla" dinlenirken (aşama dinleme, kip kamera seçimi) iş yapar; onarım, duraklatma ya da başka bir iş araya girerse zamanlayıcı düşer ve
 /// akış yeniden `beginListening(mode: .cameraChoice)` çağırınca kendiliğinden kurulur.
 extension SessionViewModel {
     /// Otomatik zamanlı başlatma geçerli mi: toplu çekim ve ayar açık, kamera kullanılabilir
     var autoMode: Bool {
-        return cameraSettings.autoStart && seriesMode
+        return cameraSettings.autoStart && seriesMode && settings.examType != .voice
     }
 
     /// Mikrofon zorunlu değil: kulaklık mikrofonu kipinde ve otomatik başlatmada "Başla" beklenirken mikrofon çalışmasa da akış sürer
@@ -26,10 +27,7 @@ extension SessionViewModel {
 
     /// Bu oturumda cevabı alınmış soru numaraları
     var answeredNumbers: Set<Int> {
-        return Set(questions.compactMap { entry -> Int? in
-            if case .answered = entry.state { return entry.number }
-            return nil
-        })
+        return Set(answers.map { $0.number })
     }
 
     /// Taramayı başlatacak (kulaklıktan istenen) soru: başlangıç sorusundan itibaren cevabı alınmamış en küçük numara. `orLater`: cevaplanmış soru varsa
@@ -57,12 +55,19 @@ extension SessionViewModel {
             await autoFinishExam()
             return
         }
-        if auto.halted {
-            guard await speakNotice(Say.autoHalted) else {
+        // Yeni cevap geldiyse boş tarama sayımı sıfırlanır; art arda boş taramalar sınırı aştıysa sınav kendiliğinden kapanır (sesli komut istenmez)
+        if answers.count != auto.answersSeen {
+            auto.answersSeen = answers.count
+            auto.emptyScans = 0
+        }
+        let limit = AutoStart.emptyScanLimit(count: cameraSettings.autoQuestionCount)
+        if auto.emptyScans >= limit {
+            tlog("[otomatik] art arda \(auto.emptyScans) taramada soru bulunamadı: sınav kapatılıyor")
+            guard await speakNotice(Say.autoEmptyStop(scans: auto.emptyScans)) else {
                 offerCamera = true
                 return
             }
-            beginListening(mode: .cameraChoice)
+            await autoFinishExam()
             return
         }
         // Kamera zaten açık bekliyorsa (kesintiden dönüş) soru yeniden istenir
@@ -165,7 +170,7 @@ extension SessionViewModel {
 
     /// "Başla" dinlemesi açılınca kurulur (`beginListening`); zaten kuruluysa dokunulmaz
     func armAutoGate() {
-        guard autoMode, !auto.halted, autoTimer == nil else { return }
+        guard autoMode, autoTimer == nil else { return }
         autoTimer = deps.scheduler.after(AutoStart.tick) { [weak self] in self?.autoTick() }
     }
 
@@ -177,7 +182,7 @@ extension SessionViewModel {
     /// Kapının nabzı: saat geldi mi, en geç başlama anı geçti mi, kamerada beklenen soru görünüyor mu
     func autoTick() {
         autoTimer = nil
-        guard autoMode, !auto.halted, phase == .listening, listenMode == .cameraChoice else { return }
+        guard autoMode, phase == .listening, listenMode == .cameraChoice else { return }
         let now = deps.now()
         guard deps.camera.holding else {
             // Kamera kapalı: ilk taramada açılış saati beklenir
@@ -215,7 +220,7 @@ extension SessionViewModel {
     func autoLook() async {
         let sight = await deps.camera.spotQuestions()
         auto.looking = false
-        guard autoMode, !auto.halted, phase == .listening, listenMode == .cameraChoice, deps.camera.holding else { return }
+        guard autoMode, phase == .listening, listenMode == .cameraChoice, deps.camera.holding else { return }
         guard let seen = sight, seen.frames > 0 else { return }
         let target = autoTarget
         if let number = AutoStart.accepted(seen.numbers, ask: target.number, answered: answeredNumbers) {
@@ -362,7 +367,6 @@ extension SessionViewModel {
     /// Tarama başladı (hangi tetikle olursa olsun): sonraki taramalar "sıradaki soru + süre" düzeniyle yürür
     func noteAutoRoundStarted() {
         auto.rounds += 1
-        auto.halted = false
         auto.promptedAt = nil
         auto.unreadSince = nil
         auto.missed = 0
@@ -370,16 +374,11 @@ extension SessionViewModel {
         auto.openAt = nil
     }
 
-    /// Gemini taramada soru bulamadı: boş taramalar art arda sürmesin diye döngü durur
-    func haltAutoAfterEmptyPage() {
-        guard cameraSettings.autoStart, cameraSettings.pageSeries, !auto.halted else { return }
-        // Sınavın soru sayısı girilmişse soruların tamamı taranmadan program durmaz (kullanıcı kararı 2026-11-19): boş tarama döngüyü durdurmaz
-        guard cameraSettings.autoQuestionCount == 0 else {
-            tlog("[otomatik] taramada soru bulunamadı; soru sayısı (\(cameraSettings.autoQuestionCount)) tamamlanmadığı için taramalar sürüyor")
-            return
-        }
-        auto.halted = true
-        tlog("[otomatik] taramada soru bulunamadı: otomatik tarama durdu, \"Başla\" bekleniyor")
+    /// Gemini taramada soru bulamadı: sayılır. Sınır aşılınca (`AutoStart.emptyScanLimit`) bir sonraki adımda sınav kendiliğinden kapanır (`autoAnnounce`)
+    func noteEmptyScan() {
+        guard cameraSettings.autoStart, cameraSettings.pageSeries else { return }
+        auto.emptyScans += 1
+        tlog("[otomatik] taramada soru bulunamadı (art arda \(auto.emptyScans); sınır \(AutoStart.emptyScanLimit(count: cameraSettings.autoQuestionCount)))")
     }
 
     /// Mikrofon açılamadı ya da ses vermiyor ama zorunlu değil: bir kez yazılır, akış otomatik tetiklerle sürer

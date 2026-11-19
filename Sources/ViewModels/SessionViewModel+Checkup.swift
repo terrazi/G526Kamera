@@ -135,6 +135,14 @@ extension SessionViewModel {
             }
             return
         }
+        if choiceOffer != nil, autoMode {
+            // Otomatik zamanlı başlatma (kullanıcı kararı 2026-11-19): program sesli komut istemez. "Önceki kayıttan devam mı, yeni sınav mı" sorulmaz;
+            // "Başlat" her zaman yeni sınav açar (önceki kaydın cevapları kendi klasöründe durur). Beklenmedik kapanmadan dönüş ayrı yoldur (`resume`).
+            tlog("[açılış] otomatik zamanlı başlatma: önceki kayıt sorulmadı, yeni sınav açılıyor")
+            pendingStart = false
+            await applyStartChoice(continuePrevious: false)
+            return
+        }
         if let offer = choiceOffer {
             let askContinue = sectionIndex > 0 ? Say.readyAskContinueSection(section: sectionIndex, answers: offer.answers, next: offer.next)
                                                 : Say.readyAskContinue(answers: offer.answers, next: offer.next)

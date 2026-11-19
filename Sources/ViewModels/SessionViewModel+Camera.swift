@@ -94,10 +94,6 @@ extension SessionViewModel {
         guard let reply = heardCameraChoice(log: true) else { return }
         clearWarning("duyulan")
         disarmAutoGate()   // sesli "Başla" otomatik tetiklerden önce geldi: kapı kapanır
-        if reply == .yes, auto.halted {
-            auto.halted = false
-            tlog("[otomatik] \"Başla\" duyuldu: otomatik tarama yeniden açıldı")
-        }
         closeListening()
         listenMode = .question   // seçim yapıldı: bundan sonraki bir onarım "evet / hayır"ı yeniden sormaz, bekleyen çekimi gönderir
         phase = .speaking
@@ -1023,6 +1019,19 @@ extension SessionViewModel {
 
     /// Kamera akışı olmadı: neden söylenir ve soru V3'teki gibi sesle okunmaya başlanır
     func fallBackToVoice(_ text: String) async {
+        // Otomatik zamanlı başlatmada sesli komut istenmez (kullanıcı kararı 2026-11-19): "soruyu okuyun" denmez, tarama yeniden denenir. Kamera
+        // "ulaşılamıyor" sayıldıysa (`cameraOfferAvailable` yanlış) eski yol geçerlidir: program kamerayı yoklar, dönünce haber verir
+        if autoMode {
+            let spoken = text.replacingOccurrences(of: Say.readInstead, with: "") + " " + Say.autoRetry
+            tlog("[otomatik] çekim olmadı; sesle okumaya geçilmedi, tarama yeniden denenecek")
+            guard await speakNotice(spoken) else {
+                offerCamera = true
+                return
+            }
+            armCameraOffer()
+            beginListening()
+            return
+        }
         guard await speakNotice(text) else { return }
         listenForVoiceQuestion()
     }

@@ -479,7 +479,7 @@ enum Say {
 
     /// "Başlat"tan sonra, kamera açılış saati beklenirken (kamera kapalı, internet açık)
     static func autoWaiting(clock: String) -> String {
-        return "Kamera açılış saati \(clock). Beklemeden başlatmak için başla deyin."
+        return "Kamera açılış saati \(clock)."
     }
     /// Kamera açıldı: taramanın başlaması için beklenen soru istenir. `number` nil: hangi sorunun sırada olduğu bilinmiyor
     static func autoShow(number: Int?) -> String {
@@ -510,8 +510,14 @@ enum Say {
         guard let number = number else { return "Sorunun numarası okunamadı, yine de başlıyorum." }
         return "\(number). soru okunamadı, yine de başlıyorum."
     }
-    /// Taramada hiç soru bulunamadı: döngü durur (boş taramalar art arda sürmesin), "Başla" beklenir
-    static let autoHalted = "Bu taramada soru görülmedi; otomatik tarama durdu. Devam etmek için başla deyin."
+    /// Art arda taramalarda hiç soru bulunamadı: sınav kendiliğinden kapanır (sesli komut istenmez)
+    static func autoEmptyStop(scans: Int) -> String {
+        return "Art arda \(scans) taramada soru bulunamadı. Sınav kapatılıyor."
+    }
+    /// Otomatik zamanlı başlatmada çekim olmadı: sesle okumaya geçilmez, tarama yeniden denenir
+    static let autoRetry = "Tarama yeniden denenecek."
+    /// Kamera çekimi olmayınca eklenen sesle okuma yönergesi (otomatik zamanlı başlatmada söylenmez)
+    static let readInstead = " Şimdilik soruyu okuyun, bitince Cevapla deyin."
     /// Geri sayım sözcüğü (1–20): "On beş", "On dört" … "Bir"
     static func countWord(_ n: Int) -> String {
         let ones = ["", "Bir", "İki", "Üç", "Dört", "Beş", "Altı", "Yedi", "Sekiz", "Dokuz"]
@@ -594,7 +600,7 @@ enum Say {
 
     /// Kamera çekimi olmadı (internet geldi): neden ve sesle devam yolu
     static func cameraFailed(_ failure: CameraFailure, down: Bool = false, minutes: Int = 5) -> String {
-        return "\(failure.message)" + (down ? " " + cameraWatching(minutes: minutes) : "") + " Şimdilik soruyu okuyun, bitince Cevapla deyin."
+        return "\(failure.message)" + (down ? " " + cameraWatching(minutes: minutes) : "") + readInstead
     }
 
     // MARK: Kameraya ulaşılamıyor: sesle devam, 5 dakikada bir yoklama

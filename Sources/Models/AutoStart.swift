@@ -29,6 +29,12 @@ enum AutoStart {
     static let questionCountRange = 0...300
     static let finalGap: Double = 2
 
+    /// Art arda bu kadar taramada soru bulunamazsa sınav kendiliğinden kapanır (kullanıcı kararı 2026-11-19: program sesli komut istemez; boş taramalar
+    /// da sonsuza dek sürmez). Soru sayısı girilmemişse 2 (sayfalar bitmiş demektir); girilmişse 5 (soruların tamamı taranmadan kolay vazgeçilmez).
+    static func emptyScanLimit(count: Int) -> Int {
+        return count > 0 ? 5 : 2
+    }
+
     /// Sıradaki istenecek soru: başlangıç sorusundan itibaren cevabı alınmamış en küçük numara (arada cevapsız kalan soru varsa o istenir)
     static func nextMissing(first: Int, answered: Set<Int>) -> Int {
         var number = max(1, first)
@@ -97,8 +103,9 @@ enum AutoStart {
     struct State: Equatable {
         /// Bu oturumda başlamış toplu çekim sayısı (hangi tetikle olursa olsun)
         var rounds = 0
-        /// Boş tarama (Gemini soru bulamadı): döngü durdu, "Başla" bekleniyor
-        var halted = false
+        /// Art arda soru bulunamayan tarama sayısı ve o sayım yapılırken kayıtlı cevap sayısı (yeni cevap gelince sayı sıfırlanır)
+        var emptyScans = 0
+        var answersSeen = 0
         /// İlk taramanın saatleri hesaplandı mı
         var planned = false
         /// Kamera açılış anı (nil: hemen)

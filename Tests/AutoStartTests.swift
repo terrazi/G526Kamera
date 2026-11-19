@@ -99,7 +99,7 @@ final class AutoStartPlanTests: XCTestCase {
         XCTAssertEqual(Say.autoDeadline(number: 1, seconds: 15), "1. soru okutulmadı. Kayıt 15 saniye sonra kendiliğinden başlayacak.")
         XCTAssertEqual(Say.autoUnread(number: 9), "9. soru okunamadı, yine de başlıyorum.")
         XCTAssertEqual(Say.autoLost(number: 1), "1. soru görünmüyor. Lütfen yeniden okutunuz.")
-        XCTAssertEqual(Say.autoWaiting(clock: "9:30"), "Kamera açılış saati 9:30. Beklemeden başlatmak için başla deyin.")
+        XCTAssertEqual(Say.autoWaiting(clock: "9:30"), "Kamera açılış saati 9:30.", "Program sesli komut istemez")
         XCTAssertEqual(Say.autoGap(seconds: 15, next: 9), "Yeni iki sayfalık tarama 15 saniye sonra başlayacak. Sıradaki soru 9.")
         XCTAssertEqual(AutoStart.gapSeconds, 15)
         XCTAssertEqual((1...15).reversed().map { Say.countWord($0) }.prefix(6).joined(separator: " "), "On beş On dört On üç On iki On bir On")
@@ -373,17 +373,17 @@ final class AutoStartFlowTests: XCTestCase {
         XCTAssertEqual(T.outageLimit, 3 * 3600, "Denemeler en çok 3 saat sürer")
     }
 
-    func testAnEmptyScanStopsTheLoopUntilTheStartWord() async {
+    func testEmptyScansAreCountedAndTheLimitDependsOnWhetherTheQuestionCountIsSet() async {
         let h = harness(seriesResults: [], pageReplies: [])
-        XCTAssertFalse(h.vm.auto.halted)
-        h.vm.haltAutoAfterEmptyPage()
-        XCTAssertTrue(h.vm.auto.halted, "Gemini taramada soru bulamadı: döngü durur")
-        h.vm.noteAutoRoundStarted()
-        XCTAssertFalse(h.vm.auto.halted, "Yeni tarama başladı (\"Başla\" dendi): döngü yeniden açık")
-        XCTAssertEqual(h.vm.auto.rounds, 1)
-        // Sınavın soru sayısı girilmişse soruların tamamı taranmadan program durmaz
-        h.cameraSettings.autoQuestionCount = 40
-        h.vm.haltAutoAfterEmptyPage()
-        XCTAssertFalse(h.vm.auto.halted, "Soru sayısı tamamlanmadı: boş tarama döngüyü durdurmaz")
+        XCTAssertEqual(h.vm.auto.emptyScans, 0)
+        h.vm.noteEmptyScan()
+        h.vm.noteEmptyScan()
+        XCTAssertEqual(h.vm.auto.emptyScans, 2, "Gemini'nin soru bulamadığı taramalar sayılır")
+        XCTAssertEqual(AutoStart.emptyScanLimit(count: 0), 2, "Soru sayısı girilmemişse art arda iki boş taramada sınav kapanır")
+        XCTAssertEqual(AutoStart.emptyScanLimit(count: 40), 5, "Soru sayısı girilmişse kolay vazgeçilmez")
+        XCTAssertEqual(Say.autoEmptyStop(scans: 2), "Art arda 2 taramada soru bulunamadı. Sınav kapatılıyor.")
+        // Program sesli komut istemez: çekim olmazsa "soruyu okuyun" denmez, tarama yeniden denenir
+        XCTAssertTrue(Say.cameraFailed(.noFrames).hasSuffix(Say.readInstead))
+        XCTAssertFalse((Say.cameraFailed(.noFrames).replacingOccurrences(of: Say.readInstead, with: "") + " " + Say.autoRetry).contains("Cevapla"))
     }
 }

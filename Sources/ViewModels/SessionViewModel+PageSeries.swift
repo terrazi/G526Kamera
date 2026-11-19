@@ -260,7 +260,7 @@ extension SessionViewModel {
         currentEntry = nil
         deps.journal.savePending(nil)
         tlog("[sayfa] sayfada soru bulunamadı")
-        haltAutoAfterEmptyPage()   // otomatik zamanlı başlatma: boş taramalar art arda sürmesin
+        noteEmptyScan()   // otomatik zamanlı başlatma: art arda boş taramalar sayılır (sınırda sınav kapanır)
         completeReadPage()
         phase = .speaking
         guard await speakNotice(Say.pageNoQuestion) else { return }
