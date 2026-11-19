@@ -83,6 +83,7 @@ final class SessionHarness {
         // Otomatik zamanlı başlatma ve kulaklık mikrofonu kipi varsayılan olarak açıktır (kullanıcı kararı 2026-11-19); eski sınamaların "Başla" akışı ve
         // yaka mikrofonu kuralları bozulmasın diye burada kapalı, onlara ait sınamalar açar
         cameraSettings.autoStart = false
+        settings.cameraOnlyExam = false   // sesli ve hibrit sınav uygulamada kapalıdır; eski sınamalar o türlerle yazıldı
         settings.headsetMic = false
         AudioRouting.headsetMicMode = false
         cameraSettings.seriesGuidance = false   // sesli konumlandırma varsayılan açık; çekim sırasında konuşma yalnız ilgili sınamalarda açılır

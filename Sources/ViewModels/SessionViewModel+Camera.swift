@@ -118,7 +118,7 @@ extension SessionViewModel {
         // Görüntülü sınavda "hayır" sesle okumaya geçirmez (her soru kamerayla çekilir); sesle okumak için "sesli sınav başlat" ya da "hibrit sınav başlat" denir
         if settings.examType == .camera {
             tlog("[kamera] görüntülü sınav: \"hayır\" duyuldu; sesle okumaya geçilmedi, kamera bekleniyor")
-            guard await speakNotice(Say.cameraOnlyStays) else { return }
+            guard await speakNotice(settings.cameraOnlyExam ? Say.cameraOnlyStaysPlain : Say.cameraOnlyStays) else { return }
             beginListening(mode: .cameraChoice)
             return
         }

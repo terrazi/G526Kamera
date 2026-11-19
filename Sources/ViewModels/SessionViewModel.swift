@@ -561,6 +561,11 @@ final class SessionViewModel: ObservableObject {
     func start() {
         guard phase.isAtRest else { return }
         resetSession()
+        // Sesli ve hibrit sınav iptal (kullanıcı kararı 2026-11-19): tür her başlangıçta görüntülüdür
+        if settings.cameraOnlyExam {
+            if settings.examTypeDefault != .camera { settings.examTypeDefault = .camera }
+            if settings.examType != .camera { settings.examType = .camera }
+        }
         // Ses girişi kipi "Başlat"ta ayardan okunur (kullanıcı kararı 2026-11-19: yaka mikrofonu yerine kulaklığın kendi mikrofonu)
         AudioRouting.headsetMicMode = settings.headsetMic
         disarmAutoGate()

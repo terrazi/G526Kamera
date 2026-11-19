@@ -243,6 +243,11 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(spokenWarnings, forKey: Key.spokenWarnings) }
     }
 
+    /// Yalnız görüntülü sınav (kullanıcı kararı 2026-11-19: sesli ve hibrit sınav iptal). Açıkken sınav türü her "Başlat"ta görüntülüye çekilir, Ayarlar'da
+    /// tür seçimi görünmez ve "sesli sınav başlat" / "hibrit sınav başlat" komutları türü değiştirmez. Ayarlarda GÖRÜNMEZ ve kaydedilmez; yalnız
+    /// sınamalar eski türleri denemek için kapatır.
+    var cameraOnlyExam = true
+
     /// Ses girişi Bluetooth kulaklığın kendi mikrofonudur (kullanıcı kararı 2026-11-19: yaka mikrofonu iptal; kulaklık mikrofonuyla birlikte hep açık kalır,
     /// komutlar verilebilir). Açıkken yaka mikrofonu aranmaz ve "yaka mikrofonu yok" diye duraklatılmaz; telefonun hoparlörü de mikrofonu da kullanılmaz.
     /// Kapalıyken eski düzen: giriş yalnız Lightning'e takılı harici mikrofondur. "Başlat"ta uygulanır (bkz. `AudioRouting.headsetMicMode`).

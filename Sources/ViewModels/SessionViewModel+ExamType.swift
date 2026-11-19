@@ -9,6 +9,10 @@ extension SessionViewModel {
     /// kamera sonraki sorudan başlar, soru metni henüz yoksa kamera hemen sorulur.
     func changeExamType(_ type: ExamType, mode: ListenMode) async -> LiveReply {
         let before = settings.examType
+        if settings.cameraOnlyExam, type != .camera {
+            tlog("[ayar] sınav türü değiştirilmedi: sesli ve hibrit sınav kaldırıldı (istenen: \(type.spoken))")
+            return LiveReply(text: Say.examTypeCameraOnly)
+        }
         if before == type { return LiveReply(text: Say.examTypeAlready(type)) }
         settings.examType = type
         if mode == .startChoice { examTypePinned = true }   // başlangıç sorusunda seçildi: "yeni sınav" bunu ezmez

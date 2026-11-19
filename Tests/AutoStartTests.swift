@@ -152,6 +152,8 @@ final class AutoStartPlanTests: XCTestCase {
         defaults.set(999, forKey: "autoQuestionCount")
         XCTAssertEqual(CameraSettings(defaults: defaults).autoQuestionCount, 300, "Üst sınır")
         XCTAssertTrue(AppSettings(defaults: defaults).headsetMic, "Kulaklık mikrofonu varsayılan açık")
+        XCTAssertTrue(AppSettings(defaults: defaults).cameraOnlyExam, "Sesli ve hibrit sınav kaldırıldı: yalnız görüntülü")
+        XCTAssertEqual(Say.examTypeCameraOnly, "Bu sürümde yalnız görüntülü sınav var.")
     }
 
     func testTheHeadsetMicrophoneModeNeedsOnlyTheHeadsetAndUsesTheCallProfile() {

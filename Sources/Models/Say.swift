@@ -409,6 +409,9 @@ enum Say {
         return "Cevap vermediniz, \(ordinal) defa soruyorum. " + askCameraOnly
     }
     /// Görüntülü sınavda "hayır" denirse
+    /// Sesli ve hibrit sınav kaldırıldı (kullanıcı kararı 2026-11-19): tür değiştirme komutuna verilen cevap ve "hayır" denince söylenen cümle
+    static let examTypeCameraOnly = "Bu sürümde yalnız görüntülü sınav var."
+    static let cameraOnlyStaysPlain = "Görüntülü sınavdasınız."
     static let cameraOnlyStays = "Görüntülü sınavdasınız. Hazır olduğunuzda başla deyin. Sesle okumak için sesli sınav başlat ya da hibrit sınav başlat deyin."
     static let readyCamera = "Ben hazırım, sistem kontrol edildi ve problem yok."
     /// Kamera sorusu açık ama kamera adı ya da kestirme adları yazılmamış: sessizce V3'e dönülmez, kullanıcıya söylenir

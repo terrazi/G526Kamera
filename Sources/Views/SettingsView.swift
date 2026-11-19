@@ -275,10 +275,14 @@ struct SettingsView: View {
 
     private var shortcutsSection: some View {
         AccordionSection(id: "kestirmeler", title: "Kestirmeler (kendi kendini onarma)") {
-            Picker("Hangi sınav tipiyle başlanacak", selection: examTypeBinding) {
-                ForEach(ExamType.allCases, id: \.self) { Text($0.title).tag($0) }
+            if settings.cameraOnlyExam {
+                HelpRow("Sınav tipi: Görüntülü. Sorular kamerayla taranır; sesli ve hibrit sınav bu sürümde kaldırıldı.")
+            } else {
+                Picker("Hangi sınav tipiyle başlanacak", selection: examTypeBinding) {
+                    ForEach(ExamType.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
+                HelpRow("Her yeni sınav bu tiple başlar. Görüntülü: sorular kamerayla çekilir. Sesli: soruyu mikrofona okursunuz, kamera kullanılmaz. Hibrit: her soruda kamera mı sesle mi olacağı sorulur. Sınav sürerken bir şey demezseniz tip aynı kalır; “sesli sınav başlat”, “hibrit sınav başlat” ya da “görüntülü sınav başlat” derseniz kalan sorular o tiple sürer (yalnız o sınav için; sonraki yeni sınav yine buradaki tiple başlar, önceki kayıttan devamda tip korunur). “Sınav türü ne” diye sorabilirsiniz. Burada tip değiştirirseniz açık sınavda da bir sonraki sorudan geçerli olur. Şu an: \(settings.examType.title). \(settings.examType.detail)")
             }
-            HelpRow("Her yeni sınav bu tiple başlar. Görüntülü: sorular kamerayla çekilir. Sesli: soruyu mikrofona okursunuz, kamera kullanılmaz. Hibrit: her soruda kamera mı sesle mi olacağı sorulur. Sınav sürerken bir şey demezseniz tip aynı kalır; “sesli sınav başlat”, “hibrit sınav başlat” ya da “görüntülü sınav başlat” derseniz kalan sorular o tiple sürer (yalnız o sınav için; sonraki yeni sınav yine buradaki tiple başlar, önceki kayıttan devamda tip korunur). “Sınav türü ne” diye sorabilirsiniz. Burada tip değiştirirseniz açık sınavda da bir sonraki sorudan geçerli olur. Şu an: \(settings.examType.title). \(settings.examType.detail)")
             Toggle("Kamera açılırken soru mu paragraf mı diye sor", isOn: $settings.askCaptureKind)
             Stepper("Kamera kapalıysa kontrol aralığı: \(settings.cameraCheckMinutes) dakika", value: $settings.cameraCheckMinutes, in: AppSettings.cameraCheckMinutesRange)
             HelpRow("Kameraya beş denemede ulaşılamazsa (kapalı, şarjı bitti, menzil dışı) program sesle devam eder ve kamerayı bu aralıkla, yalnız sorular arasında yeniden kontrol eder; kamera döndüyse haber verir. “Kameranın Wi-Fi'sinde kal” kapalıysa kontrol telefonu birkaç saniye kameranın Wi-Fi'sine geçirir ve interneti keser; açıkken telefon zaten kameranın ağındadır ve kamera doğrudan yoklanır. Aralığı uzatırsanız kamera daha seyrek yoklanır, kısaltırsanız daha çabuk geri alınır (1 ile 60 dakika arası). Değişiklik bir sonraki kontrolden itibaren geçerlidir.")
