@@ -619,6 +619,14 @@ extension SessionViewModel {
                 sayGuidance(afterReset ? Say.cameraResetDone : Say.cameraRepairing)
             }
             let outcome: ShortcutOutcome
+            if stay && attempt == 0 && !deps.camera.phoneHasWiFiAddress {
+                // Telefon hiçbir Wi-Fi ağında değil (kameranın ağından düşmüş): kamera aranmaz, doğrudan onarım kestirmesine geçilir. Gerçek günlük
+                // 2026-11-19 12:58: adres yokken 15 sn kamera arandı, kullanıcıya bir şey söylenmedi ve test bitirildi
+                tlog("[kamera] Wi-Fi'de kal: telefonun Wi-Fi adresi yok (kameranın ağından düşmüş); kamera aranmadan onarım kestirmesine geçiliyor")
+                logLinkSnapshot("kamera Wi-Fi'si yok")
+                result = .failure(.notConnected)
+                continue
+            }
             if stay && attempt == 0 {
                 // Telefon kameranın Wi-Fi'sinde kalmıştır: kestirme çalışmaz, doğrudan bağlanılır; bağlanamazsa onarım kestirmesi devreye girer
                 tlog("[kamera] Wi-Fi'de kal: kestirme çalıştırılmadı, doğrudan bağlanılıyor (en çok \(Int(Timing.stayConnectSeconds)) sn)")
@@ -921,11 +929,17 @@ extension SessionViewModel {
             tlog("[kamera] test kamera akışı sürerken bitti; telefonda SIM kart yok, internet kestirmesi “\(name)” çalıştırılmadı")
             return
         }
-        tlog("[kamera] test kamera akışı sürerken bitti; internet kestirmesi çalıştırılıyor: “\(name)”")
+        let stay = cameraSettings.stayOnWifi
+        // "Bağlantılar hep açık"ta hücresel kapatılmamıştır: kestirme yalnız internet gerçekten yoksa çalışır (günlük satırı da bunu söyler)
+        tlog(stay ? "[kamera] test kamera akışı sürerken bitti; bağlantılar hep açık: internet yoklanıyor, yalnız yoksa “\(name)” kestirmesi çalışacak"
+             : "[kamera] test kamera akışı sürerken bitti; internet kestirmesi çalıştırılıyor: “\(name)”")
         work = Task { [weak self] in
             guard let self = self else { return }
             // "Wi-Fi'de kal": telefon kameranın ağında kalır; internet varsa kestirme gerekmez
-            if self.cameraSettings.stayOnWifi, await self.deps.health.internetReachable() { return }
+            if stay, await self.deps.health.internetReachable() {
+                tlog("[kamera] test sonu: internet var, kestirme çalıştırılmadı")
+                return
+            }
             _ = await self.deps.shortcuts.run(name: name)
         }
     }

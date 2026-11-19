@@ -488,7 +488,7 @@ enum Say {
     /// Sonraki taramalar (kullanıcı kararı 2026-11-19): iki sayfalık taramalar arasında 15 sn boşluk; son 5 saniyede beşten bire sayılır. `next`: cevabı
     /// alınmamış en küçük soru numarası (kullanıcı hangi sayfayı hazırlayacağını bilsin)
     static func autoGap(seconds: Int, next: Int) -> String {
-        return "Yeni iki sayfalık tarama \(seconds) saniye sonra başlayacak. Sıradaki soru \(next)."
+        return "Yeni iki sayfalık tarama için \(next). soruyu kameraya gösterin. Soru görülünce, en geç \(seconds + Int(AutoStart.sequentialMaxWait)) saniye sonra başlar."
     }
     /// Beklenen soru görüldü: ardından beşten bire sayılır ve "Başladı." denir
     static func autoSeen(number: Int) -> String {

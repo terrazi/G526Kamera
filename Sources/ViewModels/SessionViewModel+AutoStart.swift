@@ -206,13 +206,23 @@ extension SessionViewModel {
         }
         if auto.promptedAt == nil { auto.promptedAt = now }
         if autoSequential {
-            // Sonraki taramalar: soru beklenmez; boşluğun son 5 saniyesi gelince geri sayım başlar
+            // Sonraki taramalar: boşluk dolmadan başlanmaz. Dolunca beklenen soru kamerada görülünce başlanır (ilk taramadaki gibi: "N. soru görüldü",
+            // beşten geri sayım); soru yapısı görünüp numara okunamıyorsa ya da hiç soru görülmüyorsa en geç `sequentialMaxWait` sn sonra yine başlanır
             let due = auto.latestAt ?? (auto.promptedAt ?? now).addingTimeInterval(TimeInterval(AutoStart.gapSeconds - AutoStart.questionCountdown))
-            if now >= due {
-                fireAuto(.gap)
-            } else {
+            if now < due {
                 armAutoGate()
+                return
             }
+            if now >= due.addingTimeInterval(AutoStart.sequentialMaxWait) {
+                tlog("[otomatik] beklenen soru \(Int(AutoStart.sequentialMaxWait)) sn içinde görülmedi; tarama yine de başlatılıyor")
+                fireAuto(.gap)
+                return
+            }
+            if !auto.looking {
+                auto.looking = true
+                Task { @MainActor [weak self] in await self?.autoLook() }
+            }
+            armAutoGate()
             return
         }
         let floor = (auto.promptedAt ?? now).addingTimeInterval(AutoStart.minGap)

@@ -127,6 +127,35 @@ final class QuestionPiecesTests: XCTestCase {
         XCTAssertEqual(piece.options["B"]?.cut, true, "Devam satırının başı kadrajın dışında kalmış olabilir")
     }
 
+    func testOptionsLaidOutInTwoColumnsJoinTheirQuestion() {
+        // Gerçek günlük 2026-11-19: şıklar iki sütunda (A, C solda; B, D sağda; E ortada) dizilince her soru üç ayrı parça görünüyordu
+        let pieces = QuestionSpotter.pieces([
+            row("1. In order to irrigate their crops, farmers ---- water", x: 0.10, y: 0.10, width: 0.6),
+            row("A) abundant", x: 0.12, y: 0.16, width: 0.15),
+            row("B) collective", x: 0.42, y: 0.16, width: 0.15),
+            row("C) thorough", x: 0.12, y: 0.20, width: 0.15),
+            row("D) wasteful", x: 0.42, y: 0.20, width: 0.15),
+            row("E) practical", x: 0.27, y: 0.24, width: 0.15),
+            row("3. The committee decided to ---- the proposal", x: 0.10, y: 0.34, width: 0.6),
+            row("A) reject", x: 0.12, y: 0.40, width: 0.15),
+            row("B) approve", x: 0.42, y: 0.40, width: 0.15),
+            row("C) delay", x: 0.12, y: 0.44, width: 0.15),
+            row("D) revise", x: 0.42, y: 0.44, width: 0.15)
+        ])
+        XCTAssertEqual(pieces.map { $0.summary }, ["1:ABCDE", "3:ABCD"], "Yan sütundaki şıklar hizasındaki soruya bağlanır")
+    }
+
+    func testASideColumnRepeatingTheSameLettersBelongsToAnotherQuestion() {
+        let pieces = QuestionSpotter.pieces([
+            row("51. It is clearly stated in the passage that before", x: 0.02, y: 0.10, width: 0.33),
+            row("A) Joseph Lister had already started working", x: 0.03, y: 0.20, width: 0.32),
+            row("B) the findings of Lister were met with ridicule", x: 0.03, y: 0.30, width: 0.32),
+            row("A) Thanks to his creative ideas and support", x: 0.45, y: 0.22, width: 0.4),
+            row("B) Even though Joseph Lister revolutionized", x: 0.45, y: 0.32, width: 0.4)
+        ])
+        XCTAssertEqual(pieces.map { $0.summary }.sorted(), ["51:AB", "?:AB"], "Aynı harfleri taşıyan yan sütun başka bir sorunun parçasıdır")
+    }
+
     func testPassageTextWithoutOptionsIsNotAPiece() {
         let pieces = QuestionSpotter.pieces([
             row("Thomas Edison filed a patent for his electric light", y: 0.10),
@@ -385,6 +414,40 @@ final class FrameThinningTests: XCTestCase {
             item(3, time: 1.0, words: words(20...60), blockiness: 1.19)
         ]
         XCTAssertEqual(ids(SeriesPool.thinned(dirtyNeighbours).kept), [1, 2, 3], "Komşular da yarı bozuksa hiçbiri atılmaz")
+    }
+
+    func testAVeryBlurryFrameIsDroppedOnlyWhenSharperFramesShowTheSameQuestion() {
+        func shown(_ id: UInt8, time: Double, sharpness: Double, numbers: Set<Int>, options: String = "AC") -> SeriesItem {
+            var result = item(id, time: time, words: words(1...5), options: options)
+            result.sharpness = sharpness
+            result.text?.questionNumbers = numbers
+            return result
+        }
+        let list = [
+            shown(1, time: 0, sharpness: 800, numbers: [4]),
+            shown(2, time: 5, sharpness: 900, numbers: [4]),
+            shown(3, time: 10, sharpness: 60, numbers: [4]),      // çok bulanık; 4. soru iki net karede de görülüyor
+            shown(4, time: 15, sharpness: 50, numbers: [9]),      // çok bulanık ama 9. soruyu gösteren başka kare yok
+            shown(5, time: 20, sharpness: 700, numbers: [5])
+        ]
+        let thinned = SeriesPool.thinned(list)
+        XCTAssertEqual(ids(thinned.kept), [1, 2, 4, 5], "Yalnız daha net karelerde de görülen soruyu gösteren bulanık kare atılır")
+        XCTAssertEqual(thinned.report, SeriesPool.ThinReport(dirty: 0, repeats: 0, blurry: 1))
+
+        let between = [
+            shown(1, time: 0.0, sharpness: 800, numbers: [], options: "ABCDE"),
+            shown(2, time: 0.5, sharpness: 40, numbers: [], options: "AC"),
+            shown(3, time: 1.0, sharpness: 900, numbers: [], options: "ABCDE"),
+            shown(4, time: 9.0, sharpness: 40, numbers: [], options: "AC")      // yakınında net kare yok
+        ]
+        XCTAssertEqual(ids(SeriesPool.thinned(between).kept), [1, 3, 4], "Numara yoksa iki yanındaki net kareler aynı şıkları göstermeli")
+
+        let allSharp = [
+            shown(1, time: 0, sharpness: 2000, numbers: [4]),
+            shown(2, time: 5, sharpness: 2100, numbers: [4]),
+            shown(3, time: 10, sharpness: 400, numbers: [4])
+        ]
+        XCTAssertEqual(ids(SeriesPool.thinned(allSharp).kept), [1, 2, 3], "Netliği 300'ün üstündeki kare, ötekiler çok daha net olsa da bulanık sayılmaz")
     }
 
     func testThePoolThinsTheFreeScanSelectionUnlessTurnedOff() {

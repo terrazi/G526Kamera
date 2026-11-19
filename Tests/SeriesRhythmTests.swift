@@ -57,9 +57,11 @@ final class SeriesRhythmTests: XCTestCase {
         XCTAssertEqual(SeriesRhythm.reviewSeconds, 30)
         XCTAssertTrue(SeriesRhythm.pageIsBad(valid: 0, damaged: 0, blurry: 0), "Hiç kare gelmedi")
         XCTAssertTrue(SeriesRhythm.pageIsBad(valid: 9, damaged: 0, blurry: 0), "On kareden az")
-        XCTAssertTrue(SeriesRhythm.pageIsBad(valid: 12, damaged: 20, blurry: 20), "Karelerin üçte birinden azı geçerli")
+        XCTAssertTrue(SeriesRhythm.pageIsBad(valid: 12, damaged: 20, blurry: 20), "Karelerin yarısından azı geçerli")
         XCTAssertFalse(SeriesRhythm.pageIsBad(valid: 30, damaged: 5, blurry: 5))
-        XCTAssertFalse(SeriesRhythm.pageIsBad(valid: 20, damaged: 20, blurry: 19))
+        XCTAssertTrue(SeriesRhythm.pageIsBad(valid: 26, damaged: 33, blurry: 1), "Gerçek günlük: 26 geçerli, 33 bozuk kare; sayfa yeniden taranmalıydı")
+        XCTAssertFalse(SeriesRhythm.pageIsBad(valid: 30, damaged: 20, blurry: 10), "Tam yarısı geçerliyse yeter")
+        XCTAssertFalse(SeriesRhythm.pageIsBad(valid: 38, damaged: 15, blurry: 7))
     }
 
     func testTheReviewTellsTheReasonOrSendsTheUserToTheNextPage() {

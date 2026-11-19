@@ -100,7 +100,9 @@ final class AutoStartPlanTests: XCTestCase {
         XCTAssertEqual(Say.autoUnread(number: 9), "9. soru okunamadı, yine de başlıyorum.")
         XCTAssertEqual(Say.autoLost(number: 1), "1. soru görünmüyor. Lütfen yeniden okutunuz.")
         XCTAssertEqual(Say.autoWaiting(clock: "9:30"), "Kamera açılış saati 9:30.", "Program sesli komut istemez")
-        XCTAssertEqual(Say.autoGap(seconds: 15, next: 9), "Yeni iki sayfalık tarama 15 saniye sonra başlayacak. Sıradaki soru 9.")
+        XCTAssertEqual(Say.autoGap(seconds: 15, next: 9),
+                       "Yeni iki sayfalık tarama için 9. soruyu kameraya gösterin. Soru görülünce, en geç 45 saniye sonra başlar.")
+        XCTAssertEqual(AutoStart.sequentialMaxWait, 30)
         XCTAssertEqual(AutoStart.gapSeconds, 15)
         XCTAssertEqual((1...15).reversed().map { Say.countWord($0) }.prefix(6).joined(separator: " "), "On beş On dört On üç On iki On bir On")
         XCTAssertEqual(Say.countWord(1), "Bir")
@@ -253,16 +255,42 @@ final class AutoStartFlowTests: XCTestCase {
         XCTAssertTrue(next, "\(h.speaker.spoken)")
         XCTAssertEqual(h.speaker.spoken.last, Say.autoGap(seconds: 15, next: 3), "İki tarama arasında 15 sn boşluk duyurulur; sıradaki 3. soru")
         XCTAssertEqual(h.vm.auto.rounds, 1)
-        // Boşluğun son 5 saniyesi gelmeden tarama başlamaz; gelince beşten sayılıp başlanır (soru görülmesi beklenmez)
+        // Boşluk dolmadan tarama başlamaz. Dolunca beklenen soru aranır; görülmezse tarama başlamaz, en geç 30 sn sonra beşten sayılıp yine başlanır
         h.scheduler.advance(by: 3)
         await settle()
         XCTAssertEqual(h.camera.seriesCalls.count, 1, "Boşluk dolmadı")
         h.clock.offset += Double(AutoStart.gapSeconds - AutoStart.questionCountdown) + 1
         h.scheduler.advance(by: AutoStart.tick + 0.1)
+        await settle()
+        XCTAssertEqual(h.camera.seriesCalls.count, 1, "Boşluk doldu ama beklenen soru görülmedi: tarama başlamaz")
+        h.clock.offset += AutoStart.sequentialMaxWait
+        h.scheduler.advance(by: AutoStart.tick + 0.1)
         let second = await waitUntil(10) { h.camera.seriesCalls.count == 2 }
         XCTAssertTrue(second, "\(h.speaker.spoken)")
         let after = Array(h.speaker.spoken.drop(while: { $0 != Say.autoGap(seconds: 15, next: 3) }).dropFirst().prefix(6))
-        XCTAssertEqual(after, (1...5).reversed().map { Say.countWord($0) } + [Say.seriesGo], "Son 5 saniyede beşten bire sayılır, sonra \"Başladı.\"")
+        XCTAssertEqual(after, (1...5).reversed().map { Say.countWord($0) } + [Say.seriesGo], "Soru görülmese de en geç süre dolunca beşten sayılıp başlanır")
+    }
+
+    func testAfterTheGapTheNextScanStartsWhenTheExpectedQuestionIsSeen() async {
+        let h = harness(seriesResults: [series(), series()],
+                        pageReplies: [.success([FakeAnswering.reply(1), FakeAnswering.reply(2)]), .success([FakeAnswering.reply(3)])])
+        _ = await h.startListening()
+        h.camera.sights = [questionOne]
+        h.scheduler.advance(by: AutoStart.tick + 0.1)
+        let started = await waitUntil(10) { h.camera.seriesCalls.count == 1 }
+        XCTAssertTrue(started, "\(h.speaker.spoken)")
+        let next = await waitUntil(45) { h.vm.answers.count == 2 && self.waiting(h) && h.camera.holding }
+        XCTAssertTrue(next, "\(h.speaker.spoken)")
+        XCTAssertEqual(h.speaker.spoken.last, Say.autoGap(seconds: 15, next: 3))
+        // Boşluk doldu: 3. soru kamerada görülünce ilk taramadaki gibi "görüldü" denir, beşten sayılır ve başlanır
+        h.clock.offset += Double(AutoStart.gapSeconds - AutoStart.questionCountdown) + 1
+        h.camera.sights = [QuestionSight(frames: 3, numbers: [3], looksLikeQuestion: true, chars: 240)]
+        h.scheduler.advance(by: AutoStart.tick + 0.1)
+        let second = await waitUntil(10) { h.camera.seriesCalls.count == 2 }
+        XCTAssertTrue(second, "\(h.speaker.spoken)")
+        let after = Array(h.speaker.spoken.drop(while: { $0 != Say.autoGap(seconds: 15, next: 3) }).dropFirst().prefix(7))
+        XCTAssertEqual(after, [Say.autoSeen(number: 3)] + (1...5).reversed().map { Say.countWord($0) } + [Say.seriesGo],
+                       "Beklenen soru görülünce tarama başlar: \(h.speaker.spoken)")
     }
 
     func testBeforeTheOpeningHourTheCameraStaysClosedAndOpensWhenTheHourComes() async {

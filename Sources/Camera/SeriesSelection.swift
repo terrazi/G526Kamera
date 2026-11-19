@@ -57,6 +57,10 @@ enum SeriesSelection {
     static let minRepeatWords = 20
     /// Art arda gelen aynı içerikli karelerden en iyi bu kadarı kalır (hepsi atılmaz: bir kare bozuk çıkarsa öteki yedektir)
     static let repeatKeep = 2
+    /// Çok bulanık kare: netliği taramadaki karelerin ortanca netliğinin bu oranından VE `blurCap`'ten düşük (hep net bir taramada kare atılmasın).
+    /// Gerçek günlük 2026-11-19 13:00: gönderilen 93 karenin 19'unun netliği 110'un altındaydı (ortanca ≈550); PDF 29 MB, yükleme 66 sn sürdü
+    static let blurShare = 0.25
+    static let blurCap = 300.0
 
     /// Blok bozulmasına göre puan böleni (temiz karede 1)
     static func blockFactor(_ blockiness: Double) -> Double {
@@ -342,6 +346,58 @@ struct SeriesPool {
         var dirty = 0
         /// Art arda gelen aynı içerikten fazla olanlar
         var repeats = 0
+        /// Gösterdiği soru daha net karelerde de görülen çok bulanık kareler
+        var blurry = 0
+    }
+
+    /// Bu netliğin altındaki kare "çok bulanık"tır (bkz. `SeriesSelection.blurShare`); liste boşsa 0
+    static func blurFloor(_ list: [SeriesItem]) -> Double {
+        let sorted = list.map { $0.sharpness }.sorted()
+        if sorted.isEmpty { return 0 }
+        return min(SeriesSelection.blurCap, sorted[sorted.count / 2] * SeriesSelection.blurShare)
+    }
+
+    /// Çok bulanık `list[index]` karesinin gösterdiği soru daha net karelerde de görülüyor mu? Karede soru numarası varsa: her numara en az iki daha
+    /// net karede de görülmeli ve o kareler bu karenin şık harflerini de göstermeli. Numara yoksa: hemen önceki VE sonraki daha net kareler (en çok
+    /// `neighborSeconds` uzakta) bu karenin şık harflerini göstermeli. Emin olunamıyorsa false (kare kalır)
+    static func shownSharper(_ list: [SeriesItem], _ index: Int, floor: Double) -> Bool {
+        let item = list[index]
+        guard let text = item.text else { return false }
+        let numbers = text.shownNumbers
+        var letters = Set<Character>()
+        if !numbers.isEmpty {
+            for number in numbers {
+                var count = 0
+                for other in list.indices where other != index && list[other].sharpness >= floor {
+                    if let shown = list[other].text, shown.shownNumbers.contains(number) {
+                        count += 1
+                        letters.formUnion(shown.options)
+                    }
+                }
+                if count < 2 { return false }
+            }
+            return letters.isSuperset(of: text.options)
+        }
+        var sides = 0
+        var before = index - 1
+        while before >= 0 && item.time - list[before].time <= SeriesSelection.neighborSeconds {
+            if list[before].sharpness >= floor, let other = list[before].text {
+                letters.formUnion(other.options)
+                sides += 1
+                break
+            }
+            before -= 1
+        }
+        var after = index + 1
+        while after < list.count && list[after].time - item.time <= SeriesSelection.neighborSeconds {
+            if list[after].sharpness >= floor, let other = list[after].text {
+                letters.formUnion(other.options)
+                sides += 1
+                break
+            }
+            after += 1
+        }
+        return sides == 2 && letters.isSuperset(of: text.options)
     }
 
     /// Tekrar: ikisinin de yazısı yeterince okunmuş, gösterdikleri şık harfleri ve soru numaraları aynı, sözcükleri büyük oranda ortak
@@ -390,10 +446,21 @@ struct SeriesPool {
     }
 
     /// Serbest taramanın son seçimini azaltır (kareler zaman sırasıyla verilir, zaman sırasıyla döner). SINIRLI bir ayıklamadır:
+    /// (0) çok bulanık kare, gösterdiği soru daha net karelerde de görülüyorsa atılır;
     /// (1) kirli (yarı bozuk) kare yalnız içeriği komşu temiz karelerde zaten varsa atılır; (2) art arda gelen aynı içerikli karelerden en iyi
     /// `repeatKeep` tanesi kalır. Yazısı okunmamış ya da az okunmuş kareye dokunulmaz; yeni bir şık harfi ya da soru numarası gösteren kare tekrar sayılmaz.
-    static func thinned(_ list: [SeriesItem]) -> (kept: [SeriesItem], report: ThinReport) {
+    static func thinned(_ input: [SeriesItem]) -> (kept: [SeriesItem], report: ThinReport) {
         var report = ThinReport()
+        // (0) Çok bulanık kare, gösterdiği soru daha net karelerde de görülüyorsa gönderilmez
+        let floor = blurFloor(input)
+        var list: [SeriesItem] = []
+        for index in input.indices {
+            if input[index].sharpness < floor && shownSharper(input, index, floor: floor) {
+                report.blurry += 1
+            } else {
+                list.append(input[index])
+            }
+        }
         var cleaned: [SeriesItem] = []
         for index in list.indices {
             if list[index].isDirty && coveredByNeighbors(list, index) {
@@ -609,6 +676,7 @@ final class SeriesCollector {
         /// Serbest taramanın son seçiminde azaltılan kareler: içeriği komşu temiz karede olan kirli kareler ve fazla tekrarlar (bkz. `SeriesPool.thinned`)
         var thinnedDirty = 0
         var thinnedRepeats = 0
+        var thinnedBlurry = 0
     }
 
     struct Outcome {
@@ -898,6 +966,7 @@ final class SeriesCollector {
         let thinning = pool.thinReport()
         result.thinnedDirty = thinning.dirty
         result.thinnedRepeats = thinning.repeats
+        result.thinnedBlurry = thinning.blurry
         let seen = numbers.sorted()
         // Yazı tanıma hiç çalışmadıysa (read == 0) teşhis konmaz: pencere sayısı 0 kalır
         let diagnosis = CaptureDiagnosis(windows: result.read, readableWindows: result.readable,

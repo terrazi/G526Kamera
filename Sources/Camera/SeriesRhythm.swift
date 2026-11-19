@@ -53,7 +53,9 @@ struct SeriesRhythm: Equatable {
     /// o sayfa bir kez yeniden taranır (oturum `reviewSeconds` uzar). Çekim sırasında başka uyarı verilmez
     static let reviewSeconds = 30
     static let minGoodFrames = 10
-    static let minGoodShare = 1.0 / 3.0
+    /// Gerçek günlük 2026-11-19 13:00: 26 geçerli, 33 bozuk kareli sayfa (üçte bir eşiğiyle) "yeterli" sayıldı ve o sayfadan dört soru cevaplanamadı;
+    /// eşik yarıya çıkarıldı (kullanıcı kararı): geçerli kareler yarıdan azsa sayfa bir kez yeniden taratılır
+    static let minGoodShare = 0.5
 
     /// Bir sayfalık taramanın kareleri kötü mü? Hiç kare yoksa da kötüdür
     static func pageIsBad(valid: Int, damaged: Int, blurry: Int) -> Bool {

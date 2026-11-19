@@ -208,6 +208,8 @@ extension QuestionSpotter {
     static let columnGap = 0.12
     /// Bir şıkkın en çok bu kadar devam satırı sayılır (son şıkkın ardından gelen paragraf o şıkka katılmasın)
     static let maxOptionRows = 4
+    /// Şıkların ikinci sütunu, sorunun sol kenarından en çok bu kadar sağda aranır (bkz. `joinSideColumns`)
+    static let sideColumnReach = 0.5
 
     private struct PieceRow {
         var text: String
@@ -255,6 +257,52 @@ extension QuestionSpotter {
         return false
     }
 
+    /// Şıklar iki sütun hâlinde dizilmişse (A, C, E solda; B, D sağda; gerçek günlük 2026-11-19 13:00: her soru "1:AC ?:E ?:BD" diye üç parça
+    /// görünüyordu, 158 parça hiçbir soruya bağlanamadı) sağdaki sütunda numara satırı olmaz. Böyle bir "yan sütun"un satırları, solundaki en yakın
+    /// numaralı sütunda hizasına düştüğü soruya taşınır. Taşıma yalnız yan sütunun o hizadaki şık harfleri sorunun kendi şık harflerinden FARKLIYSA
+    /// yapılır: aynı harf varsa yan sütun başka bir sorunun parçasıdır (komşu sayfa sütununun kuyruğu) ve yerinde kalır.
+    private static func joinSideColumns(_ columns: [[PieceRow]]) -> [[PieceRow]] {
+        var result = columns
+        for side in result.indices {
+            let rows = result[side]
+            if rows.isEmpty || rows.contains(where: { numbered($0.text) != nil }) { continue }
+            if !rows.contains(where: { !optionLetters($0.text).isEmpty }) { continue }
+            var host = side - 1
+            while host >= 0 && !result[host].contains(where: { numbered($0.text) != nil }) { host -= 1 }
+            if host < 0 { continue }
+            let sideX = rows.map { $0.minX }.min() ?? 0
+            let hostX = result[host].map { $0.minX }.min() ?? 0
+            if sideX - hostX > sideColumnReach { continue }
+            let starts = result[host].filter { numbered($0.text) != nil }.map { $0.top }.sorted()
+            var kept: [PieceRow] = []
+            var bands: [Int: [PieceRow]] = [:]
+            for row in rows {
+                var band = -1
+                for (index, top) in starts.enumerated() where row.top >= top { band = index }
+                if band < 0 {
+                    kept.append(row)
+                } else {
+                    bands[band, default: []].append(row)
+                }
+            }
+            for (band, bandRows) in bands {
+                let top = starts[band]
+                let end = band + 1 < starts.count ? starts[band + 1] : Double.infinity
+                var own = Set<Character>()
+                for row in result[host] where row.top >= top && row.top < end { own.formUnion(optionLetters(row.text)) }
+                var extra = Set<Character>()
+                for row in bandRows { extra.formUnion(optionLetters(row.text)) }
+                if !extra.isEmpty && extra.isDisjoint(with: own) {
+                    result[host].append(contentsOf: bandRows)
+                } else {
+                    kept.append(contentsOf: bandRows)
+                }
+            }
+            result[side] = kept
+        }
+        return result.filter { !$0.isEmpty }
+    }
+
     private static func close(_ piece: QuestionPiece, next: Int?, into result: inout [QuestionPiece]) {
         var closed = piece
         if closed.number == nil {
@@ -276,7 +324,7 @@ extension QuestionSpotter {
             rows.append(PieceRow(text: line.text, top: 1 - Double(line.box.maxY), minX: Double(line.box.minX), maxX: Double(line.box.maxX)))
         }
         var result: [QuestionPiece] = []
-        for column in pieceColumns(rows) {
+        for column in joinSideColumns(pieceColumns(rows)) {
             var piece = QuestionPiece()
             var letter: Character?
             var extraRows = 0

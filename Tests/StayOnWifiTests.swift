@@ -155,6 +155,24 @@ final class StayOnWifiTests: XCTestCase {
         XCTAssertEqual(h.shortcuts.runs.first, "Kamera_Onar", "İlk deneme kestirmesizdir; onarım kopunca başlar")
     }
 
+    /// Telefonun Wi-Fi adresi baştan yoksa (kameranın ağından düşmüş) kamera boşuna aranmaz: doğrudan Wi-Fi onarım kestirmesi çalışır
+    /// (gerçek günlük 2026-11-19 12:58: adres yokken 15 sn kamera arandı, kullanıcıya bir şey söylenmedi)
+    func testWithoutAWiFiAddressTheFirstAttemptGoesStraightToTheRepairShortcut() async {
+        let h = harness(shots: [.success(FakeCamera.shot())])
+        _ = await h.startListening()
+        h.camera.wifiMissingChecks = 1000
+        h.trackEvents { name in
+            if name == "Hücresele_Gec" || name == "Hücresel_Ac" { h.health.internet = true }
+            if name == "Kamera_Onar" { h.camera.wifiMissingChecks = 0 }   // Wi-Fi kapat-aç: telefon kameranın ağına girdi
+        }
+        reply(h, "evet")
+        let done = await waitUntil(45) { h.vm.answers.count == 1 }
+        XCTAssertTrue(done, "\(h.speaker.spoken)")
+        XCTAssertEqual(h.events.filter { $0 == "çekim" }.count, 1, "Wi-Fi adresi yokken kamera aranmadı; onarımdan sonra tek çekim. \(h.events)")
+        XCTAssertEqual(h.shortcuts.runs.filter { $0 == "Kamera_Onar" }.count, 1, "\(h.shortcuts.runs)")
+        XCTAssertEqual(h.shortcuts.runs.first, "Kamera_Onar", "İlk iş onarım kestirmesidir")
+    }
+
     /// Wi-Fi onarım kestirmesinden sonra telefon kameranın ağına girmediyse kamera boşuna aranmaz: sıradaki denemeye hemen geçilir
     func testAfterARepairThatDoesNotBringTheWiFiBackTheCameraIsNotSearched() async {
         let h = harness(shots: [.failure(.notConnected), .success(FakeCamera.shot())])

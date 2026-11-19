@@ -1240,7 +1240,7 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         let rawFrames = max(0, pipeline.framesSeen - rawBefore)
         tlog("[kamera] toplu çekim özeti: kameradan \(rawFrames) kare geldi (≈\(Int((Double(rawFrames) / elapsed).rounded()))/sn), \(stats.offered) kare ölçüldü (≈\(Int((Double(stats.offered) / elapsed).rounded()))/sn), \(stats.windows) pencere: \(stats.weak) tanesinin yazısı okunamadı (zayıf aday), \(stats.busySkipped) atlandı, \(stats.merged) tekrar birleşti, \(stats.kept) aday → \(outcome.items.count) fotoğraf (\(outcome.readable) tanesi okunan); yazı tanıma \(stats.read) kez çalıştı, \(stats.readFailed) kez çalışmadı; bozuk (bloklaşmış) kare \(stats.damagedFrames), tamamen bozuk pencere \(stats.damagedWindows), durgun anda alınan pencere \(stats.stillWindows); görülen soru numaraları: \(outcome.questionNumbers.map { String($0) }.joined(separator: ","))")
         if rhythm != nil {
-            tlog("[kamera] kare azaltma: \(settings.thinFrames ? "açık" : "kapalı"); içeriği komşu temiz karede olan \(stats.thinnedDirty) kirli kare ve \(stats.thinnedRepeats) fazla tekrar gönderilmiyor")
+            tlog("[kamera] kare azaltma: \(settings.thinFrames ? "açık" : "kapalı"); daha net karede de görülen \(stats.thinnedBlurry) çok bulanık kare, içeriği komşu temiz karede olan \(stats.thinnedDirty) kirli kare ve \(stats.thinnedRepeats) fazla tekrar gönderilmiyor")
             tlog("[kamera] soru bütünlüğü: \(outcome.coverage.logText)")
             if !outcome.motionNote.isEmpty { tlog("[kamera] ardışık kare farkı: \(outcome.motionNote)") }
         }

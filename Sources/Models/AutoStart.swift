@@ -24,6 +24,9 @@ enum AutoStart {
 
     /// İki sayfalık taramalar arasındaki boşluk (sn; kullanıcı kararı 2026-11-19): duyurulur, son `questionCountdown` saniyesinde geri sayılır
     static let gapSeconds = 15
+    /// Sonraki taramalar (kullanıcı kararı 2026-11-19 öğleden sonra): boşluk dolunca beklenen soru kamerada görülünce başlanır; soru görülmese de boşluk
+    /// dolduktan en geç bu kadar sn sonra başlanır (gerçek günlük: ikinci tarama kullanıcı hazır olmadan başlamış, ilk 11 saniyenin kareleri boşa gitmişti)
+    static let sequentialMaxWait: TimeInterval = 30
     static let firstNumberRange = 1...300
     /// Sınavın soru sayısı (0: belirtilmedi) ve sınav sonunda cevaplar baştan okunurken iki cevap arasındaki boşluk (sn)
     static let questionCountRange = 0...300
