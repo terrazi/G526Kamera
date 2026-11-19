@@ -46,15 +46,6 @@ final class SpokenWarningTests: XCTestCase {
         XCTAssertEqual(h.vm.warnings.first(where: { $0.id == "yedek" })?.text, reply.note, "Ayrıntı ekranda kalır")
     }
 
-    func testMissingMicrophoneIsSpokenWhileTheHeadphonesWork() async {
-        let h = SessionHarness()
-        h.route.current = FakeRoute.noMic
-        h.vm.start()
-        let paused = await waitUntil { h.isHardwarePause }
-        XCTAssertTrue(paused)
-        let said = await waitUntil { h.speaker.announcements.contains("Duraklatıldı: yaka mikrofonu yok") }
-        XCTAssertTrue(said, "Kulaklık sağlamsa neden durduğu söylenir: \(h.speaker.announcements)")
-    }
 
     func testNothingIsPlayedWithoutHeadphones() async {
         let h = SessionHarness()

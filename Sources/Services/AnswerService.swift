@@ -86,6 +86,12 @@ final class GeminiAnswerService: Answering {
         return bytes > 24_000_000 ? Double(bytes) / 1_000_000 * 5 : 0
     }
 
+    /// Bütün modeller tükendiğinde hatanın türünü belirleyen hata: son hata bağlantı hatasıysa ve Gemini bu gönderimde HTTP cevabı verdiyse o cevap
+    static func decisive(last: GeminiError, served: GeminiError?) -> GeminiError {
+        if last.kind == .network, let served = served { return served }
+        return last
+    }
+
     /// Biraz sonra yeniden denenirse düzelebilecek hatalar: cevap gecikmesi, sunucu yoğunluğu, boş cevap, dakikalık kota. Anahtar sorunu, model adı sorunu
     /// ve günlük kota beklemekle düzelmez: o profil sonraki turlara katılmaz.
     static func retryable(_ error: GeminiError) -> Bool {
@@ -515,6 +521,8 @@ final class GeminiAnswerService: Answering {
         /// Cevap vermeyen profillerden en az biri ücretsiz anahtardı: "ücretli modelden cevaplandı" yalnız ücretsizden ücretliye düşülünce söylenir
         /// (varsayılan düzende ilk üç profil zaten ücretlidir; aralarındaki geçiş haber değildir)
         var failedFree = false
+        /// Gemini'nin HTTP cevabıyla dönen son hata (kota, yoğunluk…): böyle bir cevap geldiyse telefonun interneti çalışıyordur
+        var served: GeminiError?
         var round = 0
         roundLoop: while round < maxRounds && !active.isEmpty {
             try Task.checkCancellation()
@@ -559,6 +567,7 @@ final class GeminiAnswerService: Answering {
                     failedNames.append(profile.name)
                     if profile.free { failedFree = true }
                     lastError = error
+                    if error.status > 0 { served = error }
                     guard GeminiAnswerService.fallbackWorthy(error) else { break roundLoop }
                     rest(profile, after: error)
                     if GeminiAnswerService.retryable(error) { again.append(profile) }
@@ -570,8 +579,12 @@ final class GeminiAnswerService: Answering {
             tlog("[gemini] hiçbir model cevap vermedi; \(round + 1). tur başlıyor (\(active.map { $0.name }.joined(separator: ", ")))")
             if roundPause > 0 { try await Task.sleep(nanoseconds: UInt64(roundPause * 1_000_000_000)) }
         }
-        var merged = GeminiError(trail.joined(separator: " "), lastError.kind, status: lastError.status)
-        merged.timedOut = lastError.timedOut
+        // Son hata bağlantı hatası (zaman aşımı) olsa da aynı gönderimde Gemini kota ya da yoğunluk cevabı verdiyse internet çalışıyordur: hata
+        // "bağlantı koptu" sayılmaz (günlük 19.11.2026: kota + 503 + tek zaman aşımı "internet yok" diye onarımı başlattı, Kestirmeler çalışan
+        // bağlantıyı bozdu). Türü Gemini'nin verdiği son cevap belirler.
+        let decisive = GeminiAnswerService.decisive(last: lastError, served: served)
+        var merged = GeminiError(trail.joined(separator: " "), decisive.kind, status: decisive.status)
+        merged.timedOut = decisive.kind == lastError.kind && lastError.timedOut
         throw merged
     }
 }

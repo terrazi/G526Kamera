@@ -313,8 +313,27 @@ final class CameraFlowTests: XCTestCase {
         reply(h, "evet")
         let sent = await waitUntil(45) { h.vm.answers.count == 1 }
         XCTAssertTrue(sent)
-        XCTAssertEqual(h.answering.captureCalls.count, 3, "İki deneme (arada internet kestirmesi yeniden), sonra bekleyen çekim olarak üçüncü")
-        XCTAssertEqual(h.shortcuts.runs.filter { $0 == "Hücresele_Gec" }.count, 2, "Ağ hatasından sonra internet kestirmesi yeniden çalışır")
+        XCTAssertEqual(h.answering.captureCalls.count, 3, "İki deneme, sonra bekleyen çekim olarak üçüncü")
+        XCTAssertEqual(h.shortcuts.runs.filter { $0 == "Hücresele_Gec" }.count, 1,
+                       "İnternet çalışıyor (sorun Gemini tarafında ya da geçici): kestirme yeniden çalışmaz, çalışan bağlantı bozulmaz")
+        XCTAssertTrue(h.vm.pendingShots.isEmpty)
+    }
+
+    func testNetworkErrorOnSendRunsTheInternetShortcutAgainOnlyWhenTheInternetIsReallyDown() async {
+        let h = harness(shots: [.success(FakeCamera.shot())],
+                        replies: [.failure(GeminiError("koptu", .network)), .failure(GeminiError("koptu", .network)),
+                                  .success(FakeAnswering.reply(1))])
+        let previous = h.answering.onCall
+        h.answering.onCall = { name in
+            previous?(name)
+            if h.answering.captureCalls.count == 1 { h.health.internet = false }   // ilk gönderim sırasında internet gerçekten koptu
+        }
+        _ = await h.startListening()
+        reply(h, "evet")
+        let sent = await waitUntil(45) { h.vm.answers.count == 1 }
+        XCTAssertTrue(sent)
+        XCTAssertEqual(h.answering.captureCalls.count, 3)
+        XCTAssertEqual(h.shortcuts.runs.filter { $0 == "Hücresele_Gec" }.count, 2, "İnternet yokken internet kestirmesi yeniden çalışır")
         XCTAssertTrue(h.vm.pendingShots.isEmpty)
     }
 
@@ -1155,6 +1174,7 @@ final class CameraTesterTests: XCTestCase {
         let settings = AppSettings(defaults: defaults)
         let cameraSettings = CameraSettings(defaults: defaults)
         cameraSettings.cameraShortcutName = cameraShortcut
+        cameraSettings.stayOnWifi = false   // bu sınamalar eski düzeni (kameraya geç, sonra hücresele dön) dener
         settings.internetShortcut = "Hücresele_Gec"
         let camera = FakeCamera()
         let shortcuts = FakeShortcuts()
@@ -1162,6 +1182,17 @@ final class CameraTesterTests: XCTestCase {
         let tester = CameraTester(camera: camera, shortcuts: shortcuts, health: health, settings: settings, cameraSettings: cameraSettings,
                                   sessionActive: { sessionActive }, sleep: { _ in })
         return Rig(tester: tester, camera: camera, shortcuts: shortcuts, health: health, cameraSettings: cameraSettings)
+    }
+
+    func testWithTheConnectionsAlwaysOnTheCameraTestRunsNoShortcutAtAll() async {
+        let r = rig()
+        r.cameraSettings.stayOnWifi = true
+        r.camera.results = [.success(FakeCamera.shot())]
+        await r.tester.run()
+        XCTAssertEqual(r.shortcuts.runs, [], "Kameraya geçiş ve internete dönüş kestirmeleri çalışmaz: hiçbir bağlantı kapatılmaz")
+        XCTAssertEqual(r.camera.captures, 1)
+        XCTAssertTrue(r.tester.lines.contains { $0.hasPrefix("✓ Kamera çalıştı") })
+        XCTAssertTrue(r.tester.lines.last?.contains("İnternet var") ?? false, "\(r.tester.lines)")
     }
 
     func testRunsTheExamStepsInOrderAndDeletesTheTestShot() async {

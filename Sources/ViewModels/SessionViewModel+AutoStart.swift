@@ -20,9 +20,9 @@ extension SessionViewModel {
         return cameraSettings.autoStart && seriesMode && settings.examType != .voice
     }
 
-    /// Mikrofon zorunlu değil: kulaklık mikrofonu kipinde ve otomatik başlatmada "Başla" beklenirken mikrofon çalışmasa da akış sürer
+    /// Mikrofon zorunlu değil: otomatik başlatmada "Başla" beklenirken mikrofon çalışmasa da akış sürer
     var micOptional: Bool {
-        return AudioRouting.headsetMicMode && autoMode && listenMode == .cameraChoice
+        return autoMode && listenMode == .cameraChoice
     }
 
     /// Taramalar sırayla mı yürüyor: bu oturumda en az bir tarama başladıysa ya da yarıda kalmış bir sınava devam ediliyorsa (kayıtlı cevap var).

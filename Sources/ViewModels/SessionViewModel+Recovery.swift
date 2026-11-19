@@ -5,7 +5,7 @@ import Foundation
 extension SessionViewModel {
     // MARK: Fail-safe (Modül 2)
 
-    /// Bluetooth kulaklık ya da yaka mikrofonu koptu: ses anında susar, mikrofon kapanır, her iş durur. Donanım dönene
+    /// Bluetooth kulaklık koptu: ses anında susar, mikrofon kapanır, her iş durur. Donanım dönene
     /// (ya da `grace` sonra sıfırlama kestirmesi çalışana) kadar hiçbir şey çalınmaz. `grace` nil ise sıfırlama denenmez.
     func enterHardwarePause(_ verdict: RouteVerdict, grace: TimeInterval? = Timing.hardwareGrace) {
         if connectionResetActive {
@@ -44,11 +44,10 @@ extension SessionViewModel {
         routeVerdict = verdict
         tlog("[ses yolu] \(AudioRouting.describe(snapshot)) \(verdict.isSafe ? "Güvenli." : "Güvenli değil: " + verdict.summary)")
         if !verdict.isSafe {
-            // Kulaklık çalışırken program sorun görüyorsa nedeni günlükten okunabilsin: ham port adları ve bağlı girişler
-            let inputs = deps.route.availableInputs().map { "\($0.name) (\($0.port.rawValue)\($0.isCurrent ? ", yolda" : ""))" }
-            tlog("[ses yolu] \(AudioRouting.describeRaw(snapshot)); kulaklık \(verdict.headphonesOK ? "tamam" : "SORUNLU"), mikrofon \(verdict.micOK ? "tamam" : "SORUNLU"); bağlı girişler: \(inputs.isEmpty ? "yok" : inputs.joined(separator: ", "))")
+            // Kulaklık çalışırken program sorun görüyorsa nedeni günlükten okunabilsin: ham port adları
+            tlog("[ses yolu] \(AudioRouting.describeRaw(snapshot)); kulaklık SORUNLU")
         }
-        refreshInputs()
+        refreshRouteText()
         switch phase {
         case .listening, .answering, .speaking:
             if !verdict.isSafe { enterHardwarePause(verdict) }
@@ -104,7 +103,7 @@ extension SessionViewModel {
         interruptionPoll = nil
         guard case .paused(.hardware) = phase else { return }
         try? deps.route.configure()
-        deps.route.preferExternalInput()
+        deps.route.preferHeadsetInput()
         if hardwareGrace == nil {
             hardwareGrace = deps.scheduler.after(Timing.hardwareGrace) { [weak self] in self?.hardwareGraceExpired() }
             scheduleQuickOutputFix()
@@ -166,13 +165,6 @@ extension SessionViewModel {
                 return
             }
         }
-        // Kulaklık sağlam, yalnız mikrofon eksik ya da yola girmemiş (yaka mikrofonu çıkarıldı, alıcı yola girmedi): bu kulaklık kopması değildir.
-        // Lightning mikrofon için Kestirme yoktur; Bluetooth/uçak modu Kestirmeleri mikrofonu getirmez, çalışan kulaklığı da koparır.
-        let verdict = AudioRouting.verdict(deps.route.snapshot())
-        if verdict.headphonesOK, !verdict.isSafe {
-            waitForMicWithoutShortcuts()
-            return
-        }
         work = Task { [weak self] in
             guard let self = self else { return }
             // Hemen çalıştırılan çıkış kestirmesi sürüyorsa bitmesi beklenir (iki kestirme iç içe çalışmaz); yol düzeldiyse devam edilir
@@ -182,37 +174,10 @@ extension SessionViewModel {
             let settled = await self.settledRoute()
             guard !Task.isCancelled, case .paused(.hardware) = self.phase else { return }
             if settled.verdict.isSafe { return }
-            if settled.verdict.headphonesOK {
-                self.waitForMicWithoutShortcuts()
-                return
-            }
             // Kulaklık yolda değilse önce hafif çare: çıkışı kulaklığa alan kestirme (Bluetooth'a dokunmaz)
             if await self.outputShortcutFixedRoute() { return }
             await self.runRecovery(.hardware)
         }
-    }
-
-    /// Kulaklık sağlam, yalnız mikrofon yok ya da yola girmemiş: HİÇBİR Kestirme çalıştırılmaz. Mikrofon tercihi yeniden verilir, nedeni söylenir
-    /// ve beklenir; mikrofon takılınca ya da yola girince kendiliğinden devam edilir (yol bildirimi ya da nabız yakalar).
-    func waitForMicWithoutShortcuts() {
-        let receiver = deps.route.availableInputs().contains(where: { $0.isExternal })
-        tlog("[onarım] kulaklık sağlam, yalnız mikrofon sorunlu (\(receiver ? "alıcı takılı ama girişte yok" : "mikrofon alıcısı görünmüyor")); Kestirme çalıştırılmadı, bekleniyor")
-        deps.route.preferExternalInput()
-        let text = "Duraklatıldı: \(receiver ? Say.receiverNotRouted : Say.micMissing)"
-        warn("donanim", text)
-        repeatPausedGuidance(text)
-        hardwareGrace = deps.scheduler.after(Timing.hardwareGrace) { [weak self] in self?.hardwareGraceExpired() }
-        routeChanged(deps.route.snapshot())
-    }
-
-    /// Duraklatılmışken kullanıcıya ne yapacağı söylenir; aynı uyarı ekranda değişmediği için bir kez söylenip susmasın diye
-    /// her `Timing.pausedGuidanceEvery` kontrolde (yaklaşık dakikada bir) yeniden söylenir; ilk söyleyişi `warn` yapar.
-    func repeatPausedGuidance(_ text: String) {
-        pausedGuidanceTicks += 1
-        guard pausedGuidanceTicks > 1, pausedGuidanceTicks % Timing.pausedGuidanceEvery == 1 else { return }
-        lastVoiced[text] = nil
-        tlog("[onarım] duraklatma yönlendirmesi yeniden söyleniyor")
-        announce(text)
     }
 
     /// Kulaklık sağlam ama onarım istendi (dinleme açılamadı, mikrofon tamponları kesildi, sessizlikte mikrofon donuk): sorun mikrofon
@@ -229,11 +194,11 @@ extension SessionViewModel {
         phase = .recovering(.hardware)   // nabız bu sırada dinlemeyi ikinci kez onarmaya kalkmasın
         statusNote = "Mikrofon yeniden kuruluyor…"
         try? deps.route.configure()
-        deps.route.preferExternalInput()
+        deps.route.preferHeadsetInput()
         let settled = await settledRoute()
         guard !Task.isCancelled, case .recovering = phase else { return }
         guard settled.verdict.isSafe else {
-            enterHardwarePause(settled.verdict)   // mikrofon çıkmış: süre dolunca waitForMicWithoutShortcuts
+            enterHardwarePause(settled.verdict)   // kulaklık yoldan çıkmış
             return
         }
         announce(Say.micRepairing)
@@ -286,7 +251,7 @@ extension SessionViewModel {
             return
         }
         // İnternet "var" görünüp takılmış olabilir: soru gelmeden önce bağlantıyı da yokla
-        let healthy = await deps.health.connectionHealthy(key: settings.primaryKey)
+        let healthy = await verify(.network, key: settings.primaryKey)
         guard !Task.isCancelled, phase == .listening else { return }
         guard healthy else {
             await runRecovery(.network)
@@ -336,7 +301,14 @@ extension SessionViewModel {
     /// ("kulaklık düzeldi ama program algılamıyor, Kestirmeleri tekrar tekrar çalıştırıyor") yanlış olurdu. Mikrofon ayrıca beklenir.
     func verify(_ reason: RecoveryReason, key: String) async -> Bool {
         switch reason {
-        case .network: return await deps.health.connectionHealthy(key: key)
+        case .network:
+            guard await deps.health.internetReachable() else { return false }
+            // İnternet var. Gemini o an cevap vermiyorsa (yoğunluk, zaman aşımı) sorun telefonun bağlantısında değildir: Kestirme çalıştırmak bunu
+            // düzeltmez, çalışan bağlantıyı (kameranın Wi-Fi'si dahil) bozar. Günlüğe yazılır; gönderim kendi yeniden denemeleriyle sürer.
+            if case .unreachable(let why) = await deps.health.gemini(key: key) {
+                tlog("[onarım] internet var ama Gemini cevap vermiyor (\(why)); bağlantı sorunu sayılmadı, Kestirme çalıştırılmayacak")
+            }
+            return true
         case .hardware: return AudioRouting.verdict(deps.route.snapshot()).headphonesOK
         case .recognition: return AudioRouting.verdict(deps.route.snapshot()).isSafe
         }
@@ -418,13 +390,13 @@ extension SessionViewModel {
         if reason == .hardware, hardwareRecoveries >= Timing.maxHardwareRecoveries {
             // Art arda onarıldı ama mikrofon yine çalışmıyor: sonsuz sıfırlama döngüsüne girme, uyar, bir süre sonra bir kez daha dene
             hardwareRecoveries = Timing.maxHardwareRecoveries - 1
-            warn("onarim", "Mikrofon art arda onarıldı ama çalışmıyor. Kulaklığı ve mikrofon alıcısını kontrol edin. Her dakika yeniden deniyorum.")
+            warn("onarim", "Mikrofon art arda onarıldı ama çalışmıyor. Kulaklığı kontrol edin. Her dakika yeniden deniyorum.")
             enterHardwarePause(AudioRouting.verdict(deps.route.snapshot()), grace: Timing.hardwareCapRetry)
             holdForRetry = true   // ses yolu sağlam görünse de süre dolmadan devam edilmez (nabız aynı döngüyü yeniden başlatmasın)
             return
         }
-        // Kulaklık sağlamsa sorun yalnız mikrofon tarafındadır: Lightning mikrofon için Kestirme yoktur, Bluetooth/uçak modu Kestirmeleri
-        // çalışan kulaklığı koparıp sorunu büyütür. Hiçbir Kestirme çalışmaz (sınır yukarıda zaten uygulandı).
+        // Kulaklık sağlamsa sorun yalnız dinleme tarafındadır: Bluetooth/uçak modu Kestirmeleri çalışan kulaklığı koparıp sorunu büyütür.
+        // Hiçbir Kestirme çalışmaz (sınır yukarıda zaten uygulandı).
         if reason == .hardware, AudioRouting.verdict(deps.route.snapshot()).headphonesOK {
             await repairMicWithoutShortcuts()
             return
@@ -499,7 +471,7 @@ extension SessionViewModel {
     /// aksi hâlde "yeniden hazır" anonsu ve dinleme. Güvenli değilse sessizce donanım beklenir.
     func resumeAfterRecovery() async {
         try? deps.route.configure()
-        deps.route.preferExternalInput()
+        deps.route.preferHeadsetInput()
         let verdict = await settledRoute().verdict
         guard !Task.isCancelled else { return }
         guard verdict.isSafe else {
@@ -578,7 +550,7 @@ extension SessionViewModel {
         for round in 1...Timing.recognizerRounds {
             guard !Task.isCancelled, phase == recognizing else { return }
             try? deps.route.configure()
-            deps.route.preferExternalInput()
+            deps.route.preferHeadsetInput()
             let verdict = await settledRoute().verdict
             guard !Task.isCancelled, phase == recognizing else { return }
             guard verdict.isSafe else {

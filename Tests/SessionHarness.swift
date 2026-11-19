@@ -64,8 +64,9 @@ final class SessionHarness {
         settings.smartResume = false
         // Sürüm 4: her soruda "kamera ile çekmek ister misiniz?" varsayılan olarak açıktır; V3 testlerinin akışı bozulmasın diye burada kapalı
         // Sürüm 4: sınav türü varsayılan olarak görüntülüdür; eski testler hibrit (kamera sorusu "evet / hayır") ya da sesli akışla yazıldı, burada o türe ayarlanır
+        // Program yalnız görüntülü sınavı bilir; ortak çekirdek (dinleme, onarım, cevap okuma, kayıt) sesle verilen soruyla ve her soruda sorulan
+        // kamera sorusuyla sınanır. Bu iki yol yalnız sınamalarda açılır (uygulamada tür hep `.camera`dır).
         settings.examType = cameraFlow ? .hybrid : .voice
-        settings.examTypeDefault = settings.examType
         // "Soru mu, paragraf mı?" sorusu varsayılan olarak açıktır; kamera akışı testlerinin "evet"i doğrudan çekime gitsin diye burada kapalı, ona ait testler açar
         settings.askCaptureKind = false
         cameraSettings = CameraSettings(defaults: defaults)
@@ -73,19 +74,11 @@ final class SessionHarness {
         cameraSettings.connectAtStart = connectAtStart
         // Sayfa bazlı toplu çekim varsayılan olarak açıktır; eski testlerin tek soruluk akışı bozulmasın diye burada kapalı, ona ait testler açar
         cameraSettings.pageSeries = pageSeries
-        cameraSettings.muteLapel = false   // yaka mikrofonu uyarıları yalnız ilgili sınamalarda açılır (diğerlerinde söylenen cümle dizisi değişmesin)
-        AudioRouting.builtInMicAllowed = false
-        // Telefonun mikrofonu otomatik seçimi varsayılan olarak açıktır; ses yolu olayları ve günlük satırları değişmesin diye burada kapalı, ona ait sınamalar açar
-        cameraSettings.phoneMic = false
-        AudioRouting.phoneMicInUse = false
         // Kamera "Başla"dan sonra açılır (varsayılan); sınamaların çoğu eski hazır bekleme düzeniyle yazıldı, burada kapalı, yeni düzenin sınamaları açar
         cameraSettings.cameraAfterGo = false
-        // Otomatik zamanlı başlatma ve kulaklık mikrofonu kipi varsayılan olarak açıktır (kullanıcı kararı 2026-11-19); eski sınamaların "Başla" akışı ve
-        // yaka mikrofonu kuralları bozulmasın diye burada kapalı, onlara ait sınamalar açar
+        // Otomatik zamanlı başlatma varsayılan olarak açıktır (kullanıcı kararı 2026-11-19); eski sınamaların "Başla" akışı bozulmasın diye burada
+        // kapalı, ona ait sınamalar açar
         cameraSettings.autoStart = false
-        settings.cameraOnlyExam = false   // sesli ve hibrit sınav uygulamada kapalıdır; eski sınamalar o türlerle yazıldı
-        settings.headsetMic = false
-        AudioRouting.headsetMicMode = false
         cameraSettings.seriesGuidance = false   // sesli konumlandırma varsayılan açık; çekim sırasında konuşma yalnız ilgili sınamalarda açılır
         cameraSettings.guidanceDescribe = false
         if shortcutNames {

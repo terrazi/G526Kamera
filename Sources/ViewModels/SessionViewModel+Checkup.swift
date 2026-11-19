@@ -6,9 +6,6 @@ extension SessionViewModel {
         deps.library.prepare()
         checkSystemAtStart()
         sectionPlan = settings.sectionPlan   // sınav boyunca bu oturumun başındaki ayar geçerlidir
-        // Devam edilecek kayıt yoksa yeni bir sınav başlıyor: tür ayardaki başlangıç türüdür (önceki sınavda sesle değiştirilmiş tür onunla biter).
-        // Kapanmadan sonra devamda ve önceki kayıt sorulacaksa şu anki tür korunur ("yeni sınav" denince sıfırlanır).
-        if resume == nil, rememberedSession() == nil { await startNewExamType() }
         // Sürüm 4: "Başlat"a basılınca kameraya HEMEN bağlanılır (kulaklık ve mikrofon beklenmeden; görüntü ana ekranda akar). İnternete geçmeden önce kapanır (2b).
         guard await connectCameraAtStart() else { return }
         do {
@@ -61,7 +58,7 @@ extension SessionViewModel {
         setCheck("dikte", "Çevrimdışı Türkçe dikte", ok: permission.onDeviceSpeech, detail: permission.onDeviceSpeech ? "yüklü" : "yüklü değil")
         guard permission.onDeviceSpeech else { await failStart(Say.noOnDevice); return }
         // İngilizce yardımcı dikte: yoksa oturum yine başlar (İngilizce sorular yalnız ses kaydından çözülür), kırmızı kutuda uyarılır
-        if settings.englishDictation {
+        if settings.englishDictation, settings.examType != .camera {   // görüntülü sınavda soru dikte edilmez: yardımcı tanıyıcı aranmaz
             setCheck("ingilizce", "Çevrimdışı İngilizce dikte (yardımcı)", ok: permission.englishOnDevice,
                      detail: permission.englishOnDevice ? "yüklü" : "yüklü değil")
             if permission.englishOnDevice { clearWarning("ingilizce") } else { warn("ingilizce", Say.noEnglishDictation) }
@@ -69,28 +66,24 @@ extension SessionViewModel {
             clearWarning("ingilizce")
         }
 
-        // 2) Ses yolu: Bluetooth kulaklık (çıkış) ve harici yaka mikrofonu (giriş)
+        // 2) Ses yolu: Bluetooth kulaklık (çıkış da giriş de kulaklıktır; mikrofon zorunlu değildir)
         do {
             try deps.route.configure()
         } catch {
             await failStart("Ses oturumu açılamadı: \(error.localizedDescription)")
             return
         }
-        deps.route.preferExternalInput()
+        deps.route.preferHeadsetInput()
         var verdict = await settledRoute().verdict
         // Ses iPhone'da kaldıysa ("Bluetooth music" seçili değil) ve kestirme tanımlıysa önce çıkış kulaklığa alınır
         if !verdict.headphonesOK, let fixed = await switchOutputToHeadphones() { verdict = fixed }
         guard !Task.isCancelled else { return }
         routeVerdict = verdict
-        refreshInputs()
+        refreshRouteText()
         setCheck("kulaklik", "Bluetooth kulaklık", ok: verdict.headphonesOK, detail: verdict.headphonesOK ? "bağlı" : verdict.hint)
-        if AudioRouting.headsetMicMode {
-            // Kulaklık mikrofonu kipi: mikrofon zorunlu değildir (otomatik tetikler mikrofona bağlı değil); yolda görünüp görünmediği bilgi olarak yazılır
-            let inRoute = deps.route.snapshot().inputs.contains(.bluetoothHFP)
-            setCheck("mikrofon", "Kulaklık mikrofonu", ok: true, detail: inRoute ? "bağlı" : "henüz yolda görünmüyor (dinleme açılınca girer)")
-        } else {
-            setCheck("mikrofon", "Yaka mikrofonu", ok: verdict.micOK, detail: verdict.micOK ? "bağlı" : "Lightning girişindeki mikrofon alıcısı görünmüyor")
-        }
+        // Mikrofon zorunlu değildir (otomatik tetikler mikrofona bağlı değil); kulaklık mikrofonunun yolda görünüp görünmediği bilgi olarak yazılır
+        let micInRoute = deps.route.snapshot().inputs.contains(.bluetoothHFP)
+        setCheck("mikrofon", "Kulaklık mikrofonu", ok: true, detail: micInRoute ? "bağlı" : "henüz yolda görünmüyor (dinleme açılınca girer)")
         guard verdict.isSafe else {
             // Sessizce bekle: ses yolu düzelince kontrol baştan yapılır
             pendingStart = true
@@ -179,7 +172,7 @@ extension SessionViewModel {
         // Kameraya oturum başında ulaşılamadıysa bu söylenir (kamera ayarları eksik değil, kamera kapalı); sorular sesle okunur
         let cameraDownAtStart = settings.askCamera && cameraConfigured && cameraDownSince != nil
         var ready = cameraDownAtStart ? Say.readyCameraDown(minutes: AppSettings.clampCameraCheckMinutes(settings.cameraCheckMinutes))
-            : (cameraOfferAvailable ? Say.readyCamera : (settings.askCamera ? Say.readyCameraMissing : Say.ready))
+            : (cameraOfferAvailable ? Say.readyCamera : (settings.askCamera ? (settings.examType == .camera ? Say.readyCameraMissingScan : Say.readyCameraMissing) : Say.ready))
         if offlineStart { ready = Say.offlineCaptureStart + " " + ready }
         // Bölümlü sınavda başlarken hangi bölümde olunduğu söylenir ("Birinci bölüme başlıyorum. Bu bölümde 40 soru var.")
         guard await speakNotice(sectionIndex > 0 ? ready + " " + Say.sectionStart(sectionIndex, questions: sectionQuestionCount) : ready) else { return }

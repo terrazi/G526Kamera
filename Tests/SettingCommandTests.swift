@@ -2,7 +2,7 @@ import XCTest
 @testable import G526CameraDrive
 
 /// Rapor komutları ("internet raporu", "şarj kaç", "ısındı mı", "ram durumu", "genel rapor"), ses seviyesi ("sesi aç", "sesi yüzde elli yap") ve
-/// kamera ayarları ("kamera sorusunu kapat", "görüntü kalitesini yüksek yap"…): her biri her kipte söylenebilir, soru metnini ve kipi korur, Gemini'ye
+/// kamera ayarları ("görüntü kalitesini yüksek yap"…): her biri her kipte söylenebilir, soru metnini ve kipi korur, Gemini'ye
 /// gitmez ve yaptığını ya da yapamadığını kısaca söyler.
 @MainActor
 final class SettingCommandTests: XCTestCase {
@@ -23,8 +23,6 @@ final class SettingCommandTests: XCTestCase {
     ]
     private let volumeSetPhrases: [(String, Int)] = [("sesi yüzde elli yap", 50), ("ses seviyesini yüzde yetmiş yap", 70), ("sesi 50 yap", 50), ("sesi yüzde 80 yap", 80), ("sesi yüzde yüz yap", 100), ("sesi yüzde otuz olsun", 30), ("ses seviyesini yüzde on yap", 10), ("sesi yüzde yirmi beş yap", 25), ("sesi yüzde altmış ayarla", 60), ("ses seviyesini 70 yap", 70), ("sesi sonuna kadar aç", 100), ("sesi tamamen aç", 100), ("sesi yüzde peş yap", 5)]
     private let cameraPhrases: [(VoiceCommand, [String])] = [
-        (.camera(.askQuestion(false)), ["kamera sorusunu kapat", "kamera sorusunu sorma", "kamera sorusu kapalı olsun", "kamera sormayı kapat", "kamera sorusunu devre dışı bırak", "her soruda kamera sorma", "kamera sorusunu iptal", "kamera sorusu olmasın", "her soruda kamera sorusu olmasın"]),
-        (.camera(.askQuestion(true)), ["kamera sorusunu aç", "kamera sorusu açık olsun", "kamera sorusunu etkinleştir", "kamera sorusunu başlat"]),
         (.camera(.quality(high: true)), ["görüntü kalitesini yüksek yap", "kamera kalitesini yüksek yap", "kaliteyi yüksek yap", "görüntü kalitesini artır", "çözünürlüğü yüksek yap", "kalite yüksek olsun", "görüntü kalitesi yüksek"]),
         (.camera(.quality(high: false)), ["görüntü kalitesini düşük yap", "kamera kalitesini düşür", "kaliteyi düşük yap", "çözünürlüğü düşür", "kalite düşük olsun"]),
         (.camera(.sendVideo(true)), ["videoyu gönder", "videoyu geminiye gönder", "video gönderilsin", "videoyu aç", "video de gönder", "videoyu kullan"]),
@@ -110,10 +108,10 @@ final class SettingCommandTests: XCTestCase {
     }
 
     func testNewCommandsAreHintedToTheRecognizer() {
-        for word in ["İnternet raporu", "Şarj durumu", "Ram durumu", "Genel rapor", "Sesi aç", "Sesi kıs", "Kamera sorusunu kapat"] {
+        for word in ["İnternet raporu", "Şarj durumu", "Ram durumu", "Genel rapor", "Sesi aç", "Sesi kıs"] {
             XCTAssertTrue(ListenHints.dictation.strings.contains(word), word)
         }
-        for word in ["Sesi aç", "Sesi kıs", "Kamera sorusunu kapat", "Genel rapor"] {
+        for word in ["Sesi aç", "Sesi kıs", "Genel rapor"] {
             XCTAssertTrue(ListenHints.choice.strings.contains(word), word)
         }
         // Başla beklenirken (kamera seçimi kipi) söylenen yeni komutlar
@@ -124,7 +122,8 @@ final class SettingCommandTests: XCTestCase {
         XCTAssertLessThanOrEqual(OnDeviceSpeechListener.contextualStrings.count, 100)
         XCTAssertTrue(Say.helpCommands.contains("genel rapor"))
         XCTAssertTrue(Say.helpCommands.contains("Sesi aç"))
-        XCTAssertTrue(Say.helpCommands.contains("kamera sorusunu kapat"))
+        XCTAssertFalse(Say.helpCommands.contains("kamera sorusunu"), "Kamera sorusu komutu kaldırıldı")
+        XCTAssertFalse(Say.helpCommands.lowercased().contains("sınav başlat"), "Sınav türü komutları kaldırıldı")
         XCTAssertTrue(Say.helpCommands.contains("konumlandırma desteğini aç"))
         XCTAssertTrue(Say.helpCommands.contains("kadraj kontrolü"))
     }
@@ -155,9 +154,10 @@ final class SettingCommandTests: XCTestCase {
         XCTAssertEqual(Say.reportSound(percent: 50, low: false, headphonesOK: true), "Ses seviyesi yüzde 50. Ses Bluetooth kulaklığa gidiyor.")
         XCTAssertEqual(Say.reportSound(percent: 5, low: true, headphonesOK: false),
                        "Ses seviyesi yüzde 5. Çok düşük; sesi aç diyebilirsiniz. Ses kulaklığa gitmiyor.")
-        XCTAssertEqual(Say.reportMicrophone(ok: true, inputs: ["Lightning/USB mikrofon"]), "Mikrofon bağlı: Lightning/USB mikrofon. Sizi duyuyorum.")
+        XCTAssertEqual(Say.reportMicrophone(ok: true, inputs: ["kulaklık mikrofonu"]), "Mikrofon bağlı: kulaklık mikrofonu. Sizi duyuyorum.")
         XCTAssertTrue(Say.reportMicrophone(ok: false, inputs: []).hasPrefix("Mikrofon bulunamadı."))
-        XCTAssertTrue(Say.reportMicrophone(ok: false, inputs: ["telefonun kendi mikrofonu"]).contains("yaka mikrofonu değil"))
+        XCTAssertTrue(Say.reportMicrophone(ok: false, inputs: []).contains("görünmüyor"))
+        XCTAssertTrue(Say.reportMicrophone(ok: false, inputs: []).contains("mikrofon olmadan da"), "Mikrofon zorunlu değil: tarama sürer")
         XCTAssertEqual(Say.reportHeadphones(ok: true, outputs: ["Bluetooth kulaklık"], hint: ""), "Kulaklık bağlı: Bluetooth kulaklık.")
         XCTAssertTrue(Say.reportHeadphones(ok: false, outputs: ["telefon hoparlörü"], hint: "").hasPrefix("Kulaklıkta sorun var."))
     }
@@ -198,7 +198,7 @@ final class SettingCommandTests: XCTestCase {
         said = await command(h, "kulaklık durumu")
         XCTAssertEqual(said, "Kulaklık bağlı: Bluetooth kulaklık.")
         said = await command(h, "mikrofon durumu")
-        XCTAssertEqual(said, "Mikrofon bağlı: Lightning/USB mikrofon. Sizi duyuyorum.")
+        XCTAssertEqual(said, "Mikrofon bağlı: kulaklık mikrofonu. Sizi duyuyorum.")
         XCTAssertTrue(h.answering.calls.isEmpty, "Raporlar Gemini'ye gitmez")
         XCTAssertEqual(h.vm.answers.count, 0)
     }
@@ -228,9 +228,12 @@ final class SettingCommandTests: XCTestCase {
         var said = await command(h, "kulaklık bağlı mı")
         XCTAssertTrue(said?.hasPrefix("Kulaklıkta sorun var.") == true, "\(String(describing: said))")
         XCTAssertTrue(said?.contains("telefona gidiyor") == true, "Neden de söylenir: \(String(describing: said))")
-        h.route.current = FakeRoute.noMic
+        h.route.current = RouteSnapshot(outputs: [.bluetoothHFP], inputs: [])
         said = await command(h, "mikrofon çalışıyor mu")
-        XCTAssertTrue(said?.contains("yaka mikrofonu değil") == true, "\(String(describing: said))")
+        XCTAssertTrue(said?.contains("görünmüyor") == true, "\(String(describing: said))")
+        h.route.current = FakeRoute.good
+        said = await command(h, "mikrofon çalışıyor mu")
+        XCTAssertTrue(said?.contains("kulaklık mikrofonu") == true, "\(String(describing: said))")
         said = await command(h, "ses durumu")
         XCTAssertTrue(said?.hasSuffix("Ses Bluetooth kulaklığa gidiyor.") == true, "\(String(describing: said))")
     }
@@ -548,42 +551,7 @@ final class SettingCommandTests: XCTestCase {
         h.vm.cameraBusy = false
     }
 
-    func testCameraQuestionCanBeTurnedOffAndOnByVoice() async {
-        let h = SessionHarness()
-        _ = await h.startListening()
-        XCTAssertFalse(h.settings.askCamera)
-        var said = await command(h, "kamera sorusunu kapat")
-        XCTAssertEqual(said, "Kamera sorusu zaten kapalı.")
-        said = await command(h, "kamera sorusunu aç")
-        XCTAssertEqual(said, Say.cameraAskChanged(on: true, configured: false, leavingChoice: false))
-        XCTAssertTrue(said?.contains("eksik") == true, "Kamera tanımlı değilse söylenir: \(String(describing: said))")
-        XCTAssertTrue(h.settings.askCamera)
-        said = await command(h, "kamera sorusunu kapat")
-        XCTAssertEqual(said, "Kamera sorusu kapatıldı. Sorular sesle okunacak.")
-        XCTAssertFalse(h.settings.askCamera)
-    }
 
-    /// Kamera sorusu açıkken "kamera sorusunu kapat" denirse evet/hayır beklenmez: soru sesle okunur, kamera çalışmaz
-    func testTurningTheCameraQuestionOffAtTheCameraQuestionLeavesIt() async {
-        let h = SessionHarness(cameraFlow: true)
-        h.trackEvents()
-        _ = await h.startListening()
-        XCTAssertEqual(h.vm.listenMode, .cameraChoice)
-        let before = h.speaker.spoken.count
-        say(h, "kamera sorusunu kapat")
-        let left = await waitUntil(45) { h.speaker.spoken.count == before + 1 && h.vm.listenMode == .question && h.vm.phase == .listening }
-        XCTAssertTrue(left, "\(h.speaker.spoken)")
-        XCTAssertEqual(h.speaker.spoken.last, "Kamera sorusu kapatıldı. Sorular sesle okunacak. Soruyu sesle okuyun.")
-        XCTAssertFalse(h.settings.askCamera)
-        XCTAssertEqual(h.camera.captures, 0)
-        XCTAssertTrue(h.shortcuts.runs.isEmpty, "Hiçbir bağlantı değişmez")
-        // Soru V3'teki gibi sesle okunur
-        h.answering.results = [.success(FakeAnswering.reply(1))]
-        h.ask("Soru 1. A seçeneği Adana")
-        let answered = await waitUntil(45) { h.vm.answers.count == 1 }
-        XCTAssertTrue(answered, "\(h.speaker.spoken)")
-        XCTAssertEqual(h.answering.calls.count, 1)
-    }
 
     /// Kamera sorusunda başka bir ayar söylenirse soru yine beklenir ("evet" kamerayı başlatır)
     func testOtherSettingsAtTheCameraQuestionKeepTheQuestionOpen() async {

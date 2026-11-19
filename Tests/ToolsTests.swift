@@ -61,18 +61,18 @@ final class DeviceInfoAndRouteTextTests: XCTestCase {
     }
 
     func testRouteDescriptionNamesBothSides() {
-        XCTAssertEqual(AudioRouting.describe(FakeRoute.good), "Çıkış: Bluetooth kulaklık. Giriş: Lightning/USB mikrofon.")
-        XCTAssertEqual(AudioRouting.describe(FakeRoute.noHeadphones), "Çıkış: telefon hoparlörü. Giriş: Lightning/USB mikrofon.")
-        XCTAssertEqual(AudioRouting.describe(FakeRoute.noMic), "Çıkış: Bluetooth kulaklık. Giriş: telefonun kendi mikrofonu.")
+        XCTAssertEqual(AudioRouting.describe(FakeRoute.good), "Çıkış: Bluetooth kulaklık. Giriş: kulaklık mikrofonu.")
+        XCTAssertEqual(AudioRouting.describe(FakeRoute.noHeadphones), "Çıkış: telefon hoparlörü. Giriş: telefonun kendi mikrofonu.")
+        XCTAssertEqual(AudioRouting.describe(RouteSnapshot(outputs: [.bluetoothA2DP], inputs: [.usbAudio])), "Çıkış: Bluetooth kulaklık. Giriş: Lightning/USB mikrofon.")
         XCTAssertEqual(AudioRouting.describe(RouteSnapshot(outputs: [], inputs: [])), "Çıkış: yok. Giriş: yok.")
     }
 
     func testRouteTextOnMainScreenFollowsTheRoute() {
         let h = SessionHarness()
-        h.vm.refreshInputs()
-        XCTAssertEqual(h.vm.routeText, "Çıkış: Bluetooth kulaklık. Giriş: Lightning/USB mikrofon.")
+        h.vm.refreshRouteText()
+        XCTAssertEqual(h.vm.routeText, "Çıkış: Bluetooth kulaklık. Giriş: kulaklık mikrofonu.")
         h.route.change(to: FakeRoute.noHeadphones)
-        XCTAssertEqual(h.vm.routeText, "Çıkış: telefon hoparlörü. Giriş: Lightning/USB mikrofon.")
+        XCTAssertEqual(h.vm.routeText, "Çıkış: telefon hoparlörü. Giriş: telefonun kendi mikrofonu.")
     }
 
     func testSayTexts() {
@@ -301,14 +301,6 @@ final class SessionToolsTests: XCTestCase {
         XCTAssertTrue(h.vm.soundTest.contains("Kulaklıktan ses çalınamaz"), h.vm.soundTest)
     }
 
-    func testSoundTestWarnsAboutAMissingMic() async {
-        let h = SessionHarness()
-        h.route.change(to: FakeRoute.noMic)
-        h.vm.testSound()
-        let done = await waitUntil { !h.vm.testingSound && h.vm.soundTest.contains("mikrofonu görünmüyor") }
-        XCTAssertTrue(done, h.vm.soundTest)
-        XCTAssertEqual(h.speaker.spoken, [Say.soundTest], "Kulaklık sağlamsa ses yine denenir")
-    }
 
     func testSoundTestIsIgnoredWhileATestRuns() async {
         let h = SessionHarness()
@@ -568,19 +560,13 @@ final class RouteSettlingTests: XCTestCase {
     func testMainScreenExplainsAReceiverThatIsPluggedButNotInTheRoute() {
         let h = SessionHarness()
         h.route.current = unsettled()
-        h.vm.refreshInputs()
+        h.vm.refreshRouteText()
         XCTAssertTrue(h.vm.routeText.hasPrefix("Çıkış: Bluetooth kulaklık. Giriş: yok."), h.vm.routeText)
         XCTAssertTrue(h.vm.routeText.contains("Boya Mikrofon"), "Takılı alıcının adı yazılır")
         XCTAssertTrue(h.vm.routeText.contains("Sesi dene"), "Hareketsizken nasıl açılacağı söylenir")
     }
 
-    func testNoReceiverMeansNoExtraExplanation() {
-        let h = SessionHarness()
-        h.route.inputs = []
-        h.route.current = unsettled()
-        h.vm.refreshInputs()
-        XCTAssertEqual(h.vm.routeText, "Çıkış: Bluetooth kulaklık. Giriş: yok.")
-    }
+
 }
 
 // MARK: - Alıcı takılı ama girişte yokken Kestirme çalıştırılmaz
@@ -593,22 +579,6 @@ final class ReceiverNotRoutedTests: XCTestCase {
         return snapshot
     }
 
-    func testPluggedReceiverMissingFromTheRouteDoesNotRunShortcuts() async {
-        let h = SessionHarness()
-        h.route.current = unsettled()          // kulaklık yolda, giriş boş; alıcı listede (FakeRoute.inputs)
-        h.vm.start()
-        let paused = await waitUntil { h.isHardwarePause }
-        XCTAssertTrue(paused)
-        h.scheduler.advance(by: SessionViewModel.Timing.hardwareGrace + 0.1)
-        await settle()
-        XCTAssertTrue(h.shortcuts.runs.isEmpty, "Donanım sağlam: Bluetooth/uçak modu Kestirmesi kulaklığı koparırdı")
-        XCTAssertTrue(h.isHardwarePause)
-        XCTAssertEqual(h.vm.warnings.first(where: { $0.id == "donanim" })?.text, "Duraklatıldı: " + Say.receiverNotRouted)
-        // Süre dolsa da tekrar tekrar aynı kontrol yapılır, Kestirme yine çalışmaz
-        h.scheduler.advance(by: SessionViewModel.Timing.hardwareGrace + 0.1)
-        await settle()
-        XCTAssertTrue(h.shortcuts.runs.isEmpty)
-    }
 
     func testRoutingSettlesLaterAndTheTestStartsOnItsOwn() async {
         let h = SessionHarness()
@@ -625,77 +595,8 @@ final class ReceiverNotRoutedTests: XCTestCase {
         XCTAssertTrue(h.shortcuts.runs.isEmpty)
     }
 
-    func testReceiverReallyGoneNeverRunsTheShortcutsEither() async {
-        let h = SessionHarness()
-        h.route.inputs = []                    // alıcı hiç görünmüyor (yaka mikrofonu çıkarıldı); kulaklık sağlam
-        h.route.current = unsettled()
-        h.vm.start()
-        let paused = await waitUntil { h.isHardwarePause }
-        XCTAssertTrue(paused)
-        h.scheduler.advance(by: SessionViewModel.Timing.hardwareGrace + 0.1)
-        await settle()
-        XCTAssertTrue(h.shortcuts.runs.isEmpty, "Lightning mikrofon için Kestirme yok; Bluetooth/uçak modu kulaklığı koparırdı")
-        XCTAssertTrue(h.isHardwarePause)
-        XCTAssertEqual(h.vm.warnings.first(where: { $0.id == "donanim" })?.text, "Duraklatıldı: " + Say.micMissing)
-        // Dakikalarca beklese de Kestirme çalışmaz
-        for _ in 0..<6 {
-            h.scheduler.advance(by: SessionViewModel.Timing.hardwareGrace + 0.1)
-            await settle()
-        }
-        XCTAssertTrue(h.shortcuts.runs.isEmpty)
-        XCTAssertTrue(h.isHardwarePause)
-        // Mikrofon takılınca kendiliğinden devam edilir
-        h.route.inputs = [InputChoice(uid: "lightning", name: "Boya Mikrofon", port: .usbAudio, isCurrent: true)]
-        h.route.change(to: FakeRoute.good)
-        h.scheduler.advance(by: SessionViewModel.Timing.routeStable + 0.1)
-        let back = await waitUntil { h.vm.phase == .listening }
-        XCTAssertTrue(back, "Mikrofon dönünce test kendiliğinden başlar")
-        XCTAssertTrue(h.shortcuts.runs.isEmpty)
-    }
 
-    /// Cihaz günlüğü: mikrofon yokken program yalnız bir kez konuştu, sonra 10 dakika sessiz bekledi; kullanıcı ne olduğunu bilemedi
-    func testPausedForTheMicrophoneRepeatsTheGuidanceInsteadOfWaitingSilently() async {
-        let h = SessionHarness()
-        _ = await h.startListening()
-        h.route.inputs = []
-        h.route.change(to: FakeRoute.noMic)
-        XCTAssertTrue(h.isHardwarePause)
-        let text = "Duraklatıldı: " + Say.micMissing
-        for _ in 0..<3 {
-            h.scheduler.advance(by: SessionViewModel.Timing.hardwareGrace + 0.1)
-            await settle()
-        }
-        let first = h.speaker.announcements.filter { $0 == text }.count
-        XCTAssertEqual(first, 1, "İlk dakikada bir kez söylenir: \(h.speaker.announcements)")
-        for _ in 0..<3 {
-            h.scheduler.advance(by: SessionViewModel.Timing.hardwareGrace + 0.1)
-            await settle()
-        }
-        XCTAssertGreaterThanOrEqual(h.speaker.announcements.filter { $0 == text }.count, 2, "Bir dakika sonra yeniden söylenir: \(h.speaker.announcements)")
-        XCTAssertTrue(h.shortcuts.runs.isEmpty)
-    }
 
-    func testMicUnpluggedDuringTheTestNeverRunsTheShortcuts() async {
-        let h = SessionHarness()
-        _ = await h.startListening()
-        let lightning = h.route.inputs
-        h.route.inputs = []                    // alıcı fiziksel olarak çıkarıldı
-        h.route.change(to: FakeRoute.noMic)    // ses telefonun kendi mikrofonuna düştü, Bluetooth kulaklık çalışıyor
-        XCTAssertTrue(h.isHardwarePause)
-        for _ in 0..<8 {
-            h.scheduler.advance(by: SessionViewModel.Timing.hardwareGrace + 0.1)
-            await settle()
-        }
-        XCTAssertTrue(h.shortcuts.runs.isEmpty, "Kulaklık sağlamken mikrofon için hiçbir Kestirme çalışmaz")
-        XCTAssertTrue(h.isHardwarePause)
-        XCTAssertEqual(h.vm.warnings.first(where: { $0.id == "donanim" })?.text, "Duraklatıldı: " + Say.micMissing)
-        h.route.inputs = lightning             // yaka mikrofonu yeniden takıldı
-        h.route.change(to: FakeRoute.good)
-        h.scheduler.advance(by: SessionViewModel.Timing.routeStable + 0.1)
-        let back = await waitUntil { h.vm.phase == .listening && h.speaker.spoken.last == Say.recovered }
-        XCTAssertTrue(back, "Mikrofon takılınca kendiliğinden devam edilir")
-        XCTAssertTrue(h.shortcuts.runs.isEmpty)
-    }
 
     func testHeadphonesMissingStillRunsTheShortcuts() async {
         let h = SessionHarness()

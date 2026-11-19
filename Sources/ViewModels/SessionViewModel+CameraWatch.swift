@@ -73,12 +73,15 @@ extension SessionViewModel {
         var outcome: ShortcutOutcome = .success
         var reachable = false
         if stay {
-            // Telefon kameranın Wi-Fi'sindedir: önce doğrudan bakılır; görünmezse kameraya geçiş kestirmesi bir kez çalışır ve yeniden bakılır
-            tlog("[kamera] yoklama (Wi-Fi'de kal): doğrudan bağlanılıyor")
+            // Bağlantılar hep açık: telefon kameranın Wi-Fi'sindedir, önce doğrudan bakılır; görünmezse Wi-Fi onarım kestirmesi (Wi-Fi kapat-aç) bir kez
+            // çalışır ve yeniden bakılır. Hücreseli kapatan "Kameraya geç" yalnız onarım kestirmesi yazılı değilse çalışır.
+            tlog("[kamera] yoklama (bağlantılar hep açık): doğrudan bağlanılıyor")
             reachable = await probeOnce()
             if !reachable, !Task.isCancelled, phase == .answering {
-                tlog("[kamera] yoklama: kamera görünmedi; kestirme “\(cameraName)” çalıştırılıyor")
-                outcome = await runShortcutRetryingTransient(name: cameraName)
+                let repair = settings.shortcutName(for: .wifi)
+                let name = repair.isEmpty ? cameraName : repair
+                tlog("[kamera] yoklama: kamera görünmedi; kestirme “\(name)” çalıştırılıyor")
+                outcome = await runShortcutRetryingTransient(name: name)
                 if !Task.isCancelled, phase == .answering, outcome == .success || outcome == .timedOut {
                     reachable = await probeOnce()
                 }

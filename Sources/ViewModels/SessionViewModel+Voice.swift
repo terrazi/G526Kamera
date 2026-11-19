@@ -26,7 +26,8 @@ extension SessionViewModel {
         }
         // Telefonda bekleyen çekim varsa önce o gönderilir (beginListening yapar; "önceki çekilen soru gönderiliyor" denir): "okuyun" denmez
         if resendablePending != nil { return true }
-        guard settings.askNextQuestion else { return true }
+        // Görüntülü sınavda (programın tek türü) soru sesle okunmaz: "sonraki soruyu okuyun" denmez
+        guard settings.askNextQuestion, settings.examType != .camera else { return true }
         return await speakNotice(Say.nextQuestion)
     }
 
@@ -121,7 +122,7 @@ extension SessionViewModel {
         tlog("[çıkış] \(name): \(outcome)")
         guard !Task.isCancelled else { return nil }
         try? deps.route.configure()
-        deps.route.preferExternalInput()
+        deps.route.preferHeadsetInput()
         let verdict = await settledRoute().verdict
         let after = deps.route.snapshot()
         tlog("[çıkış] kestirmeden sonra: \(AudioRouting.describe(after)) (\(AudioRouting.describeRaw(after))); \(verdict.isSafe ? "güvenli" : "güvenli değil: " + verdict.summary)")

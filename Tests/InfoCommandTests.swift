@@ -125,7 +125,7 @@ final class InfoCommandTests: XCTestCase {
         _ = await h.startListening()
         let said = await command(h, "yardım")
         XCTAssertEqual(said, Say.helpCommands)
-        for word in ["Cevapla", "Testi bitir", "Cevapları tekrarla", "Son cümleyi sil", "Ne duydun", "Durum", "Cevapsız soruları söyle", "bir daha söyle"] {
+        for word in ["Başla", "Testi bitir", "Cevapları tekrarla", "Son cümleyi sil", "Ne duydun", "Durum", "Cevapsız soruları söyle", "bir daha söyle"] {
             XCTAssertTrue(Say.helpCommands.contains(word), word)
         }
         XCTAssertTrue(h.answering.calls.isEmpty, "Yardım Gemini'ye gitmez")

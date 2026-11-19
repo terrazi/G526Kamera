@@ -35,8 +35,7 @@ extension Say {
 
     static func reportMicrophone(ok: Bool, inputs: [String]) -> String {
         if ok { return "Mikrofon bağlı: \(inputs.joined(separator: ", ")). Sizi duyuyorum." }
-        if inputs.isEmpty { return "Mikrofon bulunamadı. Yaka mikrofonu alıcısının telefona takılı olduğunu kontrol edin." }
-        return "Mikrofon yaka mikrofonu değil: \(inputs.joined(separator: ", ")). Yaka mikrofonu alıcısını kontrol edin."
+        return "Mikrofon şu anda ses yolunda görünmüyor. Kulaklığın mikrofonu dinleme açılınca devreye girer; tarama mikrofon olmadan da kendiliğinden sürer."
     }
 
     /// Ses seviyesi ve sesin gittiği yer
@@ -127,43 +126,6 @@ extension Say {
     // MARK: Kamera ayarları
 
     static let cameraSettingBusy = "Kamera çalışırken ayar değiştirilemez. Çekim bitince tekrar söyleyin."
-    static func cameraAskChanged(on: Bool, configured: Bool, leavingChoice: Bool) -> String {
-        if !on { return "Kamera sorusu kapatıldı. Sorular sesle okunacak." + (leavingChoice ? " Soruyu sesle okuyun." : "") }
-        if !configured {
-            return "Kamera sorusu açıldı ama kamera adı ya da kestirme adları eksik; ayarlardan tamamlayın. Eksik olduğu sürece sorular sesle okunur."
-        }
-        return "Kamera sorusu açıldı. Sonraki sorudan başlayarak her soruda sorulacak."
-    }
-    static func cameraAskAlready(_ on: Bool) -> String { return "Kamera sorusu zaten \(on ? "açık" : "kapalı")." }
-
-    // MARK: Sınav türü (görüntülü / sesli / hibrit)
-    static func examTypeAlready(_ type: ExamType) -> String { return "Sınav zaten \(type.spoken)." }
-    /// "Sınav türü ne"
-    static func examTypeAnswer(_ type: ExamType) -> String {
-        switch type {
-        case .camera: return "Sınav türü görüntülü: sorular kamerayla çekiliyor."
-        case .voice: return "Sınav türü sesli: sorular sesle okunuyor, kamera kullanılmıyor."
-        case .hybrid: return "Sınav türü hibrit: her soruda kamera mı sesle mi olacağı soruluyor."
-        }
-    }
-    /// Tür sesle değiştirildi. `leavingChoice`: kamera sorusu açıkken sesliye geçildi (soru hemen sesle okunur); `releasing`: kamera bağlantısı
-    /// kapanıp internete dönülecek; `keepsQuestion`: okunmakta olan soru metni var (kamera ondan sonraki sorudan başlar)
-    static func examTypeChanged(_ type: ExamType, configured: Bool, leavingChoice: Bool, releasing: Bool, keepsQuestion: Bool) -> String {
-        switch type {
-        case .voice:
-            var text = "Sesli sınav. Kalan sorular sesle okunacak, kamera kullanılmayacak."
-            if releasing { text += " Kameradan çıkılıyor, internete geçiliyor." }
-            if leavingChoice { text += " Soruyu sesle okuyun." }
-            return text
-        case .hybrid, .camera:
-            let name = type == .hybrid ? "Hibrit" : "Görüntülü"
-            if !configured {
-                return "\(name) sınav seçildi ama kamera adı ya da kestirme adları eksik; ayarlardan tamamlayın. Eksik olduğu sürece sorular sesle okunur."
-            }
-            let how = type == .hybrid ? "Her soruda kamera mı sesle mi olacağı sorulacak." : "Kalan sorular kamerayla çekilecek."
-            return "\(name) sınav. " + how + (keepsQuestion ? " Okuduğunuz bu soru sesle sürüyor; kamera sonraki sorudan başlar." : "")
-        }
-    }
 
     static func cameraQuality(high: Bool, already: Bool) -> String {
         return already ? "Görüntü kalitesi zaten \(high ? "yüksek" : "düşük")." : "Görüntü kalitesi \(high ? "yüksek" : "düşük") yapıldı."

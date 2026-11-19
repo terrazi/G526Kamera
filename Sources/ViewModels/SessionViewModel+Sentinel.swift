@@ -99,7 +99,7 @@ extension SessionViewModel {
         englishAccumulator.commitCurrent()
         deps.listener.pause()
         try? deps.route.configure()
-        deps.route.preferExternalInput()
+        deps.route.preferHeadsetInput()
         let verdict = AudioRouting.verdict(deps.route.snapshot())
         guard verdict.isSafe else {
             enterHardwarePause(verdict)
@@ -149,7 +149,7 @@ extension SessionViewModel {
             _ = deps.scheduler.after(1) { [weak self] in self?.healAfterMediaReset(attempt: attempt + 1) }
             return
         }
-        deps.route.preferExternalInput()
+        deps.route.preferHeadsetInput()
         recheckHardware()
     }
 

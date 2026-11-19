@@ -64,7 +64,7 @@ final class CameraSettingsTests: XCTestCase {
         XCTAssertEqual(s.videoQuestion, "")
         XCTAssertTrue(s.videoHighRes)
         XCTAssertEqual(s.cameraShortcutName, "")
-        XCTAssertFalse(s.stayOnWifi, "varsayılan: Wi-Fi ile hücresel sırayla değişir (kullanıcı kararı 2026-11-16)")
+        XCTAssertTrue(s.stayOnWifi, "varsayılan: bağlantılar hep açık (kullanıcı kararı 2026-11-19)")
         XCTAssertTrue(s.connectAtStart, "başlatınca kameraya hemen bağlanılır (kullanıcı kararı 2026-11-16)")
     }
 

@@ -67,13 +67,7 @@ extension SessionViewModel {
         }
         // Kamera hazır bekliyorsa (bağlı, görüntü akıyor) süre HEMEN başlar: "Başladı." denir, cümle bitince çekim sürer. Hazır değilse (bağlantı kopmuş)
         // eski düzen: duyuru kestirmeden ÖNCE söylenir (kestirme kulaklığı kapatabilir) ve oturum boyunca hiçbir şey söylenmez
-        // Yaka mikrofonu kameranın Wi-Fi'sini bozduğu için çekimden önce kapatılır (Ayarlar > Kamera); ayar kapalıysa hemen geçilir
-        defer { AudioRouting.builtInMicAllowed = false; leavePhoneMic() }
-        guard await muteLapelForCapture() else {
-            tlog("[kamera] yaka mikrofonu uyarısı kesildi; çekim başlamadı, onarımdan sonra yeniden sorulacak")
-            offerCamera = true
-            return
-        }
+        tlog("[ses yolu] çekim başlıyor: \(AudioRouting.describe(deps.route.snapshot()))")
         // Kamera "Başla"dan SONRA açılır (kullanıcı kararı 2026-11-17): "Kamera açılıyor." denir, kameraya geçilir; görüntü gelip kulaklık dönünce aşağıda
         // "Başladı." denir ve süre başlar. Başarısızlık (kamera açılamadı, kesinti) `prepareSeriesCamera` içinde söylenir ve işlenir
         if seriesAfterGo, !deps.camera.holding {
@@ -136,7 +130,6 @@ extension SessionViewModel {
                 tlog("[kamera] hazır bekleyen bağlantıyla çekilemedi (\(failure.message)); süre başlamadı, kamera yeniden hazırlanıp \"Başla\" yeniden beklenecek")
                 deps.camera.closeHeld()
                 statusNote = ""
-                await releaseLapelAfterCapture()   // süre başlamadı: yaka mikrofonu yeniden açılsın ("Başla" yeniden beklenecek)
                 guard !Task.isCancelled, phase == .answering else { offerCamera = true; return }
                 guard await speakNotice(Say.seriesLinkLost) else { offerCamera = true; return }
                 await askCameraChoice(relink: true)
@@ -180,7 +173,6 @@ extension SessionViewModel {
             if pendingShots.isEmpty { offerCamera = true }
             return
         }
-        await releaseLapelAfterCapture()   // "Yaka mikrofonunu açın": ayar açıksa
         guard !Task.isCancelled, phase == .answering else {
             if pendingShots.isEmpty { offerCamera = true }
             return

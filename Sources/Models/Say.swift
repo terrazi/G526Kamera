@@ -230,9 +230,6 @@ enum Say {
     }
     static let transcriptFailed = "Cevaplar yazı dosyasına eklenemedi. Telefonda yer kalmamış ya da kayıt klasörüne erişim gitmiş olabilir."
     static let answerFailed = "Cevap alınamadı. Soruyu yeniden oku."
-    static let receiverNotRouted = "Mikrofon alıcısı takılı ama ses yoluna girmiyor. Alttaki mikrofon listesinden alıcıya bir kez dokunun. Kulaklık sağlam göründüğü için Kestirme çalıştırılmıyor (bağlantıyı koparırdı)."
-    /// Kulaklık sağlam, mikrofon alıcısı hiç görünmüyor (yaka mikrofonu çıkarıldı ya da gevşedi)
-    static let micMissing = "Yaka mikrofonu görünmüyor. Mikrofonu ve alıcıyı kontrol edin; takılınca kendiliğinden devam edilir. Kulaklık sağlam olduğu için Kestirme çalıştırılmıyor."
     /// Kulaklık sağlam, mikrofon tarafı onarılıyor (Kestirme çalışmaz)
     static let micRepairing = "Mikrofon sorunu var. Test duraklatıldı, mikrofon yeniden kuruluyor."
     /// Cevap diğer modeller yanıt vermeyince ÜCRETLİ modelden geldi (para harcandı); söylenen tek cümle budur
@@ -343,7 +340,7 @@ enum Say {
 
     // MARK: Bilgi ve düzeltme komutları ("yardım", "ne duydun", "son cümleyi sil", "durum", "cevapsız soruları söyle")
     /// Her komut yaptığını ya da yapamadığını kısaca söyler
-    static let helpCommands = "Komutlar: Cevapla ya da Gönder, soruyu gönderir. Testi bitir. Cevapları tekrarla. Son cevabı tekrarla. Soruyu iptal et. Soruyu atla. Son soruyu sil. Paragrafı iptal et. Ortak paragraf. Son cümleyi sil. Ne duydun. Durum. Cevapsız soruları söyle. Raporlar için internet, mikrofon, kulaklık, ses, kamera, şarj, ısı ya da ram durumu deyin; hepsi için genel rapor deyin. Sesi aç ya da sesi kıs deyin. Kamera ayarları için kamera sorusunu kapat, görüntü kalitesini yüksek yap ya da kadrajı dikey yap deyin. Çekimde sesle yardım için konumlandırmayı aç ya da kapat deyin; yalnız toplu çekim için konumlandırma desteğini aç ya da kapat. Başla demeden önce kadraj kontrolü deyin. Sınav türü için sesli sınav başlat, hibrit sınav başlat ya da görüntülü sınav başlat deyin; sınav türü ne diye sorabilirsiniz. Duyamadığınız her şeyi bir daha söyle diyerek tekrarlatabilirsiniz."
+    static let helpCommands = "Komutlar: Başla, taramayı hemen başlatır. Testi bitir. Cevapları tekrarla. Son cevabı tekrarla. Soruyu iptal et. Soruyu atla. Son soruyu sil. Paragrafı iptal et. Ortak paragraf. Son cümleyi sil. Ne duydun. Durum. Cevapsız soruları söyle. Raporlar için internet, mikrofon, kulaklık, ses, kamera, şarj, ısı ya da ram durumu deyin; hepsi için genel rapor deyin. Sesi aç ya da sesi kıs deyin. Kamera ayarları için görüntü kalitesini yüksek yap ya da kadrajı dikey yap deyin. Çekimde sesle yardım için konumlandırmayı aç ya da kapat deyin; yalnız toplu çekim için konumlandırma desteğini aç ya da kapat. Başla demeden önce kadraj kontrolü deyin. Duyamadığınız her şeyi bir daha söyle diyerek tekrarlatabilirsiniz."
     /// "Ne duydun": soru metni yoksa
     static let nothingHeard = "Henüz bir şey duymadım."
     /// "Ne duydun" soru dinlenmediği bir anda söylendi (evet/hayır, numara, menü…)
@@ -400,8 +397,8 @@ enum Say {
     static let askCamera = "Bu soruyu kamera ile çekip göndermek ister misiniz? Evet ya da hayır deyin."
     static let askCameraAfterRecovery = "Bağlantı yeniden onarıldı. Bu soruyu kamera ile çekip göndermek ister misiniz? Evet ya da hayır deyin."
     static let askCameraAgain = "Anlayamadım, ikinci defa soruyorum. Bu soruyu kamera ile çekip göndermek ister misiniz? Evet ya da hayır deyin."
-    // Görüntülü sınav (kamera sorusu yok): sıradaki soru için kamera hazırdır; "hayır" sesle okumaya geçirmez, sesli ya da hibrit sınav komutu gerekir
-    static let askCameraOnly = "Sıradaki soru için kamera hazır. Başlamak için başla deyin. Sesle okumak için sesli sınav başlat deyin."
+    // Görüntülü sınav (programın tek türü): sıradaki soru için kamera hazırdır; "hayır" sesle okumaya geçirmez
+    static let askCameraOnly = "Sıradaki soru için kamera hazır. Başlamak için başla deyin."
     static let askCameraOnlyAfterRecovery = "Bağlantı yeniden onarıldı. " + askCameraOnly
     static let askCameraOnlyAgain = "Anlayamadım, ikinci defa soruyorum. " + askCameraOnly
     static func askCameraOnlyRepeat(_ attempt: Int) -> String {
@@ -409,12 +406,11 @@ enum Say {
         return "Cevap vermediniz, \(ordinal) defa soruyorum. " + askCameraOnly
     }
     /// Görüntülü sınavda "hayır" denirse
-    /// Sesli ve hibrit sınav kaldırıldı (kullanıcı kararı 2026-11-19): tür değiştirme komutuna verilen cevap ve "hayır" denince söylenen cümle
-    static let examTypeCameraOnly = "Bu sürümde yalnız görüntülü sınav var."
-    static let cameraOnlyStaysPlain = "Görüntülü sınavdasınız."
-    static let cameraOnlyStays = "Görüntülü sınavdasınız. Hazır olduğunuzda başla deyin. Sesle okumak için sesli sınav başlat ya da hibrit sınav başlat deyin."
+    static let cameraOnlyStays = "Görüntülü sınavdasınız."
     static let readyCamera = "Ben hazırım, sistem kontrol edildi ve problem yok."
     /// Kamera sorusu açık ama kamera adı ya da kestirme adları yazılmamış: sessizce V3'e dönülmez, kullanıcıya söylenir
+    /// Görüntülü sınavda (programın tek türü) kamera ayarları eksik: sesle okuma yoktur, tarama yapılamaz
+    static let readyCameraMissingScan = "Ben hazırım, sistem kontrol edildi. Kamera ayarları eksik: kamera adı ya da kestirme adları yazılmamış. Tarama yapılamaz; ayarlardan tamamlayıp yeniden başlatın."
     static let readyCameraMissing = "Ben hazırım, sistem kontrol edildi. Kamera ayarları eksik olduğu için sorular sesle okunacak."
     static let cameraDeclined = "Tamam. Soruyu okuyun, bitince Cevapla deyin."
     /// Kamera sorusu cevapsız kaldıkça sıra sayısıyla yeniden sorulur (2. ve 3. soruş); üçüncüde de cevap gelmezse kameraya kendiliğinden geçilir
@@ -547,12 +543,6 @@ enum Say {
     static let seriesWaiting = "Tamam. Hazır olduğunuzda başla deyin."
     /// Kamera önceden bağlıyken "Başla" denince: süre bu cümle bitince başlar
     static let seriesGo = "Başladı."
-    /// "Başla" denince, çekimden önce (Ayarlar > Kamera > "Çekimde yaka mikrofonunu kapat"): yaka mikrofonu kameranın Wi-Fi'sini bozduğu için kapatılır
-    static func lapelOff(seconds: Int) -> String {
-        return "Yaka mikrofonunu kapatın. \(seconds) saniye sonra başlıyorum."
-    }
-    /// Çekim bitince: yaka mikrofonu yeniden açılır (program sesle dinlemeye geçecek)
-    static let lapelOn = "Yaka mikrofonunu açın."
     /// "Başla" denince hazır bekleyen kamera bağlantısı kopmuş çıktı: süre başlamaz, kamera yeniden hazırlanır
     static let seriesLinkLost = "Kamera bağlantısı kopmuş, süre başlamadı. Yeniden bağlanıyorum."
     static func askCameraSeriesAfterRecovery(seconds: Int) -> String {

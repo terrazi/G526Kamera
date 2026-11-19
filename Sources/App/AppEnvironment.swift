@@ -17,6 +17,8 @@ final class AppEnvironment: ObservableObject {
     private let folderStore: FolderStore
     /// Pano işareti (kapanma engeli ayarı ve uygulamadan çıkış bunu eşitler)
     private let journal: RunJournal
+    /// Uygulama önde mi (pano işareti öndeyken kullanıcının kopyaladığı metnin üstüne yazılmaz)
+    private let foreground: ForegroundFlag
 
     private let starter = StartScheduler()
     private let notificationRouter = StartNotificationRouter()
@@ -32,10 +34,11 @@ final class AppEnvironment: ObservableObject {
         settings.applyCameraPresetOnce(camera: camera)
         settings.moveInternetPresetOnce()
         settings.applyPaidLineupOnce()
+        camera.applyAlwaysOnOnce()
         let folderStore = FolderStore()
         let recorder = PCMRecorder()
         let route = AudioSessionGuard()
-        let listener = OnDeviceSpeechListener(recorder: recorder, wantsEnglish: { settings.englishDictation })
+        let listener = OnDeviceSpeechListener(recorder: recorder, wantsEnglish: { false })   // sesli sınav kaldırıldı: yardımcı İngilizce tanıyıcı çalıştırılmaz (yalnız Türkçe komut dinlenir)
         let phoneVoice = SpeechRenderer(voice: { SpeechVoiceChooser.voice(preferredID: settings.phoneVoiceID) })
         let geminiVoice = GeminiVoice(keys: { settings.usableGeminiProfiles.map { $0.key } })
         let speaker = HeadphoneSpeaker(
@@ -48,6 +51,8 @@ final class AppEnvironment: ObservableObject {
         let health = NetworkHealth()
         let journal = RunJournal()
         journal.closeGuardEnabled = { settings.closeGuard }
+        let foreground = ForegroundFlag()
+        journal.appInForeground = { foreground.value }
         let captureStore = FileCaptureStore(root: FileCaptureStore.documentsRoot())
         captureStore.prepare()
         shortcuts.onLeaving = { journal.setAway(true) }
@@ -86,6 +91,7 @@ final class AppEnvironment: ObservableObject {
         self.session = session
         self.folderStore = folderStore
         self.journal = journal
+        self.foreground = foreground
         self.settingsModel = SettingsViewModel(settings: settings, shortcuts: shortcuts, folder: folderStore,
                                                sessionActive: { [weak session] in session?.phase.isRunning ?? false })
         ScreenDimmer.shared.restoreIfLeftDimmed()
@@ -138,6 +144,7 @@ final class AppEnvironment: ObservableObject {
     func appBecameInactive() {
         tlog("[uygulama] arka plana ya da pasife geçti")
         isActive = false
+        foreground.value = false
         syncDimming()
         journal.syncCloseGuard()   // engel kapalıysa: çıkarken pano işareti yerinde olsun (kopyalanmış günlük korunur)
     }
@@ -159,11 +166,12 @@ final class AppEnvironment: ObservableObject {
     func appBecameActive() {
         tlog("[uygulama] öne geldi")
         isActive = true
+        foreground.value = true
         syncDimming()
         journal.syncCloseGuard(releasingPasteHold: true)   // günlük yapıştırıldı sayılır: işaret kalkar, pano yalnız günlük olur
         starter.apply(enabled: settings.startEnabled, minutes: settings.startMinutes)
         session.recheckHardware()
-        session.refreshInputs()
+        session.refreshRouteText()
         settingsModel.refreshFolderStatus()
     }
 }

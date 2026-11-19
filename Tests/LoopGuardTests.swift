@@ -61,7 +61,7 @@ final class LoopGuardTests: XCTestCase {
         h.vm.hardwareRecoveries = T.maxHardwareRecoveries
         await h.vm.runRecovery(.hardware, force: true)
         XCTAssertTrue(h.vm.holdForRetry)
-        h.route.change(to: FakeRoute.noMic)
+        h.route.change(to: FakeRoute.noHeadphones)
         XCTAssertFalse(h.vm.holdForRetry, "Ses yolu gerçekten değişti")
         h.route.change(to: FakeRoute.good)
         h.scheduler.advance(by: T.routeStable + 0.1)
@@ -156,15 +156,6 @@ final class LoopGuardTests: XCTestCase {
         XCTAssertTrue(h.shortcuts.runs.isEmpty, "Kulaklık sağlam: hiçbir Kestirme çalışmaz")
     }
 
-    func testRecognizerFailureWithAMissingMicWaitsAndNeverRunsShortcuts() async {
-        let h = makeHarness()
-        _ = await h.startListening()
-        h.route.current = FakeRoute.noMic
-        h.listener.onEvent?(.failure("Konuşma tanıma üst üste hata verdi."))
-        let paused = await waitUntil { h.isHardwarePause }
-        XCTAssertTrue(paused, "Mikrofon yok: beklenir")
-        XCTAssertTrue(h.shortcuts.runs.isEmpty, "Kulaklık sağlam: Kestirme çalışmaz")
-    }
 
     func testEngineStoppedEventsDoNotCountTowardTheEscalation() async {
         let h = makeHarness()
@@ -237,15 +228,6 @@ final class LoopGuardTests: XCTestCase {
         XCTAssertTrue(h.shortcuts.runs.isEmpty)
     }
 
-    func testRecognizerDownWithAMissingMicWaitsAndNeverRunsShortcuts() async {
-        let h = makeHarness()
-        _ = await h.startListening()
-        h.route.current = FakeRoute.noMic
-        h.listener.onEvent?(.recognizerDown(message: "x", permanent: false))
-        let paused = await waitUntil { h.isHardwarePause }
-        XCTAssertTrue(paused, "Mikrofon yok: beklenir")
-        XCTAssertTrue(h.shortcuts.runs.isEmpty, "Kulaklık sağlam: Kestirme çalışmaz")
-    }
 
     func testRecognizedWordResetsTheRepairCounter() async {
         let h = makeHarness()

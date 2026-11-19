@@ -51,9 +51,9 @@ final class ManualScheduler: Scheduling {
 
 @MainActor
 final class FakeRoute: AudioRouteProviding {
-    static let good = RouteSnapshot(outputs: [.bluetoothA2DP], inputs: [.usbAudio])
-    static let noHeadphones = RouteSnapshot(outputs: [.builtInSpeaker], inputs: [.usbAudio])
-    static let noMic = RouteSnapshot(outputs: [.bluetoothA2DP], inputs: [.builtInMic])
+    /// Çıkış da giriş de Bluetooth kulaklık (görüşme profili): programın tek geçerli ses yolu
+    static let good = RouteSnapshot(outputs: [.bluetoothHFP], inputs: [.bluetoothHFP])
+    static let noHeadphones = RouteSnapshot(outputs: [.builtInSpeaker], inputs: [.builtInMic])
 
     var onChange: (@MainActor (RouteSnapshot) -> Void)?
     var onInterruption: (@MainActor (Bool) -> Void)?
@@ -69,43 +69,14 @@ final class FakeRoute: AudioRouteProviding {
     }
 
     func snapshot() -> RouteSnapshot { return current }
-    /// Yol ilk bakışta oturmamış olsun: bu kadar `preferExternalInput` çağrısından sonra güvenli yola geçer (nil = hiç)
+    /// Yol ilk bakışta oturmamış olsun: bu kadar `preferHeadsetInput` çağrısından sonra güvenli yola geçer (nil = hiç)
     var settlesAfterPrefers: Int?
-    func preferExternalInput() {
+    func preferHeadsetInput() {
         preferCalls += 1
         if let n = settlesAfterPrefers, preferCalls >= n {
             current = FakeRoute.good
             settlesAfterPrefers = nil
         }
-    }
-
-    /// Telefonun mikrofonu kipi: açılınca giriş telefonun mikrofonuna geçer (iOS gibi yol bildirimi gelir), kapanınca önceki yol döner
-    private(set) var builtInModeCalls: [Bool] = []
-    private var routeBeforeBuiltIn: RouteSnapshot?
-    /// Kipi kapatınca yol harici mikrofona dönsün mü (false: alıcı çıkmış ya da yola girmiyor gibi, yol telefonun mikrofonunda kalır)
-    var returnsToExternalOnBuiltInOff = true
-    func setBuiltInInputMode(_ on: Bool) {
-        builtInModeCalls.append(on)
-        if on {
-            routeBeforeBuiltIn = routeBeforeBuiltIn ?? current
-            var snapshot = current
-            snapshot.inputs = [.builtInMic]
-            change(to: snapshot)
-        } else if let before = routeBeforeBuiltIn {
-            routeBeforeBuiltIn = nil
-            if returnsToExternalOnBuiltInOff { change(to: before) }
-        }
-    }
-
-    /// Bağlı mikrofonlar (varsayılan: Lightning alıcı) ve seçim denemeleri
-    var inputs: [InputChoice] = [InputChoice(uid: "lightning", name: "Boya Mikrofon", port: .usbAudio, isCurrent: true)]
-    private(set) var selectedUIDs: [String] = []
-    func availableInputs() -> [InputChoice] { return inputs }
-    func selectInput(uid: String) -> Bool {
-        selectedUIDs.append(uid)
-        guard let input = inputs.first(where: { $0.uid == uid }), input.isExternal else { return false }
-        inputs = inputs.map { var c = $0; c.isCurrent = c.uid == uid; return c }
-        return true
     }
 
     /// Arama/alarm/Siri sesi böldü (began) ya da bitti

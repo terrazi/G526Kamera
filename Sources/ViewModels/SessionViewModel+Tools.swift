@@ -53,7 +53,7 @@ extension SessionViewModel {
         work = Task { [weak self] in
             guard let self = self else { return }
             try? self.deps.route.configure()
-            self.deps.route.preferExternalInput()
+            self.deps.route.preferHeadsetInput()
             let verdict = await self.settledRoute().verdict
             guard !Task.isCancelled else { return }
             self.routeVerdict = verdict
@@ -85,7 +85,7 @@ extension SessionViewModel {
             tries += 1
             await deps.sleep(0.4)
             if tries >= 3 { try? deps.route.configure() }
-            deps.route.preferExternalInput()
+            deps.route.preferHeadsetInput()
             snapshot = deps.route.snapshot()
             verdict = AudioRouting.verdict(snapshot)
         }
@@ -109,11 +109,11 @@ extension SessionViewModel {
                 self.soundTest = "Ses oturumu açılamadı: \(error.localizedDescription)"
                 return
             }
-            self.deps.route.preferExternalInput()
+            self.deps.route.preferHeadsetInput()
             let (snapshot, verdict) = await self.settledRoute()
             guard !Task.isCancelled else { return }
             self.routeVerdict = verdict
-            self.refreshInputs()
+            self.refreshRouteText()
             let route = AudioRouting.describe(snapshot)
             tlog("[ses denemesi] \(route)")
             guard verdict.headphonesOK else {
@@ -124,9 +124,7 @@ extension SessionViewModel {
             do {
                 if let task = self.voiceTask { await task.value }   // çalan bir uyarı varsa bitsin
                 try await self.deps.speaker.speak(Say.soundTest, saveAs: nil)
-                self.soundTest = verdict.micOK
-                    ? "\(route) Cümleyi kulaklıkta duydunuz mu? Mikrofon da görünüyor."
-                    : "\(route) Ses çalındı ama yaka mikrofonu görünmüyor: alıcının takılı ve mikrofonun açık olduğundan emin olun."
+                self.soundTest = "\(route) Cümleyi kulaklıkta duydunuz mu?"
             } catch SpeakError.routeUnsafe {
                 self.soundTest = "Çalma sırasında ses yolu güvenli olmaktan çıktı. Kulaklığı kontrol edin."
             } catch is CancellationError {

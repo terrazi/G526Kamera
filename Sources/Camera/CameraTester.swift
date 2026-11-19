@@ -79,9 +79,7 @@ final class CameraTester: ObservableObject {
         defer { running = false }
 
         // 1) Kameraya geç
-        lines.append("1/3 Kameraya geçiliyor: “\(cameraName)”…")
-        let toCamera = await shortcuts.run(name: cameraName)
-        lines.append(SettingsViewModel.text(for: toCamera))
+        await switchToCamera(cameraName)
 
         // 2) Kameraya bağlan ve çek (kestirme çalışmadıysa da denenir: ağ elle de kameraya geçmiş olabilir)
         if !stopped {
@@ -132,9 +130,7 @@ final class CameraTester: ObservableObject {
         lastPhoto = nil
         defer { running = false }
 
-        lines.append("1/3 Kameraya geçiliyor: “\(cameraName)”…")
-        let toCamera = await shortcuts.run(name: cameraName)
-        lines.append(SettingsViewModel.text(for: toCamera))
+        await switchToCamera(cameraName)
 
         if !stopped {
             lines.append("2/3 Akışlar deneniyor (3 akış × yaklaşık \(Int(CameraCaptureController.surveySeconds)) sn ve kamera bilgi sorgusu; 1 dakika kadar sürer). iOS yerel ağ izni sorarsa “İzin ver”e basın…")
@@ -178,9 +174,7 @@ final class CameraTester: ObservableObject {
         }
         let seconds = cameraSettings.seriesSeconds
 
-        lines.append("1/3 Kameraya geçiliyor: “\(cameraName)”…")
-        let toCamera = await shortcuts.run(name: cameraName)
-        lines.append(SettingsViewModel.text(for: toCamera))
+        await switchToCamera(cameraName)
 
         if !stopped {
             lines.append("2/3 Deneme çekimi: \(seconds) sn. Sayfaları gerçek çekimdeki gibi gösterin (iOS yerel ağ izni sorarsa “İzin ver”e basın)…")
@@ -208,7 +202,23 @@ final class CameraTester: ObservableObject {
     }
 
     /// 3) Hücresele geç ve internetin gelmesini bekle. SIM kart yoksa hücresel kestirme internet getirmez, yalnız Wi-Fi'yi kapatır: atlanır
+    /// Kameraya geçiş. "Bağlantılar hep açık"ta kestirme çalışmaz: telefon zaten kameranın Wi-Fi'sindedir ve hücresel kapatılmaz
+    private func switchToCamera(_ cameraName: String) async {
+        if cameraSettings.stayOnWifi {
+            lines.append("1/3 Bağlantılar hep açık: kestirme çalıştırılmadı, kameraya doğrudan bağlanılıyor.")
+            return
+        }
+        lines.append("1/3 Kameraya geçiliyor: “\(cameraName)”…")
+        let toCamera = await shortcuts.run(name: cameraName)
+        lines.append(SettingsViewModel.text(for: toCamera))
+    }
+
     private func backToInternet(internetName: String) async {
+        // "Bağlantılar hep açık": hücresel hiç kapatılmadı; internet varsa hiçbir kestirme çalışmaz
+        if cameraSettings.stayOnWifi, await health.internetReachable() {
+            lines.append("3/3 ✓ İnternet var (hücresel açık kaldı; kestirme çalıştırılmadı). Sınama tamam.")
+            return
+        }
         if !health.hasCellularService() {
             lines.append("3/3 Telefonda SIM kart yok: “\(internetName)” kestirmesi çalıştırılmadı (yalnız Wi-Fi'yi kapatırdı). Kamera ağından çıkıp internet olan bir Wi-Fi ağına bağlanın.")
             return

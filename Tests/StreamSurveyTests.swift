@@ -213,6 +213,7 @@ final class StreamSurveyTesterTests: XCTestCase {
         let settings = AppSettings(defaults: defaults)
         let cameraSettings = CameraSettings(defaults: defaults)
         cameraSettings.cameraShortcutName = cameraShortcut
+        cameraSettings.stayOnWifi = false   // bu sınamalar eski düzeni (kameraya geç, sonra hücresele dön) dener
         settings.internetShortcut = "Hücresele_Gec"
         let camera = FakeCamera()
         let shortcuts = FakeShortcuts()

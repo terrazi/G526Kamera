@@ -115,10 +115,10 @@ extension SessionViewModel {
             beginListening(mode: .cameraChoice)
             return
         }
-        // Görüntülü sınavda "hayır" sesle okumaya geçirmez (her soru kamerayla çekilir); sesle okumak için "sesli sınav başlat" ya da "hibrit sınav başlat" denir
+        // Görüntülü sınavda (programın tek türü) "hayır" sesle okumaya geçirmez: her soru kamerayla taranır
         if settings.examType == .camera {
             tlog("[kamera] görüntülü sınav: \"hayır\" duyuldu; sesle okumaya geçilmedi, kamera bekleniyor")
-            guard await speakNotice(settings.cameraOnlyExam ? Say.cameraOnlyStaysPlain : Say.cameraOnlyStays) else { return }
+            guard await speakNotice(Say.cameraOnlyStays) else { return }
             beginListening(mode: .cameraChoice)
             return
         }
@@ -464,9 +464,13 @@ extension SessionViewModel {
             } catch let error as GeminiError {
                 last = error
                 guard error.kind == .network, attempt < Timing.cameraSendTries, !Task.isCancelled else { break }
-                // Telefon kameranın Wi-Fi'sindeyse ve hücresel yol çalışıyorsa kestirme (Wi-Fi/uçak modu/Bluetooth oyunları) çalıştırılmaz: aynı yoldan yeniden denenir
-                if CellularRoute.shouldUse(), await deps.health.quickProbe() {
-                    tlog("[kamera] gönderim ağ hatası verdi; hücresel yol çalışıyor, kestirme çalıştırılmadan bir kez daha denenecek")
+                // İnternet çalışıyorsa (hızlı yoklama ya da tam yoklama) kestirme (Wi-Fi/hücresel/uçak modu oyunları) çalıştırılmaz: sorun Gemini
+                // tarafındadır ya da geçicidir, aynı yoldan yeniden denenir. Kestirme yalnız internet gerçekten yokken çalışır.
+                var online = await deps.health.quickProbe()
+                if !online, !Task.isCancelled { online = await deps.health.internetReachable() }
+                guard !Task.isCancelled else { break }
+                if online {
+                    tlog("[kamera] gönderim ağ hatası verdi; internet çalışıyor, kestirme çalıştırılmadan bir kez daha denenecek")
                 } else {
                     tlog("[kamera] gönderim ağ hatası verdi; internet kestirmesi yeniden çalıştırılıp bir kez daha denenecek")
                     _ = await returnToInternet(shortcut: settings.internetShortcut.trimmed)
@@ -606,7 +610,9 @@ extension SessionViewModel {
                     afterReset = true
                     await resetConnectionsForCamera(announce: true)
                     guard !Task.isCancelled, phase == .answering else { return .failure(.cancelled) }
-                    name = cameraName   // Wi-Fi açık, hücresel kapalı: kameraya geçiş kestirmesi
+                    // Eski düzende kameraya geçiş kestirmesi (Wi-Fi açık, hücresel kapalı). "Bağlantılar hep açık"ta hücresel kapatılmaz: Wi-Fi onarım
+                    // kestirmesi çalışır (yazılı değilse ya da telefonda yoksa kameraya geçiş kestirmesi)
+                    if !stay || repair.isEmpty || repairMissing { name = cameraName }
                 }
                 statusNote = "Kamera bağlantısı onarılıyor (\(attempt). deneme)"
                 tlog("[kamera] bağlantı onarımı \(attempt). deneme: kestirme “\(name)”\(afterReset ? " (bağlantı sıfırlamadan sonra)" : "")")
@@ -635,6 +641,15 @@ extension SessionViewModel {
                 return .failure(.cancelled)
             }
             let camera = deps.camera
+            // "Bağlantılar hep açık": Wi-Fi onarım kestirmesinden sonra telefon kameranın ağına girmediyse (Wi-Fi adresi yok) kamera 40 sn boşuna aranmaz
+            // (günlük 19.11.2026: her deneme 40 sn sürdü, sıfırlamaya 2,5 dakikada varıldı); hemen sıradaki denemeye, oradan sıfırlamaya geçilir
+            if stay, attempt > 0, name != cameraName, outcome == .success || outcome == .timedOut,
+               !(await waitForPhoneWiFi(seconds: Timing.wifiJoinWaitAfterRepair)) {
+                guard !Task.isCancelled, phase == .answering else { return .failure(.cancelled) }
+                tlog("[kamera] onarım kestirmesinden sonra telefon kameranın Wi-Fi ağına girmedi; kamera aranmadan sıradaki denemeye geçiliyor")
+                result = .failure(.notConnected)
+                continue
+            }
             // Zaman aşımında kestirme çalışmış ama dönüş haberi gelmemiş olabilir: kameranın kendisi karar verir
             if outcome == .success || outcome == .timedOut { onCameraNetwork = true }
             // Onarım denemesinde Wi-Fi onarım kestirmesi yoksa ya da çalışmadıysa bile (telefon zaten kameranın ağındaysa) kameraya yeniden bağlanılır
@@ -1021,9 +1036,10 @@ extension SessionViewModel {
     func fallBackToVoice(_ text: String) async {
         // Otomatik zamanlı başlatmada sesli komut istenmez (kullanıcı kararı 2026-11-19): "soruyu okuyun" denmez, tarama yeniden denenir. Kamera
         // "ulaşılamıyor" sayıldıysa (`cameraOfferAvailable` yanlış) eski yol geçerlidir: program kamerayı yoklar, dönünce haber verir
-        if autoMode {
-            let spoken = text.replacingOccurrences(of: Say.readInstead, with: "") + " " + Say.autoRetry
-            tlog("[otomatik] çekim olmadı; sesle okumaya geçilmedi, tarama yeniden denenecek")
+        if autoMode || settings.examType == .camera {
+            // Görüntülü sınavda (programın tek türü) sesle okuma yoktur: otomatik başlatma kapalıyken de "soruyu okuyun" denmez, kamera yeniden sorulur
+            let spoken = text.replacingOccurrences(of: Say.readInstead, with: "") + (autoMode ? " " + Say.autoRetry : "")
+            tlog("[kamera] çekim olmadı; sesle okumaya geçilmedi, tarama yeniden denenecek")
             guard await speakNotice(spoken) else {
                 offerCamera = true
                 return

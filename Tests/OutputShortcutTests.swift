@@ -111,38 +111,7 @@ final class OutputShortcutTests: XCTestCase {
         XCTAssertTrue(h.shortcuts.runs.isEmpty)
     }
 
-    func testHeadphonesFixedButMicMissingDoesNotRunTheNextShortcuts() async {
-        let h = SessionHarness()
-        _ = await h.startListening()
-        // Bluetooth yenileme kulaklığı getirir; yaka mikrofonu ise yoktur (çıkarılmış)
-        h.shortcuts.onRun = { _ in h.route.current = FakeRoute.noMic }
-        h.route.change(to: FakeRoute.noHeadphones)
-        h.scheduler.advance(by: SessionViewModel.Timing.hardwareGrace + 0.1)
-        let waiting = await waitUntil { h.shortcuts.runs.count == 1 && h.isHardwarePause }
-        XCTAssertTrue(waiting)
-        for _ in 0..<4 {
-            h.scheduler.advance(by: SessionViewModel.Timing.hardwareGrace + 0.1)
-            await settle()
-        }
-        XCTAssertEqual(h.shortcuts.runs, ["Bluetooth_Yenile"],
-                       "Kulaklık düzeldi: mikrofon yüzünden sıradaki (uçak modu) Kestirme ve tekrarlar çalıştırılmaz")
-        XCTAssertTrue(h.isHardwarePause)
-        h.route.change(to: FakeRoute.good)    // yaka mikrofonu takıldı
-        h.scheduler.advance(by: SessionViewModel.Timing.routeStable + 0.1)
-        let back = await waitUntil { h.vm.phase == .listening }
-        XCTAssertTrue(back)
-        XCTAssertEqual(h.shortcuts.runs, ["Bluetooth_Yenile"])
-    }
 
-    func testNoQuickAttemptWhenOnlyTheMicrophoneIsMissing() async {
-        let h = SessionHarness()
-        h.settings.outputShortcut = shortcutName
-        _ = await h.startListening()
-        h.route.change(to: FakeRoute.noMic)
-        h.scheduler.advance(by: SessionViewModel.Timing.outputQuickDelay + 0.1)
-        await settle()
-        XCTAssertTrue(h.shortcuts.runs.isEmpty, "Kulaklık yolda: çıkış kestirmesi gereksiz")
-    }
 
     func testHeadphonesBackBeforeTheQuickAttemptNeverRunTheShortcut() async {
         let h = SessionHarness()

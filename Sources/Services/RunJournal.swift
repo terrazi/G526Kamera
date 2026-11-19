@@ -197,6 +197,11 @@ enum ClipboardState: Equatable {
     }
 }
 
+/// Uygulama önde mi: açılıştan ilk arka plana geçişe kadar ve her öne gelişte doğru (bkz. `RunJournal.appInForeground`)
+final class ForegroundFlag {
+    var value = true
+}
+
 /// Panodaki işaret. Kestirmeler'deki "uygulama kapanınca yeniden aç" otomasyonu panoyu okur: `SESLIKONTROL-` ile başlayan bir şey varsa
 /// uygulamayı açmaz. iOS "Kapatıldı" tetikleyicisini uygulamadan başka uygulamaya geçildiğinde de çalıştırır; bu yüzden işaret yalnız
 /// iki anda yazılır: "Programı kapat" düğmesi (KAPALI) ve uygulama kestirme çalıştırmak için bilerek başka uygulamaya geçerken (ONARIM).
@@ -359,6 +364,11 @@ final class RunJournal: RunJournaling {
     /// Ayarlar > "Kapanma engeli": açıkken (varsayılan) kapanma yalnız "Programı kapat" düğmesiyle serbesttir, başka her kapanmayı otomasyon geri açar.
     /// Kapalıyken pano işareti (KAPALI) hep yerinde tutulur: otomasyon hiçbir kapanmada geri açmaz.
     var closeGuardEnabled: () -> Bool = { true }
+    /// Uygulama önde mi (varsayılan: hayır; uygulama `ForegroundFlag` ile bağlar). Öndeyken kullanıcının başka uygulamadan kopyalayıp getirdiği metnin
+    /// (ör. API anahtarı) üstüne işaret yazılmaz: yapıştırabilsin. İşaret uygulamadan çıkarken yazılır (otomasyon panoya o an bakar).
+    var appInForeground: () -> Bool = { false }
+    /// Pano kullanıcının kendi kopyaladığı metni taşıyor ve uygulama önde: işaretin yazılması uygulamadan çıkışa ertelendi
+    private var userCopyHeld = false
 
     /// Pano işaretini ayara göre eşitler: engel açıkken işaret kalkar, kapalıyken KAPALI işareti yerinde durur (kullanıcı panoyu değiştirdiyse yeniden yazılır;
     /// panodaki kopyalanmış günlük korunur). Kestirmeye geçerken (`away`) ve düğmeyle kapatırken (`closing`) işarete dokunulmaz.
@@ -369,6 +379,16 @@ final class RunJournal: RunJournaling {
             if !releasingPasteHold, case let .marker(name) = clipboard.state(), name == ClipboardFlag.pasteHold { return }
             clipboard.clearIfOurs()
         } else if clipboard.state() != .marker(ClipboardFlag.closed) {
+            // Engel kapalıyken işaret hep yerinde tutulur; ama kullanıcı panoya kendi metnini koyup programa döndüyse (günlük 19.11.2026: kopyalanan
+            // API anahtarı yerine işaret yapıştırıldı) program öndeyken üstüne yazılmaz, uygulamadan çıkarken yazılır
+            if appInForeground(), userCopyHeld || clipboard.state() == .overwritten {
+                if !userCopyHeld {
+                    userCopyHeld = true
+                    tlog("[kapanma engeli] pano kullanıcının kopyaladığı metni taşıyor; işaret uygulamadan çıkarken yazılacak")
+                }
+                return
+            }
+            userCopyHeld = false
             clipboard.set(ClipboardFlag.closed)
             tlog("[kapanma engeli] kapalı: pano işareti \(ClipboardFlag.closed) yazıldı; hiçbir kapanma otomasyonla geri açılmaz")
         }
@@ -395,6 +415,7 @@ final class RunJournal: RunJournaling {
         // Kapanma yalnız "Programı kapat" düğmesiyle serbesttir. Her açılışta eski işaret (düğmeyle kapatmadan ya da eski sürümden kalan
         // KAPALI) silinir; böylece oturum yokken ve "Testi Bitir"den sonra da bu düğme dışındaki her kapanma/çıkış otomasyonla geri açılır.
         // Kullanıcı arada kendi metnini kopyaladıysa o silinmez. (Kapanma engeli ayarı kapalıysa işaret hemen yeniden yazılır.)
+        if appInForeground(), clipboard.state() == .overwritten { userCopyHeld = true }   // açılıştan önce kopyalanan metin korunur (bkz. `syncCloseGuard`)
         clipboard.clearIfOurs()
         syncCloseGuard()
 

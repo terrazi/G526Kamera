@@ -150,7 +150,7 @@ final class InstantDetectionTests: XCTestCase {
     func testHardwareReturnIsNoticedEvenWhenNoRouteNotificationArrives() async {
         let h = makeHarness()
         _ = await h.startListening()
-        h.route.change(to: FakeRoute.noMic)
+        h.route.change(to: FakeRoute.noHeadphones)
         let paused = await waitUntil { h.isHardwarePause }
         XCTAssertTrue(paused)
         h.route.current = FakeRoute.good   // iOS bildirim göndermedi

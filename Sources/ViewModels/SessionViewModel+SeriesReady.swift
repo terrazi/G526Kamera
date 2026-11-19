@@ -70,19 +70,16 @@ extension SessionViewModel {
         }
         // "Kameraya Geç" uçak modunu kullanmıyorsa kulaklık düşmez (kullanıcı kararı 2026-11-19: kulaklık hep açık kalsın): yol kısa süre izlenir,
         // kulaklık yerindeyse Bluetooth kapatılıp açılmaz (boşuna koparılmaz)
-        // Yalnız kulaklık mikrofonu kipinde bakılır (eski düzende kestirme her zaman çalışır)
-        if AudioRouting.headsetMicMode {
-            var checked = 0.0
-            var stillThere = AudioRouting.verdict(deps.route.snapshot()).headphonesOK
-            while stillThere, checked < Timing.headsetDropWatch, !Task.isCancelled {
-                await deps.sleep(0.5)
-                checked += 0.5
-                stillThere = AudioRouting.verdict(deps.route.snapshot()).headphonesOK
-            }
-            if stillThere {
-                tlog("[kamera] toplu çekim: kameraya geçildi, kulaklık yerinde; Bluetooth kestirmesi çalıştırılmadı")
-                return
-            }
+        var checked = 0.0
+        var stillThere = AudioRouting.verdict(deps.route.snapshot()).headphonesOK
+        while stillThere, checked < Timing.headsetDropWatch, !Task.isCancelled {
+            await deps.sleep(0.5)
+            checked += 0.5
+            stillThere = AudioRouting.verdict(deps.route.snapshot()).headphonesOK
+        }
+        if stillThere {
+            tlog("[kamera] toplu çekim: kameraya geçildi, kulaklık yerinde; Bluetooth kestirmesi çalıştırılmadı")
+            return
         }
         let note = statusNote
         statusNote = "Kulaklık için Bluetooth açılıyor"
@@ -139,8 +136,9 @@ extension SessionViewModel {
         let attemptStart = deps.now()
         phase = .answering
         networkMayBeOnCamera = true   // kestirme çalışınca hücresel kapanır; internete dönüş doğrulanana kadar bayrak durur
-        statusNote = "Kameraya geçiliyor (hücresel kesiliyor)"
-        tlog("[kamera] toplu çekim: sıradaki oturum için kameraya geçiliyor, kestirme “\(cameraName)”")
+        statusNote = cameraSettings.stayOnWifi ? "Kameraya bağlanılıyor" : "Kameraya geçiliyor (hücresel kesiliyor)"
+        tlog(cameraSettings.stayOnWifi ? "[kamera] toplu çekim: bağlantılar hep açık; kameraya kestirmesiz bağlanılıyor"
+             : "[kamera] toplu çekim: sıradaki oturum için kameraya geçiliyor, kestirme “\(cameraName)”")
         // Kestirme kulaklığı düşürebilir: ses yolu değişikliği donanım duraklatması sayılmaz
         let headsetWasThere = routeVerdict?.isSafe ?? true
         connectionResetActive = true

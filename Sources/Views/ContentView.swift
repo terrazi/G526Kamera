@@ -25,7 +25,6 @@ struct ContentView: View {
                     if !session.questions.isEmpty || liveBoxVisible || passageNote != nil { questionList }
                     controls
                     outputPicker
-                    inputPicker
                     Text(BuildInfo.version)
                         .font(.caption2)
                         .foregroundColor(.secondary)
@@ -204,7 +203,7 @@ struct ContentView: View {
     /// Mikrofon şu an ne bekliyor
     private var modeNote: String {
         switch session.listenMode {
-        case .question: return "Okunuyor: sorunuz bitince “Cevapla” deyin"
+        case .question: return "Tarama bekleniyor: sesli komut verebilirsiniz (“durum”, “cevapları tekrarla”, “testi bitir”)"
         case .passage: return "Ortak paragraf okunuyor: bitirince “Tamam” deyin"
         case .passageTargets: return "Paragraf alındı: hangi sorulara ait olduğunu söyleyip “Tamam” deyin"
         case .missingNumber:
@@ -214,7 +213,10 @@ struct ContentView: View {
             if session.pendingRenumber != nil { return "Numarayı değiştirmek için “evet”, vazgeçmek için “hayır” deyin" }
             return session.pendingDelete != nil ? "Kaydı silmek için “evet”, vazgeçmek için “hayır” deyin" : "Testi bitirmek için “evet”, devam etmek için “hayır” deyin"
         case .cameraChoice:
-            if session.cameraSettings.pageSeries { return "Kamera hazır: süreyi başlatmak için “başla” deyin" }
+            if session.cameraSettings.pageSeries {
+                return session.cameraSettings.autoStart ? "Otomatik tarama: saat ya da soru bekleniyor (hemen başlatmak için “başla” deyin)"
+                    : "Kamera hazır: süreyi başlatmak için “başla” deyin"
+            }
             return "Kamera ile çekmek için “evet”, sesle okumak için “hayır” deyin (ortak paragraf için “ortak paragraf” deyin)"
         case .passageCameraChoice: return "Ortak paragrafı kamera ile çekmek için “evet”, sesle okumak için “hayır” deyin"
         case .captureKindChoice: return "Soru çekmek için “bir” ya da “soru”, ortak paragraf için “iki” ya da “paragraf” deyin"
@@ -454,37 +456,6 @@ struct ContentView: View {
     }
 
     private var cameraSettingsSeconds: Int { return camera.seriesSeconds }
-
-    private var inputPicker: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text("Mikrofon: yaka mikrofonunu (Lightning) seçin")
-                    .font(.footnote)
-                    .foregroundColor(.secondary)
-                Spacer()
-                Button("Yenile") { session.refreshInputs() }
-                    .font(.footnote)
-                    .buttonStyle(.borderless)
-            }
-            if session.inputs.isEmpty {
-                Text("Harici mikrofon görünmüyor. Alıcı takılı mı, mikrofon açık mı?")
-                    .font(.footnote)
-                    .foregroundColor(.orange)
-            }
-            ForEach(session.inputs) { input in
-                Button {
-                    session.chooseInput(input.uid)
-                } label: {
-                    HStack {
-                        Image(systemName: input.isCurrent ? "checkmark.circle.fill" : "circle")
-                        Text(input.name)
-                        Spacer()
-                    }
-                }
-                .buttonStyle(.bordered)
-            }
-        }
-    }
 
     private var outputPicker: some View {
         VStack(alignment: .leading, spacing: 4) {

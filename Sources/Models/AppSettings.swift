@@ -19,7 +19,6 @@ final class AppSettings: ObservableObject {
         static let dimScreen = "v3.dimScreen"
         static let spokenWarnings = "v3.spokenWarnings"
         static let instantDetection = "v3.instantDetection"
-        static let headsetMic = "v4.headsetMic"
         static let finishedExamFolder = "v4.finishedExamFolder"
         static let shortcutOutput = "v3.shortcutOutput"
         static let phoneVoice = "v3.phoneVoice"
@@ -30,9 +29,6 @@ final class AppSettings: ObservableObject {
         static let spokenProgress = "v3.spokenProgress"
         static let smartResume = "v3.smartResume"
         static let shortcutInternet = "v3.shortcut.internet"
-        static let askCamera = "v3.askCamera"
-        static let examType = "v4.examType"
-        static let examTypeDefault = "v4.examTypeDefault"
         static let askCaptureKind = "v4.askCaptureKind"
         static let cameraCheckMinutes = "v4.cameraCheckMinutes"
         static let gapNarration = "v4.gapNarration"
@@ -148,28 +144,15 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(internetShortcut, forKey: Key.shortcutInternet) }
     }
 
-    /// Sürüm 4: sınavın şu anki türü (görüntülü / sesli / hibrit). Sınav sırasında sesle değişir ("sesli sınav başlat"); program kapanıp açılsa da
-    /// önceki kayda devamda korunur. Yeni sınav `examTypeDefault` ile başlar.
-    @Published var examType: ExamType {
-        didSet { defaults.set(examType.rawValue, forKey: Key.examType) }
-    }
+    /// Soruların programa geliş yolu. Program yalnız görüntülü sınavı bilir (kullanıcı kararı 2026-11-19: sesli ve hibrit sınav kaldırıldı): değer
+    /// uygulamada hep `.camera`dır, kaydedilmez, ekranda ve sesli komutlarda değiştirilemez. Öteki değerleri yalnız sınamalar verir (ortak soru
+    /// çekirdeği onlarla sınanır).
+    @Published var examType: ExamType = .camera
 
-    /// Sürüm 4: yeni sınavın başlangıç türü (Ayarlar'daki seçim). Sesle değiştirilen tür yalnız o sınav için geçerlidir; sonraki sınav buna döner.
-    @Published var examTypeDefault: ExamType {
-        didSet { defaults.set(examTypeDefault.rawValue, forKey: Key.examTypeDefault) }
-    }
-
-    /// Her soru için "kamera ile çekip göndermek ister misiniz?" diye sorulsun (kapalıyken yalnız sesle okunan soru): sesli sınavda sorulmaz,
-    /// görüntülü ve hibrit sınavda kamera kullanılır. Açmak sesli sınavdan hibrite, kapatmak sesli sınava geçer.
-    /// Bu eski ayar kalıcıdır: değişince yeni sınavın başlangıç türü de değişir ("kamera sorusunu kapat" sonraki sınavlarda da geçerli kalır).
-    /// Yalnız sınav türü komutları ("sesli sınav başlat") başlangıç türüne dokunmaz.
+    /// Kamera kullanılıyor mu (uygulamada hep doğru). Sınamalar için: kapatmak sesle okunan soru çekirdeğini, açmak kamera sorusunu dener.
     var askCamera: Bool {
         get { return examType.usesCamera }
-        set {
-            let type: ExamType = newValue ? (examType.usesCamera ? examType : .hybrid) : .voice
-            examType = type
-            examTypeDefault = type
-        }
+        set { examType = newValue ? (examType.usesCamera ? examType : .hybrid) : .voice }
     }
 
     /// Sürüm 4: kamera "evet" denince "soru mu, ortak paragraf mı çekeceksiniz?" diye sorulsun (kapalıyken her çekim soru sayılır)
@@ -251,17 +234,6 @@ final class AppSettings: ObservableObject {
         set { defaults.set(newValue, forKey: Key.finishedExamFolder) }
     }
 
-    /// Yalnız görüntülü sınav (kullanıcı kararı 2026-11-19: sesli ve hibrit sınav iptal). Açıkken sınav türü her "Başlat"ta görüntülüye çekilir, Ayarlar'da
-    /// tür seçimi görünmez ve "sesli sınav başlat" / "hibrit sınav başlat" komutları türü değiştirmez. Ayarlarda GÖRÜNMEZ ve kaydedilmez; yalnız
-    /// sınamalar eski türleri denemek için kapatır.
-    var cameraOnlyExam = true
-
-    /// Ses girişi Bluetooth kulaklığın kendi mikrofonudur (kullanıcı kararı 2026-11-19: yaka mikrofonu iptal; kulaklık mikrofonuyla birlikte hep açık kalır,
-    /// komutlar verilebilir). Açıkken yaka mikrofonu aranmaz ve "yaka mikrofonu yok" diye duraklatılmaz; telefonun hoparlörü de mikrofonu da kullanılmaz.
-    /// Kapalıyken eski düzen: giriş yalnız Lightning'e takılı harici mikrofondur. "Başlat"ta uygulanır (bkz. `AudioRouting.headsetMicMode`).
-    @Published var headsetMic: Bool {
-        didSet { defaults.set(headsetMic, forKey: Key.headsetMic) }
-    }
 
     /// Anında tespit: mikrofon ve internet için yarım saniyelik nabız; kopmayı bildirim beklemeden yakalar ve hemen onarır
     @Published var instantDetection: Bool {
@@ -333,11 +305,6 @@ final class AppSettings: ObservableObject {
         bluetoothShortcut = defaults.string(forKey: Key.shortcutBluetooth) ?? ""
         resetShortcut = defaults.string(forKey: Key.shortcutReset) ?? ""
         internetShortcut = defaults.string(forKey: Key.shortcutInternet) ?? ""
-        // Eski sürümdeki "her soruda kamera sorusu" ayarı kapalıysa sesli sınav, değilse görüntülü sınavla başlanır
-        let legacyAsk = defaults.object(forKey: Key.askCamera) as? Bool
-        let baseType = defaults.string(forKey: Key.examTypeDefault).flatMap { ExamType(rawValue: $0) } ?? (legacyAsk == false ? .voice : .camera)
-        examTypeDefault = baseType
-        examType = defaults.string(forKey: Key.examType).flatMap { ExamType(rawValue: $0) } ?? baseType
         askCaptureKind = defaults.object(forKey: Key.askCaptureKind) as? Bool ?? true
         cameraCheckMinutes = AppSettings.clampCameraCheckMinutes(defaults.object(forKey: Key.cameraCheckMinutes) as? Int ?? AppSettings.defaultCameraCheckMinutes)
         sectionsOn = AppSettings.fitted(defaults.array(forKey: Key.sectionsOn) as? [Bool] ?? [], fill: false)
@@ -358,7 +325,6 @@ final class AppSettings: ObservableObject {
         closeGuard = defaults.object(forKey: Key.closeGuard) as? Bool ?? true
         spokenWarnings = defaults.object(forKey: Key.spokenWarnings) as? Bool ?? true
         instantDetection = defaults.object(forKey: Key.instantDetection) as? Bool ?? true
-        headsetMic = defaults.object(forKey: Key.headsetMic) as? Bool ?? true
         phoneVoiceID = defaults.string(forKey: Key.phoneVoice) ?? ""
         let saved = defaults.data(forKey: Key.geminiProfiles).flatMap { try? JSONDecoder().decode([GeminiProfile].self, from: $0) }
         geminiProfiles = GeminiProfiles.migrated(saved ?? [])

@@ -327,6 +327,36 @@ final class ScreenAndClipboardTests: XCTestCase {
         XCTAssertFalse(board.value.contains(ClipboardFlag.prefix), "Engel açıkken oturumda işaret yok (eski davranış)")
     }
 
+    /// Günlük 19.11.2026: kullanıcı API anahtarını başka uygulamada kopyalayıp programa döndü, yapıştırınca işaret geldi. Program öndeyken kullanıcının
+    /// kopyaladığı metnin üstüne yazılmaz; işaret uygulamadan çıkarken yazılır.
+    func testWithTheCloseGuardOffATextCopiedElsewhereSurvivesWhileTheProgramIsInFront() {
+        let board = RelaunchTests.FakePasteboard()
+        let defaults = freshDefaults()
+        let journal = RunJournal(defaults: defaults, previousLog: [], clipboard: logFlag(board, defaults: defaults, file: tempLogFile()))
+        journal.closeGuardEnabled = { false }
+        let front = ForegroundFlag()
+        journal.appInForeground = { front.value }
+        _ = journal.beginRun()
+        XCTAssertEqual(board.value, ClipboardFlag.closed, "İlk açılışta işaret yazılır")
+        front.value = false
+        board.userCopies("AIza-anahtar")   // kullanıcı başka uygulamada anahtarı kopyaladı
+        front.value = true
+        journal.syncCloseGuard(releasingPasteHold: true)   // program öne geldi
+        XCTAssertEqual(board.value, "AIza-anahtar", "Öndeyken kopyalanan metnin üstüne yazılmaz: yapıştırılabilir")
+        journal.setSessionOpen(true)
+        XCTAssertEqual(board.value, "AIza-anahtar", "Oturum olayları da üstüne yazmaz")
+        front.value = false
+        journal.syncCloseGuard()   // uygulamadan çıkış
+        XCTAssertEqual(board.value, ClipboardFlag.closed, "Çıkarken işaret yazılır: otomasyon geri açmaz")
+        // Program kapalıyken kopyalanıp yeni açılışta da korunur
+        board.userCopies("AIza-ikinci")
+        let again = RunJournal(defaults: defaults, previousLog: [], clipboard: logFlag(board, defaults: defaults, file: tempLogFile()))
+        again.closeGuardEnabled = { false }
+        again.appInForeground = { true }
+        _ = again.beginRun()
+        XCTAssertEqual(board.value, "AIza-ikinci", "Açılışta da üstüne yazılmaz")
+    }
+
     func testWithTheCloseGuardOffAReturnFromShortcutsPutsTheClosedMarkerBackAndAKeptLogSurvives() {
         let board = RelaunchTests.FakePasteboard()
         let file = tempLogFile()
@@ -431,7 +461,7 @@ final class RouteRawLogTests: XCTestCase {
         let both = RouteSnapshot(outputs: [.bluetoothA2DP, .usbAudio], inputs: [.usbAudio])
         let verdict = AudioRouting.verdict(both)
         XCTAssertFalse(verdict.headphonesOK, "Çıkışların hepsi kulaklık olmalı (KURAL 1): biri başka yerse güvenli sayılmaz")
-        XCTAssertTrue(verdict.micOK)
+        XCTAssertFalse(verdict.isSafe)
     }
 
     /// 17.11.2026: "Günlüğü kopyala" panoyu günlükle doldurdu; günlükteki "pano işareti: SESLIKONTROL-KAPALI" satırları Kestirmeler otomasyonunun

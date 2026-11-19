@@ -50,11 +50,6 @@ extension SessionViewModel {
         defer { cameraBusy = false }
         let seconds = cameraSettings.seriesSeconds
         tlog("[kamera] deneme çekimi: \(seconds) sn, sesli komutla başlatıldı")
-        defer { AudioRouting.builtInMicAllowed = false; leavePhoneMic() }
-        guard await muteLapelForCapture() else {
-            offerCamera = true
-            return
-        }
         guard await speakNotice(CaptureSay.trialIntro(seconds: seconds)) else {
             offerCamera = true
             return
@@ -78,7 +73,6 @@ extension SessionViewModel {
             offerCamera = true
             return
         }
-        await releaseLapelAfterCapture()
         guard !Task.isCancelled, phase == .answering else {
             offerCamera = true
             return

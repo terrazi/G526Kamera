@@ -62,7 +62,7 @@ final class ChaosTests: XCTestCase {
             h.ask("Rastgele soru metni")
             return "soru (kota hatası)"
         case 3: h.route.change(to: FakeRoute.noHeadphones); return "kulaklık gitti"
-        case 4: h.route.change(to: FakeRoute.noMic); return "mikrofon gitti"
+        case 4: h.route.change(to: RouteSnapshot(outputs: [.bluetoothHFP], inputs: [])); return "mikrofon yoldan çıktı"
         case 5: h.route.change(to: FakeRoute.good); return "yol düzeldi"
         case 6: h.route.interrupt(began: true); return "arama başladı"
         case 7: h.route.interrupt(began: false); return "arama bitti"

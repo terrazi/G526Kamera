@@ -224,7 +224,7 @@ enum VoiceCommand: Equatable {
     case report(ReportKind)
     /// "Sesi aç", "sesi kıs", "sesi yüzde elli yap": telefonun ses seviyesi değişir
     case volume(VolumeAction)
-    /// "Görüntü kalitesini yüksek yap", "kamera sorusunu kapat", "kadrajı dikey yap": kamera ayarı değişir
+    /// "Görüntü kalitesini yüksek yap", "kadrajı dikey yap": kamera ayarı değişir
     case camera(CameraAction)
 
     /// Testi ya da bölümü bitirme isteği (ikisi de önce onay ister)
@@ -575,7 +575,6 @@ enum VoiceCommand: Equatable {
 
     static func parse(_ text: String) -> VoiceCommand? {
         let all = SpokenWords.of(text)
-        if let askOff = parseCameraAskOff(all) { return askOff }   // "kamera sorusu olmasın" (olumsuzlamadan önce: "olmasın" olumsuz söz sayılır)
         if isNegated(all) { return nil }
         // "Başka bir soruyu sil" / "kaydı sil": parseCancel'dan ÖNCE bakılır ("başka" sözcüğü "başla" gibi okunup soruyu iptal sanılmasın)
         if let chosen = parseDeleteChosen(all) { return chosen }

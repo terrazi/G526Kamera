@@ -37,6 +37,9 @@ struct GeminiUploadedFile: Equatable {
 
 /// Yardımcı işlevler: hata çevirisi, şık kodları, düşünme ayarı, model listesi
 enum GeminiSupport {
+    /// Kota hatası ücretsiz katmandan geldi: anahtarın projesinde faturalandırma açık değil
+    static let freeTierHint = "Google bu anahtarı ücretsiz katmanda sayıyor: anahtarın projesinde faturalandırma açık değil, ücretli modeller bu anahtarla çalışmaz."
+
     /// Dosya yükleme cevabından (`{"file": {...}}`) ya da durum sorgusundan (`{...}`) dosya bilgisi; adres yoksa nil
     static func parseUploadedFile(_ data: Data) -> GeminiUploadedFile? {
         guard let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return nil }
@@ -109,6 +112,11 @@ enum GeminiSupport {
         } else {
             let waitText = wait > 0 ? " Yaklaşık \(wait) saniye sonra yeniden deneyin." : ""
             text = "Kota ya da hız sınırı aşıldı\(limit)." + waitText + " Ücretsiz katmanda sınırlar düşüktür."
+        }
+        // Google kotayı ücretsiz katmandan sayıyorsa (ölçü adında "free_tier") anahtar faturalandırmaya bağlı değildir: "ücretli" yuvaya yazılmış olsa da
+        // ücretli modeller cevap vermez (günlükte: gemini-4-argon sınır 0, Flash modelleri günde 20 istek). Kullanıcıya açıkça söylenir.
+        if blob.contains("freetier") {
+            text += " " + GeminiSupport.freeTierHint
         }
         if let regex = try? NSRegularExpression(pattern: "Quota exceeded for metric:[^\\n]*"),
            let m = regex.firstMatch(in: message, range: NSRange(message.startIndex..., in: message)),

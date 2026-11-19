@@ -6,33 +6,18 @@ struct RouteSnapshot: Equatable {
     var inputs: [AVAudioSession.Port]
 }
 
-/// Seçilebilir bir ses girişi (mikrofon)
-struct InputChoice: Equatable, Identifiable {
-    let uid: String
-    let name: String
-    let port: AVAudioSession.Port
-    var isCurrent: Bool
-
-    var id: String { return uid }
-    /// Yalnız harici (Lightning/USB/kablolu) mikrofonlar güvenli sayılır ve seçilebilir
-    var isExternal: Bool { return AudioRouting.externalMicPorts.contains(port) }
-}
-
-/// Ses yolunun değerlendirmesi. Güvenli = çıkış yalnız Bluetooth kulaklık VE giriş yalnız harici (Lightning) yaka mikrofonu.
+/// Ses yolunun değerlendirmesi. Güvenli = çıkış yalnız Bluetooth kulaklık. Giriş kulaklığın kendi mikrofonudur ve ARANMAZ: mikrofon çalışmasa da
+/// oturum sürer; kulaklık yoksa ses telefona düşeceği için güvenliği çıkış belirler.
 struct RouteVerdict: Equatable {
     var headphonesOK: Bool
-    var micOK: Bool
     /// Sorun varsa tek cümlelik ipucu ("" = sorun yok)
     var hint: String
 
-    var isSafe: Bool { return headphonesOK && micOK }
+    var isSafe: Bool { return headphonesOK }
 
     /// Ekranda ve duraklatma nedeninde görünen kısa metin
     var summary: String {
-        var parts: [String] = []
-        if !headphonesOK { parts.append("Bluetooth kulaklık yok") }
-        if !micOK { parts.append("yaka mikrofonu yok") }
-        return parts.joined(separator: ", ")
+        return headphonesOK ? "" : "Bluetooth kulaklık yok"
     }
 }
 
@@ -40,32 +25,11 @@ struct RouteVerdict: Equatable {
 enum AudioRouting {
     /// Sesin gidebileceği tek yer: Bluetooth kulaklık. Telefonun hoparlörü/ahizesi ve kablolu çıkış güvenli sayılmaz.
     static let headphonePorts: Set<AVAudioSession.Port> = [.bluetoothA2DP, .bluetoothHFP, .bluetoothLE]
-    /// Girişin geleceği tek yer: Lightning/USB/kablolu harici mikrofon. Telefonun kendi mikrofonu ve Bluetooth mikrofon güvenli sayılmaz.
-    static let externalMicPorts: Set<AVAudioSession.Port> = [.usbAudio, .headsetMic, .lineIn]
-
-    /// Kamera çekimi için yaka mikrofonu BİLEREK kapatıldığında (Ayarlar > Kamera > "Çekimde yaka mikrofonunu kapat"; kullanıcı kararı 2026-11-17: yaka
-    /// mikrofonu kameranın Wi-Fi'sini bozuyor) telefonun kendi mikrofonu da geçici olarak geçerli giriş sayılır; çekim bitince yeniden kapanır.
-    /// Bluetooth mikrofon yine geçersizdir.
-    static var builtInMicAllowed = false
-
-    /// Kamera çalışırken telefonun kendi mikrofonu OTOMATİK seçildiğinde (Ayarlar > Kamera > "Kamera çalışırken telefonun mikrofonunu kullan"; kullanıcı kararı
-    /// 2026-11-17: yaka mikrofonunu program devre dışı bıraksın) açıktır: yaka mikrofonu alıcısı takılı kalsa da giriş telefonun mikrofonudur ve bu geçerli
-    /// sayılır. Kamera işi bitince kapanır (bkz. SessionViewModel+PhoneMic). Bluetooth mikrofon yine geçersizdir.
-    static var phoneMicInUse = false
-
-    /// Kulaklık mikrofonu kipi (kullanıcı kararı 2026-11-19: yaka mikrofonu iptal; Bluetooth kulaklık mikrofonuyla birlikte hep açık kalır). Açıkken ses
-    /// oturumu Bluetooth'un görüşme profiliyle (HFP) kurulur: çıkış da giriş de kulaklıktır. Giriş ARANMAZ (`micOK` hep doğru): mikrofon çalışmasa da
-    /// oturum sürer; güvenliği çıkış belirler (HFP'de kulaklık yoksa ses telefona düşer ve `headphonesOK` yanlış olur). "Başlat"ta ayardan okunur
-    /// (`AppSettings.headsetMic`); sınamalarda kapalıdır.
-    static var headsetMicMode = false
 
     static func verdict(_ snapshot: RouteSnapshot) -> RouteVerdict {
         let outputs = snapshot.outputs
-        let inputs = snapshot.inputs
         let headphonesOK = !outputs.isEmpty && outputs.allSatisfy { headphonePorts.contains($0) }
-        let builtInOK = builtInMicAllowed || phoneMicInUse
-        let micOK = headsetMicMode || (!inputs.isEmpty && inputs.allSatisfy { externalMicPorts.contains($0) || (builtInOK && $0 == .builtInMic) })
-        return RouteVerdict(headphonesOK: headphonesOK, micOK: micOK, hint: hint(outputs: outputs, headphonesOK: headphonesOK))
+        return RouteVerdict(headphonesOK: headphonesOK, hint: hint(outputs: outputs, headphonesOK: headphonesOK))
     }
 
     /// Port adının Türkçe kısa karşılığı ("Sesi dene" ve günlük için)
@@ -73,7 +37,7 @@ enum AudioRouting {
         switch port {
         case .bluetoothA2DP, .bluetoothHFP, .bluetoothLE: return "Bluetooth kulaklık"
         case .usbAudio: return "Lightning/USB mikrofon"
-        case .headsetMic: return "kulaklık mikrofonu"
+        case .headsetMic: return "kablolu kulaklık mikrofonu"
         case .lineIn: return "hat girişi"
         case .lineOut: return "hat çıkışı"
         case .builtInMic: return "telefonun kendi mikrofonu"
@@ -83,12 +47,20 @@ enum AudioRouting {
         }
     }
 
-    /// "Çıkış: Bluetooth kulaklık. Giriş: Lightning/USB mikrofon."
-    static func describe(_ snapshot: RouteSnapshot) -> String {
-        func list(_ ports: [AVAudioSession.Port]) -> String {
-            return ports.isEmpty ? "yok" : ports.map(portName).joined(separator: ", ")
+    /// Giriş portunun adı: Bluetooth kulaklık girişte kendi mikrofonudur ("Giriş: kulaklık mikrofonu")
+    static func inputName(_ port: AVAudioSession.Port) -> String {
+        switch port {
+        case .bluetoothHFP, .bluetoothLE: return "kulaklık mikrofonu"
+        default: return portName(port)
         }
-        return "Çıkış: \(list(snapshot.outputs)). Giriş: \(list(snapshot.inputs))."
+    }
+
+    /// "Çıkış: Bluetooth kulaklık. Giriş: kulaklık mikrofonu."
+    static func describe(_ snapshot: RouteSnapshot) -> String {
+        func list(_ ports: [AVAudioSession.Port], _ name: (AVAudioSession.Port) -> String) -> String {
+            return ports.isEmpty ? "yok" : ports.map(name).joined(separator: ", ")
+        }
+        return "Çıkış: \(list(snapshot.outputs, portName)). Giriş: \(list(snapshot.inputs, inputName))."
     }
 
     /// Ham port adları ("BluetoothA2DPOutput", "USBAudio"…): Türkçe karşılıklar farklı portları aynı adla gösterebilir; günlükte kesin ne
@@ -103,7 +75,7 @@ enum AudioRouting {
     private static func hint(outputs: [AVAudioSession.Port], headphonesOK: Bool) -> String {
         if headphonesOK { return "" }
         if outputs.contains(where: { $0 == .usbAudio || $0 == .lineOut }) {
-            return "Ses yaka mikrofonu alıcısına (Lightning) gidiyor. Ekrandaki ses çıkışı düğmesinden Bluetooth kulaklığı seçin."
+            return "Ses Lightning'e takılı bir aygıta gidiyor. Ekrandaki ses çıkışı düğmesinden Bluetooth kulaklığı seçin."
         }
         if outputs.contains(where: { $0 == .builtInSpeaker || $0 == .builtInReceiver }) {
             return "Ses şu an telefona gidiyor; telefondan ses verilmez. Kulaklık bağlıysa ses çıkışı düğmesinden onu seçin."
@@ -123,55 +95,34 @@ protocol AudioRouteProviding: AnyObject {
     var onMediaServicesReset: (@MainActor () -> Void)? { get set }
     func configure() throws
     func snapshot() -> RouteSnapshot
-    /// Harici mikrofon varsa girişi ona sabitler (Bluetooth kulaklığın kendi mikrofonuna düşmesin). Telefonun mikrofonu kipi açıksa (aşağıda)
-    /// girişi telefonun kendi mikrofonuna sabitler
-    func preferExternalInput()
-    /// Telefonun kendi mikrofonu kipi (kamera çalışırken): açılınca giriş telefonun mikrofonuna sabitlenir ve yaka mikrofonu alıcısı takılı olsa da
-    /// kullanılmaz; kapanınca harici mikrofon yeniden tercih edilir. Alıcının 2,4 GHz radyosunu kapatmaz (iOS buna izin vermez), yalnız girişi değiştirir.
-    func setBuiltInInputMode(_ on: Bool)
-    /// Bağlı girişler (mikrofonlar)
-    func availableInputs() -> [InputChoice]
-    /// Kullanıcı bir mikrofon seçti: yalnız harici mikrofon seçilebilir; seçim hatırlanır ve sonraki yol değişikliklerinde de tercih edilir
-    @discardableResult func selectInput(uid: String) -> Bool
+    /// Girişi Bluetooth kulaklığın kendi mikrofonuna sabitler (Lightning'e takılı bir mikrofon alıcısı olsa da kullanılmaz)
+    func preferHeadsetInput()
 }
 
-/// Modül 2 (Kalkan): AVAudioSession .playAndRecord, seçenek yalnız [.allowBluetoothA2DP].
-/// `.allowBluetooth` (HFP, telefon görüşmesi profili) BİLEREK yok: HFP kulaklığın kendi mikrofonunu da girişe alır ve Lightning
-/// mikrofonla birlikte kullanılamaz; kullanıcı listeden kulaklığı seçince iOS HFP'ye geçip sesi iPhone'a düşürüyordu. A2DP yalnız
-/// çıkıştır ve harici mikrofon girişiyle birlikte çalışır (giriş zaten hiçbir zaman Bluetooth olmamalı).
-/// `.defaultToSpeaker` HİÇBİR yerde yoktur; çıkış `overrideOutputAudioPort` ile de hoparlöre çevrilmez.
+/// Modül 2 (Kalkan): AVAudioSession .playAndRecord, seçenek yalnız [.allowBluetooth] (Bluetooth'un görüşme profili, HFP): çıkış da giriş de
+/// kulaklıktır (kullanıcı kararı 2026-11-19: yaka mikrofonu iptal; kulaklık mikrofonuyla birlikte hep açık kalır). A2DP birlikte verilmez (iOS ikisi
+/// varken HFP'yi seçer; tek seçenek yolun ne olacağını belirsiz bırakmaz). `.defaultToSpeaker` HİÇBİR yerde yoktur; çıkış
+/// `overrideOutputAudioPort` ile de hoparlöre çevrilmez.
 @MainActor
 final class AudioSessionGuard: AudioRouteProviding {
     static let category: AVAudioSession.Category = .playAndRecord
-    /// Kulaklık mikrofonu kipinde (bkz. `AudioRouting.headsetMicMode`) yalnız görüşme profili (HFP) açılır: giriş ve çıkış kulaklıktır. A2DP birlikte
-    /// verilmez (iOS ikisi varken HFP'yi seçer; tek seçenek yolun ne olacağını belirsiz bırakmaz). Eski düzende yalnız A2DP: giriş harici mikrofondur.
-    nonisolated static var options: AVAudioSession.CategoryOptions {
-        return AudioRouting.headsetMicMode ? [.allowBluetooth] : [.allowBluetoothA2DP]
-    }
+    static let options: AVAudioSession.CategoryOptions = [.allowBluetooth]
 
     var onChange: (@MainActor (RouteSnapshot) -> Void)?
     var onInterruption: (@MainActor (Bool) -> Void)?
     var onMediaServicesReset: (@MainActor () -> Void)?
 
-    private static let chosenInputKey = "v3.chosenInputUID"
-
     private let session: AVAudioSession
-    private let defaults: UserDefaults
-    private var chosenInputUID: String?
-    /// Harici mikrofon yola girmediği için tercihin art arda kaç kez yeniden verildiği (sınırsız yol bildirimi döngüsü olmasın)
+    /// Kulaklık mikrofonu yola girmediği için tercihin art arda kaç kez yeniden verildiği (sınırsız yol bildirimi döngüsü olmasın)
     private var reassertCount = 0
-    /// Telefonun kendi mikrofonu kipi açık mı (bkz. `setBuiltInInputMode`)
-    private var builtInMode = false
     /// Son okumada giriş yoldan değil tercihten varsayıldı mı (günlüğe yalnız değişince yazılır)
     private var assumedInput = false
     private var observer: NSObjectProtocol?
     private var interruptionObserver: NSObjectProtocol?
     private var mediaObservers: [NSObjectProtocol] = []
 
-    init(session: AVAudioSession = .sharedInstance(), defaults: UserDefaults = .standard) {
+    init(session: AVAudioSession = .sharedInstance()) {
         self.session = session
-        self.defaults = defaults
-        self.chosenInputUID = defaults.string(forKey: AudioSessionGuard.chosenInputKey)
         observer = NotificationCenter.default.addObserver(forName: AVAudioSession.routeChangeNotification,
                                                           object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.routeDidChange() }
@@ -206,57 +157,26 @@ final class AudioSessionGuard: AudioRouteProviding {
     }
 
     /// iOS, çıkışı Bluetooth'a alınca girişi çoğu kez hemen listelemez (giriş, ses motoru çalışınca yola girer). Yol girişi boş
-    /// bildiriyorsa ve tercih edilen harici mikrofon takılıysa o giriş sayılır; böylece "giriş yok" yanlış alarmı çıkmaz. Motor
-    /// başlayınca gerçek yol okunur: başka bir giriş (ör. telefonun mikrofonu) görünürse yine güvenli sayılmaz.
+    /// bildiriyorsa ve tercih edilen kulaklık mikrofonu bağlıysa o giriş sayılır (günlükte ve raporda "giriş yok" yazmasın).
     func snapshot() -> RouteSnapshot {
         let route = session.currentRoute
         var inputs = route.inputs.map { $0.portType }
         var assumed = false
-        if inputs.isEmpty, let preferred = session.preferredInput,
-           AudioRouting.externalMicPorts.contains(preferred.portType) || (builtInMode && preferred.portType == .builtInMic)
-            || (AudioRouting.headsetMicMode && preferred.portType == .bluetoothHFP),
+        if inputs.isEmpty, let preferred = session.preferredInput, preferred.portType == .bluetoothHFP,
            (session.availableInputs ?? []).contains(where: { $0.uid == preferred.uid }) {
             inputs = [preferred.portType]
             assumed = true
         }
         if assumed != assumedInput {
             assumedInput = assumed
-            tlog(assumed ? "[ses yolu] giriş yolda listelenmiyor; tercih edilen harici mikrofon varsayıldı" : "[ses yolu] giriş yolda görünüyor")
+            tlog(assumed ? "[ses yolu] giriş yolda listelenmiyor; tercih edilen kulaklık mikrofonu varsayıldı" : "[ses yolu] giriş yolda görünüyor")
         }
         return RouteSnapshot(outputs: route.outputs.map { $0.portType }, inputs: inputs)
     }
 
-    func setBuiltInInputMode(_ on: Bool) {
-        guard builtInMode != on else { return }
-        builtInMode = on
-        reassertCount = 0
-        tlog("[ses yolu] giriş kipi: \(on ? "telefonun kendi mikrofonu (yaka mikrofonu alıcısı takılı kalsa da kullanılmaz)" : "harici mikrofon")")
-        preferExternalInput()
-        let route = session.currentRoute.inputs.map { $0.portName }.joined(separator: ", ")
-        tlog("[ses yolu] giriş tercihi verildi; iOS'un gösterdiği giriş: \(route.isEmpty ? "henüz yok" : route)")
-    }
-
-    /// Telefonun kendi mikrofonunu tercih eder (kipi açıkken `preferExternalInput` bunu çağırır). Tercih verilmişse ve mikrofon yoldaysa dokunmaz;
-    /// yolda değilse birkaç kez yeniden verir (iOS yol değişince tercihi düşürebilir); sınırsız yol bildirimi döngüsü olmasın diye en çok 3 kez.
-    private func preferBuiltInInput() {
-        guard let builtIn = (session.availableInputs ?? []).first(where: { $0.portType == .builtInMic }) else { return }
-        if session.preferredInput?.uid == builtIn.uid {
-            if session.currentRoute.inputs.contains(where: { $0.uid == builtIn.uid }) {
-                reassertCount = 0
-                return
-            }
-            guard reassertCount < 3 else { return }
-            reassertCount += 1
-            try? session.setPreferredInput(nil)
-            try? session.setPreferredInput(builtIn)
-            return
-        }
-        try? session.setPreferredInput(builtIn)
-    }
-
-    /// Kulaklık mikrofonu kipi: giriş Bluetooth kulaklığın kendi mikrofonuna sabitlenir (yaka mikrofonu alıcısı takılı kalsa da kullanılmaz). Tercih verilmişse
-    /// ve mikrofon yoldaysa dokunmaz; yolda değilse en çok 3 kez yeniden verir (sınırsız yol bildirimi döngüsü olmasın).
-    private func preferHeadsetInput() {
+    /// Giriş Bluetooth kulaklığın kendi mikrofonuna sabitlenir (Lightning'e takılı bir mikrofon alıcısı olsa da kullanılmaz). Tercih verilmişse ve
+    /// mikrofon yoldaysa dokunmaz; yolda değilse en çok 3 kez yeniden verir (sınırsız yol bildirimi döngüsü olmasın).
+    func preferHeadsetInput() {
         guard let headset = (session.availableInputs ?? []).first(where: { $0.portType == .bluetoothHFP }) else { return }
         if session.preferredInput?.uid == headset.uid {
             if session.currentRoute.inputs.contains(where: { $0.uid == headset.uid }) {
@@ -272,60 +192,8 @@ final class AudioSessionGuard: AudioRouteProviding {
         try? session.setPreferredInput(headset)
     }
 
-    func preferExternalInput() {
-        if AudioRouting.headsetMicMode {
-            preferHeadsetInput()
-            return
-        }
-        if builtInMode {
-            preferBuiltInInput()
-            return
-        }
-        let externals = (session.availableInputs ?? []).filter { AudioRouting.externalMicPorts.contains($0.portType) }
-        // Kullanıcının seçtiği mikrofon takılıysa o, değilse ilk harici mikrofon
-        let external = externals.first(where: { $0.uid == chosenInputUID }) ?? externals.first
-        if session.preferredInput?.uid == external?.uid {
-            // Tercih verilmiş. Mikrofon gerçekten yoldaysa dokunma (gereksiz yönlendirme yeni bir yol bildirimi doğurur).
-            // Yolda değilse (kulaklık seçilince yol yeniden kurulur ve tercih düşebilir) birkaç kez yeniden ver.
-            guard let external = external else { return }
-            if session.currentRoute.inputs.contains(where: { $0.uid == external.uid }) {
-                reassertCount = 0
-                return
-            }
-            guard reassertCount < 3 else { return }
-            reassertCount += 1
-            try? session.setPreferredInput(nil)
-            try? session.setPreferredInput(external)
-            return
-        }
-        try? session.setPreferredInput(external)
-    }
-
-    func availableInputs() -> [InputChoice] {
-        let current = Set(session.currentRoute.inputs.map { $0.uid })
-        return (session.availableInputs ?? []).map {
-            InputChoice(uid: $0.uid, name: $0.portName, port: $0.portType, isCurrent: current.contains($0.uid))
-        }
-    }
-
-    @discardableResult
-    func selectInput(uid: String) -> Bool {
-        guard let input = (session.availableInputs ?? []).first(where: { $0.uid == uid }),
-              AudioRouting.externalMicPorts.contains(input.portType) else { return false }
-        if !builtInMode {   // telefonun mikrofonu kipinde seçim yalnız hatırlanır; kip kapanınca uygulanır
-            do {
-                try session.setPreferredInput(input)
-            } catch {
-                return false
-            }
-        }
-        chosenInputUID = uid
-        defaults.set(uid, forKey: AudioSessionGuard.chosenInputKey)
-        return true
-    }
-
     private func routeDidChange() {
-        preferExternalInput()
+        preferHeadsetInput()
         onChange?(snapshot())
     }
 

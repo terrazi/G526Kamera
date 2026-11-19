@@ -1,6 +1,6 @@
 import Foundation
 
-/// Duraklatma nedeni: ses donanımı (kulaklık / yaka mikrofonu) yok ya da bağlantı onarılamadı
+/// Duraklatma nedeni: ses donanımı (Bluetooth kulaklık) yok ya da bağlantı onarılamadı
 enum PauseReason: Equatable {
     case hardware(String)
     case noConnection
@@ -24,7 +24,7 @@ enum SessionPhase: Equatable {
         switch self {
         case .idle: return "Başlatılmadı"
         case .checking: return "Donanım kontrol ediliyor"
-        case .listening: return "Dinliyorum. Soruyu okuyun, bitince “Cevapla” deyin"
+        case .listening: return "Dinliyorum (sesli komut verilebilir)"
         case .answering: return "Gemini cevabı hazırlıyor"
         case .speaking: return "Kulaklıktan okunuyor"
         case .paused(.hardware): return "Duraklatıldı: kulaklık, mikrofon ya da ses kesintisi"

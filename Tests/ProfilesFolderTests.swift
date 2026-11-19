@@ -248,30 +248,8 @@ final class SessionMainScreenTests: XCTestCase {
 
     // Mikrofon listesi
 
-    func testMicListShowsOnlyExternalInputs() {
-        let h = SessionHarness()
-        h.route.inputs = [InputChoice(uid: "builtin", name: "iPhone Mikrofonu", port: .builtInMic, isCurrent: true),
-                          InputChoice(uid: "lightning", name: "Boya Mikrofon", port: .usbAudio, isCurrent: false)]
-        h.vm.refreshInputs()
-        XCTAssertEqual(h.vm.inputs.map { $0.uid }, ["lightning"], "Telefonun kendi mikrofonu listede çıkmaz")
-    }
 
-    func testChoosingAMicSelectsItAndClearsTheWarning() {
-        let h = SessionHarness()
-        h.route.inputs = [InputChoice(uid: "a", name: "Mikrofon A", port: .usbAudio, isCurrent: true),
-                          InputChoice(uid: "b", name: "Mikrofon B", port: .headsetMic, isCurrent: false)]
-        h.vm.warn("giris", "eski")
-        h.vm.chooseInput("b")
-        XCTAssertEqual(h.route.selectedUIDs, ["b"])
-        XCTAssertNil(h.vm.warnings.first(where: { $0.id == "giris" }))
-        XCTAssertEqual(h.vm.inputs.first(where: { $0.isCurrent })?.uid, "b")
-    }
 
-    func testChoosingAMissingMicWarns() {
-        let h = SessionHarness()
-        h.vm.chooseInput("yok")
-        XCTAssertNotNil(h.vm.warnings.first(where: { $0.id == "giris" }), "Seçilemeyen mikrofon kırmızı kutuda yazılır")
-    }
 
     // Soru listesi (yüklenen soru + gidiş işareti)
 

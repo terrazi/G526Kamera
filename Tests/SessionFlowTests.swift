@@ -42,14 +42,6 @@ final class SessionFlowTests: XCTestCase {
         XCTAssertEqual(h.speaker.spoken.first, Say.ready, "Donanım gelince açılış kontrolü baştan yapılıp anons edilir")
     }
 
-    func testStartWithoutMicrophoneAlsoWaits() async {
-        let h = SessionHarness()
-        h.route.current = FakeRoute.noMic
-        h.vm.start()
-        let paused = await waitUntil { h.isHardwarePause }
-        XCTAssertTrue(paused)
-        XCTAssertFalse(h.vm.checkup.first(where: { $0.id == "mikrofon" })?.ok ?? true)
-    }
 
     func testMissingOnDeviceDictationStopsStart() async {
         let h = SessionHarness()
@@ -286,12 +278,6 @@ final class SessionFlowTests: XCTestCase {
         XCTAssertTrue(h.answering.calls.isEmpty)
     }
 
-    func testMicrophoneLossAlsoPauses() async {
-        let h = SessionHarness()
-        _ = await h.startListening()
-        h.route.change(to: FakeRoute.noMic)
-        XCTAssertTrue(h.isHardwarePause)
-    }
 
     func testRouteReturnResumesWithAnnouncementAfterItStaysStable() async {
         let h = SessionHarness()

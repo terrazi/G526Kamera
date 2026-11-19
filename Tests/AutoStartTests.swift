@@ -151,24 +151,22 @@ final class AutoStartPlanTests: XCTestCase {
         XCTAssertEqual(CameraSettings.minutes(of: CameraSettings.date(minutes: 575)), 575, "Saat seçici dakikayı aynen geri verir")
         defaults.set(999, forKey: "autoQuestionCount")
         XCTAssertEqual(CameraSettings(defaults: defaults).autoQuestionCount, 300, "Üst sınır")
-        XCTAssertTrue(AppSettings(defaults: defaults).headsetMic, "Kulaklık mikrofonu varsayılan açık")
-        XCTAssertTrue(AppSettings(defaults: defaults).cameraOnlyExam, "Sesli ve hibrit sınav kaldırıldı: yalnız görüntülü")
-        XCTAssertEqual(Say.examTypeCameraOnly, "Bu sürümde yalnız görüntülü sınav var.")
+        XCTAssertEqual(AppSettings(defaults: defaults).examType, .camera, "Sesli ve hibrit sınav kaldırıldı: yalnız görüntülü")
     }
 
-    func testTheHeadsetMicrophoneModeNeedsOnlyTheHeadsetAndUsesTheCallProfile() {
-        AudioRouting.headsetMicMode = true
-        defer { AudioRouting.headsetMicMode = false }
+    func testOnlyTheHeadsetIsNeededAndTheCallProfileIsUsed() {
         let both = AudioRouting.verdict(RouteSnapshot(outputs: [.bluetoothHFP], inputs: [.bluetoothHFP]))
         XCTAssertTrue(both.isSafe, "Çıkış da giriş de kulaklık")
+        XCTAssertEqual(both.summary, "")
         XCTAssertTrue(AudioRouting.verdict(RouteSnapshot(outputs: [.bluetoothHFP], inputs: [])).isSafe, "Mikrofon zorunlu değil")
+        XCTAssertTrue(AudioRouting.verdict(RouteSnapshot(outputs: [.bluetoothA2DP], inputs: [.builtInMic])).isSafe, "Güvenliği yalnız çıkış belirler")
         let phone = AudioRouting.verdict(RouteSnapshot(outputs: [.builtInReceiver], inputs: [.builtInMic]))
         XCTAssertFalse(phone.headphonesOK, "Kulaklık yoksa ses telefona düşer: güvenli değil")
         XCTAssertFalse(phone.isSafe)
+        XCTAssertEqual(phone.summary, "Bluetooth kulaklık yok")
+        XCTAssertFalse(AudioRouting.verdict(RouteSnapshot(outputs: [], inputs: [.bluetoothHFP])).isSafe, "Çıkış yoksa güvenli sayılmaz")
         XCTAssertEqual(AudioSessionGuard.options, [.allowBluetooth], "Kulaklık mikrofonu görüşme profiliyle açılır")
-        XCTAssertFalse(AudioSessionGuard.options.contains(.defaultToSpeaker), "Telefonun hoparlörü hiçbir kipte kullanılmaz")
-        AudioRouting.headsetMicMode = false
-        XCTAssertFalse(AudioRouting.verdict(RouteSnapshot(outputs: [.bluetoothA2DP], inputs: [])).isSafe, "Eski düzende yaka mikrofonu aranır")
+        XCTAssertFalse(AudioSessionGuard.options.contains(.defaultToSpeaker), "Telefonun hoparlörü kullanılmaz")
     }
 
     func testTheDeviceShortcutRunsThreeTimesBeforeTheResetAndRetriesStopAfterThreeHours() {

@@ -16,9 +16,6 @@ final class SessionViewModel: ObservableObject {
         static let offlineDebounce: TimeInterval = 1
         /// Kulaklık/mikrofon bu kadar süre dönmezse sıfırlama kestirmesi çalışır
         static let hardwareGrace: TimeInterval = 20
-        /// Mikrofon eksikken (duraklatılmış) yönlendirme her bu kadar kontrolde (`hardwareGrace` aralıklı, yani yaklaşık dakikada bir) yeniden
-        /// söylenir: kullanıcı dakikalarca sessizlikte kalmaz
-        static let pausedGuidanceEvery = 3
         /// Donanım geri geldikten sonra bu kadar süre sabit kalırsa devam edilir
         static let routeStable: TimeInterval = 1
         /// Yarım okuma kesilince (kesinti sonrası) devam ettirmek için eldeki metnin en az sözcük sayısı
@@ -137,10 +134,6 @@ final class SessionViewModel: ObservableObject {
         static let cameraResetHeadsetWait: TimeInterval = 45
         /// Toplu çekim oturumundan sonra kulaklığın (Bluetooth) geri gelmesi için en çok beklenecek süre (sn); oturum boyunca ses yolu değişikliği duraklatma sayılmaz
         static let seriesHeadsetWait: TimeInterval = 60
-        /// Çekim bitince "Yaka mikrofonunu açın" dendikten sonra alıcının ses yoluna girmesi için en çok beklenen süre
-        static let lapelBackWait: TimeInterval = 15
-        /// Telefonun mikrofonu seçilince yola girmesi için en çok beklenen süre (sn)
-        static let phoneMicSettle: TimeInterval = 2
         /// Toplu çekimde kamera açıldıktan sonra süre başlamadan önceki sesli geri sayım (sn; kullanıcı kararı 2026-11-18: kullanıcı hazır olmayabilir)
         static let seriesCountdown = 5
         /// "Kameraya Geç" kestirmesinden sonra kulaklığın düşüp düşmediği bu kadar sn izlenir (düşmediyse Bluetooth kestirmesi çalışmaz)
@@ -211,7 +204,6 @@ final class SessionViewModel: ObservableObject {
             if phase != oldValue {
                 tlog("[oturum] \(phase.title)")
                 trackInterruption(from: oldValue)
-                if case .paused(.hardware) = phase {} else { pausedGuidanceTicks = 0 }
                 let open = SessionViewModel.countsAsSession(phase)
                 if open != SessionViewModel.countsAsSession(oldValue) {
                     // Oturumun açık olduğu deftere ve günlüğe işlenir: uygulama bu arada kapanırsa sonraki açılış bunu görür
@@ -245,9 +237,8 @@ final class SessionViewModel: ObservableObject {
     @Published var statusNote = ""
     @Published var canReplay = false
     /// Seçilebilir harici mikrofonlar (ana ekrandaki mikrofon listesi)
-    @Published var inputs: [InputChoice] = []
     @Published var routeVerdict: RouteVerdict?
-    /// Şu anki ses yolu, ana ekranda küçük yazıyla ("Çıkış: Bluetooth kulaklık. Giriş: Lightning/USB mikrofon.")
+    /// Şu anki ses yolu, ana ekranda küçük yazıyla ("Çıkış: Bluetooth kulaklık. Giriş: kulaklık mikrofonu.")
     @Published var routeText = ""
     /// "Canlı: Kulaklık ✓ · Mikrofon ✓ · İnternet ✓" (anında tespit açıksa)
     @Published var liveStatus = ""
@@ -338,13 +329,9 @@ final class SessionViewModel: ObservableObject {
     /// Arada tek kelime tanınmadan art arda yapılan donanım onarımı sayısı
     var hardwareRecoveries = 0
     var work: Task<Void, Never>?
-    /// Telefonun mikrofonu kipi kapatılırken yaka mikrofonu alıcısının yola girmesini bekleyen görev (bkz. SessionViewModel+PhoneMic)
-    var phoneMicSettleTask: Task<Void, Never>?
     var confirmTask: ScheduledTask?
     var offlineCheck: ScheduledTask?
     var hardwareGrace: ScheduledTask?
-    /// Duraklatma yönlendirmesi için yapılan kontrol sayısı (duraklatma bitince sıfırlanır)
-    var pausedGuidanceTicks = 0
     var stableTask: ScheduledTask?
     var retryTask: ScheduledTask?
     /// Arama/alarm/Siri kesintisi sürüyor
@@ -447,8 +434,6 @@ final class SessionViewModel: ObservableObject {
     var cameraProbeTask: ScheduledTask?
     /// Kamera akışı başladı ama internete dönüş doğrulanmadı: telefon kameranın Wi-Fi'sinde, hücresel kapalı kalmış olabilir
     var networkMayBeOnCamera = false
-    /// Sınav türü başlangıç sorusu ("önceki kayıt mı, yeni sınav mı") beklenirken sesle seçildi: "yeni sınav" bu seçimi ayardaki türle ezmez
-    var examTypePinned = false
     /// Kamera için bağlantı sıfırlama (uçak modu) sürüyor: kulaklığın düşmesi beklenen bir durumdur, ses yolu değişince duraklatılmaz
     var connectionResetActive = false
     /// Oturum başında kameraya bağlanma (bkz. SessionViewModel+CameraStart): nil → henüz denenmedi; true/false → bağlanıldı / bağlanılamadı.
@@ -529,32 +514,12 @@ final class SessionViewModel: ObservableObject {
         watchdog.onExpire = { [weak self] in self?.silenceExpired() }
         replay.onState = { [weak self] state in self?.replayChanged(state) }
         refreshReplayAvailability()
-        refreshInputs()
+        refreshRouteText()
     }
 
-    /// Ana ekrandaki mikrofon listesi: yalnız harici (Lightning/USB/kablolu) mikrofonlar seçilebilir
-    func refreshInputs() {
-        inputs = deps.route.availableInputs().filter { $0.isExternal }
-        let snapshot = deps.route.snapshot()
-        var text = AudioRouting.describe(snapshot)
-        // Mikrofon alıcısı takılı ama ses yoluna girmediyse nedeni yazılır ("giriş yok" tek başına yanıltıcıdır)
-        if !snapshot.inputs.contains(where: { AudioRouting.externalMicPorts.contains($0) }), let receiver = inputs.first {
-            text += phase.isAtRest
-                ? " Mikrofon alıcısı (\(receiver.name)) takılı; “Sesi dene” ya da “Başlat” ile devreye girer."
-                : " Mikrofon alıcısı (\(receiver.name)) takılı ama ses yoluna girmedi."
-        }
-        routeText = text
-    }
-
-    /// Kullanıcı listeden bir mikrofon seçti
-    func chooseInput(_ uid: String) {
-        if deps.route.selectInput(uid: uid) {
-            clearWarning("giris")
-        } else {
-            warn("giris", "Mikrofon seçilemedi. Alıcının takılı ve mikrofonun açık olduğundan emin olun.")
-        }
-        refreshInputs()
-        routeVerdict = AudioRouting.verdict(deps.route.snapshot())
+    /// Ana ekrandaki ses yolu satırı ("Çıkış: Bluetooth kulaklık. Giriş: …")
+    func refreshRouteText() {
+        routeText = AudioRouting.describe(deps.route.snapshot())
     }
 
     // MARK: Başlat / bitir
@@ -563,13 +528,6 @@ final class SessionViewModel: ObservableObject {
     func start() {
         guard phase.isAtRest else { return }
         resetSession()
-        // Sesli ve hibrit sınav iptal (kullanıcı kararı 2026-11-19): tür her başlangıçta görüntülüdür
-        if settings.cameraOnlyExam {
-            if settings.examTypeDefault != .camera { settings.examTypeDefault = .camera }
-            if settings.examType != .camera { settings.examType = .camera }
-        }
-        // Ses girişi kipi "Başlat"ta ayardan okunur (kullanıcı kararı 2026-11-19: yaka mikrofonu yerine kulaklığın kendi mikrofonu)
-        AudioRouting.headsetMicMode = settings.headsetMic
         disarmAutoGate()
         auto = AutoStart.State()
         longOutageNoted = false
@@ -1073,6 +1031,14 @@ final class SessionViewModel: ObservableObject {
             // Tek başına söylenen komut ("testi bitir"): kısa süre sabit kalırsa çalışır, "Cevapla" demek gerekmez
             if spokenCommand() != nil {
                 confirmTask = deps.scheduler.after(Timing.numberConfirm) { [weak self] in self?.fireVoiceCommand() }
+                return
+            }
+            // Program yalnız görüntülü sınavı bilir (kullanıcı kararı 2026-11-19): sesle okunan soru gönderilmez. "Cevapla" çalışmaz, "Cevapla
+            // demediniz" hatırlatması söylenmez; yalnız komut gibi duyulup anlaşılmayan söz bildirilir (komutlar verilebilir kalır)
+            if settings.examType == .camera {
+                if CommandAttempt.looksLike(currentUtterance()) {
+                    confirmTask = deps.scheduler.after(Timing.attemptConfirm) { [weak self] in self?.commandNotUnderstood() }
+                }
                 return
             }
             guard TriggerDetector.match(in: text) != nil else {
@@ -1626,7 +1592,6 @@ final class SessionViewModel: ObservableObject {
                 carry = nil
                 tlog("[açılış] yeni sınav seçildi: yeni klasör, numara 1")
                 setAside = setAsideLeftoverShots()   // eski sınavın PDF'leri yeni sınavın numaralarına karışmasın
-                await startNewExamType()   // sınav türü ayardaki başlangıç türüne döner (başlangıç sorusunda sesle seçilmediyse)
             } catch {
                 goOn = true
                 warn("klasor", "Yeni klasör açılamadı: \(error.localizedDescription). Önceki kayıttan devam ediliyor.")
@@ -1640,7 +1605,6 @@ final class SessionViewModel: ObservableObject {
             deps.journal.saveNextNumber(nextNumber)
             tlog("[açılış] önceki kayıttan devam: \(offer?.answers ?? answers.count) cevap, sıradaki soru \(nextNumber)")
         }
-        examTypePinned = false
         armCameraOffer()   // Sürüm 4: önceki kayıttan devam da olsa yeni sınav da olsa ilk soru için kamera sorulur
         let camera = cameraQuestionWillBeAsked
         var text = goOn ? Say.continuingPrevious(next: nextNumber, camera: camera) : (camera ? Say.startingNewCamera : Say.startingNew)
@@ -1658,6 +1622,7 @@ final class SessionViewModel: ObservableObject {
     }
 
     private func fireQuestion() {
+        guard settings.examType != .camera else { return }   // görüntülü sınav: sesle okunan soru gönderilmez (bkz. dinleme dalı)
         guard let match = TriggerDetector.match(in: accumulator.text) else { return }
         // "Testi bitir, Cevapla": komut kısmı soru gibi gönderilmez
         if let command = commandIn(match.question) {

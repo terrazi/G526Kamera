@@ -24,10 +24,8 @@ enum VolumeAction: Equatable {
     case set(Int)
 }
 
-/// Sesle kamera ayarı: "kamera sorusunu kapat", "görüntü kalitesini yüksek yap", "video süresini sekiz saniye yap", "kadrajı dikey yap"…
+/// Sesle kamera ayarı: "görüntü kalitesini yüksek yap", "video süresini sekiz saniye yap", "kadrajı dikey yap"…
 enum CameraAction: Equatable {
-    /// Her soruda "kamera ile çekmek ister misiniz?" sorulsun mu
-    case askQuestion(Bool)
     /// Görüntü kalitesi: yüksek 1920×1080, düşük 640×360
     case quality(high: Bool)
     /// Soru videosu da Gemini'ye gitsin mi
@@ -44,10 +42,6 @@ enum CameraAction: Equatable {
     case enhancement(Int)
     /// Canlı önizleme açık mı
     case preview(Bool)
-    /// "Sesli sınav başlat", "hibrit sınav başlat", "görüntülü sınav başlat": sınavın kalanı bu türle sürer
-    case examType(ExamType)
-    /// "Sınav türü ne": şu anki tür söylenir
-    case examTypeAsk
     /// "Deneme çekimi": hazır bekleyen kamerayla bir oturum süresi çekilir ve video + PDF + rapor telefondaki klasöre yazılır; Gemini'ye GİTMEZ
     case trial
     /// "Kadraj kontrolü": hazır bekleyen kameranın o anki görüntüsüne kısa bir bakış; yazı okunuyor mu, bulanık mı, sesle söylenir (çekim başlamaz)
@@ -128,7 +122,7 @@ extension VoiceCommand {
     static func parseSetting(_ raw: [String]) -> VoiceCommand? {
         // Tanıyıcı "RAM'i", "Wi-Fi", "interneti" gibi sözcüklerde kesme işareti ya da tire yazabilir: sözcük içindeki işaretler atılır ("ram'i" → "rami")
         let all = raw.map { $0.filter { $0 != "'" && $0 != "’" && $0 != "-" } }.filter { !$0.isEmpty }
-        return parseReport(all) ?? parseVolume(all) ?? parseExamType(all) ?? parseTrial(all) ?? parseViewCheck(all) ?? parseCameraSetting(all)
+        return parseReport(all) ?? parseVolume(all) ?? parseTrial(all) ?? parseViewCheck(all) ?? parseCameraSetting(all)
     }
 
     // MARK: Deneme çekimi ve kadraj kontrolü
@@ -159,18 +153,6 @@ extension VoiceCommand {
         guard words.count >= 2 else { return nil }
         guard settingKnown(words, [frameNouns, viewCheckWords, viewCheckVerbs]), settingHas(words, frameNouns), settingHas(words, viewCheckWords) else { return nil }
         return .camera(.viewCheck)
-    }
-
-    /// "Kamera sorusu olmasın": "olmasın" olumsuzlama listesinde olduğu için (`isNegated`) komut çözümünden ÖNCE, yalnız bu kalıp için ayrıca ele alınır:
-    /// sözün tamamı kamera + soru + olmasın olmalıdır
-    static func parseCameraAskOff(_ raw: [String]) -> VoiceCommand? {
-        let words = raw.map { $0.filter { $0 != "'" && $0 != "’" && $0 != "-" } }.filter { !SpokenWords.exactly($0, settingPolite) && !$0.isEmpty }
-        guard words.count >= 3, words.count <= 5 else { return nil }
-        guard words.contains(where: { SpokenWords.exactly($0, ["olmasin"]) }) else { return nil }
-        let rest = words.filter { !SpokenWords.exactly($0, ["olmasin"]) }
-        let cameraWords: Set<String> = ["kamera", "kamerayi", "kamerayla", "kameranin"]
-        guard settingKnown(rest, [cameraWords, askNouns, askExtras]), settingHas(rest, cameraWords), settingHas(rest, askNouns) else { return nil }
-        return .camera(.askQuestion(false))
     }
 
     private static func settingKnown(_ words: [String], _ vocabularies: [Set<String>]) -> Bool {
@@ -256,56 +238,8 @@ extension VoiceCommand {
         return nil
     }
 
-    // MARK: Sınav türü
-
-    /// Tür sözleri: sesli, hibrit (karma), görüntülü (kameralı). "Sesli" ve "kamera" başka komutlarda ve cevaplarda da geçer; bu yüzden tür tek başına
-    /// değil yalnız bir sınav sözcüğüyle birlikte komuttur ("sesli sınav", "kameralı sınava geç").
-    static let examVoiceWords: Set<String> = ["sesli", "sesle", "seslisi", "sesliye"]
-    static let examHybridWords: Set<String> = ["hibrit", "hibrid", "hybrid", "hybrit", "karma", "karisik", "melez"]
-    static let examCameraWords: Set<String> = ["goruntulu", "goruntuluye", "kamerali", "kameralisi", "kamerayla", "kamera", "kameraya", "kameradan"]
-    /// "Sınav", "test", "mod", "kip": komutun konusu
-    static let examSubjects: Set<String> = [
-        "sinav", "sinavi", "sinava", "sinavla", "sinavin", "sinavda", "sinavimi", "sinavimiz", "sinavimizi",
-        "test", "testi", "teste", "testle", "testin", "testimi",
-        "mod", "moda", "modu", "modun", "modda", "modla", "modunu", "kip", "kipe", "kipi", "kiple", "kipte"
-    ]
-    /// Komutun fiilleri ve dolgusu: "başlat", "geç", "devam et", "yap", "olsun", "kalan", "bundan sonra"
-    static let examVerbs: Set<String> = [
-        "basla", "baslat", "baslatin", "baslasin", "baslayalim", "baslayin", "gec", "gecin", "gecelim", "gecsin", "gecis",
-        "devam", "devamla", "ettir", "ettirin", "ettirelim", "etsin", "edelim", "yap", "yapin", "yapalim", "olsun", "olarak", "ayarla", "ayarlayin",
-        "degistir", "degistirin", "sec", "secin", "secelim", "kullan", "kullanin", "kullanalim",
-        "ile", "icin", "ve", "da", "de", "kalan", "kalani", "kalanini", "geri", "geriye", "bundan", "sonra", "sonrasi", "sonrasini",
-        "artik", "bunu", "hepsini", "sorulari", "sorulara", "sorulardan", "soru", "sorular", "bitene", "kadar"
-    ]
-    /// "Sınav türü ne", "hangi sınav türü": tür sözcüğü ve soru sözcüğü (yalnız "sınav nedir" gibi soru metinleri komut sayılmasın)
-    static let examKindNouns: Set<String> = ["turu", "turun", "turunu", "tipi", "tipini", "kipi", "modu", "modunu", "cesidi", "cesidini"]
-    static let examKindAsk: Set<String> = ["ne", "nedir", "neydi", "hangi", "hangisi", "hangisidir", "nasil", "soyle", "soyler", "soyleyin", "oku", "okur", "okuyun", "mevcut", "simdi", "su", "an", "anki", "suan", "suanki", "kac"]
-
-    /// "Sesli sınav başlat", "hibrit sınava geç", "görüntülü sınavla devam et", "sınavı sesli yap", "kamera sınavı", "sınav türü ne". Metnin TAMAMI bu
-    /// sözcüklerden oluşmalı, tam olarak bir tür sözü ve bir sınav sözcüğü içermelidir.
-    static func parseExamType(_ raw: [String]) -> VoiceCommand? {
-        guard raw.count >= 2, raw.count <= 8 else { return nil }
-        let words = raw.filter { !SpokenWords.exactly($0, settingPolite) }
-        guard words.count >= 2 else { return nil }
-        // "Sınav türü ne": tür ve soru sözcüğü
-        // (sözcük sırasına bakılmaz: "hangi sınav türü" da "sınav türü ne" da aynı sözcüklerdir; sınav sözcüğü şart: "tipi nedir" bir soru başlığı olabilir)
-        if settingKnown(words, [examSubjects, examKindNouns, examKindAsk]), settingHas(words, examKindNouns), settingHas(words, examSubjects) {
-            return .camera(.examTypeAsk)
-        }
-        guard settingKnown(words, [examVoiceWords, examHybridWords, examCameraWords, examSubjects, examVerbs]), settingHas(words, examSubjects) else { return nil }
-        let voice = settingHas(words, examVoiceWords), hybrid = settingHas(words, examHybridWords), camera = settingHas(words, examCameraWords)
-        let kinds = (voice ? 1 : 0) + (hybrid ? 1 : 0) + (camera ? 1 : 0)
-        guard kinds == 1 else { return nil }   // hiç tür yok ya da iki tür birden ("sesli ve kameralı"): komut değil
-        if voice { return .camera(.examType(.voice)) }
-        if hybrid { return .camera(.examType(.hybrid)) }
-        return .camera(.examType(.camera))
-    }
-
     // MARK: Kamera ayarları
 
-    static let askNouns: Set<String> = ["soru", "sorusu", "sorusunu", "soruda", "sormayi"]
-    static let askExtras: Set<String> = ["her"]
-    static let askOffWords: Set<String> = ["sorma", "sormayin", "sormasin"]
     static let qualityNouns: Set<String> = ["kalite", "kalitesi", "kalitesini", "cozunurluk", "cozunurlugu", "cozunurlugunu"]
     static let qualityHigh: Set<String> = ["yuksek", "yuksege", "artir", "arttir", "yukselt"]
     static let qualityLow: Set<String> = ["dusuk", "dusuge", "dusur", "azalt"]
@@ -341,7 +275,7 @@ extension VoiceCommand {
         return on
     }
 
-    /// "Kamera sorusunu kapat", "görüntü kalitesini yüksek yap", "videoyu gönderme", "video süresini sekiz saniye yap", "kadrajı dikey yap",
+    /// "Görüntü kalitesini yüksek yap", "videoyu gönderme", "video süresini sekiz saniye yap", "kadrajı dikey yap",
     /// "görüntüyü ters çevir", "sesle konumlandırmayı aç", "iyileştirmeyi hafif yap", "önizlemeyi kapat"
     static func parseCameraSetting(_ all: [String]) -> VoiceCommand? {
         guard all.count >= 2, all.count <= 8 else { return nil }
@@ -349,12 +283,6 @@ extension VoiceCommand {
         guard words.count >= 2 else { return nil }
         let filler = settingFiller
 
-        // Her soruda kamera sorusu: "kamera" ve "soru" birlikte (tek başına "kamerayı kapat" bu soruya verilen hayır olabilir)
-        if settingKnown(words, [["kamera", "kamerayi", "kamerayla", "kameranin"], askNouns, askExtras, askOffWords, onWords, offWords, filler]),
-           settingHas(words, ["kamera", "kamerayi", "kamerayla", "kameranin"]), settingHas(words, askNouns) || settingHas(words, askOffWords) {
-            if let on = direction(words, extraOff: askOffWords) { return .camera(.askQuestion(on)) }
-            return nil
-        }
         // Video süresi: "video süresini beş saniye yap"
         if settingHas(words, videoNouns), settingHas(words, secondWords) {
             var numberTokens: [String] = []

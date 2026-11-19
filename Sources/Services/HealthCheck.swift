@@ -26,12 +26,6 @@ extension HealthChecking {
     /// Varsayılan: var sayılır (yanlışlıkla "yok" demektense eski davranış korunur)
     func hasCellularService() -> Bool { return true }
 
-    /// Onarım doğrulaması: internet var ve Gemini'ye ulaşılıyor (anahtar sorunu bağlantı sorunu değildir)
-    func connectionHealthy(key: String) async -> Bool {
-        guard await internetReachable() else { return false }
-        if case .unreachable = await gemini(key: key) { return false }
-        return true
-    }
 }
 
 @MainActor

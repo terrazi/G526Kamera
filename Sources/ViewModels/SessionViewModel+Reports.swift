@@ -4,23 +4,15 @@ import AVFoundation
 /// Sesle istenen raporlar ("internet raporu", "şarj kaç", "ram durumu", "genel rapor") ve ayar komutları ("sesi aç", "kamera sorusunu kapat").
 /// Hepsi bilgi komutları gibi her kipte söylenebilir, soru metnini korur ve yaptığını ya da yapamadığını söyler (bkz. `performInfo`).
 extension SessionViewModel {
-    /// Canlı bilgi ya da ayar gerektiren komutun yanıtı. `leaveCameraChoice`: kamera sorusu kapatıldı ve kamera sorusu açıkken söylendi;
-    /// bekleyen evet/hayır sorusu bırakılır, soru sesle okunur
+    /// Canlı bilgi ya da ayar gerektiren komutun yanıtı
     struct LiveReply {
         var text: String
-        var leaveCameraChoice = false
-        /// Sesli sınava geçildi ve kamera bağlantısı açık (toplu çekimde hazır bekleyen): cümle bitince kamera kapanır, internete dönülür
-        var releaseCamera = false
-        /// Görüntülü ya da hibrit sınava, soru metni henüz yokken geçildi: cümle bitince kamera hemen sorulur
-        var askCameraNow = false
     }
 
     func liveReply(_ command: VoiceCommand, mode: ListenMode) async -> LiveReply {
         switch command {
         case .report(let kind): return LiveReply(text: await reportText(kind))
         case .volume(let action): return LiveReply(text: await changeVolume(action))
-        case .camera(.examType(let type)): return await changeExamType(type, mode: mode)   // çekim sürerken de söylenebilir (bkz. `SessionViewModel+ExamType`)
-        case .camera(.examTypeAsk): return LiveReply(text: Say.examTypeAnswer(settings.examType))
         case .camera(.viewCheck): return LiveReply(text: await viewCheckText())
         case .camera(let action): return changeCameraSetting(action, mode: mode)
         default: return LiveReply(text: Say.nothingToRepeat)
@@ -53,10 +45,10 @@ extension SessionViewModel {
         return Say.reportInternet(kind: deps.network.kind, reachable: true, gemini: gemini)
     }
 
-    private func portNames(_ ports: [AVAudioSession.Port]) -> [String] {
+    private func portNames(_ ports: [AVAudioSession.Port], input: Bool = false) -> [String] {
         var seen: [String] = []
         for port in ports {
-            let name = AudioRouting.portName(port)
+            let name = input ? AudioRouting.inputName(port) : AudioRouting.portName(port)
             if !seen.contains(name) { seen.append(name) }
         }
         return seen
@@ -70,7 +62,7 @@ extension SessionViewModel {
 
     private func microphoneReport() -> String {
         let snapshot = deps.route.snapshot()
-        return Say.reportMicrophone(ok: AudioRouting.verdict(snapshot).micOK, inputs: portNames(snapshot.inputs))
+        return Say.reportMicrophone(ok: !snapshot.inputs.isEmpty, inputs: portNames(snapshot.inputs, input: true))
     }
 
     private func soundReport() -> String {
@@ -151,18 +143,6 @@ extension SessionViewModel {
         guard !cameraBusy else { return LiveReply(text: Say.cameraSettingBusy) }
         let c = cameraSettings
         switch action {
-        case .askQuestion(let on):
-            if settings.askCamera == on { return LiveReply(text: Say.cameraAskAlready(on)) }
-            // Sınav türü komutlarıyla aynı kural: kapatmak sesli, açmak hibrit sınavdır ve yalnız bu sınavın kalanı için geçerlidir
-            // (sonraki sınav Ayarlar'daki başlangıç türüyle başlar)
-            settings.examType = on ? (settings.examType.usesCamera ? settings.examType : .hybrid) : .voice
-            let choice = !on && (mode == .cameraChoice || mode == .passageCameraChoice || mode == .captureKindChoice)
-            if !on { offerCamera = false }
-            // Toplu çekimde hazır bekleyen kamera varsa sesliye geçerken kapanır ve internete dönülür (yoksa soru Gemini'ye gidemezdi)
-            let releasing = !on && (deps.camera.holding || networkMayBeOnCamera)
-            tlog("[ayar] her soruda kamera sorusu: \(on ? "açık" : "kapalı") (sınav türü: \(settings.examType.spoken))")
-            let text = Say.cameraAskChanged(on: on, configured: cameraConfigured, leavingChoice: choice) + (releasing ? " Kameradan çıkılıyor, internete geçiliyor." : "")
-            return LiveReply(text: text, leaveCameraChoice: choice, releaseCamera: releasing)
         case .quality(let high):
             let value = high ? 1 : 2
             let already = c.streamQuality == value
@@ -217,8 +197,6 @@ extension SessionViewModel {
             c.previewOff = !on
             tlog("[ayar] canlı önizleme: \(on ? "açık" : "kapalı")")
             return LiveReply(text: Say.cameraPreview(on: on, already: already))
-        case .examType, .examTypeAsk:
-            return LiveReply(text: Say.examTypeAnswer(settings.examType))   // `liveReply` bunları önceden ele alır
         case .trial, .viewCheck:
             return LiveReply(text: CaptureSay.viewNotReady)   // deneme çekimini `performInfo`, kadraj kontrolünü `liveReply` önceden ele alır
         }
