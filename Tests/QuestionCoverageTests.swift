@@ -114,6 +114,19 @@ final class QuestionPiecesTests: XCTestCase {
         XCTAssertEqual(piece.summary, "44:Ab")
     }
 
+    func testALineThatStartsWithItsNumberOrLetterIsNotCutAtTheLeftEdge() {
+        let pieces = QuestionSpotter.pieces([
+            row("44. Which of the following could be the title", x: 0.0, y: 0.10, width: 0.5),
+            row("A) A Brief History of Lighting", x: 0.005, y: 0.20, width: 0.4),
+            row("B) Well-known Inventors of History and", x: 0.005, y: 0.30, width: 0.4),
+            row("their greatest inventions", x: 0.0, y: 0.34, width: 0.3)
+        ])
+        guard let piece = pieces.first, pieces.count == 1 else { return XCTFail("\(pieces)") }
+        XCTAssertFalse(piece.stemCut, "Numara görünüyorsa satırın başı görünüyordur: sol kenara dayanması kesik sayılmaz")
+        XCTAssertEqual(piece.options["A"]?.cut, false, "Şık harfi görünüyorsa satırın başı görünüyordur")
+        XCTAssertEqual(piece.options["B"]?.cut, true, "Devam satırının başı kadrajın dışında kalmış olabilir")
+    }
+
     func testPassageTextWithoutOptionsIsNotAPiece() {
         let pieces = QuestionSpotter.pieces([
             row("Thomas Edison filed a patent for his electric light", y: 0.10),
@@ -454,6 +467,10 @@ final class ScanCoachingTests: XCTestCase {
         XCTAssertFalse(SeriesRhythm.isRough(valid: 2, damaged: 3, blurry: 0, dirty: 2), "Az kare ölçülmüşse hüküm verilmez")
         XCTAssertFalse(SeriesRhythm.isRough(valid: 0, damaged: 0, blurry: 0, dirty: 0))
         XCTAssertEqual(SeriesRhythm.slowDown, "Görüntü bozuk geliyor; kamerayı daha yavaş kaydırın.")
+        XCTAssertEqual(SeriesRhythm.roughText(fast: true), SeriesRhythm.slowDown, "Kamera gerçekten hızlı kaydırıldıysa")
+        XCTAssertEqual(SeriesRhythm.roughText(fast: false), "Görüntü bozuk geliyor; kamerayı her yerde bir iki saniye sabit tutun.",
+                       "Kamera hızlı değilse sorun hız değildir: görüntü ancak kamera bir yerde durunca toparlanır")
+        XCTAssertEqual(LinkLog.unique(["en0 (Wi-Fi)", "en0 (Wi-Fi)", "pdp_ip0 (hücresel)"]), ["en0 (Wi-Fi)", "pdp_ip0 (hücresel)"])
     }
 
     func testHalfBrokenFramesAreCountedInThePageQuality() async {

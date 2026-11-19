@@ -473,6 +473,9 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
 
     /// Bağlantı `holdOpen()` ile açık tutuluyor mu
     private(set) var holding = false
+    /// "Bağlantılar hep açık": tarama bitti ama kamera bağlantısı kapatılmadı, sıradaki tarama için açık duruyor (bkz. `keepOpenAfterSeries`). Bu sırada
+    /// `holding` false kalır: oturum mantığı için kamera "hazır bekliyor" değildir (cevaplar gönderilir ve okunur); yalnız bağlantı ve görüntü sürer
+    private var idleOpen = false
 
     /// Bağlantı açık tutuluyor ve görüntü geliyor (son 3 sn içinde kare var): kopmuş bağlantıda süre başlatılmaz, kamera yeniden hazırlanır
     var holdingLive: Bool { return holding && isLive }
@@ -484,6 +487,20 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
     /// kamera pili düşükse sesli uyarı verilir). Hiçbir şey çekilmez, konumlandırma yapılmaz. İlk hücresel bağlantıdan önce `closeHeld()` kapatır.
     func holdOpen(connectLimit: TimeInterval?) async -> Result<Void, CameraFailure> {
         if holding { return .success(()) }
+        if idleOpen {
+            if isLive {
+                // Taramalar arasında kapatılmayan bağlantı: yeniden bağlanmadan "hazır bekleyen" bağlantı olur
+                idleOpen = false
+                holding = true
+                cancelled = false
+                shooting = false
+                status("Kamera bağlı")
+                tlog("[kamera] oturum başı: taramalar arasında açık tutulan bağlantı kullanılıyor (yeniden bağlanılmadı)")
+                return .success(())
+            }
+            tlog("[kamera] taramalar arasında açık tutulan bağlantıdan görüntü gelmiyor; kapatılıp yeniden bağlanılıyor")
+            closeHeld()
+        }
         guard !running else { return .failure(.captureFailed("çekim zaten sürüyor")) }
         guard let uid = CameraUID(settings.uid) else { return .failure(.notConnected) }
         running = true
@@ -508,8 +525,38 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         return .success(())
     }
 
+    /// Tarama bitti ama bağlantı kapatılmaz ("bağlantılar hep açık"): çekime özgü işler durur, kamera görüntü vermeyi sürdürür ve bağlantı sıradaki
+    /// tarama için açık durur. Sıradaki `holdOpen` / çekim bu bağlantıyı yeniden bağlanmadan kullanır; görüntü bu arada kesildiyse kapatıp baştan kurar
+    private func keepOpenAfterSeries() {
+        timeoutTask?.cancel()
+        timeoutTask = nil
+        liveTask?.cancel()
+        liveTask = nil
+        if let continuation = waiter {
+            waiter = nil
+            continuation.resume(returning: .cancelled)
+        }
+        stopCoach()
+        pipeline.guidanceOn = false
+        pipeline.pageEdgesOn = false
+        shooting = false
+        idleOpen = true
+        status("Kamera bağlı")
+        tlog("[kamera] tarama bitti: bağlantılar hep açık, kamera bağlantısı kapatılmadı (sıradaki tarama için açık duruyor)")
+    }
+
     /// Açık tutulan bağlantıyı kapatır (kamera görüntüyü kapatır, boşa geçer); açık bağlantı yoksa bir şey yapmaz
     func closeHeld() {
+        if idleOpen {
+            idleOpen = false
+            holding = false
+            teardown()
+            running = false
+            active = false
+            statusText = ""
+            tlog("[kamera] taramalar arasında açık tutulan bağlantı kapatıldı")
+            return
+        }
         guard holding else { return }
         holding = false
         teardown()
@@ -527,7 +574,7 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
     func cancel() {
         cancelled = true
         resolve(.cancelled)
-        if holding {
+        if holding || idleOpen {
             closeHeld()
             return
         }
@@ -921,9 +968,10 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
     private func runSeries(seconds: Int, connectLimit: TimeInterval?, trial: Bool) async -> Result<PageSeries, CameraFailure> {
         // "Başla" denince kamera zaten bağlı ve görüntü akıyorsa (hazır bekleme, bkz. `holdOpen`) o bağlantı kullanılır: yeniden bağlanma yoktur,
         // süre hemen başlar. Bağlantı kopmuşsa kapatılır ve baştan bağlanılır.
-        let adopted = holdingLive
+        let adopted = holdingLive || (idleOpen && isLive)
         if adopted {
             holding = false   // bağlantı artık bu çekimindir; aşağıdaki `defer` kapatır
+            idleOpen = false
             cancelled = false
             shooting = false
             tlog("[kamera] toplu çekim: hazır bekleyen bağlantı kullanılıyor, süre hemen başlıyor")
@@ -936,9 +984,15 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
             active = true
         }
         defer {
-            teardown()
-            running = false
-            active = false
+            if settings.stayOnWifi && !cancelled && isLive {
+                // "Bağlantılar hep açık" (kullanıcı kararı 2026-11-19: kamera bağlantısı hiç kapatılmaz). Gerçek günlük 2026-11-19 12:56: bağlantı her
+                // taramadan sonra kapatılıyordu; Wi-Fi'de trafik kalmayınca telefon 34 sn sonra kameranın ağından düştü (önceki günlükte de aynı düzen)
+                keepOpenAfterSeries()
+            } else {
+                teardown()
+                running = false
+                active = false
+            }
         }
         guard DiskGuard.level(freeMB: DiskGuard.freeMB()) != .critical else { return .failure(.lowDisk) }
         guard let uid = CameraUID(settings.uid) else { return .failure(.notConnected) }
@@ -1091,11 +1145,12 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
                     } else if second < total {
                         // Sayfa işe yaradı (ya da ikinci taramada da zayıf kaldı): kullanıcı sıradaki sayfaya yönlendirilir; süre anonsunun yerine geçer
                         var text = SeriesRhythm.nextPageText(page: page, good: !bad, seen: SeriesRhythm.mainRun(seen), barelyMoved: motion?.barelyMoved ?? false)
-                        // Sayfa işe yaradı ama karelerinin yarısı bozuk / yarı bozuk geldi: sıradaki sayfa için "daha yavaş" denir
+                        // Sayfa işe yaradı ama karelerinin yarısı bozuk / yarı bozuk geldi: sıradaki sayfa için ne yapılacağı söylenir
                         if SeriesRhythm.isRough(valid: q.valid, damaged: q.damaged, blurry: q.blurry, dirty: q.dirty), second - slowDownAt >= SeriesRhythm.slowDownEvery {
                             slowDownAt = second
-                            tlog("[kamera] yavaşlayın uyarısı: \(page). sayfada geçerli \(q.valid) karenin \(q.dirty) tanesi yarı bozuk, \(q.damaged) kare bozuk")
-                            text += " " + SeriesRhythm.slowDown
+                            let fast = motion?.isFast ?? false
+                            tlog("[kamera] görüntü uyarısı: \(page). sayfada geçerli \(q.valid) karenin \(q.dirty) tanesi yarı bozuk, \(q.damaged) kare bozuk; kamera \(fast ? "hızlı" : "hızlı değil")")
+                            text += " " + SeriesRhythm.roughText(fast: fast)
                         }
                         sayRhythm(text)
                         reviewed = true
@@ -1125,8 +1180,14 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
                         if SeriesRhythm.isRough(valid: recent.valid, damaged: recent.damaged, blurry: recent.blurry, dirty: recent.dirty),
                            second - slowDownAt >= SeriesRhythm.slowDownEvery {
                             slowDownAt = second
-                            tlog("[kamera] yavaşlayın uyarısı: son dilimde geçerli \(recent.valid) karenin \(recent.dirty) tanesi yarı bozuk, \(recent.damaged) kare bozuk")
-                            sayRhythm(cue + " " + SeriesRhythm.slowDown)
+                            // Kamera gerçekten hızlı mı kaydırıldı (hareket takibi)? Değilse sorun hız değil, kameranın bir yerde durmamasıdır
+                            var fast = false
+                            if let tracker = tracker {
+                                await tracker.drain()
+                                fast = tracker.summary(from: t0 + from, to: t0 + Double(second)).isFast
+                            }
+                            tlog("[kamera] görüntü uyarısı: son dilimde geçerli \(recent.valid) karenin \(recent.dirty) tanesi yarı bozuk, \(recent.damaged) kare bozuk; kamera \(fast ? "hızlı" : "hızlı değil")")
+                            sayRhythm(cue + " " + SeriesRhythm.roughText(fast: fast))
                         } else {
                             sayRhythm(cue)
                         }

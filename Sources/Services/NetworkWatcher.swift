@@ -78,13 +78,25 @@ enum LinkLog {
             default: parts.append("neden: bilinmiyor")
             }
         }
-        let used = path.availableInterfaces.filter { path.usesInterfaceType($0.type) }.map { typeName($0.type) }
+        // iOS aynı arayüzü birden çok kez sayabiliyor (gerçek günlük: "en0 (Wi-Fi), en0 (Wi-Fi)"): her ad bir kez yazılır
+        let used = unique(path.availableInterfaces.filter { path.usesInterfaceType($0.type) }.map { typeName($0.type) })
         if !used.isEmpty { parts.append("kullanılan: " + used.joined(separator: ", ")) }
-        let all = path.availableInterfaces.map { "\($0.name) (\(typeName($0.type)))" }
+        let all = unique(path.availableInterfaces.map { "\($0.name) (\(typeName($0.type)))" })
         parts.append("arayüzler: " + (all.isEmpty ? "yok" : all.joined(separator: ", ")))
         if path.isExpensive { parts.append("pahalı yol") }
         if path.isConstrained { parts.append("düşük veri kipi") }
         return parts.joined(separator: "; ")
+    }
+
+    /// Sırayı bozmadan yinelenenleri atar
+    static func unique(_ items: [String]) -> [String] {
+        var seen = Set<String>()
+        var result: [String] = []
+        for item in items where !seen.contains(item) {
+            seen.insert(item)
+            result.append(item)
+        }
+        return result
     }
 
     /// Telefonun Wi-Fi (en0) adresi; Wi-Fi'ye bağlı değilse nil. Kameranın ağı internetsiz olduğu için "Wi-Fi var mı" buradan anlaşılır

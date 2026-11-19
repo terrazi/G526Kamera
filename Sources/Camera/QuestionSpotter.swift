@@ -70,6 +70,12 @@ enum QuestionSpotter {
         return (number, letters(String(text[range.upperBound...])))
     }
 
+    /// Satır bir şık harfiyle mi başlıyor ("A) …", "B. …")
+    static func startsWithOption(_ text: String) -> Bool {
+        guard let pattern = optionStart else { return false }
+        return pattern.firstMatch(in: text, options: [], range: NSRange(text.startIndex..<text.endIndex, in: text)) != nil
+    }
+
     /// Satırdaki şık harfleri: satır başındaki şık ve satır içindeki "X)" biçimleri
     static func optionLetters(_ text: String) -> Set<Character> {
         var found = Set<Character>()
@@ -276,8 +282,12 @@ extension QuestionSpotter {
             var extraRows = 0
             let ordered = column.sorted(by: { $0.top < $1.top })
             for (index, row) in ordered.enumerated() {
-                let cut = row.minX < edge || row.maxX > 1 - edge
+                // Satırın başı numara ya da şık harfiyse satır baştan görünüyordur: sol kenara dayanması kesik sayılmaz, yalnız sağ kenara bakılır.
+                // Devam satırlarında iki kenar da sayılır (satırın başı da kadrajın dışında kalmış olabilir)
+                let cutRight = row.maxX > 1 - edge
+                let cutLeft = row.minX < edge
                 if let start = numbered(row.text), startsQuestion(start.number, after: piece, rows: ordered, at: index) {
+                    let cut = cutRight
                     close(piece, next: start.number, into: &result)
                     piece = QuestionPiece()
                     piece.number = start.number
@@ -292,6 +302,7 @@ extension QuestionSpotter {
                     continue
                 }
                 let marks = optionLetters(row.text)
+                let cut = cutRight || (cutLeft && !(startsWithOption(row.text) && !marks.isEmpty))
                 if marks.isEmpty {
                     if let current = letter {
                         if extraRows >= maxOptionRows { continue }

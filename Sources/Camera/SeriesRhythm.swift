@@ -72,6 +72,15 @@ struct SeriesRhythm: Equatable {
     /// Uyarı en çok bu kadar saniyede bir söylenir (art arda gelen her süre anonsuna eklenmez)
     static let slowDownEvery = 20
     static let slowDown = "Görüntü bozuk geliyor; kamerayı daha yavaş kaydırın."
+    /// Kamera hızlı değilken görüntü bozuksa söylenir. Gerçek günlük 2026-11-19 13:00: hareket takibine göre kamera hızlı değildi (hızlı pay %0–8) ama
+    /// karelerin yarısı bozuktu; görüntü, kamera aynı yerde 1–2 sn kalınca netleşiyordu (netlik 700 → 2400): kamera düşük bit hızında yayın yapıyor,
+    /// görüntü ancak sahne sabit kalınca toparlanıyor
+    static let holdStill = "Görüntü bozuk geliyor; kamerayı her yerde bir iki saniye sabit tutun."
+
+    /// Görüntü bozuk gelince söylenecek uyarı: kamera hızlı kaydırıldıysa "daha yavaş", değilse "sabit tutun"
+    static func roughText(fast: Bool) -> String {
+        return fast ? slowDown : holdStill
+    }
 
     /// Son dilimde görüntü bozuk mu geldi: bozuk ve yarı bozuk karelerin ölçülen karelere oranı
     static func isRough(valid: Int, damaged: Int, blurry: Int, dirty: Int) -> Bool {
