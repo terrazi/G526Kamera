@@ -70,6 +70,19 @@ struct SeriesRhythm: Equatable {
         return counts.filter { $0.key > 0 && $0.value >= confirmFrames }.keys.sorted()
     }
 
+    /// Söylenecek "görülen sorular": art arda gelen numaraların en uzun dizisi, en az `minSpokenRun` numaraysa. Tek tük okunan sayılar (başka sayfanın
+    /// numarası, şık / yıl / puan gibi yanlış okumalar) söylenmez (kullanıcı 2026-11-19: koç taranan sayfada olmayan numaraları söylüyordu).
+    static let minSpokenRun = 3
+    static func mainRun(_ numbers: [Int]) -> [Int] {
+        var best: [Int] = []
+        var current: [Int] = []
+        for number in Array(Set(numbers)).sorted() {
+            if let last = current.last, number == last + 1 { current.append(number) } else { current = [number] }
+            if current.count > best.count { best = current }
+        }
+        return best.count >= minSpokenRun ? best : []
+    }
+
     /// Sayfa işe yaradıysa (ya da ikinci taramada da zayıf kaldıysa) söylenen yönlendirme. `seen`: görülen soru numaraları (varsa söylenir);
     /// `barelyMoved`: hareket takibi kameranın hep aynı yerde kaldığını ölçtü (bkz. `MotionSummary.barelyMoved`)
     static func nextPageText(page: Int, good: Bool, seen: [Int] = [], barelyMoved: Bool = false) -> String {

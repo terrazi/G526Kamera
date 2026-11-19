@@ -1068,7 +1068,7 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
                         reviewed = true
                     } else if second < total {
                         // Sayfa işe yaradı (ya da ikinci taramada da zayıf kaldı): kullanıcı sıradaki sayfaya yönlendirilir; süre anonsunun yerine geçer
-                        sayRhythm(SeriesRhythm.nextPageText(page: page, good: !bad, seen: seen, barelyMoved: motion?.barelyMoved ?? false))
+                        sayRhythm(SeriesRhythm.nextPageText(page: page, good: !bad, seen: SeriesRhythm.mainRun(seen), barelyMoved: motion?.barelyMoved ?? false))
                         reviewed = true
                     }
                 }

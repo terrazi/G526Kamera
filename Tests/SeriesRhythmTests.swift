@@ -295,6 +295,17 @@ final class PageNumbersTests: XCTestCase {
         XCTAssertEqual(SeriesRhythm.confirmedNumbers([:]), [])
     }
 
+    /// Yalnız art arda gelen en uzun numara dizisi söylenir; tek tük okunan sayılar (başka sayfanın numarası, yanlış okuma) söylenmez
+    func testOnlyTheMainRunOfSeenNumbersIsSpoken() {
+        XCTAssertEqual(SeriesRhythm.mainRun([12, 13, 14, 15]), [12, 13, 14, 15])
+        XCTAssertEqual(SeriesRhythm.mainRun([8, 10, 13, 14, 15, 16]), [13, 14, 15, 16], "Önceki sayfalardan tek tük okunan 8 ve 10 söylenmez")
+        XCTAssertEqual(SeriesRhythm.mainRun([1, 5, 6, 7, 8, 9, 10, 11]), [5, 6, 7, 8, 9, 10, 11])
+        XCTAssertEqual(SeriesRhythm.mainRun([8, 27, 28]), [], "Üçten kısa dizi güvenilir değildir: numara söylenmez")
+        XCTAssertEqual(SeriesRhythm.mainRun([1, 3, 5]), [])
+        XCTAssertEqual(SeriesRhythm.mainRun([]), [])
+        XCTAssertEqual(SeriesRhythm.nextPageText(page: 1, good: true, seen: SeriesRhythm.mainRun([8, 27, 28])), "Birinci sayfa tamam. Sonraki sayfaya geçin.")
+    }
+
     func testTheSpokenReviewNamesTheSeenQuestionsAndTheSpeed() {
         XCTAssertEqual(SeriesRhythm.nextPageText(page: 1, good: true, seen: [10, 11, 12, 13, 14]),
                        "Birinci sayfa tamam. Görülen sorular: 10 ile 14 arası. Sonraki sayfaya geçin.")
