@@ -62,6 +62,24 @@ struct SeriesRhythm: Equatable {
         return Double(valid) < Double(total) * minGoodShare
     }
 
+    // "Yavaşlayın" uyarısı (kullanıcı isteği 2026-11-19). Gerçek günlük: 10 sn'lik dilimlerin çoğunda yarı bozuk kare payı %25'in altında, dörtte
+    // birinde %60'ın üstündeydi (kamera kayarken kodlayıcı görüntüyü bloklaştırıyor); kötü dilimler art arda geliyordu.
+
+    /// Dilimde ölçülen karelerin en az bu oranı bozuk ya da yarı bozuksa görüntü "bozuk geliyor" sayılır
+    static let roughShare = 0.5
+    /// Hüküm için dilimde en az bu kadar kare ölçülmüş olmalı
+    static let minRoughFrames = 8
+    /// Uyarı en çok bu kadar saniyede bir söylenir (art arda gelen her süre anonsuna eklenmez)
+    static let slowDownEvery = 20
+    static let slowDown = "Görüntü bozuk geliyor; kamerayı daha yavaş kaydırın."
+
+    /// Son dilimde görüntü bozuk mu geldi: bozuk ve yarı bozuk karelerin ölçülen karelere oranı
+    static func isRough(valid: Int, damaged: Int, blurry: Int, dirty: Int) -> Bool {
+        let total = valid + damaged + blurry
+        if total < minRoughFrames { return false }
+        return Double(damaged + dirty) >= Double(total) * roughShare
+    }
+
     /// Bir soru numarası en az bu kadar karede okunduysa "görüldü" sayılır (yazı tanıma gürültüsü çoğu zaman tek karede kalır)
     static let confirmFrames = 2
 

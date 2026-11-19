@@ -36,6 +36,7 @@ final class CameraSettings: ObservableObject {
         static let largeUpload = "largeUpload"
         static let accurateReading = "accurateReading"
         static let motionTracking = "motionTracking"
+        static let thinFrames = "thinFrames"
         static let pageVideoSeconds = "pageVideoSeconds"
         static let countdown = "countdown"
         static let pageSeries = "pageSeries"
@@ -136,6 +137,9 @@ final class CameraSettings: ObservableObject {
     @Published var accurateReading: Bool { didSet { defaults.set(accurateReading, forKey: Key.accurateReading) } }
     /// Hareket takibi: ardışık kareler hizalanır, kaydırma hızı ve gezilen alan ölçülür (bkz. `MotionTracker`); bu sürümde yalnız danışmandır
     @Published var motionTracking: Bool { didSet { defaults.set(motionTracking, forKey: Key.motionTracking) } }
+    /// Kare azaltma: serbest taramanın son seçiminde içeriği komşu temiz karede olan yarı bozuk kareler ve fazla tekrarlar gönderilmez
+    /// (bkz. `SeriesPool.thinned`); kapalıyken geçerli karelerin hepsi gider
+    @Published var thinFrames: Bool { didSet { defaults.set(thinFrames, forKey: Key.thinFrames) } }
     @Published var seriesGuidance: Bool {
         didSet {
             defaults.set(seriesGuidance, forKey: Key.seriesGuidance)
@@ -275,6 +279,7 @@ final class CameraSettings: ObservableObject {
         largeUpload = defaults.object(forKey: Key.largeUpload) as? Bool ?? true
         accurateReading = defaults.object(forKey: Key.accurateReading) as? Bool ?? true
         motionTracking = defaults.object(forKey: Key.motionTracking) as? Bool ?? true
+        thinFrames = defaults.object(forKey: Key.thinFrames) as? Bool ?? true
 
         pageVideoSeconds = CameraSettings.clampSeconds(defaults.object(forKey: Key.pageVideoSeconds) as? Int,
                                                        range: VideoRecorder.pageSecondsRange, fallback: VideoRecorder.pageSegmentSeconds)

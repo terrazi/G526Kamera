@@ -1,4 +1,5 @@
 import Foundation
+import CoreGraphics
 import CoreVideo
 import Vision
 
@@ -36,6 +37,36 @@ enum SeriesSelection {
     static let relativeFloor = 0.15
     /// Aynı anda en çok bu kadar pencere işlenir; yazı tanıma yetişemezse pencere atlanır (ısınmayı sınırlar)
     static let maxPending = 2
+
+    // Temiz an ve tekrar azaltma (kullanıcı kararı 2026-11-19: "tüm tekrarları atmak yerine azaltabiliriz")
+
+    /// Blok ölçüsü bunun altındaysa kare temizdir. Gerçek günlük 2026-11-19 (477 kare): blok 1,00–1,05 arası karelerin ortanca netliği 3111,
+    /// 1,15–1,22 arası (bozuk eşiğinin hemen altı) karelerin 173: kamera oynarken kodlayıcı görüntüyü bloklaştırıyor ve yazı dağılıyor
+    static let cleanBlockiness = 1.05
+    /// Temiz eşiğinin üstündeki her 0,1 blok, karenin puanını bu kadar kat böler (1,15'te ikiye, 1,22'de ≈2,7'ye)
+    static let blockPenalty = 10.0
+    /// Blok ölçüsü bunun üstündeki kare "kirli"dir (yarı bozuk): içeriği komşu temiz karelerde zaten varsa gönderilmez
+    static let dirtyBlockiness = 1.15
+    /// Kirli karenin komşuları en çok bu kadar sn uzakta aranır
+    static let neighborSeconds: TimeInterval = 2.0
+    /// Kirli karenin sözcüklerinin en çok bu oranı komşularda yoksa kare "komşularında var" sayılır (yazı tanıma gürültüsü payı)
+    static let coveredShare = 0.10
+    /// Tekrar: iki karenin sözcük örtüşmesi (Jaccard) en az bu kadar, gösterdikleri şık harfleri ve soru numaraları aynı
+    static let repeatWords = 0.85
+    /// Tekrar ve kirli kare denetimi için karede en az bu kadar sözcük okunmuş olmalı (az yazılı karede hüküm verilmez, kare kalır)
+    static let minRepeatWords = 20
+    /// Art arda gelen aynı içerikli karelerden en iyi bu kadarı kalır (hepsi atılmaz: bir kare bozuk çıkarsa öteki yedektir)
+    static let repeatKeep = 2
+
+    /// Blok bozulmasına göre puan böleni (temiz karede 1)
+    static func blockFactor(_ blockiness: Double) -> Double {
+        return 1 + blockPenalty * max(0, blockiness - cleanBlockiness)
+    }
+
+    /// Pencere / dilim kazananı için netlik puanı: aynı netlikte daha az bloklaşmış kare öne geçer
+    static func cleanScore(sharpness: Double, blockiness: Double) -> Double {
+        return sharpness / blockFactor(blockiness)
+    }
 }
 
 /// Bir karedeki yazının ölçüsü (Vision yazı tanıma çıktısından)
@@ -53,6 +84,23 @@ struct TextScore: Equatable {
     /// Okunan yazıdaki sık kullanılan işlev sözcüklerinin ("the", "of", "bir", "için") sayısı: yazı baş aşağı okunduğunda harf sayısı yüksek kalabilir ama
     /// anlamlı sözcük çıkmaz (bkz. `TextSense`, `OrientationFinder`)
     var sense = 0
+    /// Karedeki soru parçaları (numara, kök, şıklar; bkz. `QuestionSpotter.pieces`): yalnız güçlü yazı okumada doldurulur, taramanın sonunda hangi sorunun
+    /// tam görülmediği bunlardan çıkarılır (bkz. `QuestionCoverage`)
+    var pieces: [QuestionPiece] = []
+    /// Soru parçaları çıkarıldı mı (güçlü okuma): çıkarıldıysa "karede görülen sorular" sıkı kuralla sayılır (bkz. `shownNumbers`)
+    var piecesRead = false
+
+    /// Karede görülen soru numaraları. Güçlü okumada yalnız sıkı kuralla görülenler (satır başında numara + kök + altında en az iki şık): metnin
+    /// içindeki "7. yüzyıl", "43-46" gibi sayılar soru sayılmaz (kullanıcı 2026-11-19: koç taranmayan soruları söylüyordu). Hızlı okumada parça
+    /// çıkarılmaz; eski gevşek kural kullanılır.
+    var shownNumbers: Set<Int> {
+        if !piecesRead { return questionNumbers }
+        var result = Set<Int>()
+        for piece in pieces where piece.isStrict {
+            if let number = piece.number { result.insert(number) }
+        }
+        return result
+    }
 
     static let minConfidence: Float = 0.3
 
@@ -68,7 +116,9 @@ struct TextScore: Equatable {
     var summary: String {
         let letters = String(options.sorted())
         let numbers = questionNumbers.sorted().map { String($0) }.joined(separator: ",")
-        return "\(chars) harf %\(Int((confidence * 100).rounded()))" + (letters.isEmpty ? "" : ", şıklar \(letters)") + (numbers.isEmpty ? "" : ", soru \(numbers)")
+        let parts = pieces.filter { $0.isStrict || $0.number == nil }.map { $0.summary }.joined(separator: " ")
+        let base = "\(chars) harf %\(Int((confidence * 100).rounded()))" + (letters.isEmpty ? "" : ", şıklar \(letters)") + (numbers.isEmpty ? "" : ", soru \(numbers)")
+        return parts.isEmpty ? base : base + ", parça \(parts)"
     }
 
     private static let optionPattern = try? NSRegularExpression(pattern: "(?<![A-Za-z0-9])([A-E])\\s?\\)", options: [])
@@ -125,6 +175,8 @@ struct PageQuality: Equatable {
     var valid = 0
     var damaged = 0
     var blurry = 0
+    /// Geçerli karelerden yarı bozuk (belirgin bloklaşmış) olanlar (bkz. `SeriesSelection.dirtyBlockiness`)
+    var dirty = 0
     var numbers: [Int: Int] = [:]
 }
 
@@ -143,12 +195,20 @@ enum SeriesTextReader {
             return nil
         }
         var lines: [(text: String, confidence: Float)] = []
+        var boxed: [(text: String, box: CGRect)] = []
         for case let observation as VNRecognizedTextObservation in (request.results ?? []) {
             if let top = observation.topCandidates(1).first {
                 lines.append((text: top.string, confidence: top.confidence))
+                if top.confidence >= TextScore.minConfidence { boxed.append((text: top.string, box: observation.boundingBox)) }
             }
         }
-        return TextScore.make(lines: lines)
+        var score = TextScore.make(lines: lines)
+        // Soru bütünlüğü yalnız güçlü okumada çıkarılır: hızlı kip numaraları ve şık harflerini sık kaçırır, "şık görülmedi" hükmü yanlış çıkar
+        if accurate {
+            score.pieces = QuestionSpotter.pieces(boxed)
+            score.piecesRead = true
+        }
+        return score
     }
 }
 
@@ -239,6 +299,11 @@ struct SeriesItem {
     var sub = 0
     /// Ritimde bulanık ya da soru içermeyen (geçersiz) bulunan kare; bozuk kare `damaged` ile ayrı tutulur. Dilimde geçerli kare varsa bunlar gitmez
     var problem: SlotProblem?
+    /// Blok ölçüsü (bkz. `FrameAnalysis.blockiness`); 1 civarı temiz
+    var blockiness = 1.0
+
+    /// Yarı bozuk kare: bozuk eşiğini aşmamış ama belirgin biçimde bloklaşmış (bkz. `SeriesSelection.dirtyBlockiness`)
+    var isDirty: Bool { return !damaged && blockiness >= SeriesSelection.dirtyBlockiness }
 
     /// Karede soru görünüyor mu: yazı okunabilir (yeterli harf) ya da bir şık harfi / soru numarası görülmüş. Okunan kareler her zaman alınır;
     /// öteki (zayıf) kareler yalnız okunan kare azsa en nete göre tamamlanır. Bozuk kare hiçbir zaman yararlı sayılmaz (karışık yazı Gemini'yi yanıltır).
@@ -255,6 +320,9 @@ struct SeriesItem {
 
     /// Karşılaştırma puanı: yararlı kare, ne kadar net olursa olsun zayıf kareden önce gelir (birleştirme ve havuz tavanında)
     var rank: Double { return (isUseful ? 1_000_000 : 0) + quality }
+
+    /// Tekrarlardan hangisinin kalacağına bakılırken kullanılan puan: aynı değerde daha az bloklaşmış kare öne geçer
+    var cleanRank: Double { return (isUseful ? 1_000_000 : 0) + quality / SeriesSelection.blockFactor(blockiness) }
 }
 
 /// Adayları tutar: ardışık aynı görünümlerde en iyisini bırakır, tavanı aşınca en düşük puanlıyı atar (saf mantık)
@@ -265,6 +333,110 @@ struct SeriesPool {
     var capacity = SeriesSelection.maxFrames
     /// Ritim modu: her dilimin kazananı kalır, hiçbiri "aynı görünüm" diye birleşmez ya da elenmez (dört parça kasten birbirini örter)
     var keepAll = false
+    /// Serbest taramada son seçimde kirli ve tekrar kareler azaltılır (bkz. `thinned`); Ayarlar'dan kapatılabilir
+    var thinFrames = true
+
+    /// Azaltmada atılan kare sayıları (günlük için)
+    struct ThinReport: Equatable {
+        /// İçeriği komşu temiz karelerde bulunan kirli (yarı bozuk) kareler
+        var dirty = 0
+        /// Art arda gelen aynı içerikten fazla olanlar
+        var repeats = 0
+    }
+
+    /// Tekrar: ikisinin de yazısı yeterince okunmuş, gösterdikleri şık harfleri ve soru numaraları aynı, sözcükleri büyük oranda ortak
+    static func isRepeat(_ a: SeriesItem, _ b: SeriesItem) -> Bool {
+        guard let ta = a.text, let tb = b.text else { return false }
+        if ta.words.count < SeriesSelection.minRepeatWords || tb.words.count < SeriesSelection.minRepeatWords { return false }
+        if ta.options != tb.options || ta.questionNumbers != tb.questionNumbers { return false }
+        return TextScore.overlap(ta.words, tb.words) >= SeriesSelection.repeatWords
+    }
+
+    /// `list[index]` karesinin gösterdiği her şey, önceki ve sonraki en yakın temiz (kirli olmayan) karelerde zaten var mı: şık harfleri ve soru
+    /// numaralarının hepsi, sözcüklerinin de neredeyse tamamı. Yazısı az okunmuş karede ya da yakında temiz kare yoksa false (kare kalır)
+    static func coveredByNeighbors(_ list: [SeriesItem], _ index: Int) -> Bool {
+        let item = list[index]
+        guard let text = item.text, text.words.count >= SeriesSelection.minRepeatWords else { return false }
+        var words = Set<String>()
+        var options = Set<Character>()
+        var numbers = Set<Int>()
+        var found = 0
+        var before = index - 1
+        while before >= 0 && item.time - list[before].time <= SeriesSelection.neighborSeconds {
+            if !list[before].isDirty, let other = list[before].text {
+                words.formUnion(other.words)
+                options.formUnion(other.options)
+                numbers.formUnion(other.questionNumbers)
+                found += 1
+                break
+            }
+            before -= 1
+        }
+        var after = index + 1
+        while after < list.count && list[after].time - item.time <= SeriesSelection.neighborSeconds {
+            if !list[after].isDirty, let other = list[after].text {
+                words.formUnion(other.words)
+                options.formUnion(other.options)
+                numbers.formUnion(other.questionNumbers)
+                found += 1
+                break
+            }
+            after += 1
+        }
+        if found == 0 { return false }
+        if !options.isSuperset(of: text.options) || !numbers.isSuperset(of: text.questionNumbers) { return false }
+        let extra = text.words.subtracting(words).count
+        return Double(extra) <= SeriesSelection.coveredShare * Double(text.words.count)
+    }
+
+    /// Serbest taramanın son seçimini azaltır (kareler zaman sırasıyla verilir, zaman sırasıyla döner). SINIRLI bir ayıklamadır:
+    /// (1) kirli (yarı bozuk) kare yalnız içeriği komşu temiz karelerde zaten varsa atılır; (2) art arda gelen aynı içerikli karelerden en iyi
+    /// `repeatKeep` tanesi kalır. Yazısı okunmamış ya da az okunmuş kareye dokunulmaz; yeni bir şık harfi ya da soru numarası gösteren kare tekrar sayılmaz.
+    static func thinned(_ list: [SeriesItem]) -> (kept: [SeriesItem], report: ThinReport) {
+        var report = ThinReport()
+        var cleaned: [SeriesItem] = []
+        for index in list.indices {
+            if list[index].isDirty && coveredByNeighbors(list, index) {
+                report.dirty += 1
+            } else {
+                cleaned.append(list[index])
+            }
+        }
+        var kept: [SeriesItem] = []
+        var group: [SeriesItem] = []
+        for item in cleaned {
+            if let anchor = group.first, isRepeat(anchor, item) {
+                group.append(item)
+            } else {
+                kept.append(contentsOf: strongest(group))
+                group = [item]
+            }
+        }
+        kept.append(contentsOf: strongest(group))
+        report.repeats = cleaned.count - kept.count
+        return (kept: kept, report: report)
+    }
+
+    /// Aynı içerikli kare grubundan kalacaklar: en iyi `repeatKeep` tanesi, zaman sırasıyla
+    static func strongest(_ group: [SeriesItem]) -> [SeriesItem] {
+        if group.count <= SeriesSelection.repeatKeep { return group }
+        let ranked = group.sorted { $0.cleanRank > $1.cleanRank }
+        return Array(ranked.prefix(SeriesSelection.repeatKeep)).sorted { $0.time < $1.time }
+    }
+
+    /// Serbest taramada gönderilecek kareler (azaltmadan önce), zaman sırasıyla; `good`: aralarında geçerli kare var (yoksa eldekiler olduğu gibi gider)
+    private func freeScanList() -> (list: [SeriesItem], good: Bool) {
+        let good = items.filter { !$0.damaged && $0.problem == nil }
+        let kept = good.isEmpty ? items : good
+        return (list: kept.sorted { $0.time < $1.time }, good: !good.isEmpty)
+    }
+
+    /// Serbest taramanın son seçiminde kaç kare azaltıldı (günlük için); azaltma kapalıysa ya da klasik seçimde sıfır
+    func thinReport() -> ThinReport {
+        guard keepAll, thinFrames else { return ThinReport() }
+        let free = freeScanList()
+        return free.good ? SeriesPool.thinned(free.list).report : ThinReport()
+    }
 
     /// Aynı görünüm: ikisinin de yazısı okunduysa kelime örtüşmesi; değilse kare imzalarının farkı. (İmza tek başına yetmez: iki farklı yazılı sayfa
     /// 32×18 ızgarada birbirine çok benzer; yazı bulunduğunda kelimelere bakılır.)
@@ -361,9 +533,9 @@ struct SeriesPool {
         if keepAll {
             // Serbest tarama (kullanıcı kararı 2026-11-18 akşam): kötü görüntü saklanmaz. Bozuk ve bulanık kareler hiç gönderilmez; yalnız oturumda tek bir
             // geçerli kare bile yoksa (çekim boş dönmesin diye) eldekiler etiketleriyle gider
-            let good = items.filter { !$0.damaged && $0.problem == nil }
-            let kept = good.isEmpty ? items : good
-            return kept.sorted { $0.time < $1.time }
+            // Geçerli kareler arasından kirli ve tekrar olanlar SINIRLI biçimde azaltılır (kullanıcı kararı 2026-11-19; bkz. `thinned`)
+            let free = freeScanList()
+            return thinFrames && free.good ? SeriesPool.thinned(free.list).kept : free.list
         }
         let useful = items.filter { $0.isUseful }
         var chosen: [SeriesItem] = []
@@ -434,6 +606,9 @@ final class SeriesCollector {
         var blurryWindows = 0
         var noQuestionWindows = 0
         var noOverlapWindows = 0
+        /// Serbest taramanın son seçiminde azaltılan kareler: içeriği komşu temiz karede olan kirli kareler ve fazla tekrarlar (bkz. `SeriesPool.thinned`)
+        var thinnedDirty = 0
+        var thinnedRepeats = 0
     }
 
     struct Outcome {
@@ -447,6 +622,10 @@ final class SeriesCollector {
         var diagnosis: CaptureDiagnosis
         /// Ritim modunda her fotoğrafın etiketi ("2. sayfa, orta üst"), `items` ile aynı sırada; klasik seçimde boş
         var labels: [String] = []
+        /// Hangi soru taramada tam görülmedi (bkz. `QuestionCoverage`); güçlü yazı okuma çalışmadıysa boş
+        var coverage = QuestionCoverage()
+        /// Ardışık karelerin imza farkının çeyrekleri (günlük için): "ölçüm 1180; çeyrekler 0.8 / 1.6 / 3.9; durgun eşiği 2.0 (altında kalan %58)"
+        var motionNote = ""
     }
 
     private let lock = NSLock()
@@ -465,7 +644,10 @@ final class SeriesCollector {
     /// Son karenin geldiği an (görüntü kesildi mi diye bakılır)
     private var lastOfferTime: TimeInterval?
     /// Ritim: değerlendirilen her kazanan karenin zamanı, hükmü (nil = geçerli) ve karede okunan soru numaraları (sayfa denetimi için)
-    private var verdicts: [(time: TimeInterval, problem: SlotProblem?, numbers: Set<Int>)] = []
+    private var verdicts: [(time: TimeInterval, problem: SlotProblem?, numbers: Set<Int>, dirty: Bool)] = []
+    /// Ardışık karelerin imza farkları (durgunluk eşiğini cihaz günlüğünden ayarlayabilmek için; en çok `maxDiffSamples` ölçüm)
+    private var signatureDiffs: [Double] = []
+    private static let maxDiffSamples = 4000
     /// Hareket takibi (varsa): kameradan gelen her kare ona da verilir. Çekim başlamadan önce atanır
     var motion: MotionTracker?
     private var pool = SeriesPool()
@@ -473,6 +655,8 @@ final class SeriesCollector {
     private var pending = 0
     private var finished = false
     private var numbers = Set<Int>()
+    /// Geçerli karelerde görülen soru parçaları, kare kare (çekim bitince soru bütünlüğü bunlardan çıkarılır)
+    private var questionPieces: [[QuestionPiece]] = []
     /// Durgunluk ölçümü için bir önceki karenin imzası ve kameranın son hareket ettiği an
     private var lastSignature: [UInt8]?
     private var lastMoveTime: TimeInterval = 0
@@ -488,7 +672,8 @@ final class SeriesCollector {
     private let minPages: Int
 
     init(start: TimeInterval, maxPending: Int = SeriesSelection.maxPending, minPages: Int = SeriesSelection.minPages, rhythm: SeriesRhythm? = nil, clock: RhythmClock? = nil,
-         reader: @escaping Reader, renderer: @escaping Renderer, coverage: Coverage? = nil, log: @escaping (String) -> Void = { _ in }) {
+         reader: @escaping Reader, renderer: @escaping Renderer, coverage: Coverage? = nil, thin: Bool = true,
+         log: @escaping (String) -> Void = { _ in }) {
         self.start = start
         // Ritimde her dilimin kazananı gerekir: yazı tanıma yetişemese de dilim atlanmaz (dilimler 4 sn arayla kapanır, kuyruk birikmez)
         let clock = clock ?? rhythm.map { RhythmClock(rhythm: $0, pages: 1) }
@@ -501,6 +686,7 @@ final class SeriesCollector {
         self.coverage = coverage
         self.log = log
         pool.keepAll = clock != nil
+        pool.thinFrames = thin
     }
 
     /// Analiz edilmiş bir kare (analiz kuyruğundan çağrılır; hızlı döner)
@@ -514,7 +700,9 @@ final class SeriesCollector {
         lastOfferTime = time
         let tracker = motion
         // Durgunluk: önceki kareyle fark eşiği aşınca kamera hareket ediyor sayılır (imza karşılaştırılamazsa da hareketli sayılır)
-        if let previous = lastSignature, FrameAnalysis.difference(previous, signature) <= FramePipeline.stillDiff {
+        let moved = lastSignature.map { FrameAnalysis.difference($0, signature) }
+        if let moved = moved, signatureDiffs.count < SeriesCollector.maxDiffSamples { signatureDiffs.append(moved) }
+        if let moved = moved, moved <= FramePipeline.stillDiff {
             // durgun: son hareket anı değişmez
         } else {
             lastMoveTime = time
@@ -523,10 +711,11 @@ final class SeriesCollector {
         var frame = Frame(buffer: buffer, time: time, sharpness: sharpness, signature: signature, blockiness: blockiness,
                           stillFor: max(0, time - lastMoveTime))
         if frame.damaged { stats.damagedFrames += 1 }
-        // Pencere kazananı: önce sağlam ve durgun an karesi, sonra sağlam hareketli kare, en son bozuk kare; aynı sınıfta en net olan.
-        // (Bozuk kare bloklardaki keskin kenarlar yüzünden yapay olarak çok net ölçülür; hareketli kare bulanık olma eğilimindedir.)
+        // Pencere kazananı: önce sağlam ve durgun an karesi, sonra sağlam hareketli kare, en son bozuk kare; aynı sınıfta en net VE en temiz olan.
+        // (Bozuk kare bloklardaki keskin kenarlar yüzünden yapay olarak çok net ölçülür; hareketli kare bulanık olma eğilimindedir. Bozuk eşiğinin
+        // altında kalan yarı bloklaşmış kare de aynı yüzden olduğundan net ölçülür: netliği blok ölçüsüyle kırpılır, temiz an öne geçer.)
         let tier = frame.damaged ? 0.0 : (frame.still ? 2.0 : 1.0)
-        let score = tier * 1_000_000 + sharpness
+        let score = tier * 1_000_000 + SeriesSelection.cleanScore(sharpness: sharpness, blockiness: blockiness)
         var closed: Frame?
         if let clock = clock {
             // Ritim: yalnız bir dilimin yerleşme süresinden sonraki kareleri sayılır (sayfa çevirirken ve yeni yere giderken gelenler atılır)
@@ -570,6 +759,7 @@ final class SeriesCollector {
             switch v.problem {
             case nil:
                 result.valid += 1
+                if v.dirty { result.dirty += 1 }
                 for number in v.numbers { result.numbers[number, default: 0] += 1 }
             case .damaged?: result.damaged += 1
             default: result.blurry += 1
@@ -639,8 +829,11 @@ final class SeriesCollector {
         default: break
         }
         if clock != nil, frame.slot != nil {
-            verdicts.append((time: frame.time, problem: problem, numbers: problem == nil ? (text?.questionNumbers ?? []) : []))
+            verdicts.append((time: frame.time, problem: problem, numbers: problem == nil ? (text?.shownNumbers ?? []) : [],
+                             dirty: !damaged && frame.blockiness >= SeriesSelection.dirtyBlockiness))
         }
+        // Soru bütünlüğü yalnız geçerli karelerden çıkarılır (bozuk karenin karışık yazısı parçaları bozar)
+        if !damaged, problem == nil, let found = text?.pieces, !found.isEmpty { questionPieces.append(found) }
         if let slotIndex = frame.slot, clock != nil {
             if let problem = problem { slotProblems[slotIndex, default: []].insert(problem) } else { goodSlots.insert(slotIndex) }
         }
@@ -667,12 +860,12 @@ final class SeriesCollector {
         }
         let item = SeriesItem(time: frame.time, jpeg: rendered.data, width: rendered.width, height: rendered.height,
                               sharpness: frame.sharpness, text: text, signature: frame.signature, damaged: damaged, slot: frame.slot, sub: frame.sub,
-                              problem: problem == .damaged ? nil : problem)
+                              problem: problem == .damaged ? nil : problem, blockiness: frame.blockiness)
         lock.lock()
         let mergedBefore = pool.merged
         pool.add(item)
         stats.kept += 1
-        if let text = text, !damaged { numbers.formUnion(text.questionNumbers) }
+        if let text = text, !damaged { numbers.formUnion(text.shownNumbers) }
         let wasMerged = pool.merged > mergedBefore
         lock.unlock()
         let verdict = damaged ? "BOZUK kare (bloklaşmış), yalnız sağlam kare yetmezse alınır"
@@ -702,12 +895,17 @@ final class SeriesCollector {
         var result = stats
         result.merged = pool.merged
         let chosen = pool.selected(minPages: minPages)
+        let thinning = pool.thinReport()
+        result.thinnedDirty = thinning.dirty
+        result.thinnedRepeats = thinning.repeats
         let seen = numbers.sorted()
         // Yazı tanıma hiç çalışmadıysa (read == 0) teşhis konmaz: pencere sayısı 0 kalır
         let diagnosis = CaptureDiagnosis(windows: result.read, readableWindows: result.readable,
                                          medianSharpness: CaptureDiagnosis.median(sharpnesses), questionNumbers: seen,
                                          damagedWindows: result.damagedWindows)
         var outcome = Outcome(items: chosen, readable: chosen.filter { $0.isUseful }.count, stats: result, questionNumbers: seen, diagnosis: diagnosis)
+        outcome.coverage = QuestionCoverage.make(questionPieces)
+        outcome.motionNote = SeriesCollector.diffNote(signatureDiffs)
         if clock != nil {
             outcome.labels = chosen.map { item in
                 let base = item.slot.flatMap { SeriesRhythm.slot(index: $0) }.map { SeriesRhythm.label(page: $0.page, part: $0.part, sub: item.sub) } ?? ""
@@ -718,6 +916,19 @@ final class SeriesCollector {
             }
         }
         return outcome
+    }
+
+    /// Ardışık kare imza farklarının dökümü (saf): çeyrekler ve durgun eşiğinin altında kalanların payı. Ölçüm yoksa boş
+    static func diffNote(_ diffs: [Double]) -> String {
+        if diffs.isEmpty { return "" }
+        let sorted = diffs.sorted()
+        func at(_ share: Double) -> Double {
+            return sorted[min(sorted.count - 1, Int(share * Double(sorted.count - 1)))]
+        }
+        let still = sorted.filter { $0 <= FramePipeline.stillDiff }.count
+        let percent = Int((100 * Double(still) / Double(sorted.count)).rounded())
+        return "ölçüm \(sorted.count); çeyrekler \(String(format: "%.1f", at(0.25))) / \(String(format: "%.1f", at(0.5))) / \(String(format: "%.1f", at(0.75))); "
+            + "durgun eşiği \(String(format: "%.1f", FramePipeline.stillDiff)) (altında kalan %\(percent))"
     }
 
     /// Açık pencereyi kapatır, bekleyen işlerin bitmesini bekler ve sonucu verir. Bundan sonra gelen kareler yok sayılır.

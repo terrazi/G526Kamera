@@ -73,6 +73,18 @@ struct CaptureDiagnosis: Equatable {
         return gaps(in: answered)
     }
 
+    /// Bir taramada en çok bu kadar soru "tam görünmedi" diye söylenir; daha fazlası çıkarsa hüküm güvenilmezdir (yazı tanıma şık harflerini topluca
+    /// kaçırmış olabilir) ve HİÇBİRİ söylenmez
+    static let maxIncompleteSpoken = 3
+
+    /// Cevabı okunan ama taramada tam görülmeyen sorular (artan). Yalnız cevabı okunanlar söylenir: cevaplanmayan soru için "cevabı kesin olmayabilir"
+    /// demek anlamsızdır. Sayı `maxIncompleteSpoken`'ı aşarsa boş döner (şüphede susulur).
+    static func incompleteAnswers(incomplete: [Int], answered: [Int]) -> [Int] {
+        let answeredSet = Set(answered)
+        let found = Array(Set(incomplete).filter { answeredSet.contains($0) }).sorted()
+        return found.count <= maxIncompleteSpoken ? found : []
+    }
+
     /// "4", "4 ve 7", "4, 7 ve 9"
     static func numberList(_ numbers: [Int]) -> String {
         let texts = numbers.map { String($0) }
@@ -165,6 +177,14 @@ enum CaptureSay {
         return "Soru \(CaptureDiagnosis.numberList(numbers)) cevaplanamadı. İsterseniz yeniden tarayın."
     }
     static let manyMissingAnswers = "Aradaki birkaç soru cevaplanamadı. İsterseniz o sayfayı yeniden tarayın."
+
+    /// Cevaplar okunduktan sonra: cevabı okunan ama taramada tam görülmeyen sorular (bkz. `QuestionCoverage`)
+    static func incompleteAnswers(_ numbers: [Int]) -> String {
+        if numbers.count == 1 {
+            return "Taramada tam görünmeyen soru: \(CaptureDiagnosis.numberList(numbers)). Cevabı kesin olmayabilir; isterseniz yeniden tarayın."
+        }
+        return "Taramada tam görünmeyen sorular: \(CaptureDiagnosis.numberList(numbers)). Cevapları kesin olmayabilir; isterseniz yeniden tarayın."
+    }
 
     // Kadraj kontrolü
     static let viewGood = "Kadraj iyi: yazı net okunuyor. Başlayabilirsiniz."

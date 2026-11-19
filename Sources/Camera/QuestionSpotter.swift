@@ -157,3 +157,347 @@ enum QuestionSpotReader {
         return lines
     }
 }
+
+// MARK: - Soru bütünlüğü (taramada hangi soru tam görülmedi)
+
+/// Bir şıkkın bir karedeki görünüşü
+struct OptionView: Equatable {
+    /// Şıkkın satırlarındaki sözcükler (küçük harf, en az üç harf): başka bir karedeki aynı şıkla eşleştirmek için
+    var words: Set<String> = []
+    /// Şıkkın satırlarından biri kadrajın sol ya da sağ kenarına dayanıyor (yarım görünüyor)
+    var cut = false
+}
+
+/// Bir karede görülen soru parçası (bkz. `QuestionSpotter.pieces`): numara satırıyla başlayan bir soru ya da numarası kadrajın dışında kalmış bir
+/// sorunun devamı (yakından çekimde uzun soru tek kareye sığmaz; parçalar `QuestionCoverage` içinde birleştirilir)
+struct QuestionPiece: Equatable {
+    /// Soru numarası; nil: numara satırı karede yok
+    var number: Int?
+    /// Numaradan sonra, ilk şıkka kadar okunan harf sayısı
+    var body = 0
+    /// Kök satırlarından biri (numara satırı ve ilk şıkka kadar olanlar) kadrajın sol / sağ kenarına dayanıyor
+    var stemCut = false
+    /// Karede görülen şıklar
+    var options: [Character: OptionView] = [:]
+    /// Numarasız parçada: aynı sütunda hemen ardından başlayan sorunun numarası (parça, ondan bir önceki sorunun kuyruğudur)
+    var before: Int?
+
+    /// Sıkı kural (bkz. `QuestionSpotter`): satır başında numara, ardında soru metni ve altında en az iki şık
+    var isStrict: Bool {
+        return number != nil && options.count >= QuestionSpotter.minOptions && body >= QuestionSpotter.minBodyLetters
+    }
+
+    /// Günlük için: "47:ABCDE"; kenarda kesik görünen şık küçük harfle ("47:ABCde"); numarasız parça "?:CDE", ardından gelen soru biliniyorsa "<48:DE"
+    var summary: String {
+        let head = number.map { String($0) } ?? (before.map { "<\($0)" } ?? "?")
+        let letters = options.keys.sorted().map { (options[$0]?.cut ?? false) ? String($0).lowercased() : String($0) }.joined()
+        return head + ":" + letters + (stemCut ? "!" : "")
+    }
+}
+
+extension QuestionSpotter {
+    /// Satır kutusu kadrajın sol / sağ kenarına bu orandan yakınsa satır kesik sayılır (kadraj koçuyla aynı ölçü)
+    static let edge = 0.012
+    /// Sol kenarları arasında en az bu kadar boşluk olan satır kümeleri ayrı sütundur (aynı sütunun satırları girinti ve eğiklikle birkaç yüzde oynar)
+    static let columnGap = 0.12
+    /// Bir şıkkın en çok bu kadar devam satırı sayılır (son şıkkın ardından gelen paragraf o şıkka katılmasın)
+    static let maxOptionRows = 4
+
+    private struct PieceRow {
+        var text: String
+        var top: Double
+        var minX: Double
+        var maxX: Double
+    }
+
+    /// Satırdaki sözcükler: küçük harf, en az üç harf (`TextScore.words` ile aynı kural)
+    static func rowWords(_ text: String) -> Set<String> {
+        var result = Set<String>()
+        for word in text.lowercased().split(whereSeparator: { !$0.isLetter }) where word.count >= 3 {
+            result.insert(String(word))
+        }
+        return result
+    }
+
+    /// Sütunlar: satırlar sol kenarlarına göre kümelenir (kısa şık satırı, ortası karşı yarıya düşse de kendi sütununda kalır)
+    private static func pieceColumns(_ rows: [PieceRow]) -> [[PieceRow]] {
+        var columns: [[PieceRow]] = []
+        var current: [PieceRow] = []
+        for row in rows.sorted(by: { $0.minX < $1.minX }) {
+            if let last = current.last, row.minX - last.minX >= columnGap {
+                columns.append(current)
+                current = []
+            }
+            current.append(row)
+        }
+        if !current.isEmpty { columns.append(current) }
+        return columns
+    }
+
+    /// `index`'teki numara satırı yeni bir soru mu başlatıyor? Şık görülmemişken her numara satırı başlatır. Şıklar görülmeye başlamışsa yalnız sıradaki
+    /// numara (N + 1) ya da ardından, başka bir numara satırına gelmeden, A şıkkını taşıyan bir şık satırı gelen numara başlatır.
+    private static func startsQuestion(_ number: Int, after piece: QuestionPiece, rows: [PieceRow], at index: Int) -> Bool {
+        if piece.options.isEmpty { return true }
+        if let current = piece.number, number == current + 1 { return true }
+        var next = index + 1
+        while next < rows.count {
+            if numbered(rows[next].text) != nil { return false }
+            let marks = optionLetters(rows[next].text)
+            if !marks.isEmpty { return marks.contains("A") }
+            next += 1
+        }
+        return false
+    }
+
+    private static func close(_ piece: QuestionPiece, next: Int?, into result: inout [QuestionPiece]) {
+        var closed = piece
+        if closed.number == nil {
+            // Numarasız ve şıksız satırlar (paragraf, başlık) parça değildir
+            if closed.options.isEmpty { return }
+            closed.before = next
+        }
+        result.append(closed)
+    }
+
+    /// Karedeki soru parçaları. Kutular Vision ölçüsündedir (0–1, başlangıç sol alt). Her sütun yukarıdan aşağı okunur: numara satırı yeni bir soru
+    /// başlatır; şık satırları ve devamları o soruya yazılır; sütunun başında numarasız gelen şıklar "numarasız parça"dır.
+    ///
+    /// Şıkları görülmeye başlamış bir parçanın içinde satır başında rastlanan numara ancak sıradaki numaraysa (N + 1) ya da ardından yeni bir şık dizisi
+    /// (A şıkkı) geliyorsa yeni soru sayılır: şık metninin satır başına düşen "7. yüzyılda" gibi bir sayı soruyu ikiye bölmesin.
+    static func pieces(_ lines: [(text: String, box: CGRect)]) -> [QuestionPiece] {
+        var rows: [PieceRow] = []
+        for line in lines where letters(line.text) > 0 {
+            rows.append(PieceRow(text: line.text, top: 1 - Double(line.box.maxY), minX: Double(line.box.minX), maxX: Double(line.box.maxX)))
+        }
+        var result: [QuestionPiece] = []
+        for column in pieceColumns(rows) {
+            var piece = QuestionPiece()
+            var letter: Character?
+            var extraRows = 0
+            let ordered = column.sorted(by: { $0.top < $1.top })
+            for (index, row) in ordered.enumerated() {
+                let cut = row.minX < edge || row.maxX > 1 - edge
+                if let start = numbered(row.text), startsQuestion(start.number, after: piece, rows: ordered, at: index) {
+                    close(piece, next: start.number, into: &result)
+                    piece = QuestionPiece()
+                    piece.number = start.number
+                    piece.body = start.rest
+                    piece.stemCut = cut
+                    letter = nil
+                    extraRows = 0
+                    // Çok kısa soru: şıklar numara satırının içinde olabilir ("3. 2 + 2 kaçtır?  A) 3  B) 4")
+                    for inline in optionLetters(row.text) {
+                        piece.options[inline] = OptionView(words: [], cut: cut)
+                    }
+                    continue
+                }
+                let marks = optionLetters(row.text)
+                if marks.isEmpty {
+                    if let current = letter {
+                        if extraRows >= maxOptionRows { continue }
+                        extraRows += 1
+                        var view = piece.options[current] ?? OptionView()
+                        view.words.formUnion(rowWords(row.text))
+                        if cut { view.cut = true }
+                        piece.options[current] = view
+                    } else if piece.number != nil && piece.options.isEmpty {
+                        piece.body += letters(row.text)
+                        if cut { piece.stemCut = true }
+                    }
+                    continue
+                }
+                // Şık satırı: tek şıksa sözcükleri o şıkka yazılır; birkaç şık yan yanaysa ("A) 5   B) 6") sözcükler şıklara ayrılamaz
+                for mark in marks {
+                    var view = piece.options[mark] ?? OptionView()
+                    if marks.count == 1 { view.words.formUnion(rowWords(row.text)) }
+                    if cut { view.cut = true }
+                    piece.options[mark] = view
+                }
+                letter = marks.count == 1 ? marks.first : nil
+                extraRows = 0
+            }
+            close(piece, next: nil, into: &result)
+        }
+        return result
+    }
+}
+
+/// Bir taramanın bütün karelerindeki soru parçalarından HANGİ SORUNUN TAM GÖRÜLMEDİĞİNİ çıkarır (saf mantık; birim testle denenir).
+///
+/// Kullanıcı kararı 2026-11-19: koç yanlış bilgi vermemeli. Bu yüzden hüküm yalnız güçlü kanıtla verilir, şüphede susulur:
+/// - Yalnız en az `minFrames` karede sıkı kuralla (numara + kök + iki şık) görülen sorular denetlenir.
+/// - Numarası kadrajın dışında kalan devam parçaları soruya iki yoldan bağlanır: aynı sütunda hemen ardından gelen sorunun numarasından (N + 1'in
+///   üstündeki şıklar N'nindir) ya da ortak bir şıkkın sözcüklerinden (iki karede de "C" görünüyor ve metinleri aynı).
+/// - "Şık hiç görülmedi" ancak görülen şıklar A'dan başlayan kesintisiz bir diziyse (A, B, C: alt taraf kadraja girmemiş) ve taramadaki soruların
+///   çoğunda daha ileri bir şık varsa söylenir; aradan eksik harf (A, C, E) yazı tanımanın kaçırmasıdır, sayılmaz.
+/// - Hiçbir soruya bağlanamayan bir parçada eksik şık varsa (bağlanamamış devam olabilir) yine susulur.
+/// - "Kenarda kesik" ancak şık / kök en az `minCutFrames` karede görülüp HER birinde sol ya da sağ kenara dayanıyorsa söylenir.
+struct QuestionCoverage: Equatable {
+    static let minFrames = 2
+    static let minCutFrames = 3
+    /// Beklenen son şık (çoğu soruda E) en az bu kadar soruda görülmüş olmalı
+    static let minTopVotes = 2
+    /// Devam parçasını bağlamak için ortak şıkta en az bu kadar ortak sözcük ve küçük kümenin bu oranı aranır
+    static let minSharedWords = 2
+    static let sharedShare = 0.6
+    static let letters: [Character] = ["A", "B", "C", "D", "E"]
+
+    struct Entry: Equatable {
+        /// Sıkı kuralla görüldüğü kare sayısı ve bunlardan kökü kenara dayanmayanlar
+        var frames = 0
+        var stemClean = 0
+        /// Şık harfi → görüldüğü parça sayısı / kenara dayanmadan görüldüğü parça sayısı / sözcükleri
+        var seen: [Character: Int] = [:]
+        var clean: [Character: Int] = [:]
+        var words: [Character: Set<String>] = [:]
+
+        mutating func absorb(_ piece: QuestionPiece) {
+            for (letter, view) in piece.options {
+                seen[letter, default: 0] += 1
+                if !view.cut { clean[letter, default: 0] += 1 }
+                words[letter, default: []].formUnion(view.words)
+            }
+        }
+    }
+
+    /// Tam görülmeyen sorular (artan) ve günlük için nedenleri
+    var incomplete: [Int] = []
+    var reasons: [Int: String] = [:]
+    /// Denetlenen sorular ve görülen şıkları ("ABCDE")
+    var checked: [Int: String] = [:]
+    /// Taramadaki soruların çoğunda görülen son şık; belirlenemediyse nil ("şık görülmedi" hükmü verilmez)
+    var expectedTop: Character?
+    /// Hiçbir soruya bağlanamayan devam parçası sayısı
+    var orphans = 0
+
+    static func similar(_ a: Set<String>, _ b: Set<String>) -> Bool {
+        let small = min(a.count, b.count)
+        if small < minSharedWords { return false }
+        let common = a.intersection(b).count
+        return common >= minSharedWords && Double(common) / Double(small) >= sharedShare
+    }
+
+    /// `frames`: geçerli (bozuk ya da bulanık olmayan) her karenin parçaları
+    static func make(_ frames: [[QuestionPiece]]) -> QuestionCoverage {
+        var result = QuestionCoverage()
+        var entries: [Int: Entry] = [:]
+        // 1) Sıkı kuralla görülen sorular (kare başına bir kez sayılır)
+        for pieces in frames {
+            var counted = Set<Int>()
+            for piece in pieces where piece.isStrict {
+                guard let number = piece.number, !counted.contains(number) else { continue }
+                counted.insert(number)
+                var entry = entries[number] ?? Entry()
+                entry.frames += 1
+                if !piece.stemCut { entry.stemClean += 1 }
+                entries[number] = entry
+            }
+        }
+        let established = Set(entries.filter { $0.value.frames >= minFrames }.map { $0.key })
+        if established.isEmpty { return result }
+        // 2) Numaralı parçalar ve ardından gelen sorusu bilinen devam parçaları doğrudan bağlanır
+        var loose: [QuestionPiece] = []
+        for pieces in frames {
+            for piece in pieces {
+                var owner: Int?
+                if let number = piece.number {
+                    owner = number
+                } else if let next = piece.before {
+                    owner = next - 1
+                } else {
+                    loose.append(piece)
+                    continue
+                }
+                if let number = owner, established.contains(number), var entry = entries[number] {
+                    entry.absorb(piece)
+                    entries[number] = entry
+                }
+            }
+        }
+        // 3) Kalan devam parçaları ortak şıkkın sözcüklerinden bağlanır; bağlananlar yeni şık getirdikçe öbürleri de bağlanabilir
+        var rounds = 0
+        var changed = true
+        while changed && rounds < 4 {
+            changed = false
+            rounds += 1
+            var rest: [QuestionPiece] = []
+            for piece in loose {
+                var owners: [Int] = []
+                for number in established {
+                    guard let entry = entries[number] else { continue }
+                    var matches = false
+                    for (letter, view) in piece.options {
+                        if let known = entry.words[letter], similar(view.words, known) {
+                            matches = true
+                            break
+                        }
+                    }
+                    if matches { owners.append(number) }
+                }
+                if owners.count == 1, let number = owners.first, var entry = entries[number] {
+                    entry.absorb(piece)
+                    entries[number] = entry
+                    changed = true
+                } else {
+                    rest.append(piece)
+                }
+            }
+            loose = rest
+        }
+        result.orphans = loose.count
+        // 4) Beklenen son şık: denetlenen soruların en çoğunda görülen son harf (eşitlikte küçük olan: daha az uyarı)
+        var tops: [Character: Int] = [:]
+        for number in established {
+            if let top = entries[number]?.seen.keys.max() { tops[top, default: 0] += 1 }
+        }
+        let ranked = tops.sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }
+        if let first = ranked.first, first.value >= minTopVotes { result.expectedTop = first.key }
+        // 5) Hüküm
+        for number in established.sorted() {
+            guard let entry = entries[number] else { continue }
+            let seen = Set(entry.seen.keys)
+            result.checked[number] = String(seen.sorted())
+            var reason: String?
+            if let top = result.expectedTop, let last = seen.max(), last < top {
+                let run = Set(letters.filter { $0 <= last })
+                let missing = letters.filter { $0 > last && $0 <= top }
+                if seen == run, let firstMissing = missing.first, !loose.contains(where: { $0.options[firstMissing] != nil }) {
+                    reason = "\(String(missing)) hiçbir karede görülmedi"
+                }
+            }
+            if reason == nil {
+                var cut: [Character] = []
+                for letter in letters {
+                    let seenCount = entry.seen[letter] ?? 0
+                    let cleanCount = entry.clean[letter] ?? 0
+                    if seenCount < minCutFrames || cleanCount > 0 { continue }
+                    // Bağlanamayan bir parçada bu şık kenara dayanmadan görünüyorsa (bağlanamamış devam olabilir) hüküm verilmez
+                    var cleanElsewhere = false
+                    for piece in loose {
+                        if let view = piece.options[letter], !view.cut { cleanElsewhere = true }
+                    }
+                    if !cleanElsewhere { cut.append(letter) }
+                }
+                if !cut.isEmpty {
+                    reason = "\(String(cut)) her karede kenarda kesik"
+                } else if entry.frames >= minCutFrames && entry.stemClean == 0 {
+                    reason = "soru kökü her karede kenarda kesik"
+                }
+            }
+            if let reason = reason {
+                result.incomplete.append(number)
+                result.reasons[number] = reason
+            }
+        }
+        return result
+    }
+
+    /// Günlük satırı: "denetlenen 47:ABCDE 48:ABC; beklenen son şık E; bağlanamayan parça 2; tam görülmeyen 48 (DE hiçbir karede görülmedi)"
+    var logText: String {
+        if checked.isEmpty { return "denetlenecek soru yok (hiçbir soru iki karede numarası, kökü ve şıklarıyla görülmedi)" }
+        let list = checked.keys.sorted().map { "\($0):\(checked[$0] ?? "")" }.joined(separator: " ")
+        let top = expectedTop.map { String($0) } ?? "belirsiz"
+        let bad = incomplete.map { "\($0) (\(reasons[$0] ?? ""))" }.joined(separator: ", ")
+        return "denetlenen \(list); beklenen son şık \(top); bağlanamayan parça \(orphans); tam görülmeyen " + (bad.isEmpty ? "yok" : bad)
+    }
+}

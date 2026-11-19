@@ -174,6 +174,8 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
     private var cancellables = Set<AnyCancellable>()
     /// Kameraya el sıkışılan an (systemUptime); bağlantı kopunca ya da kamera kapanınca boşalır
     private var handshakeAt: TimeInterval?
+    /// Kopma günlüğü: kamera akışının ne zaman kesildiği, ne kadar sürdüğü ve ne kadar sonra döndüğü
+    private var streamLine = LinkTimeline(name: "Kamera akışı")
 
     var renderer: VideoRenderer { return pipeline.renderer }
 
@@ -216,10 +218,28 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
     /// Çözülmüş kare gerçekten geliyor mu (son 3 sn içinde)
     var isLive: Bool { return cameraState.isLive && decodeClock.age() < 3.0 }
 
+    /// Kopma günlüğü: akış başlayınca / kesilince ayrıntısıyla yazılır (ölçümler sıfırlanmadan önce çağrılır). Bilerek kapatmada (durdu) sayaç sıfırlanır
+    private func logStreamChange(_ state: CameraState, at now: TimeInterval) {
+        let wifi = LinkLog.wifiAddress() ?? "yok"
+        switch state {
+        case .streaming:
+            if let line = streamLine.update(up: true, at: now, detail: "telefonun Wi-Fi adresi \(wifi)") { tlog("[bağlantı] \(line)") }
+        case .reconnecting(let why):
+            if let line = streamLine.update(up: false, at: now) {
+                tlog("[bağlantı] \(line); neden: \(why); son çözülen kare \(String(format: "%.1f", decodeClock.age())) sn önce; telefonun Wi-Fi adresi \(wifi)")
+            }
+        case .stopped:
+            streamLine = LinkTimeline(name: "Kamera akışı")
+        default:
+            break
+        }
+    }
+
     private func stateChanged(_ state: CameraState) {
         guard running || state == .stopped else { return }
         cameraState = state
         let now = ProcessInfo.processInfo.systemUptime
+        logStreamChange(state, at: now)
         switch state {
         case .connected:
             handshakeAt = now
@@ -979,6 +999,7 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
                 guard let rendered = Enhancer.render(buffers: [buffer], options: rendering) else { return nil }
                 return (data: rendered.data, width: rendered.width, height: rendered.height)
             },
+            thin: settings.thinFrames,
             log: { tlog($0) })
         let rawBefore = pipeline.framesSeen
         collector.motion = tracker
@@ -1008,6 +1029,7 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         var stalled = false
         var reviewFrom = 0
         var redone = Set<Int>()
+        var slowDownAt = -SeriesRhythm.slowDownEvery   // "yavaşlayın" uyarısının son söylendiği saniye
         while second < total {
             second += 1
             if cancelled { break }
@@ -1068,7 +1090,14 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
                         reviewed = true
                     } else if second < total {
                         // Sayfa işe yaradı (ya da ikinci taramada da zayıf kaldı): kullanıcı sıradaki sayfaya yönlendirilir; süre anonsunun yerine geçer
-                        sayRhythm(SeriesRhythm.nextPageText(page: page, good: !bad, seen: SeriesRhythm.mainRun(seen), barelyMoved: motion?.barelyMoved ?? false))
+                        var text = SeriesRhythm.nextPageText(page: page, good: !bad, seen: SeriesRhythm.mainRun(seen), barelyMoved: motion?.barelyMoved ?? false)
+                        // Sayfa işe yaradı ama karelerinin yarısı bozuk / yarı bozuk geldi: sıradaki sayfa için "daha yavaş" denir
+                        if SeriesRhythm.isRough(valid: q.valid, damaged: q.damaged, blurry: q.blurry, dirty: q.dirty), second - slowDownAt >= SeriesRhythm.slowDownEvery {
+                            slowDownAt = second
+                            tlog("[kamera] yavaşlayın uyarısı: \(page). sayfada geçerli \(q.valid) karenin \(q.dirty) tanesi yarı bozuk, \(q.damaged) kare bozuk")
+                            text += " " + SeriesRhythm.slowDown
+                        }
+                        sayRhythm(text)
                         reviewed = true
                     }
                 }
@@ -1088,7 +1117,20 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
                     tlog("[kamera] ritim: \(place) diliminde geçerli kare yok (\(why)); \(attempt). tekrar, oturum \(total) sn'ye uzadı (toplam \(clock.retries) tekrar)")
                     sayRhythm(text)
                 case .cue(let cue):
-                    if second < total { sayRhythm(cue) }
+                    if second < total {
+                        // Son 10 saniyede karelerin yarısı bozuk / yarı bozuk geldiyse süre anonsuna "daha yavaş" eklenir (en çok 20 saniyede bir)
+                        let slotLength = rhythm?.slotSeconds ?? 10
+                        let from = max(0, Double(second) - slotLength)
+                        let recent = collector.quality(from: from, to: Double(second))
+                        if SeriesRhythm.isRough(valid: recent.valid, damaged: recent.damaged, blurry: recent.blurry, dirty: recent.dirty),
+                           second - slowDownAt >= SeriesRhythm.slowDownEvery {
+                            slowDownAt = second
+                            tlog("[kamera] yavaşlayın uyarısı: son dilimde geçerli \(recent.valid) karenin \(recent.dirty) tanesi yarı bozuk, \(recent.damaged) kare bozuk")
+                            sayRhythm(cue + " " + SeriesRhythm.slowDown)
+                        } else {
+                            sayRhythm(cue)
+                        }
+                    }
                 case .silent:
                     break
                 }
@@ -1136,6 +1178,11 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         let elapsed = max(1.0, ProcessInfo.processInfo.systemUptime - t0)
         let rawFrames = max(0, pipeline.framesSeen - rawBefore)
         tlog("[kamera] toplu çekim özeti: kameradan \(rawFrames) kare geldi (≈\(Int((Double(rawFrames) / elapsed).rounded()))/sn), \(stats.offered) kare ölçüldü (≈\(Int((Double(stats.offered) / elapsed).rounded()))/sn), \(stats.windows) pencere: \(stats.weak) tanesinin yazısı okunamadı (zayıf aday), \(stats.busySkipped) atlandı, \(stats.merged) tekrar birleşti, \(stats.kept) aday → \(outcome.items.count) fotoğraf (\(outcome.readable) tanesi okunan); yazı tanıma \(stats.read) kez çalıştı, \(stats.readFailed) kez çalışmadı; bozuk (bloklaşmış) kare \(stats.damagedFrames), tamamen bozuk pencere \(stats.damagedWindows), durgun anda alınan pencere \(stats.stillWindows); görülen soru numaraları: \(outcome.questionNumbers.map { String($0) }.joined(separator: ","))")
+        if rhythm != nil {
+            tlog("[kamera] kare azaltma: \(settings.thinFrames ? "açık" : "kapalı"); içeriği komşu temiz karede olan \(stats.thinnedDirty) kirli kare ve \(stats.thinnedRepeats) fazla tekrar gönderilmiyor")
+            tlog("[kamera] soru bütünlüğü: \(outcome.coverage.logText)")
+            if !outcome.motionNote.isEmpty { tlog("[kamera] ardışık kare farkı: \(outcome.motionNote)") }
+        }
         // Kare geldiği halde hiç aday çıkmadıysa (hepsinin fotoğrafı oluşturulamadı) ya da görüntü baştan kesildiyse çekim yoktur
         guard let best = outcome.items.max(by: { $0.rank < $1.rank }) else {
             if let url = videoOutput?.url ?? videoURL { try? FileManager.default.removeItem(at: url) }
@@ -1157,6 +1204,7 @@ final class CameraCaptureController: ObservableObject, CameraCapturing {
         shot.date = Date()
         shot.isPage = true
         shot.seenNumbers = outcome.questionNumbers
+        shot.incompleteNumbers = outcome.coverage.incomplete
         shot.rhythmLabels = pdf == nil ? [] : outcome.labels
         shot.video = videoOutput?.url
         shot.videoBytes = videoOutput?.bytes ?? 0

@@ -23,6 +23,47 @@ struct RouteVerdict: Equatable {
 
 /// KURAL 1 ("ses telefondan sızmaz") için saf mantık: portlara bakıp güvenli mi diye karar verir.
 enum AudioRouting {
+    // MARK: Kopma günlüğü
+
+    static func reasonName(_ reason: AVAudioSession.RouteChangeReason) -> String {
+        switch reason {
+        case .newDeviceAvailable: return "yeni aygıt bağlandı"
+        case .oldDeviceUnavailable: return "aygıt ayrıldı (kulaklık koptu, kapandı ya da uzaklaştı)"
+        case .categoryChange: return "ses kategorisi değişti"
+        case .override: return "yol elle değiştirildi"
+        case .wakeFromSleep: return "uykudan uyanma"
+        case .noSuitableRouteForCategory: return "kategoriye uygun yol yok"
+        case .routeConfigurationChange: return "yol ayarı değişti"
+        case .unknown: return "bilinmiyor"
+        default: return "bilinmiyor (\(reason.rawValue))"
+        }
+    }
+
+    /// Ses yolu değişimi bildiriminin ayrıntısı: neden ve önceki yol ("neden: aygıt ayrıldı…; önceki çıkış: AirPods [BluetoothHFP]; önceki giriş: …")
+    static func changeDetail(_ userInfo: [AnyHashable: Any]?) -> String {
+        var parts: [String] = []
+        if let raw = userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt, let reason = AVAudioSession.RouteChangeReason(rawValue: raw) {
+            parts.append("neden: \(reasonName(reason))")
+        }
+        if let previous = userInfo?[AVAudioSessionRouteChangePreviousRouteKey] as? AVAudioSessionRouteDescription {
+            let outputs = previous.outputs.map { "\($0.portName) [\($0.portType.rawValue)]" }.joined(separator: ", ")
+            let inputs = previous.inputs.map { "\($0.portName) [\($0.portType.rawValue)]" }.joined(separator: ", ")
+            parts.append("önceki çıkış: \(outputs.isEmpty ? "yok" : outputs)")
+            parts.append("önceki giriş: \(inputs.isEmpty ? "yok" : inputs)")
+        }
+        return parts.joined(separator: "; ")
+    }
+
+    /// Ses kesintisi bildiriminin ayrıntısı: neden kodu ve kesinti bitince sesin sürdürülüp sürdürülemeyeceği
+    static func interruptionDetail(_ userInfo: [AnyHashable: Any]?) -> String {
+        var parts: [String] = []
+        if let raw = userInfo?[AVAudioSessionInterruptionReasonKey] as? UInt { parts.append("neden kodu \(raw)") }
+        if let raw = userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt {
+            parts.append(AVAudioSession.InterruptionOptions(rawValue: raw).contains(.shouldResume) ? "ses sürdürülebilir" : "ses kendiliğinden sürmez")
+        }
+        return parts.joined(separator: "; ")
+    }
+
     /// Sesin gidebileceği tek yer: Bluetooth kulaklık. Telefonun hoparlörü/ahizesi ve kablolu çıkış güvenli sayılmaz.
     static let headphonePorts: Set<AVAudioSession.Port> = [.bluetoothA2DP, .bluetoothHFP, .bluetoothLE]
 
@@ -119,20 +160,30 @@ final class AudioSessionGuard: AudioRouteProviding {
     private var assumedInput = false
     private var observer: NSObjectProtocol?
     private var interruptionObserver: NSObjectProtocol?
+    private var headsetLine = LinkTimeline(name: "Kulaklık")
     private var mediaObservers: [NSObjectProtocol] = []
 
     init(session: AVAudioSession = .sharedInstance()) {
         self.session = session
         observer = NotificationCenter.default.addObserver(forName: AVAudioSession.routeChangeNotification,
-                                                          object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.routeDidChange() }
+                                                          object: nil, queue: .main) { [weak self] note in
+            // Kopma günlüğü: yolun NEDEN değiştiği ve önceki yol (yeni yol `routeChanged` içinde yazılır)
+            let detail = AudioRouting.changeDetail(note.userInfo)
+            Task { @MainActor in
+                if !detail.isEmpty { tlog("[bağlantı] ses yolu değişti: \(detail)") }
+                self?.routeDidChange()
+            }
         }
         interruptionObserver = NotificationCenter.default.addObserver(forName: AVAudioSession.interruptionNotification,
                                                                       object: nil, queue: .main) { [weak self] note in
             guard let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
                   let type = AVAudioSession.InterruptionType(rawValue: raw) else { return }
             let began = type == .began
-            Task { @MainActor in self?.onInterruption?(began) }
+            let detail = AudioRouting.interruptionDetail(note.userInfo)
+            Task { @MainActor in
+                tlog("[bağlantı] ses kesintisi \(began ? "BAŞLADI" : "bitti")\(detail.isEmpty ? "" : " (\(detail))")")
+                self?.onInterruption?(began)
+            }
         }
         // Ses servisi çökünce bundan önce hiçbir yol ya da kesinti bildirimi gelmeyebilir; ayrıca dinlenir
         for name in [AVAudioSession.mediaServicesWereLostNotification, AVAudioSession.mediaServicesWereResetNotification] {
@@ -194,7 +245,13 @@ final class AudioSessionGuard: AudioRouteProviding {
 
     private func routeDidChange() {
         preferHeadsetInput()
-        onChange?(snapshot())
+        let current = snapshot()
+        // Kopma günlüğü: kulaklığın ne zaman koptuğu, ne kadar bağlı kaldığı ve ne kadar sonra döndüğü
+        let verdict = AudioRouting.verdict(current)
+        if let line = headsetLine.update(up: verdict.headphonesOK, at: ProcessInfo.processInfo.systemUptime, detail: AudioRouting.describeRaw(current)) {
+            tlog("[bağlantı] \(line)\(verdict.headphonesOK ? "" : " [şimdi: \(AudioRouting.describeRaw(current))]")")
+        }
+        onChange?(current)
     }
 
     private func mediaServicesEvent(lost: Bool) {

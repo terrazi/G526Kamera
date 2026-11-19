@@ -102,9 +102,19 @@ extension SessionViewModel {
     /// `completeReadPage` sayfayı sıfırlamadan ÖNCE çağrılır. Söylenecek bir şey yoksa boş.
     func pageMissingNote() -> String {
         guard let page = pageBeingRead else { return "" }
+        let incomplete = pageIncompleteNote(page)
         let missing = CaptureDiagnosis.missingAnswers(answered: pageReplyNumbers)
-        guard !missing.isEmpty else { return "" }
+        guard !missing.isEmpty else { return incomplete }
         tlog("[sayfa] cevaplanmayan sorular: \(missing.map { String($0) }.joined(separator: ",")) (cevaplananlar: \(pageReplyNumbers.map { String($0) }.joined(separator: ",")); karelerde görülenler: \(page.seenNumbers.map { String($0) }.joined(separator: ",")))")
-        return missing.count <= CaptureDiagnosis.maxListed ? CaptureSay.missingAnswers(missing) : CaptureSay.manyMissingAnswers
+        let skipped = missing.count <= CaptureDiagnosis.maxListed ? CaptureSay.missingAnswers(missing) : CaptureSay.manyMissingAnswers
+        return incomplete.isEmpty ? skipped : skipped + " " + incomplete
+    }
+
+    /// Cevabı okunan ama taramada tam görülmeyen sorular için not (bkz. `QuestionCoverage`, `CaptureDiagnosis.incompleteAnswers`); yoksa boş
+    func pageIncompleteNote(_ page: CapturedQuestion) -> String {
+        if page.incompleteNumbers.isEmpty { return "" }
+        let spoken = CaptureDiagnosis.incompleteAnswers(incomplete: page.incompleteNumbers, answered: pageReplyNumbers)
+        tlog("[sayfa] taramada tam görülmeyen sorular: \(page.incompleteNumbers.map { String($0) }.joined(separator: ",")); cevabı okunanlardan söylenecek: \(spoken.isEmpty ? "yok" : spoken.map { String($0) }.joined(separator: ","))")
+        return spoken.isEmpty ? "" : CaptureSay.incompleteAnswers(spoken)
     }
 }

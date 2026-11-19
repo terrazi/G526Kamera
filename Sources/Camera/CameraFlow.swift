@@ -32,6 +32,9 @@ struct CapturedQuestion: Equatable {
     var isPage = false
     /// Çekimde telefonun yazı tanımasının gördüğü soru numaraları (artan): cevaplar okunduktan sonra görünüp cevaplanamayanlar söylenir
     var seenNumbers: [Int] = []
+    /// Taramada TAM görülmeyen sorular (bir şıkkı hiçbir karede yok ya da her karede kenarda kesik; bkz. `QuestionCoverage`): cevabı okunduysa
+    /// "cevabı kesin olmayabilir" diye söylenir
+    var incompleteNumbers: [Int] = []
     /// Ritimli toplu çekimde PDF'in her sayfasının etiketi ("2. sayfa, orta üst"), PDF sırasıyla; ritimsiz çekimde boş. Gemini'ye giden istemde sayılır:
     /// hangi görüntünün kitapçık sayfasının tamamı, hangisinin hangi parçası olduğu bilinsin, parçalar doğru birleşsin
     var rhythmLabels: [String] = []

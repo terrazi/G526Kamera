@@ -446,12 +446,13 @@ final class FakeCamera: CameraCapturing {
     }
 
     /// Toplu çekimin tek PDF'i: `isPage` işaretli, `photos` fotoğraflık PDF'i varmış gibi
-    static func page(_ tag: UInt8 = 1, photos: Int = 75, seen: [Int] = []) -> CapturedQuestion {
+    static func page(_ tag: UInt8 = 1, photos: Int = 75, seen: [Int] = [], incomplete: [Int] = []) -> CapturedQuestion {
         var s = CapturedQuestion(photo: Data([tag, 2, 3]))
         s.pdf = Data([tag, 9, 9, 9])
         s.pageCount = photos
         s.isPage = true
         s.seenNumbers = seen
+        s.incompleteNumbers = incomplete
         return s
     }
 

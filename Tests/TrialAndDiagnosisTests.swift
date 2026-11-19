@@ -213,8 +213,10 @@ final class TrialFlowTests: XCTestCase {
 
     // MARK: Oturum
 
-    private func series(photos: Int = 16, readable: Bool = true, seen: [Int] = [], diagnosis: CaptureDiagnosis? = nil) -> Result<PageSeries, CameraFailure> {
-        return .success(PageSeries(shot: FakeCamera.page(1, photos: photos, seen: seen), planned: photos, failure: nil, readable: readable, diagnosis: diagnosis))
+    private func series(photos: Int = 16, readable: Bool = true, seen: [Int] = [], incomplete: [Int] = [],
+                        diagnosis: CaptureDiagnosis? = nil) -> Result<PageSeries, CameraFailure> {
+        return .success(PageSeries(shot: FakeCamera.page(1, photos: photos, seen: seen, incomplete: incomplete), planned: photos, failure: nil,
+                                   readable: readable, diagnosis: diagnosis))
     }
 
     private func harness(seriesResults: [Result<PageSeries, CameraFailure>] = [],
@@ -380,6 +382,23 @@ final class TrialFlowTests: XCTestCase {
         XCTAssertTrue(done, "\(h.speaker.spoken)")
         XCTAssertTrue(h.speaker.spoken.contains(Say.seriesDone(taken: 16, planned: 16, readable: true)), "\(h.speaker.spoken)")
         XCTAssertFalse(h.speaker.spoken.contains { $0.contains("cevaplanamadı") || $0.contains("görünmedi") }, "\(h.speaker.spoken)")
+    }
+
+    func testAnAnsweredQuestionThatWasNotFullyScannedIsMentionedAfterTheAnswers() async {
+        // Taramada 2 ve 9 tam görülmedi; Gemini 1, 2 ve 3'ü cevapladı: yalnız cevabı okunan 2 söylenir
+        let h = harness(seriesResults: [series(photos: 16, seen: [1, 2, 3], incomplete: [2, 9])],
+                        pageReplies: [.success([FakeAnswering.reply(1), FakeAnswering.reply(2), FakeAnswering.reply(3)])])
+        _ = await h.startListening()
+        say(h, "başla")
+        let ask = Say.askCameraSeries(seconds: 60)
+        let done = await waitUntil(45) { h.vm.answers.count == 3 && h.speaker.spoken.last == ask && self.questionOpen(h) }
+        XCTAssertTrue(done, "\(h.speaker.spoken)")
+        let spoken = h.speaker.spoken
+        let note = spoken.firstIndex(of: CaptureSay.incompleteAnswers([2]))
+        XCTAssertNotNil(note, "Cevabı okunan 2 söylenir, cevaplanmayan 9 söylenmez: \(spoken)")
+        XCTAssertFalse(spoken.contains { $0.contains("cevaplanamadı") }, "\(spoken)")
+        XCTAssertEqual(spoken.last, ask, "Sonra sıradaki oturumun talimatı gelir")
+        XCTAssertEqual(h.vm.answers.count, 3, "Cevaplar etkilenmez")
     }
 
     func testAQuestionGeminiSkippedIsSpokenAfterTheAnswersAndBeforeTheNextInstruction() async {

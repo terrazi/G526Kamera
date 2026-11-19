@@ -13,6 +13,7 @@ extension SessionViewModel {
             tlog("[ses yolu] bağlantılar sıfırlanırken beklenen değişiklik (\(verdict.summary)); duraklatılmadı")
             return
         }
+        logLinkSnapshot("kulaklık koptu")
         var detail = verdict.hint.isEmpty ? verdict.summary : "\(verdict.summary). \(verdict.hint)"
         if detail.isEmpty { detail = "ses yolu kararsız" }
         pauseForHardware(summary: verdict.summary, detail: detail, grace: grace)
@@ -262,7 +263,15 @@ extension SessionViewModel {
 
     // MARK: Ağ (Modül 4)
 
+    /// Kopma günlüğü (kullanıcı isteği 2026-11-19): bir kopma algılandığı anda bütün bağlantıların durumu tek satırda yazılır
+    func logLinkSnapshot(_ why: String) {
+        let internet = deps.network.isOnline ? "var" + (deps.network.kind.spoken.isEmpty ? "" : " (\(deps.network.kind.spoken))") : "YOK"
+        let route = routeVerdict.map { $0.isSafe ? "kulaklık bağlı" : "kulaklık YOK: \($0.summary)" } ?? "bilinmiyor"
+        tlog("[bağlantı] durum (\(why)): telefonun Wi-Fi adresi \(LinkLog.wifiAddress() ?? "yok"); internet yolu \(internet); ses yolu: \(route); aşama: \(phase.title)")
+    }
+
     func networkChanged(_ online: Bool) {
+        if !online { logLinkSnapshot("internet yolu kayboldu") }
         offlineCheck?.cancel()
         offlineCheck = nil
         if online {
