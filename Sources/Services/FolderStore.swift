@@ -136,7 +136,9 @@ final class FolderPicker: NSObject, UIDocumentPickerDelegate {
     static func topController() -> UIViewController? {
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
         let windows = scenes.flatMap { $0.windows }
-        let window = windows.first(where: { $0.isKeyWindow }) ?? windows.first
+        // Karartma örtüsü ve ekran kilidi ayrı, üstte duran pencerelerdir: seçici onların üzerine değil, uygulamanın asıl penceresine açılır
+        let normal = windows.filter { $0.windowLevel == .normal }
+        let window = normal.first(where: { $0.isKeyWindow }) ?? normal.first ?? windows.first
         var top = window?.rootViewController
         while let presented = top?.presentedViewController, !presented.isBeingDismissed {
             top = presented
@@ -153,6 +155,8 @@ final class FolderPicker: NSObject, UIDocumentPickerDelegate {
         let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder], asCopy: false)
         picker.allowsMultipleSelection = false
         picker.delegate = self
+        // Seçici başka süreçte çalışan bir sistem ekranıdır: üstünde karartma örtüsü kalırsa dokunuşlar ona ulaşmaz (ekran donmuş gibi kalıyordu)
+        ScreenDimmer.shared.suspendOverlay()
         top.present(picker, animated: true)
         return true
     }
@@ -161,6 +165,7 @@ final class FolderPicker: NSObject, UIDocumentPickerDelegate {
         let handler = onPick
         onPick = nil
         onCancel = nil
+        ScreenDimmer.shared.resumeOverlay()
         if let url = urls.first { handler?(url) }
     }
 
@@ -168,6 +173,7 @@ final class FolderPicker: NSObject, UIDocumentPickerDelegate {
         let handler = onCancel
         onPick = nil
         onCancel = nil
+        ScreenDimmer.shared.resumeOverlay()
         handler?()
     }
 }

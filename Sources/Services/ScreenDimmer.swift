@@ -93,6 +93,26 @@ final class ScreenDimmer {
     /// Sistem parlaklığı geri yükselttiği için yeniden kısılan kez (bu çalışmada)
     private(set) var reapplied = 0
     var isDimmed: Bool { return saved != nil }
+    /// iOS'un kendi penceresi (klasör seçici: başka süreçte çalışan bir ekran) açıkken karartma örtüsü kaldırılır. Örtü ayrı ve en üstte duran bir
+    /// penceredir; altında başka sürecin ekranı varken dokunuşlar o ekrana ulaşmaz ve ekran donmuş gibi kalır (kullanıcı bildirimi 2026-11-19:
+    /// "kayıt klasörünü seçerken donup kalıyor ekran"; telefonu yeniden başlatmak zorunda kaldı). Parlaklık kısık kalır, yalnız örtü kalkar
+    private(set) var overlaySuspended = false
+
+    /// Sistem penceresi açılmadan hemen önce çağrılır
+    func suspendOverlay() {
+        guard !overlaySuspended else { return }
+        overlaySuspended = true
+        hardware.setOverlay(false)
+        tlog("[ekran] sistem penceresi açılıyor: karartma örtüsü kaldırıldı (dokunuşlar pencereye ulaşsın)")
+    }
+
+    /// Sistem penceresi kapanınca çağrılır: ekran hâlâ kısıksa örtü geri konur
+    func resumeOverlay() {
+        guard overlaySuspended else { return }
+        overlaySuspended = false
+        if isDimmed { hardware.setOverlay(true) }
+        tlog("[ekran] sistem penceresi kapandı: karartma örtüsü \(isDimmed ? "geri kondu" : "gerekmiyor")")
+    }
 
     /// `hardware` verilmezse gerçek ekran kullanılır (varsayılan değer init gövdesinde kurulur: SystemDimHardware ana iş parçacığına bağlıdır)
     init(hardware: DimHardware? = nil, defaults: UserDefaults = .standard, monitorInterval: TimeInterval = 5) {
@@ -122,7 +142,7 @@ final class ScreenDimmer {
     }
 
     private func apply() {
-        hardware.setOverlay(true)
+        if !overlaySuspended { hardware.setOverlay(true) }
         if abs(hardware.brightness - ScreenDimmer.dimLevel) > 0.001 { hardware.brightness = ScreenDimmer.dimLevel }
     }
 
@@ -131,7 +151,7 @@ final class ScreenDimmer {
     @discardableResult
     func reassertIfNeeded() -> Bool {
         guard isDimmed else { return false }
-        hardware.setOverlay(true)
+        if !overlaySuspended { hardware.setOverlay(true) }
         guard hardware.brightness > ScreenDimmer.dimLevel + ScreenDimmer.tolerance else { return false }
         hardware.brightness = ScreenDimmer.dimLevel
         reapplied += 1

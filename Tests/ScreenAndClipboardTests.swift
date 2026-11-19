@@ -120,6 +120,24 @@ final class ScreenAndClipboardTests: XCTestCase {
         XCTAssertTrue(hw.overlayVisible)
     }
 
+    func testWhileASystemWindowIsOpenTheOverlayIsLiftedAndComesBackAfterwards() {
+        // Kullanıcı bildirimi 2026-11-19: kayıt klasörü seçilirken ekran donup kalıyordu (örtü, iOS'un klasör seçicisine giden dokunuşları kesiyordu)
+        let hw = FakeDimHardware()
+        let dimmer = makeDimmer(hw)
+        dimmer.update(dim: true)
+        XCTAssertTrue(hw.overlayVisible)
+        dimmer.suspendOverlay()
+        XCTAssertFalse(hw.overlayVisible, "Klasör seçici açıkken örtü kalkar: dokunuşlar seçiciye ulaşır")
+        _ = dimmer.reassertIfNeeded()
+        dimmer.update(dim: true)
+        XCTAssertFalse(hw.overlayVisible, "Seçici açıkken örtü geri konmaz")
+        XCTAssertTrue(dimmer.isDimmed, "Parlaklık kısık kalır")
+        dimmer.resumeOverlay()
+        XCTAssertTrue(hw.overlayVisible, "Seçici kapanınca örtü geri gelir")
+        dimmer.resumeOverlay()
+        XCTAssertTrue(hw.overlayVisible)
+    }
+
     func testReassertDoesNothingWhenNotDimmed() {
         let hw = FakeDimHardware()
         let dimmer = makeDimmer(hw)
