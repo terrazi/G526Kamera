@@ -23,6 +23,8 @@ final class SessionHarness {
     let system = FakeSystem()
     let volume = FakeVolume()
     let journal = FakeJournal()
+    /// Kaynaklara göre cevaplama durumu: nil (varsayılan) seçenek kapalı demektir
+    let sourceBox = SourceReadinessBox()
     let exits = ExitCounter()
     /// `deps.sleep` çağrıları: süre ve o ana kadar söylenen cümle sayısı (cevaplar arası boşluk gibi bekleme sınamaları için)
     let sleepLog = SleepLog()
@@ -96,6 +98,7 @@ final class SessionHarness {
         let sleepRecord = sleepLog
         let speakerRef = speaker
         let clockRef = clock
+        let sourceRef = sourceBox
         let deps = SessionDependencies(route: route,
                                        listener: listener,
                                        recorder: recorder,
@@ -119,6 +122,7 @@ final class SessionHarness {
                                        system: system,
                                        volume: volume,
                                        journal: journal,
+                                       sources: { sourceRef.value },
                                        terminate: { exitCounter.count += 1 })
         vm = SessionViewModel(settings: settings, deps: deps, camera: cameraSettings)
         // Varsayılan: ses çubuğu isteği ses seviyesine yansır (gerçek telefondaki başarılı durum); sınanacak testler `volume.apply = nil` yapar

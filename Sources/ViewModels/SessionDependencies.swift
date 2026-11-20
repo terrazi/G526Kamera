@@ -32,6 +32,8 @@ struct SessionDependencies {
     var volume: VolumeControlling = NoVolumeControl()
     /// Çalışmalar arası kalıcı defter (beklenmedik kapanmayı anlamak ve yarım kalan işi tamamlamak için)
     var journal: RunJournaling = NoJournal()
+    /// Kaynaklara göre cevaplama açıksa kaynakların durumu (açılış denetimi ve kırmızı uyarı için); kapalıysa nil
+    var sources: () -> SourceReadiness? = { nil }
     /// Programı gerçekten kapatır ("Programı kapat" düğmesi); testlerde sahtesi verilir
     var terminate: () -> Void = { exit(0) }
 }

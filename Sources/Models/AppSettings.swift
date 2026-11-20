@@ -36,6 +36,7 @@ final class AppSettings: ObservableObject {
         static let sectionsOn = "v4.sectionsOn"
         static let sectionQuestions = "v4.sectionQuestions"
         static let closeGuard = "v4.closeGuard"
+        static let useSources = "v4.useSources"
     }
 
     /// Kullanıcının verdiği kestirme adları. Uygulama ilk açıldığında (bir kez) ilgili alanlara yazılır; sonra Ayarlar'dan silinip
@@ -279,6 +280,13 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(clipboardMarker, forKey: ClipboardFlag.usesClipboardKey) }
     }
 
+    /// Soruları verilen kaynaklara göre cevapla (kullanıcı isteği 2026-11-20; varsayılan kapalı): açıkken kayıt klasörünün içindeki "Kaynaklar"
+    /// klasörüne konan belgeler Gemini'nin dosya arama deposuna yüklenir ve sorular onlara göre cevaplanır (bkz. `SourceSync`). Kapalıyken program
+    /// eskisi gibi çalışır: klasöre, depoya ve isteklere dokunulmaz.
+    @Published var useSources: Bool {
+        didSet { defaults.set(useSources, forKey: Key.useSources) }
+    }
+
     /// Test sürerken (kırmızı uyarı yokken) ekran pil için kısılsın mı
     @Published var dimScreen: Bool {
         didSet { defaults.set(dimScreen, forKey: Key.dimScreen) }
@@ -330,6 +338,7 @@ final class AppSettings: ObservableObject {
         smartResume = defaults.object(forKey: Key.smartResume) as? Bool ?? true
         dimScreen = defaults.object(forKey: Key.dimScreen) as? Bool ?? false
         closeGuard = defaults.object(forKey: Key.closeGuard) as? Bool ?? true
+        useSources = defaults.object(forKey: Key.useSources) as? Bool ?? false
         clipboardMarker = defaults.object(forKey: ClipboardFlag.usesClipboardKey) as? Bool ?? true
         spokenWarnings = defaults.object(forKey: Key.spokenWarnings) as? Bool ?? true
         instantDetection = defaults.object(forKey: Key.instantDetection) as? Bool ?? true

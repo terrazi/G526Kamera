@@ -15,6 +15,8 @@ final class AppEnvironment: ObservableObject {
     let session: SessionViewModel
     let settingsModel: SettingsViewModel
     private let folderStore: FolderStore
+    /// Kaynakları (Kaynaklar klasörü) Gemini'deki dosya arama deposuyla eş tutan bileşen
+    let sourceSync: SourceSync
     /// Pano işareti (kapanma engeli ayarı ve uygulamadan çıkış bunu eşitler)
     private let journal: RunJournal
     /// Uygulama önde mi (pano işareti öndeyken kullanıcının kopyaladığı metnin üstüne yazılmaz)
@@ -59,6 +61,10 @@ final class AppEnvironment: ObservableObject {
         shortcuts.onReturned = { journal.setAway(false) }
         let answering = GeminiAnswerService(profiles: { settings.geminiProfileInfos() })
         answering.largeFiles = { camera.largeUpload }
+        // Kaynaklara göre cevaplama (Ayarlar > Gemini): seçenek kapalıyken depo adı verilmez, istekler eskisi gibi gider
+        let sourceSync = SourceSync(settings: settings, root: { folderStore.resolution().url })
+        answering.sourceStore = { profile in sourceSync.store(forKey: profile.key) }
+        sourceSync.onChange = { [weak answering] in answering?.sourcesChanged() }
         var deps = SessionDependencies(route: route,
                                        listener: listener,
                                        recorder: recorder,
@@ -81,7 +87,15 @@ final class AppEnvironment: ObservableObject {
         // Bağlantı onarımı (kullanıcı kararı 2026-11-19): kopan aygıtın kestirmesi 3 kez, açılmazsa uçak modu kestirmesi; tur başarısızsa beklenip
         // yeniden denenir (en çok 3 saat; bkz. `SessionViewModel.Timing.outageLimit`)
         deps.recoveryConfig = RecoveryCoordinator.Config(maxCycles: 1, deviceTries: 3)
+        deps.sources = { sourceSync.readiness() }
         let session = SessionViewModel(settings: settings, deps: deps, camera: camera)
+        sourceSync.sessionActive = { [weak session] in session?.phase.isRunning ?? false }
+        // Gemini kaynak deposunu geri çevirirse (depo silinmiş, model dosya aramayı desteklemiyor) cevap kaynaksız alınır; kullanıcı kırmızı
+        // kutuda ve kulaklıktan öğrenir, durum satırına nedeni yazılır
+        answering.onSourceRejected = { [weak session] profile, error in
+            sourceSync.noteRejection(key: profile.key, status: error.status, message: error.message)
+            session?.warn("kaynak", Say.sourceRejected)
+        }
         self.settings = settings
         self.camera = camera
         self.cameraController = cameraController
@@ -90,15 +104,28 @@ final class AppEnvironment: ObservableObject {
                                          sessionActive: { [weak session] in session?.phase.isRunning ?? false })
         self.session = session
         self.folderStore = folderStore
+        self.sourceSync = sourceSync
         self.journal = journal
         self.foreground = foreground
         self.settingsModel = SettingsViewModel(settings: settings, shortcuts: shortcuts, folder: folderStore,
-                                               sessionActive: { [weak session] in session?.phase.isRunning ?? false })
+                                               sessionActive: { [weak session] in session?.phase.isRunning ?? false },
+                                               sources: sourceSync)
         ScreenDimmer.shared.restoreIfLeftDimmed()
         wireStartTriggers()
         wireDimming()
         wireCellularRoute()
         wireCloseGuard()
+        wireSources()
+    }
+
+    /// Kaynaklar: seçenek açılınca Kaynaklar klasörü hazırlanır ve durum yazılır. Yükleme kendiliğinden yapılmaz (kullanıcı kararı 2026-11-20):
+    /// yalnız Ayarlar'daki "Dosyaları senkronize et" düğmesi yükler.
+    private func wireSources() {
+        settings.$useSources
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.sourceSync.optionChanged() }
+            .store(in: &cancellables)
     }
 
     /// Ayarlar > "Kapanma engeli" değişince pano işareti hemen eşitlenir (@Published değişmeden önce yayınlar: ana kuyrukta okunur)
@@ -179,5 +206,6 @@ final class AppEnvironment: ObservableObject {
         session.recheckHardware()
         session.refreshRouteText()
         settingsModel.refreshFolderStatus()
+        sourceSync.refresh()   // kaynak durumu yeniden yazılır (klasöre dosya konmuş olabilir); yükleme yapılmaz
     }
 }

@@ -210,10 +210,11 @@ enum GeminiSupport {
 /// Gemini'ye istek atan istemci: generateContent (yeniden denemeli), model listesi, anahtar sınaması
 final class GeminiClient {
     private let session: URLSession
-    private let baseURL: String
+    /// Kaynak deposu istekleri (`GeminiSources.swift`) de bu adresi, `sleep`'i ve aşağıdaki `transport` yollarını kullanır
+    let baseURL: String
     private let keyProvider: () -> String
     private let modelProvider: () -> String
-    private let sleep: (TimeInterval) async -> Void
+    let sleep: (TimeInterval) async -> Void
     /// Telefon kameranın (internetsiz) Wi-Fi ağındayken istekler önce hücresel arayüzden denenir (bkz. `CellularRoute`)
     private let preferCellular: () -> Bool
     private let cellular: GeminiTransport.CellularSender
@@ -246,7 +247,7 @@ final class GeminiClient {
 
     /// İsteği yolundan gönderir: telefon kamera ağındaysa önce hücresel, olmazsa (ya da hücreselden bağlanılamazsa) normal yoldan.
     /// Dönen durum 0 ise cevap HTTP değildir.
-    private func transport(_ request: URLRequest, body: Data?) async throws -> (data: Data, status: Int) {
+    func transport(_ request: URLRequest, body: Data?) async throws -> (data: Data, status: Int) {
         let viaCellular = preferCellular()
         return try await BackgroundGrace.run("gemini") {
             try await GeminiTransport.send(request, body: body, session: self.session, viaCellular: viaCellular, cellular: self.cellular)
@@ -259,7 +260,7 @@ final class GeminiClient {
     }
 
     /// `transport` gibi, cevap başlıklarıyla (dosya yükleme için)
-    private func transportFull(_ request: URLRequest, body: Data?) async throws -> (data: Data, status: Int, headers: [String: String]) {
+    func transportFull(_ request: URLRequest, body: Data?) async throws -> (data: Data, status: Int, headers: [String: String]) {
         let viaCellular = preferCellular()
         return try await BackgroundGrace.run("gemini") {
             try await GeminiTransport.sendFull(request, body: body, session: self.session, viaCellular: viaCellular)

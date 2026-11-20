@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 import UIKit
 
 /// "Anahtarı dene" sonucu
@@ -29,20 +30,47 @@ final class SettingsViewModel: ObservableObject {
     /// "Ekranı kıs" açıkken ekranın şu an kısılıp kısılmadığı ve nedeni (boşsa ayar kapalı)
     @Published var dimStatus = ""
     @Published var folderMessage = ""
+    /// Kaynaklar (Ayarlar > Gemini): durum satırları, süren senkronun adımı, senkron sürüyor mu ve son senkronun raporu
+    @Published var sourceLines: [String] = []
+    @Published var sourceProgress = ""
+    @Published var sourceBusy = false
+    @Published var sourceReport: [String] = []
 
     let settings: AppSettings
     let folder: FolderStore
     private let shortcuts: ShortcutRunning
     /// Oturum sürerken klasör değiştirilemez (yazılmakta olan dosyaların yeri değişmesin)
     private let sessionActive: () -> Bool
+    /// Kaynakları senkronize eden bileşen (ekran görüntüsü ve eski sınamalarda yok)
+    private let sources: SourceSync?
+    private var sourceLinks = Set<AnyCancellable>()
 
     init(settings: AppSettings, shortcuts: ShortcutRunning, folder: FolderStore = FolderStore(),
-         sessionActive: @escaping () -> Bool = { false }) {
+         sessionActive: @escaping () -> Bool = { false }, sources: SourceSync? = nil) {
         self.settings = settings
         self.shortcuts = shortcuts
         self.folder = folder
         self.sessionActive = sessionActive
+        self.sources = sources
         folderStatus = folder.statusText()
+        if let sources = sources {
+            sources.$lines.sink { [weak self] in self?.sourceLines = $0 }.store(in: &sourceLinks)
+            sources.$progress.sink { [weak self] in self?.sourceProgress = $0 }.store(in: &sourceLinks)
+            sources.$busy.sink { [weak self] in self?.sourceBusy = $0 }.store(in: &sourceLinks)
+            sources.$report.sink { [weak self] in self?.sourceReport = $0 }.store(in: &sourceLinks)
+        }
+    }
+
+    // MARK: Kaynaklar
+
+    /// Ayarlar ekranı açılınca kaynak durumu yeniden okunur (klasöre dosya konmuş olabilir)
+    func refreshSources() {
+        sources?.refresh()
+    }
+
+    /// "Dosyaları senkronize et" düğmesi: klasörün son hâli Gemini deposuna işlenir, bitince rapor yazılır
+    func syncSources() {
+        sources?.syncNow()
     }
 
     // MARK: Gemini anahtarları

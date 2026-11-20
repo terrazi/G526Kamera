@@ -235,6 +235,8 @@ enum Say {
     /// Cevap diğer modeller yanıt vermeyince ÜCRETLİ modelden geldi (para harcandı); söylenen tek cümle budur
     static let paidModelUsed = "Ücretli modelden cevaplandı."
     static let noKeyShort = "Gemini API anahtarı girilmemiş. Ayarlardan yapıştırın."
+    /// Gemini kaynak deposuyla gelen isteği geri çevirdi (depo silinmiş ya da model dosya aramayı desteklemiyor): cevap kaynaksız alındı
+    static let sourceRejected = "Gemini kaynak deposunu kabul etmedi; cevap kaynaksız verildi. Test bitince Ayarlar, Gemini bölümünden dosyaları senkronize edin."
     static let noOnDevice = "Bu telefonda çevrimdışı Türkçe dikte yüklü değil. Ayarlar, Genel, Klavye, Dikte bölümünden Türkçe'yi ekleyip internetteyken bir kez indirin."
     static let permissionDenied = "Mikrofon ve konuşma tanıma izni gerekli. Ayarlar, Sesli Kontrol bölümünden izin verin."
     static let notConfigured = "Kestirme adları boş; kendi kendini onarma kapalı. Ayarlardan kestirmelerin adını yazın."

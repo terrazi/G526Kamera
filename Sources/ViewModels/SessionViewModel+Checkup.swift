@@ -48,6 +48,15 @@ extension SessionViewModel {
         let folderWarning = deps.library.warning
         setCheck("klasor", "Kayıt klasörü", ok: folderWarning == nil, detail: folderWarning == nil ? "seçili, yazılabiliyor" : "seçilmemiş ya da erişilemiyor")
         if let text = folderWarning { warn("klasor", text) } else { clearWarning("klasor") }
+        // Kaynaklara göre cevaplama açıksa kaynakların hazır olup olmadığı yazılır; hazır değilse oturum yine başlar (sorular kaynaksız ya da
+        // depodaki eski kaynaklarla cevaplanır) ama kırmızı kutuda uyarılır. Seçenek kapalıyken satır da uyarı da yoktur.
+        if let sources = deps.sources() {
+            setCheck("kaynak", "Kaynaklar", ok: sources.ok, detail: sources.detail)
+            if let text = sources.warning { warn("kaynak", text) } else { clearWarning("kaynak") }
+        } else {
+            checkup.removeAll { $0.id == "kaynak" }
+            clearWarning("kaynak")
+        }
 
         // 1) İzinler ve çevrimdışı dikte
         let permission = await deps.permissions.request()

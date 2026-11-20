@@ -76,6 +76,51 @@ final class GeminiAnswerService: Answering {
     /// PDF dosya olarak yüklendiyse her modele verilen süre (sn): istek küçüktür, süre yalnız modelin okumasına kalır; güçlü model yetişebilsin
     static let fileModeLimit: TimeInterval = 150
 
+    /// Kaynaklara göre cevap (Ayarlar > "Soruları verilen kaynaklara göre cevapla", kullanıcı isteği 2026-11-20): profilin anahtarında hazır bir
+    /// kaynak deposu varsa adı; yoksa nil. Varsayılan nil: istek eskisi gibi, kaynaksız gider (uygulama `SourceSync`'e bağlar)
+    var sourceStore: (GeminiProfileInfo) -> String? = { _ in nil }
+    /// Gemini kaynak depolu isteği geri çevirdi ama aynı isteği kaynaksız kabul etti: durum satırı bunu gösterir, depo yoksa (404) bir sonraki
+    /// senkronda yeniden kurulur
+    var onSourceRejected: (GeminiProfileInfo, GeminiError) -> Void = { _, _ in }
+    /// Bu çalıştırmada kaynak depolu isteği geri çevrilen profiller (ör. model dosya aramayı desteklemiyor): her soruda boşuna denenmez.
+    /// Yeni senkrondan sonra silinir (`sourcesChanged`)
+    private var sourceRefused = Set<String>()
+
+    /// Kaynaklar yeniden senkronize edildi: geri çevrilen profiller yeniden denenir
+    func sourcesChanged() {
+        sourceRefused.removeAll()
+    }
+
+    /// Kaynak deposu açıkken sistem komutuna eklenen talimat: önce kaynak, kaynakta yoksa modelin kendi bilgisi; cevap biçimi değişmez
+    static let sourceInstruction = """
+    KAYNAKLAR: Bu istekte dosya arama aracı açıktır; kullanıcının yüklediği ders kaynakları (kitaplar, notlar) bu araçla aranır. \
+    Bir soruyu çözmeden önce (görüntüde birden çok soru varsa her biri için ayrı ayrı) sorunun konusunu, anahtar terimlerini ve şıklarını \
+    kaynaklarda ara ve cevabı kaynaklardaki bilgiye dayandır. Kaynaktaki bilgi ile kendi bilgin çelişirse KAYNAĞA uy: kullanıcı cevabın bu kaynaklara göre verilmesini istiyor. \
+    Kaynaklarda soruyla ilgili bilgi bulunamazsa soruyu kendi bilginle çöz; cevapsız bırakma. \
+    Cevap biçimi aynıdır: kaynak adı, sayfa numarası, alıntı ya da açıklama yazma.
+    """
+
+    /// İsteğe dosya arama aracını (kaynak deposuyla) ve kaynak talimatını ekler. Alan adları Google'ın generateContent örneğindeki gibidir.
+    static func withSources(_ object: [String: Any], store: String) -> [String: Any] {
+        var out = object
+        var tools = (out["tools"] as? [[String: Any]]) ?? []
+        tools.append(["file_search": ["file_search_store_names": [store]]])
+        out["tools"] = tools
+        var system = (out["systemInstruction"] as? [String: Any]) ?? [:]
+        var parts = (system["parts"] as? [[String: Any]]) ?? []
+        parts.append(["text": sourceInstruction])
+        system["parts"] = parts
+        out["systemInstruction"] = system
+        return out
+    }
+
+    /// Kaynak depolu istek bu hatayla geri çevrildiyse kaynaksız yeniden denemeye değer mi: 400 (model aracı desteklemiyor, depo adı geçersiz),
+    /// 403 (depo başka projenin) ya da 404 (depo silinmiş). Geçersiz anahtar (Google onu da 400 ile döndürür) kaynakla ilgili değildir.
+    static func sourceRejection(_ error: GeminiError) -> Bool {
+        if error.status == 400 && error.kind == .key { return false }
+        return [400, 403, 404].contains(error.status)
+    }
+
     /// Dosya yükleme için süre sınırı: 60 sn + MB başına 6 sn (40 MB ≈ 5 dk; yavaş hücresel)
     static func uploadLimit(bytes: Int) -> TimeInterval {
         return 60 + Double(bytes) / 1_000_000 * 6
@@ -384,11 +429,15 @@ final class GeminiAnswerService: Answering {
 
     /// Profilin modeline göre istek gövdesi: Gemma modelleri düşünmeyi yalnız "thinkingLevel" ile açar (soru çözümünde doğruluk için gerekir),
     /// Gemini modellerine dokunulmaz.
-    static func body(_ body: Data, forModel model: String) -> Data {
-        guard let level = GeminiSupport.thinkingLevel(model: model, setting: "auto"),
-              let object = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any],
-              let data = try? JSONSerialization.data(withJSONObject: GeminiSupport.applyThinking(object, level: level)) else { return body }
-        return data
+    /// `store` verilirse (kaynaklara göre cevap) isteğe dosya arama aracı ve kaynak talimatı da eklenir; ikisi de gerekmiyorsa gövdeye hiç dokunulmaz.
+    static func body(_ body: Data, forModel model: String, store: String? = nil) -> Data {
+        let level = GeminiSupport.thinkingLevel(model: model, setting: "auto")
+        let name = (store ?? "").trimmed
+        guard level != nil || !name.isEmpty,
+              var object = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] else { return body }
+        if let level = level { object = GeminiSupport.applyThinking(object, level: level) }
+        if !name.isEmpty { object = withSources(object, store: name) }
+        return (try? JSONSerialization.data(withJSONObject: object)) ?? body
     }
 
     // MARK: Answering
@@ -539,11 +588,36 @@ final class GeminiAnswerService: Answering {
                         sendBody = fileBody
                         viaFile = true
                     }
+                    // Kaynaklara göre cevap: bu profilin anahtarında hazır depo varsa (ve bu çalıştırmada geri çevrilmediyse) isteğe dosya arama girer
+                    var store: String?
+                    if !sourceRefused.contains(profile.identity), let name = sourceStore(profile)?.trimmed, !name.isEmpty { store = name }
                     let object: Any
                     do {
                         object = try await client.generate(model: profile.model, key: profile.key,
-                                                           body: GeminiAnswerService.body(sendBody, forModel: profile.model),
+                                                           body: GeminiAnswerService.body(sendBody, forModel: profile.model, store: store),
                                                            serverRetries: 0, timeout: wait + GeminiAnswerService.inlineAllowance(bytes: sendBody.count))
+                    } catch let error as GeminiError where store != nil && GeminiAnswerService.sourceRejection(error) {
+                        // Önce kaynak deposu bırakılır (istek aynı kalır); yine reddedilirse ve PDF dosya olarak gitmişse PDF isteğin içinde gönderilir.
+                        // Aynı istek kaynaksız kabul edilirse reddin nedeni depodur: profil bu çalıştırmada kaynaksız sorulur ve kullanıcı uyarılır.
+                        // Kaynaksız da reddedilirse neden depo değildir (model adı, anahtar…): hiçbir şey işaretlenmez, hata olağan yoldan işlenir.
+                        tlog("[kaynak] kaynak depolu istek reddedildi (HTTP \(error.status): \(error.message)); \(profile.name) kaynaksız yeniden deneniyor")
+                        store = nil
+                        var storeWasTheCause = true
+                        do {
+                            object = try await client.generate(model: profile.model, key: profile.key,
+                                                               body: GeminiAnswerService.body(sendBody, forModel: profile.model),
+                                                               serverRetries: 0, timeout: wait + GeminiAnswerService.inlineAllowance(bytes: sendBody.count))
+                        } catch let second as GeminiError where viaFile && [400, 403, 404].contains(second.status) {
+                            storeWasTheCause = false
+                            tlog("[gemini] yüklenen dosyayla istek reddedildi (HTTP \(second.status): \(second.message)); PDF isteğin içinde yeniden gönderiliyor")
+                            object = try await client.generate(model: profile.model, key: profile.key,
+                                                               body: GeminiAnswerService.body(body, forModel: profile.model),
+                                                               serverRetries: 0, timeout: wait + GeminiAnswerService.inlineAllowance(bytes: body.count))
+                        }
+                        if storeWasTheCause {
+                            sourceRefused.insert(profile.identity)
+                            onSourceRejected(profile, error)
+                        }
                     } catch let error as GeminiError where viaFile && [400, 403, 404].contains(error.status) {
                         tlog("[gemini] yüklenen dosyayla istek reddedildi (HTTP \(error.status): \(error.message)); PDF isteğin içinde yeniden gönderiliyor")
                         object = try await client.generate(model: profile.model, key: profile.key,
@@ -552,6 +626,7 @@ final class GeminiAnswerService: Answering {
                     }
                     let parsedList = parse(try GeminiAnswerService.replyText(from: object))
                     if parsedList.isEmpty { throw GeminiError("Gemini cevap satırı vermedi.", .empty) }
+                    if store != nil { tlog("[kaynak] \(GeminiSupport.sourceUseText(GeminiSupport.sourceUse(from: object)))") }
                     restingUntil[profile.identity] = nil
                     // Günlükte yalnız model adı görünürse aynı modeli kullanan iki profil (ücretsiz / ücretli anahtar) ayırt edilemiyor: profil de yazılır
                     tlog("[gemini] cevap \(profile.slot). sıradaki profilden geldi: \(profile.name) (\(profile.model), \(profile.free ? "ücretsiz" : "ücretli") anahtar)")

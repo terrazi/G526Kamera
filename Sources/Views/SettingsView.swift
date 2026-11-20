@@ -68,7 +68,23 @@ struct SettingsView: View {
         AccordionSection(id: "gemini", title: "Gemini") {
             Toggle("Cevabı Gemini sesiyle oku", isOn: $settings.geminiVoice)
             HelpRow("Gemini sesi açıkken cevap internet varken üretilip kaydedilir, tekrar internetsiz çalışır; olmazsa telefonun sesi kullanılır.")
+            Toggle("Soruları verilen kaynaklara göre cevapla", isOn: $settings.useSources)
+            if settings.useSources {
+                ForEach(model.sourceLines, id: \.self) { line in
+                    Text(line).font(.footnote).foregroundColor(.secondary)
+                }
+                Button(model.sourceBusy ? "Senkronize ediliyor…" : "Dosyaları senkronize et") { model.syncSources() }
+                    .disabled(model.sourceBusy)
+                if !model.sourceProgress.isEmpty {
+                    Text(model.sourceProgress).font(.footnote)
+                }
+                ForEach(model.sourceReport, id: \.self) { line in
+                    Text(line).font(.footnote)
+                }
+            }
+            HelpRow("Soruları verilen kaynaklara göre cevapla: kapalıyken (varsayılan) program eskisi gibi çalışır. Açıkken kayıt klasörünüzün içinde “\(SourceRules.folderName)” adlı bir klasör açılır; ders kitaplarınızı (PDF, Word .docx ya da metin; dosya başına en çok 100 MB, sayfa sınırı yok) Dosyalar uygulamasından bu klasöre koyun, sonra “Dosyaları senkronize et”e basın. Program klasörün son hâlini Gemini'deki kaynak deponuza işler: yeni ya da değişen dosya yüklenir, klasörden sildiğiniz dosya depodan da silinir, depoda eksilen dosya yeniden yüklenir; değişmemiş dosya yeniden gönderilmez. Bitince rapor yazar (kaç dosya, ne kadar boyut). Kitapları değiştirmek için eskileri klasörden silip yenilerini koyun ve yeniden senkronize edin. Program kendiliğinden hiçbir dosya yüklemez ya da silmez: klasörü değiştirdiyseniz düğmeye basmanız gerekir; basmadıysanız yukarıdaki satırda “klasör değişmiş, senkronize edin” yazar ve test başlarken uyarılırsınız. Seçenek açıkken her soruda Gemini'den önce bu kaynaklarda arama yapıp cevabı onlara dayandırması istenir; kaynakta bilgi yoksa Gemini kendi bilgisiyle cevaplar. Depo kalıcıdır, her testte yeniden yüklemek gerekmez. Test sürerken senkron yapılmaz: kaynakları testten önce (evde Wi-Fi ile olabilir) senkronize edin ve “kaynak hazır” yazdığını görün. Her ayrı API anahtarının kendi deposu vardır: kaynaklar kullanılan her anahtara ayrı yüklenir. Yalnız o sınavın kitaplarını koymak aramayı daha isabetli yapar.")
         }
+        .onAppear { model.refreshSources() }
     }
 
     private func profileName(_ i: Int) -> Binding<String> {
