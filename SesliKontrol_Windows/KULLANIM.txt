@@ -1,0 +1,50 @@
+SESLI KONTROL - WINDOWS SURUMU 4.0
+==================================
+iPhone programinin son surumunun (885ddbc) Windows karsiligidir: ayni tarama duzeni, ayni Gemini talimati, ayni cevap
+bicimi (Soru N, sik sozcugu, cevap metni), ayni model sirasi ve "kaynaklara gore cevaplama".
+
+KURULUM
+  1. ZIP dosyasini bir klasore cikarin.
+  2. SESLI_KONTROL_KUR.bat dosyasina cift tiklayin. Ilk kurulumda Python ve gerekli paketler indirilir (internet gerekir,
+     birkac dakika surer). Masaustune "Sesli Kontrol" kisayolu konur ve program acilir.
+  3. Sonraki acilislarda masaustundeki "Sesli Kontrol" kisayolunu kullanin.
+  Siyah pencereyi kapatmayin; program orada calisir. Programi kapatmak icin program penceresini kapatin.
+
+ILK AYAR
+  Ayarlar > Gemini bolumunde en az 1. modelin API anahtarini yapistirin ve "Anahtari dene"ye basin.
+  (iPhone'daki dort model ayni sirayla tanimlidir; her birinin anahtari ayri girilir.)
+
+SORULAR NEREDEN GELSIN (ekranin sol ustu)
+  * Wi-Fi kamera        : bilgisayar KAMERANIN Wi-Fi agina bagli olmalidir. Kamera adi (UID) ve parolasi Ayarlar > Kamera'dadir
+                          (iPhone'daki degerler hazir gelir). Gemini'ye gonderim icin ayrica internet gerekir: kablo ya da
+                          telefondan USB ile internet paylasimi.
+  * USB / dizustu kamerasi : listeden kamerayi secin ("Kameralari yenile" ile liste yenilenir).
+  * PDF dosyasi         : soru metinlerinin oldugu PDF'i secin. Program dosyayi, cozum istegi ve aciklamasiyla (ayri metin
+                          olarak) birlikte Gemini'ye gonderir.
+
+KULLANIM (dugmeyle ya da sesle)
+  Taramayi baslat   ("taramayi baslat") : kamerayi sayfalarin uzerinde yavasca gezdirin. Sure dolunca (varsayilan 60 sn) program
+                                          en temiz kareleri secer, tek PDF yapar, Gemini'ye gonderir, cevaplari yazar ve okur.
+  PDF'i gonder      ("PDF gonder")      : secilen PDF'teki butun sorular cozdurulur.
+  Durdur            ("durdur")          : suren taramayi, gonderimi ya da okumayi keser.
+  Cevaplari yeniden oku ("tekrar oku")  : butun cevaplar bastan okunur.
+  Yeni test         ("yeni test")       : cevap listesi silinir, soru sayaci 1'e doner.
+  "durum"                               : program ne yaptigini soyler.
+  Cevaplar ekranda tablo olarak durur; her testin taramalari (PDF) ve cevaplar.txt dosyasi kayit klasorune
+  (Belgelerim\Sesli Kontrol\<tarih-saat>) yazilir.
+
+KAYNAKLARA GORE CEVAPLAMA (Ayarlar > Gemini)
+  "Sorulari verilen kaynaklara gore cevapla" kapaliyken program kaynaksiz calisir. Acikken kitaplarinizi (PDF, .docx, metin)
+  kayit klasorundeki "Kaynaklar" klasorune koyup "Dosyalari senkronize et"e basin. Program kendiliginden yuklemez; klasoru
+  degistirince yeniden basin. Bitince kac dosyanin, ne kadar boyutla senkronize edildigi yazilir.
+
+BU ILK WINDOWS SURUMUNDE HENUZ OLMAYANLAR (iPhone'da var)
+  * Soru gorulunce kendiliginden baslama, saatle baslama, taramalar arasi otomatik siralama
+  * "Soru tam goruldu mu" denetimi ve tarama sirasindaki sesli uyarilar (yazi tanima gerektirir)
+  * Baglanti kopunca kendi kendini onarma
+  Bunlar sonraki adimda eklenecek.
+
+SORUN OLURSA
+  SESLI_KONTROL_TANI.bat : kurulum, kameralar, ag ve Gemini anahtarlari icin rapor yazar.
+  Program icinde Ayarlar > Gunluk > "Gunlugu kopyala" : son islemlerin kaydi.
+  Kaldirmak icin: SESLI_KONTROL_KALDIR.bat (kayit klasorunuz silinmez).

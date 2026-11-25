@@ -1,0 +1,40 @@
+name: Windows
+on:
+  push:
+    branches: [windows]
+jobs:
+  sinama:
+    name: Windows'ta sinama ve paket
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Paketler
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r SesliKontrol_Windows/requirements.txt pytest pypdf reportlab
+      - name: Birim sinamalari
+        run: python -m pytest -q testler
+      - name: Duman sinamasi (program, ekran, PDF, ses, kurulum)
+        run: python testler/duman.py
+      - name: Tanilama raporu
+        run: python SesliKontrol_Windows/sesli_kontrol.py --home "$env:RUNNER_TEMP\sktani" --tani
+      - name: Baslatma betigi (bastan sona)
+        shell: cmd
+        timeout-minutes: 15
+        run: |
+          cd SesliKontrol_Windows
+          call SESLI_KONTROL_BASLAT.bat --no-browser --sure 6 < NUL
+          echo betik cikis kodu: %errorlevel%
+      - name: ZIP
+        shell: pwsh
+        run: |
+          Get-ChildItem -Recurse -Directory -Filter __pycache__ SesliKontrol_Windows | Remove-Item -Recurse -Force
+          Compress-Archive -Path SesliKontrol_Windows -DestinationPath SesliKontrol_Windows.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SesliKontrol_Windows
+          path: SesliKontrol_Windows.zip

@@ -1,0 +1,4 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+araclar/ayar_basi.txt

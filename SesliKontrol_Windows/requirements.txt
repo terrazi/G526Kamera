@@ -1,0 +1,7 @@
+av
+numpy
+pillow
+opencv-python-headless
+pywebview
+vosk
+sounddevice
