@@ -57,9 +57,7 @@ class Handler(BaseHTTPRequestHandler):
         return urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
 
     def _key_ok(self):
-        supplied = self.headers.get("X-SK-Key")
-        if supplied is None:
-            supplied = (self._query().get("k") or [""])[0]
+        supplied = self.headers.get("X-SK-Key") or (self._query().get("k") or [""])[0]
         return secrets.compare_digest(supplied or "", self.server.key)
 
     def _send(self, status, body, ctype="application/json; charset=utf-8"):
