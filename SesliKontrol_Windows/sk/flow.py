@@ -5,15 +5,18 @@ her soru "Soru N, şık sözcüğü, cevap metni" olarak gelir, kaydedilir ve ar
 import os
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 from . import answers as A
 from . import frames as F
 from . import gemini as G
+from . import pdfsplit
 from .applog import log
 
 SCAN_GRACE = 6.0        # tarama süresi dolduktan sonra son kare için beklenen süre (kamera durduysa tarama yine biter)
 STALL_SECONDS = 8.0     # tarama sırasında bu kadar süre kare gelmezse kamera kopmuş sayılır
 CUES = (30, 10)         # kalan süre bu saniyelere inince söylenir
+PDF_PARALLEL = 3        # PDF parçalarından aynı anda en çok bu kadarı sorulur (parçalı gönderimin bekleme süresini kısaltır)
 
 
 class Flow:
@@ -27,6 +30,7 @@ class Flow:
         self.clock = clock
         self.sleep = sleep
         self.on_speaking = None             # on_speaking(True/False): okuma sürerken sesli komutlar yalnız "dur"u dinler
+        self.parallel = PDF_PARALLEL
         self.phase = "idle"                 # idle | scanning | preparing | sending | reading
         self.status = "Hazır."
         self.error = ""
@@ -219,8 +223,73 @@ class Flow:
         if not pdf.startswith(b"%PDF"):
             raise G.GeminiError("Seçilen dosya PDF değil: %s" % name, "error")
         self.last_pdf, self.last_origin = path, "pdf"
+        # Belge az sayfalı parçalar hâlinde gider: bir istekte az soru olunca model her soruyu daha dikkatli çözer.
+        # Parçalar birkaçı birden sorulur (bekleme kısalır), cevaplar belge sırasıyla işlenir.
+        parts, total = pdfsplit.split(pdf, int(self.s["pdf_pages"]))
+        count = len(parts)
+        log("[akis] PDF %s: %d sayfa, %d parca" % (name, total, count))
         self._say("PDF gönderiliyor.")
-        self._ask(pdf, A.DOC_SYSTEM, A.doc_text(self.expected, name, self.s["extra_instruction"]), name, "pdf")
+        first_number, extra = self.expected, self.s["extra_instruction"]
+        stop_all = threading.Event()           # anahtar hatası: kalan parçalar boşuna sorulmaz
+
+        def ask(i):
+            part, first, last = parts[i]
+            if self._cancel.is_set() or stop_all.is_set():
+                return None
+            # Sıradaki soru ipucu yalnız ilk parçada bilinir; sonraki parçalarda numara belgeden okunur
+            text = A.doc_text(first_number if i == 0 else None, name, extra, (first, last, total) if total else None)
+            return self.service.ask(part, A.DOC_SYSTEM, text, name, cancelled=lambda: self._cancel.is_set() or stop_all.is_set())
+
+        def waiting(done):
+            if count == 1:
+                return "Gemini'ye gönderildi, cevap bekleniyor…"
+            return "Gemini'ye %d parça hâlinde gönderildi, cevap bekleniyor… (%d/%d parça tamam)" % (count, done, count)
+
+        rows, last_error = [], None
+        self._set("sending", waiting(0))
+        pool = ThreadPoolExecutor(max_workers=max(1, min(int(self.parallel), count)))
+        try:
+            futures = [pool.submit(ask, i) for i in range(count)]
+            for i, future in enumerate(futures):
+                first, last = parts[i][1], parts[i][2]
+                try:
+                    reply = future.result()
+                except G.GeminiError as e:
+                    if self._cancel.is_set():
+                        break
+                    last_error = e
+                    log("[akis] PDF parcasi cevaplanamadi (sayfa %d-%d): %s" % (first, last, e.message))
+                    if e.kind == "key" or count == 1:
+                        stop_all.set()
+                        raise
+                    with self._lock:
+                        self.notes.append("Sayfa %d-%d cevaplanamadı: %s" % (first, last, e.message))
+                    self._set("sending", waiting(i + 1))
+                    continue
+                if reply is None or self._cancel.is_set():
+                    break
+                with self._lock:
+                    self.notes += [n for n in reply.notes if n not in self.notes]
+                    if reply.sources:
+                        self.notes.append(("Kaynaklar (sayfa %d-%d): %s" % (first, last, reply.sources)) if count > 1
+                                          else "Kaynaklar: " + reply.sources)
+                if reply.answers:
+                    rows += self._record(reply, "pdf")
+                    self._save_answers()
+                self._set("sending", waiting(i + 1))
+        finally:
+            stop_all.set()
+            pool.shutdown(wait=True)
+        if self._cancel.is_set():
+            self._set("idle", "Durduruldu.")
+            return
+        if not rows:
+            if last_error:
+                raise last_error
+            self._set("idle", "Gönderilen belgede soru bulunamadı.")
+            self._say("Soru bulunamadı.")
+            return
+        self._read(rows, True)
 
     # ---------------------------------------------------------------- Gemini ve cevaplar
     def _ask(self, pdf, system, text, name, origin):

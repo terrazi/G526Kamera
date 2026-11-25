@@ -119,7 +119,8 @@ def test_pdf_ve_talimat_ayri_parcalar_olarak_gider(fake, settings):
     parts = body["contents"][0]["parts"]
     assert parts[0]["inlineData"]["mimeType"] == "application/pdf" and "bütün soruları çöz" in parts[1]["text"]
     assert body["systemInstruction"]["parts"][0]["text"] == A.DOC_SYSTEM and "tools" not in body
-    assert body["generationConfig"]["mediaResolution"] == "MEDIA_RESOLUTION_HIGH"
+    assert body["systemInstruction"]["parts"][1]["text"] == A.SOLVE_SECTION, "çözüm kuralları okuma talimatına eklenir"
+    assert body["generationConfig"] == {"mediaResolution": "MEDIA_RESOLUTION_HIGH", "thinkingConfig": {"thinkingLevel": "high"}}
     method, path, headers, _ = fake.requests[0]
     assert path == "/v1beta/models/gemini-4-argon:generateContent" and headers["x-goog-api-key"] == "ANAHTAR-1"
 
@@ -154,6 +155,124 @@ def test_buyuk_pdf_dosya_olarak_yuklenir(fake, settings, monkeypatch):
     assert start[1] == "/upload/v1beta/files" and start[2]["x-goog-upload-command"] == "start"
     assert json.loads(start[3].decode())["file"]["displayName"] == "tarama.pdf"
     assert fake.requests[1][2]["x-goog-upload-command"] == "upload, finalize" and fake.requests[1][3].startswith(b"%PDF")
+
+
+def test_sik_sozcugu_beklenen_sozcuge_cevrilir():
+    from sk import answers as A
+    assert A.parse("Soru 6, Edirne, 105")["spoken"] == "Soru 6, Erzurum, 105", "aynı harfle başlayan başka şehir düzeltilir"
+    assert A.parse("Soru 7, E, 105")["option"] == "Erzurum" and A.parse("Soru 8, B şıkkı, Yağmur")["option"] == "Bursa"
+    assert A.parse("Soru 9, İ, x")["option"] == "İ" and A.parse("Soru 9, Denizli, x")["option"] == "Denizli"
+    assert A.parse("Soru 3, Ankara")["spoken"] == "Soru 3, Ankara", "şıksız sorunun şehir adlı cevabına dokunulmaz"
+
+
+def test_eski_ayar_dosyasinda_bekleme_suresi_yukselir(home):
+    import json
+    from sk.settings import Settings
+    path = home / "eski"
+    path.mkdir()
+    (path / "ayarlar.json").write_text(json.dumps({"wait_limit": 150, "scan_seconds": 45}), encoding="utf-8")
+    s = Settings(str(path))
+    assert s["wait_limit"] == 240 and s["scan_seconds"] == 45 and s["thinking"] == "high" and s["pdf_pages"] == 2
+    (path / "ayarlar.json").write_text(json.dumps({"wait_limit": 150, "thinking": "high"}), encoding="utf-8")
+    assert Settings(str(path))["wait_limit"] == 150, "kullanıcının sonradan seçtiği değere dokunulmaz"
+
+
+def test_cozum_kurallari_dort_alani_kapsar():
+    from sk import answers as A
+    text = A.SOLVE_SECTION
+    for word in ("GENEL:", "SAYISAL", "TÜRKÇE VE SÖZEL", "İNGİLİZCE", "ALAN BİLGİSİ", "Türk Dili ve Edebiyatı", "olamaz", "en az",
+                 "şıklarda yoksa", "sağlamasını yap", "yalnız metinde söylenene dayan", "çeviride", "Eser-yazar"):
+        assert word in text, word
+    assert "cevap biçimi yukarıda anlatıldığı gibidir" in text, "kurallar cevap biçimini değiştirmez"
+
+
+def test_dusunme_duzeyi_modele_gore_istenir(fake, settings):
+    from sk import answers as A, gemini as G
+    assert G.thinking_level("gemini-4-argon", "high") == "high" and G.thinking_level("gemini-3.5-flash-lite", "high") == "high"
+    assert G.thinking_level("gemini-2.5-pro", "high") is None, "Gemini 2.x bu ayarı tanımaz"
+    assert G.thinking_level("gemini-4-argon", "auto") is None and G.thinking_level("gemma-4-27b-it", "auto") == "high"
+    settings.update({"thinking": "auto"})
+    fake.answer("Soru 1, Adana, Bir")
+    A.AnswerService(settings).ask(pdf_bytes(), A.DOC_SYSTEM, "x")
+    assert "thinkingConfig" not in fake.bodies()[0]["generationConfig"]
+
+    # model ayarı reddederse aynı istek ayarsız yeniden gönderilir ve o modele bir daha gönderilmez
+    settings.update({"thinking": "high", "p1_model": "gemini-9-deneme"})
+    fake.answer("Unknown name thinkingLevel: thinking is not supported", status=400)
+    fake.answer("Soru 2, Bursa, İki")
+    reply = A.AnswerService(settings).ask(pdf_bytes(), A.DOC_SYSTEM, "x")
+    assert reply.answers[0]["number"] == 2
+    assert "thinkingConfig" in fake.bodies()[1]["generationConfig"] and "thinkingConfig" not in fake.bodies()[2]["generationConfig"]
+    fake.answer("Soru 3, Ceyhan, Üç")
+    A.AnswerService(settings).ask(pdf_bytes(), A.DOC_SYSTEM, "x")
+    assert "thinkingConfig" not in fake.bodies()[3]["generationConfig"]
+
+
+def test_pdf_az_sayfali_parcalar_halinde_gonderilir(fake, settings, home):
+    import base64
+    from pypdf import PdfReader
+    from sk import pdfsplit
+    parts, total = pdfsplit.split(pdf_bytes(5), 2)
+    assert total == 5 and [(a, b) for _, a, b in parts] == [(1, 2), (3, 4), (5, 5)]
+    assert [len(PdfReader(io.BytesIO(p)).pages) for p, _, _ in parts] == [2, 2, 1]
+    assert pdfsplit.split(pdf_bytes(2), 2)[0][0][1:] == (1, 2) and pdfsplit.split(b"pdf degil", 2) == ([(b"pdf degil", 1, 0)], 0)
+
+    settings.update({"pdf_pages": 2})
+    flow, speaker = make_flow(settings)
+    flow.parallel = 1                   # sahte sunucu cevapları geliş sırasıyla verir: bu sınamada parçalar sırayla sorulur
+    path = str(home / "bes.pdf")
+    open(path, "wb").write(pdf_bytes(5))
+    fake.answer("Soru 1, Adana, Bir\nSoru 2, Bursa, İki")
+    fake.answer("yoğun", status=503)
+    fake.answer("yoğun", status=503)
+    fake.answer("Soru 5, Erzurum, Beş")
+    flow.send_pdf(path); flow.wait(30)
+    state = flow.state()
+    assert [a["number"] for a in state["answers"]] == [1, 2, 5], "cevaplanan parçaların soruları birleşir"
+    assert state["error"] == "" and any("Sayfa 3-4 cevaplanamadı" in n for n in state["notes"]), state["notes"]
+    bodies = fake.bodies()
+    first, last = bodies[0]["contents"][0]["parts"], bodies[-1]["contents"][0]["parts"]
+    assert len(PdfReader(io.BytesIO(base64.b64decode(first[0]["inlineData"]["data"]))).pages) == 2
+    assert len(PdfReader(io.BytesIO(base64.b64decode(last[0]["inlineData"]["data"]))).pages) == 1
+    assert "5 sayfalık belgenin 1-2. sayfalarıdır" in first[1]["text"] and "5 sayfalık belgenin 5-5. sayfalarıdır" in last[1]["text"]
+    assert "ilk soruya Soru 1 de" in first[1]["text"], "sıradaki soru ipucu ilk parçada verilir"
+    assert "ilk soruya" not in last[1]["text"] and "Soru numaralarını belgeden oku" in last[1]["text"]
+    assert speaker.said[-4:] == ["Soru 1, Adana, Bir", "Soru 2, Bursa, İki", "Soru 5, Erzurum, Beş", "Sıradaki soru 6."]
+
+
+def test_pdf_parcalari_birkaci_birden_sorulur_cevaplar_sirayla_islenir(fake, settings, home):
+    import threading
+    from sk import answers as A
+    from sk.flow import Flow
+    settings.update({"pdf_pages": 1})
+    gate, active, peak, lock = threading.Event(), [0], [0], threading.Lock()
+
+    class Service:
+        """Her parçaya sayfa numarasına göre cevap verir; ilk parça en son biter (sıra yine de belge sırası olmalı)."""
+        def ask(self, pdf, system, text, name, cancelled):
+            page = int(text.split("belgenin ")[1].split("-")[0])
+            with lock:
+                active[0] += 1
+                peak[0] = max(peak[0], active[0])
+            if page == 1:
+                gate.wait(10)
+            else:
+                time.sleep(0.05)
+                if page == 4:
+                    gate.set()
+            with lock:
+                active[0] -= 1
+            return A.Reply(A.parse_lines("Soru %d, Adana, Sayfa %d" % (page, page)), "Sahte", "", False, "", [])
+
+    speaker = FakeSpeaker()
+    flow = Flow(settings, Service(), speaker, camera_live=lambda: True)
+    path = str(home / "dort.pdf")
+    open(path, "wb").write(pdf_bytes(4))
+    flow.send_pdf(path); flow.wait(30)
+    state = flow.state()
+    assert [a["number"] for a in state["answers"]] == [1, 2, 3, 4] and state["error"] == ""
+    assert 2 <= peak[0] <= 3, "aynı anda en çok üç parça sorulur: %d" % peak[0]
+    assert speaker.said[-5:-1] == ["Soru %d, Adana, Sayfa %d" % (n, n) for n in (1, 2, 3, 4)], "okuma belge sırasıyladır"
 
 
 # ------------------------------------------------------------------ kaynaklar
@@ -212,7 +331,7 @@ def test_senkron_klasoru_depoya_isler_ve_rapor_verir(fake, settings):
     reply = service.ask(pdf_bytes(), A.DOC_SYSTEM, "x")
     body = fake.bodies()[-1]
     assert body["tools"] == [{"file_search": {"file_search_store_names": [store]}}]
-    assert "KAYNAĞA uy" in body["systemInstruction"]["parts"][1]["text"]
+    assert "KAYNAĞA uy" in body["systemInstruction"]["parts"][2]["text"]
     assert reply.sources == "cevap 3 kaynak parçasına dayandı: A.pdf ×2, C.pdf ×1"
 
     # Gemini depoyu reddederse cevap kaynaksız alınır ve kullanıcı uyarılır

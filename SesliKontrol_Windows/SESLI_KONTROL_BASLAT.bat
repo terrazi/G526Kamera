@@ -41,12 +41,21 @@ if errorlevel 1 goto :paket_hata
 
 :opencv
 "%PYEXE%" -c "import cv2" >nul 2>&1
+if not errorlevel 1 goto :pdfarac
+call :internet_var https://pypi.org
+if errorlevel 1 goto :pdfarac
+echo.
+echo USB ve dizustu kamerasi icin OpenCV kuruluyor (yaklasik 50 MB)...
+"%PYEXE%" -m pip install --user --disable-pip-version-check --no-input opencv-python-headless
+
+:pdfarac
+"%PYEXE%" -c "import pypdf" >nul 2>&1
 if not errorlevel 1 goto :pywebview
 call :internet_var https://pypi.org
 if errorlevel 1 goto :pywebview
 echo.
-echo USB ve dizustu kamerasi icin OpenCV kuruluyor (yaklasik 50 MB)...
-"%PYEXE%" -m pip install --user --disable-pip-version-check --no-input opencv-python-headless
+echo PDF bolme araci kuruluyor (kucuk bir paket)...
+"%PYEXE%" -m pip install --user --disable-pip-version-check --no-input pypdf
 
 :pywebview
 "%PYEXE%" -c "import webview" >nul 2>&1

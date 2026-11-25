@@ -85,7 +85,9 @@ DEFAULTS = {
     "p2_name": "Ücretli Gemini 3.8 Flash", "p2_model": "gemini-3.8-flash", "p2_key": "",
     "p3_name": "Ücretli Gemini 3.7 Flash", "p3_model": "gemini-3.7-flash", "p3_key": "",
     "p4_name": "Gemini 3.5 Flash-Lite", "p4_model": "gemini-3.5-flash-lite", "p4_key": "",
-    "wait_limit": 150,            # bir modelin cevabı için beklenen süre (sn); dolunca sıradaki model denenir
+    "wait_limit": 240,            # bir modelin cevabı için beklenen süre (sn); dolunca sıradaki model denenir
+    "thinking": "high",           # high: Gemini'den en yüksek düşünme düzeyi istenir | auto: modelin kendi varsayılanı
+    "pdf_pages": 2,               # PDF dosyası bir istekte en çok bu kadar sayfa olarak gönderilir (az soru = daha dikkatli çözüm)
     "use_sources": False,         # soruları verilen kaynaklara göre cevapla (Kaynaklar klasörü)
     # ---- ses
     "read_answers": True,         # cevapları sesli oku
@@ -102,8 +104,8 @@ DEFAULTS = {
 }
 
 RANGES = {"stream_quality": (1, 2), "scan_seconds": (10, 300), "scan_rate": (1, 4), "jpeg_quality": (0.5, 0.95),
-          "wait_limit": (20, 600), "answer_gap": (0, 10), "voice_threshold": (0.2, 0.95), "tts_rate": (-10, 10)}
-CHOICES = {"source": ("wifi", "webcam", "pdf"), "voice_engine": ("auto", "vosk", "windows"), "tts_engine": ("windows",)}
+          "wait_limit": (20, 600), "pdf_pages": (1, 20), "answer_gap": (0, 10), "voice_threshold": (0.2, 0.95), "tts_rate": (-10, 10)}
+CHOICES = {"source": ("wifi", "webcam", "pdf"), "thinking": ("high", "auto"), "voice_engine": ("auto", "vosk", "windows"), "tts_engine": ("windows",)}
 NO_SPACE = ("p1_model", "p2_model", "p3_model", "p4_model", "p1_key", "p2_key", "p3_key", "p4_key")
 
 
@@ -152,6 +154,9 @@ class Settings:
                         self._values[k] = _coerce(k, v)
                     except (ValueError, TypeError):
                         pass
+            # 4.0'dan kalan ayar dosyası ("thinking" yok): eski varsayılan bekleme süresi (150 sn) yüksek düşünme düzeyine kısa gelir
+            if "thinking" not in data and data.get("wait_limit") == 150:
+                self._values["wait_limit"] = DEFAULTS["wait_limit"]
         except (OSError, ValueError):
             pass
         try:

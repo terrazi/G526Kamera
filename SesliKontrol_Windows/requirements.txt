@@ -2,6 +2,7 @@ av
 numpy
 pillow
 opencv-python-headless
+pypdf
 pywebview
 vosk
 sounddevice

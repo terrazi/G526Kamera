@@ -115,24 +115,36 @@ def _checked(status, data, model="", prefix=""):
 
 
 # ----------------------------------------------------------------- cevap isteği
-def thinking_level(model):
-    """Gemma modellerinde düşünme açık istenir; Gemini modellerinde modelin kendi varsayılanı kalır (iPhone ile aynı)."""
-    return "high" if (model or "").lower().replace("models/", "").startswith("gemma") else None
+def thinking_level(model, setting="auto"):
+    """İsteğe konacak thinkingLevel ya da None (iPhone'daki kuralın aynısı). "high": Gemini 3 ve sonrası ile Gemma'da "high" istenir;
+    Gemini 2.x bu ayarı tanımaz, ona gönderilmez. "auto": yalnız Gemma'da "high" (Gemma düşünmeyi bu ayarla açar), Gemini'de modelin
+    kendi varsayılanı (Gemini 4 Argon'da orta, Flash-Lite'ta en düşük)."""
+    name = (model or "").lower().replace("models/", "")
+    if setting != "high":
+        return "high" if name.startswith("gemma") else None
+    return None if name.startswith("gemini-2") else "high"
 
 
-def generate(model, key, body, timeout=150.0):
-    """generateContent. `body` sözlüktür; dönüş Google'ın cevabı (sözlük)."""
+_no_thinking = set()        # düşünme ayarını geri çeviren modeller: bu çalıştırmada ayar onlara gönderilmez
+
+
+def generate(model, key, body, timeout=150.0, thinking="auto"):
+    """generateContent. `body` sözlüktür; dönüş Google'ın cevabı (sözlük). Model düşünme ayarını reddederse ayarsız yeniden denenir."""
     name = (model or "").strip().replace("models/", "")
     if not name:
         raise GeminiError("Model adı girilmemiş.", "model")
+    url = "%s/models/%s:generateContent" % (base_url(), urllib.parse.quote(name, safe="-._"))
+    level = None if name in _no_thinking else thinking_level(name, thinking)
     obj = dict(body)
-    level = thinking_level(name)
     if level:
         config = dict(obj.get("generationConfig") or {})
         config["thinkingConfig"] = {"thinkingLevel": level}
         obj["generationConfig"] = config
-    url = "%s/models/%s:generateContent" % (base_url(), urllib.parse.quote(name, safe="-._"))
     status, _, data = call("POST", url, key, json.dumps(obj).encode("utf-8"), timeout=timeout)
+    if level and status == 400 and "thinking" in data.decode("utf-8", "replace").lower():
+        log("[gemini] %s dusunme ayarini kabul etmedi; ayarsiz yeniden deneniyor" % name)
+        _no_thinking.add(name)
+        status, _, data = call("POST", url, key, json.dumps(body).encode("utf-8"), timeout=timeout)
     return _checked(status, data, name)
 
 

@@ -139,7 +139,7 @@ def home(tmp_path, monkeypatch):
 def settings(home):
     from sk.settings import Settings
     s = Settings()
-    s.update({"local_dir": str(home / "kayit"), "p1_key": "ANAHTAR-1", "answer_gap": 0})
+    s.update({"local_dir": str(home / "kayit"), "p1_key": "ANAHTAR-1", "answer_gap": 0, "pdf_pages": 20})
     return s
 
 

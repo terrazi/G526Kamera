@@ -1,4 +1,4 @@
-SESLI KONTROL - WINDOWS SURUMU 4.0
+SESLI KONTROL - WINDOWS SURUMU 4.1
 ==================================
 iPhone programinin son surumunun (885ddbc) Windows karsiligidir: ayni tarama duzeni, ayni Gemini talimati, ayni cevap
 bicimi (Soru N, sik sozcugu, cevap metni), ayni model sirasi ve "kaynaklara gore cevaplama".
@@ -32,6 +32,15 @@ KULLANIM (dugmeyle ya da sesle)
   "durum"                               : program ne yaptigini soyler.
   Cevaplar ekranda tablo olarak durur; her testin taramalari (PDF) ve cevaplar.txt dosyasi kayit klasorune
   (Belgelerim\Sesli Kontrol\<tarih-saat>) yazilir.
+
+DAHA DOGRU COZUM ICIN (4.1 ile geldi, Ayarlar > Gemini)
+  * Cozum kurallari      : program her istekte okuma talimatinin yanina ayrintili cozum kurallari da gonderir (genel dikkat,
+                           sayisal, Turkce/sozel, Ingilizce, acikogretim alan dersleri). Kamera taramasinda da PDF'te de gecerlidir.
+  * Dusunme duzeyi       : "Yuksek" secili gelir; Gemini soruyu daha uzun dusunerek cozer, cevap biraz daha gec gelir.
+  * PDF: istek basina sayfa : PDF dosyasi bu kadar sayfalik parcalar halinde gonderilir (varsayilan 2). Bir istekte az soru
+                           olunca her soru daha dikkatli cozulur. Parcalarin ucu birden sorulur, cevaplar belge sirasiyla
+                           yazilir ve okunur. Bir parca cevaplanamazsa digerleri yine gelir; eksik sayfalar notlarda yazar.
+  * Model basina bekleme : 240 saniyedir (yuksek dusunme duzeyi daha uzun surebilir).
 
 KAYNAKLARA GORE CEVAPLAMA (Ayarlar > Gemini)
   "Sorulari verilen kaynaklara gore cevapla" kapaliyken program kaynaksiz calisir. Acikken kitaplarinizi (PDF, .docx, metin)

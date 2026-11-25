@@ -31,6 +31,37 @@ DOC_SYSTEM = (
 )
 
 
+# Çözüm kuralları (2026-11-25): okuma talimatına eklenir. Neden: 30 soruluk ALES sayısal denemesinde model 13 soruyu aceleyle, işlem
+# yapmadan ve sorunun kendi koşullarıyla çelişen şıklarla cevaplamıştı. Cevap biçimi değişmez; kurallar yalnız nasıl çözüleceğini anlatır.
+SOLVE_SECTION = (
+    "ÇÖZÜM KURALLARI (her soruya uygula; cevap biçimi yukarıda anlatıldığı gibidir, burada yalnız NASIL çözeceğin anlatılır).\n\n"
+    "GENEL: Soru kökünü ve beş şıkkı sonuna kadar oku. Kökteki olumsuz ve sınırlayıcı sözlere özellikle dikkat et: değildir, olamaz, "
+    "yanlıştır, söylenemez, ulaşılamaz, hangisi dışında, en az, en fazla, kesinlikle, her zaman, yalnız. Önce kendi sonucunu bul, sonra "
+    "şıklarla karşılaştır; diğer şıkların neden yanlış olduğunu da denetle. Yazmadan önce seçtiğin şıkkın sorudaki BÜTÜN koşulları "
+    "sağladığını bir kez daha kontrol et. İlk akla gelen şıkkı yazma. Sorular çok diye sonrakileri yüzeysel geçme: her soruya ayrı ve tam "
+    "düşünme payı ayır. Ortak bir bilgiye ya da paragrafa bağlı soru gruplarında (örneğin \"25. - 26. soruları aşağıdaki bilgilere göre "
+    "cevaplayınız\") ortak bilgiyi o grubun her sorusunda yeniden kullan.\n\n"
+    "SAYISAL (matematik, geometri, sayısal mantık, tablo ve grafik): İşlemi adım adım yap; işlem önceliğine, artı-eksi işaretine, üs, kök, "
+    "mutlak değer ve kesir yazımına dikkat et. Sözel problemde bilinmeyenleri tanımla, denklemi kur ve çöz. Bulduğun değer şıklarda yoksa "
+    "çözümü baştan kontrol et; şıklarda olmayan bir değeri cevap diye yazma ve yazdığın değer seçtiğin şıktaki değerle aynı olsun. Sonucu "
+    "soruya geri koyup sağlamasını yap. Şekil, tablo ve grafikteki değerleri (açı, yüzde, etiket, hangi harfin hangi sayıyla eşleştiği) "
+    "dikkatle oku. \"En az, en çok, kesinlikle, olamaz\" sorularında bütün durumları tek tek dene.\n\n"
+    "TÜRKÇE VE SÖZEL (sözcükte ve cümlede anlam, paragraf, dil bilgisi, yazım ve noktalama, sözel mantık): Paragraf sorularında yalnız "
+    "metinde söylenene dayan; metinde olmayan bilgiyi ya da kendi yorumunu katma. \"Değinilmemiştir, çıkarılamaz\" sorularında her şıkkın "
+    "metindeki karşılığını ara. Numaralanmış cümlelerde ve altı çizili sözlerde numara ile cümleyi karıştırma. Boşluk doldurmada anlamı ve "
+    "dil bilgisi uyumunu birlikte denetle. Sözel mantıkta verilen koşulları tek tek sırala ve hepsini birden sağlayan durumu bul.\n\n"
+    "İNGİLİZCE (YDS, YÖKDİL, açıköğretim İngilizce ve benzeri): Soru İngilizce ise İngilizce olarak çöz. Boşluk doldurmada zaman, kip, "
+    "edilgenlik, bağlaç, edat ve sözcük öbeği uyumunu; paragrafta anlam bütünlüğünü; çeviride özne, zaman, bağlaç ve bütün bilgi "
+    "öğelerinin korunmasını (eksik ya da fazla bilgi olmamalı); \"anlamca en yakın cümle\"de anlamın tam karşılanmasını; diyalog ve "
+    "paragraf tamamlamada önceki ve sonraki cümleyle bağlantıyı denetle. Cevap metnini şıktaki İngilizce ifadeyle kısaca yaz.\n\n"
+    "ALAN BİLGİSİ (açıköğretim dersleri; özellikle Türk Dili ve Edebiyatı: eski Türk edebiyatı, halk edebiyatı, yeni Türk edebiyatı, "
+    "Türk dilinin tarihî dönemleri, çağdaş Türk yazı dilleri ve edebiyatları, dil bilgisi): Sorular ders kitabındaki bilgiye göre "
+    "hazırlanır. Eser-yazar, dönem-yüzyıl, akım-temsilci, tür-özellik ve terim-tanım eşleşmelerinde benzer adları karıştırma (aynı adlı "
+    "eserler, aynı mahlaslı şairler, birbirine yakın yüzyıllar); her şıktaki bilgiyi ayrı ayrı doğrula. \"Hangisi değildir, yanlıştır\" "
+    "sorularında doğru olan dördünü bulup yanlış olanı seç. Emin olamadığında en güçlü kanıtı olan şıkkı yaz."
+)
+
+
 def _sw(text, **values):
     """Swift dizgisini Python'a çevirir: \\n, \\" kaçışları ve \\(ad) yer tutucuları."""
     out = text.replace("\\n", "\n").replace('\\"', '"')
@@ -53,11 +84,19 @@ def page_text(expected, pages, labels, extra=""):
     return text
 
 
-def doc_text(expected, name="", extra=""):
-    """PDF dosyası için kullanıcı mesajı: programın çözüm isteği ve açıklaması ayrıca metin olarak gider."""
+def doc_text(expected, name="", extra="", pages=None):
+    """PDF dosyası için kullanıcı mesajı: programın çözüm isteği ve açıklaması ayrıca metin olarak gider. `pages`: (ilk, son, toplam)
+    verilirse bu PDF'in belgenin bir parçası olduğu söylenir."""
     text = ("Ekteki PDF bir soru belgesidir%s. Belgedeki bütün soruları çöz ve her biri için ayrı satır yaz. "
-            "İpucu: belgede soru numarası okunamıyorsa ilk soruya Soru %d de ve sırayla devam et; numara okunuyorsa okunan numaraya uy."
-            % ((" (dosya adı: %s)" % name) if name else "", expected))
+            % ((" (dosya adı: %s)" % name) if name else ""))
+    if expected:
+        text += ("İpucu: belgede soru numarası okunamıyorsa ilk soruya Soru %d de ve sırayla devam et; numara okunuyorsa okunan "
+                 "numaraya uy." % expected)
+    else:
+        text += "Soru numaralarını belgeden oku ve aynen yaz."
+    if pages and pages[2] > pages[1] - pages[0] + 1:
+        text += (" Bu PDF, %d sayfalık belgenin %d-%d. sayfalarıdır; yalnız bu sayfalardaki soruları cevapla. Sayfanın başında ya da "
+                 "sonunda yarım kalan bir soru varsa görünen kısmına göre en olası şıkkı yaz." % (pages[2], pages[0], pages[1]))
     note = (extra or "").strip()
     if note:
         text += "\n\nKullanıcının ek talimatı: " + note
@@ -68,6 +107,31 @@ def doc_text(expected, name="", extra=""):
 _HEAD = re.compile(r"^\s*(?:soru(?:\s*(?:no|numara|numarası))?\s*[:\.\-–—]?\s*)?(\d+)\s*[\.\)]?(?:\s*soru(?:su)?\b)?", re.I)
 _SEPARATORS = ",-–—:;"
 _JUNK = str.maketrans("", "", "*`[]#_")
+
+
+# Model kimi zaman şık sözcüğü yerine aynı harfle başlayan başka bir şehir yazıyor (E için "Edirne"); sözcük beklenene çevrilir.
+# Yalnız satırda cevap metni de varsa uygulanır: şıksız bir sorunun cevabı şehir adı olabilir ("Soru 3, Ankara"), ona dokunulmaz.
+OPTION_WORDS = {"a": "Adana", "b": "Bursa", "c": "Ceyhan", "d": "Denizli", "e": "Erzurum"}
+_STRAY_CITIES = {"ankara": "a", "antalya": "a", "aydın": "a", "amasya": "a", "balıkesir": "b", "bolu": "b", "bilecik": "b", "burdur": "b",
+                 "diyarbakır": "d", "düzce": "d", "edirne": "e", "eskişehir": "e", "elazığ": "e", "erzincan": "e"}
+
+
+def _lower(text):
+    return text.replace("I", "ı").replace("İ", "i").lower()
+
+
+def fix_option(option, text):
+    """Şık sözcüğünü beklenen beş sözcükten birine getirir: tek harf ("E", "E şıkkı") ya da aynı harfli başka şehir -> Erzurum."""
+    word = _lower(option.strip().rstrip(".)"))
+    if word.endswith(" şıkkı"):
+        word = word[:-6].strip()
+    if not text:
+        return option
+    if word in OPTION_WORDS:
+        return OPTION_WORDS[word]
+    if word in _STRAY_CITIES:
+        return OPTION_WORDS[_STRAY_CITIES[word]]
+    return option
 
 
 def parse(raw):
@@ -84,6 +148,7 @@ def parse(raw):
         if ch in _SEPARATORS:
             option, text = rest[:i].strip(), rest[i + 1:].strip(" \t\r\n" + _SEPARATORS)
             break
+    option = fix_option(option, text)
     spoken = line
     if number is not None and option:
         spoken = "Soru %d, %s" % (number, option) + (", " + text if text else "")
@@ -194,20 +259,20 @@ class AnswerService:
                 ident = profile["key"] + "|" + profile["model"]
                 store = None if ident in self._refused else self.source_store(profile["key"])
                 try:
-                    body = {"systemInstruction": {"parts": [{"text": system}]},
+                    body = {"systemInstruction": {"parts": [{"text": system}, {"text": SOLVE_SECTION}]},
                             "contents": [{"role": "user", "parts": [self._visual(pdf, name, profile, files), {"text": user_text}]}]}
                     if self.s["high_resolution"]:
                         body["generationConfig"] = {"mediaResolution": "MEDIA_RESOLUTION_HIGH"}
                     began = time.monotonic()
                     try:
-                        obj = G.generate(profile["model"], profile["key"], with_sources(body, store) if store else body, limit)
+                        obj = G.generate(profile["model"], profile["key"], with_sources(body, store) if store else body, limit, self.s["thinking"])
                     except G.GeminiError as e:
                         if not store or not source_rejection(e):
                             raise
                         # Aynı istek kaynaksız kabul edilirse reddin nedeni depodur: profil bu çalıştırmada kaynaksız sorulur
                         log("[kaynak] kaynak depolu istek reddedildi (HTTP %d: %s); %s kaynaksiz yeniden deneniyor"
                             % (e.status, e.message, profile["name"]))
-                        obj = G.generate(profile["model"], profile["key"], body, limit)
+                        obj = G.generate(profile["model"], profile["key"], body, limit, self.s["thinking"])
                         self._refused.add(ident)
                         self.on_source_rejected(profile["key"], e)
                         notes.append("Gemini kaynak deposunu kabul etmedi; cevap kaynaksız verildi.")

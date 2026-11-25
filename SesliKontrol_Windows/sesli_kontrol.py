@@ -18,7 +18,7 @@ def diagnose():
     import shutil
     print("=== SESLI KONTROL TANILAMA ===")
     print("Python:", sys.version.split()[0], platform.platform())
-    for mod in ("av", "numpy", "PIL", "cv2", "webview", "vosk", "sounddevice"):
+    for mod in ("av", "numpy", "PIL", "cv2", "pypdf", "webview", "vosk", "sounddevice"):
         try:
             m = __import__(mod)
             print("  %-11s kurulu (%s)" % (mod, getattr(m, "__version__", "?")))

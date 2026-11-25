@@ -101,6 +101,8 @@ pre{white-space:pre-wrap;font:12px/1.4 Consolas,monospace;max-height:320px;overf
     <details><summary>Gemini (modeller, anahtarlar, kaynaklar)</summary>
       <div id="profiles"></div>
       <div class="f"><label>Model başına bekleme (sn)</label><input type="number" data-k="wait_limit" min="20" max="600"></div>
+      <div class="f"><label>Düşünme düzeyi</label><select data-k="thinking"><option value="high">Yüksek (önerilen: daha dikkatli çözer, biraz daha geç cevaplar)</option><option value="auto">Modelin kendi ayarı</option></select></div>
+      <div class="f"><label>PDF: istek başına sayfa</label><input type="number" data-k="pdf_pages" min="1" max="20"><small>PDF dosyası bu kadar sayfalık parçalar hâlinde gönderilir; az sayfa = soru başına daha çok dikkat.</small></div>
       <div class="f"><label>Görüntüyü yüksek çözünürlükte oku</label><input type="checkbox" data-k="high_resolution" style="justify-self:start"></div>
       <div class="f"><label>Ek talimat (isteğe bağlı)</label><textarea data-k="extra_instruction" placeholder="Program kendi talimatını zaten gönderir; buraya yazdığınız metin ona eklenir."></textarea></div>
       <div class="f"><label><b>Soruları verilen kaynaklara göre cevapla</b></label><input type="checkbox" data-k="use_sources" style="justify-self:start"></div>
