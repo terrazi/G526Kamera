@@ -68,6 +68,8 @@ struct SettingsView: View {
         AccordionSection(id: "gemini", title: "Gemini") {
             Toggle("Cevabı Gemini sesiyle oku", isOn: $settings.geminiVoice)
             HelpRow("Gemini sesi açıkken cevap internet varken üretilip kaydedilir, tekrar internetsiz çalışır; olmazsa telefonun sesi kullanılır.")
+            Toggle("Ayrıntılı çözüm (daha doğru, daha geç cevap)", isOn: $settings.detailedSolving)
+            HelpRow("Ayrıntılı çözüm: açıkken (varsayılan) program her istekte Gemini'ye ayrıntılı çözüm kuralları da gönderir (genel dikkat, sayısal, Türkçe ve sözel, İngilizce, açıköğretim alan dersleri). Sayfa taramasında ayrıca en yüksek düşünme düzeyi istenir: Gemini soruları daha uzun düşünerek çözer, cevap daha geç gelebilir (model başına bekleme 240 saniyeye çıkar). Kapalıyken istekler önceki sürümdeki gibi gider.")
             Toggle("Soruları verilen kaynaklara göre cevapla", isOn: $settings.useSources)
             if settings.useSources {
                 ForEach(model.sourceLines, id: \.self) { line in

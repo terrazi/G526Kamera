@@ -37,6 +37,7 @@ final class AppSettings: ObservableObject {
         static let sectionQuestions = "v4.sectionQuestions"
         static let closeGuard = "v4.closeGuard"
         static let useSources = "v4.useSources"
+        static let detailedSolving = "v4.detailedSolving"
     }
 
     /// Kullanıcının verdiği kestirme adları. Uygulama ilk açıldığında (bir kez) ilgili alanlara yazılır; sonra Ayarlar'dan silinip
@@ -287,6 +288,13 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(useSources, forKey: Key.useSources) }
     }
 
+    /// Ayrıntılı çözüm (kullanıcı isteği 2026-11-25; varsayılan açık): her istekte Gemini'ye çözüm kuralları da gider (genel dikkat, sayısal,
+    /// Türkçe ve sözel, İngilizce, açıköğretim alan dersleri); sayfa taramasında ayrıca en yüksek düşünme düzeyi istenir ve model başına bekleme
+    /// uzar (bkz. `GeminiAnswerService.detailedSolving`). Kapalıyken istekler önceki sürümdeki gibi gider.
+    @Published var detailedSolving: Bool {
+        didSet { defaults.set(detailedSolving, forKey: Key.detailedSolving) }
+    }
+
     /// Test sürerken (kırmızı uyarı yokken) ekran pil için kısılsın mı
     @Published var dimScreen: Bool {
         didSet { defaults.set(dimScreen, forKey: Key.dimScreen) }
@@ -339,6 +347,7 @@ final class AppSettings: ObservableObject {
         dimScreen = defaults.object(forKey: Key.dimScreen) as? Bool ?? false
         closeGuard = defaults.object(forKey: Key.closeGuard) as? Bool ?? true
         useSources = defaults.object(forKey: Key.useSources) as? Bool ?? false
+        detailedSolving = defaults.object(forKey: Key.detailedSolving) as? Bool ?? true
         clipboardMarker = defaults.object(forKey: ClipboardFlag.usesClipboardKey) as? Bool ?? true
         spokenWarnings = defaults.object(forKey: Key.spokenWarnings) as? Bool ?? true
         instantDetection = defaults.object(forKey: Key.instantDetection) as? Bool ?? true
