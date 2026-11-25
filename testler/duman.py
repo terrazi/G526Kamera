@@ -11,6 +11,8 @@ import time
 import urllib.error
 import urllib.request
 
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "SesliKontrol_Windows")
 home = tempfile.mkdtemp(prefix="skduman")
 PORT = 8551

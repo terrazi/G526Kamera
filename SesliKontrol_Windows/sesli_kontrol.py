@@ -92,6 +92,11 @@ def setup_cli(args):
 
 
 def main(argv=None):
+    for stream in (sys.stdout, sys.stderr):     # siyah pencere her harfi gösteremese de yazdırma hatası programı durdurmasın
+        try:
+            stream.reconfigure(errors="replace")
+        except Exception:
+            pass
     ap = argparse.ArgumentParser(description="Sesli Kontrol (Windows)")
     ap.add_argument("--port", type=int, default=PORT)
     ap.add_argument("--no-browser", action="store_true", help="arayuzu otomatik acma")
