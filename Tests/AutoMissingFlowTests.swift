@@ -53,6 +53,10 @@ final class AutoMissingFlowTests: XCTestCase {
     /// İlk tarama: başlangıç sorusu görülür, tarama yapılır, cevaplar okunur ve program yeniden bekler
     private func firstScan(_ h: SessionHarness, answers: Int) async {
         _ = await h.startListening()
+        // Yavaş bir sınama makinesinde açılış 3 saniyeyi aşabiliyor (CI 26.11.2026: 9 sn sürdü; kapı kurulmadan atılan nabız boşa gitti ve tarama
+        // hiç başlamadı). Nabız, program soruyu beklemeye geçince (kapı kurulunca) atılır
+        let ready = await waitUntil(45) { self.waiting(h) }
+        XCTAssertTrue(ready, "Program soruyu beklemeye geçmedi: \(h.speaker.spoken)")
         h.camera.sights = [sight([1])]
         h.scheduler.advance(by: AutoStart.tick + 0.1)
         let started = await waitUntil(10) { h.camera.seriesCalls.count == 1 }
@@ -152,6 +156,8 @@ final class AutoMissingFlowTests: XCTestCase {
         // Video kaydındaki sayı (100) bölümlü sınavda kullanılmaz: her bölüm kendi sayısıyla (2) biter
         let h = harness(scans: 2, pageReplies: [[1, 2], [1, 2]], count: 100, sections: [2, 2])
         _ = await h.startListening()
+        let ready = await waitUntil(45) { self.waiting(h) }
+        XCTAssertTrue(ready, "Program soruyu beklemeye geçmedi: \(h.speaker.spoken)")
         XCTAssertEqual(h.vm.sectionIndex, 1)
         XCTAssertEqual(h.vm.autoQuestionTotal, 2, "Soru sayısı bölümden alınır")
         h.camera.sights = [sight([1])]
@@ -188,6 +194,8 @@ final class AutoMissingFlowTests: XCTestCase {
     func testWithoutSectionsTheCountInTheVideoSettingsIsUsed() async {
         let h = harness(scans: 1, pageReplies: [[1, 2]], count: 2)
         _ = await h.startListening()
+        let ready = await waitUntil(45) { self.waiting(h) }
+        XCTAssertTrue(ready, "Program soruyu beklemeye geçmedi: \(h.speaker.spoken)")
         XCTAssertEqual(h.vm.autoQuestionTotal, 2)
         h.camera.sights = [sight([1])]
         h.scheduler.advance(by: AutoStart.tick + 0.1)
