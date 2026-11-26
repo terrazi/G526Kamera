@@ -4,6 +4,7 @@ import SwiftUI
 struct CameraSettingsSections: View {
     @EnvironmentObject private var camera: CameraSettings
     @EnvironmentObject private var tester: CameraTester
+    @EnvironmentObject private var settings: AppSettings
 
     var body: some View {
         Group {
@@ -83,10 +84,18 @@ struct CameraSettingsSections: View {
                     Stepper(value: $camera.autoFirstNumber, in: AutoStart.firstNumberRange) {
                         Text("Başlangıç sorusu: \(camera.autoFirstNumber). soru")
                     }
-                    Stepper(value: $camera.autoQuestionCount, in: AutoStart.questionCountRange, step: 5) {
-                        Text(camera.autoQuestionCount > 0 ? "Sınavın soru sayısı: \(camera.autoQuestionCount)" : "Sınavın soru sayısı: belirtilmedi")
+                    if settings.sectionPlan.isEmpty {
+                        Stepper(value: $camera.autoQuestionCount, in: AutoStart.questionCountRange, step: 5) {
+                            Text(camera.autoQuestionCount > 0 ? "Sınavın soru sayısı: \(camera.autoQuestionCount)" : "Sınavın soru sayısı: belirtilmedi")
+                        }
+                    } else {
+                        // Bölümlü sınav: soru sayısı Ayarlar > Sınav bölümleri'nden alınır (her bölüm 1'den numaralanır); buradaki sayı kullanılmaz
+                        Text(AutoStart.sectionSummary(settings.sectionPlan))
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
                     }
                 }
+                HelpRow("Soru sayısı, eksik sorular ve bölümler: sınavın soru sayısı girilmişse program sona gelindiğini bilir. Hiçbir soruyu okutmaya zorlamaz: bir taramada okunamayan soru olursa yalnız hatırlatır (“Eksik sorular: 7 ve 12”), sıradaki yeni soruyu ister ve siz istediğiniz soruyu istediğiniz sırayla gösterebilirsiniz; cevabı olmayan herhangi bir soru kamerada görülünce tarama başlar ve her cevap kendi numarasına kaydedilir. Eksik bir soruyu sonradan okutursanız “tamamlandı” der. Son soru cevaplandığında eksik kalan varsa eksikleri söyler ve okutmanız için 2 dakika verir; gösterdiğiniz soru taranır ve süre yeniden başlar, göstermezseniz süre dolunca kendiliğinden tamamlar (sesli komut gerekmez). Ayarlar > Sınav bölümleri açıksa soru sayısı oradan alınır ve her bölüm 1'den numaralanır: bölüm tamamlanınca program o bölümün cevaplarını okur, “İkinci bölüme başlıyorum” der ve yeni bölümün 1. sorusunun kameraya gösterilmesini bekler; son bölüm bitince sınav kapanır. Yeni bölüm duyurulmadan sonraki bölümün sayfalarını göstermeyin (numaralar aynı olduğu için önceki bölüme yazılır).")
                 HelpRow("Otomatik zamanlı başlatma (varsayılan AÇIK; toplu çekim açıkken geçerlidir): “Başlat”a basınca program hazır bekler, kameraya bağlanmaz. Kamera açılış saatinde kamera açılır ve kulaklıktan “Kameranın başlaması için lütfen 1. soruyu okutunuz” denir (saat kullanılmıyorsa kamera hemen açılır). İlk tarama şu üç yoldan hangisi önce gelirse onunla başlar, ötekiler iptal olur: (1) kamera başlangıç sorusunu görür (satır başında numara, ardında soru metni, altında en az iki şık): “1. soru görüldü” denir, beşten geri sayılır; soru bu sırada kadrajda kalmalıdır, kaybolursa süre başlamaz; (2) en geç başlama saati gelir: “1. soru okutulmadı. Kayıt 15 saniye sonra kendiliğinden başlayacak” denir, on beşten geri sayılır; (3) “Başla” ya da “Başlat” dersiniz (saatlerden bağımsız, her an). Karede soru görünüp numarası 20 saniye okunamazsa program bunu söyleyip yine başlar. Bir kez tetiklendikten sonra taramalar sırayla sürer: her iki sayfalık taramanın cevapları okununca kamera kendiliğinden yeniden açılır, “Yeni iki sayfalık tarama için N. soruyu kameraya gösterin. Soru görülünce, en geç 45 saniye sonra başlar.” denir (N: cevabı alınmamış en küçük numara). İlk 10 saniye beklenir; sonra N. soru (ya da cevabı alınmamış daha ilerideki bir soru) kamerada görülünce “N. soru görüldü” denir, beşten geri sayılır ve tarama başlar. Soru görülmese de 45. saniyede geri sayımla başlanır; bu arada “Başla” derseniz beklemeden başlar. Program hiçbir adımda sesli komut istemez. Art arda 10 taramada (sınavın soru sayısı girilmişse 20 taramada) hiç soru bulunamazsa cevaplar baştan okunur ve sınav kapanır. Kapanan sınav bir sonraki “Başlat”ta kaldığı yerden sürer: durumu kısaca bildirilir ve tarama geri sayımla başlar. Baştan başlamak için ana ekrandaki “Yeni sınav başlat” düğmesini kullanın; soru sayısına ulaşılıp tamamlanan sınavdan sonra “Başlat” da yeni sınav açar. Sınavın soru sayısı girilmişse (5'er artar; 0: belirtilmedi) o sayıya ulaşılınca yeni tarama istenmez: bütün cevaplar baştan, soru numarası, şehir kodlu şık ve doğru cevabın metniyle, aralarında 2 saniye boşlukla okunur ve sınav kapanır. Saat gelene kadar program ekranda açık kalmalıdır. Kapatırsanız eski düzen geçerlidir: her tarama “Başla” komutuyla başlar. Cihazda denenmedi.")
             }
             HelpRow("Toplu çekim (varsayılan AÇIK): Kamera “Başla”dan SONRA açılır: açılışta kameraya bağlanılmaz, talimat beklenirken kamera kapalıdır ve internet açıktır; program “Kamera oturumu için talimatınızı bekliyorum. Başla deyince geri sayımla başlayacak; süreniz N saniye” der. “Başla” deyince “Kamera açılıyor” der, kameraya geçer (hücresel kapanır; uçak modu kulaklığı düşürür, aşağıdaki Bluetooth kestirmesi geri getirir), görüntü gelince “Hazır olun” der, beşten bire sayar, sonra “Başladı” der ve süre başlar; kameraya geçiş 20–35 sn sürebilir. Toplu çekimde sesli konumlandırma AÇIKSA çekim SERBEST TARAMADIR (varsayılan 60 sn, hedef 2 sayfa; 30–180 sn ayarlanır): program komut vermez, yalnız her 10 saniyede geçen süreyi söyler (“10 saniye”, “20 saniye”…). Kamerayı sayfaya yakın tutup yavaşça gezdirin; sayfanın tamamını sığdırmaya çalışmayın (uzaklaşınca yazı okunmaz). Tarama boyunca saniyede 2 kare alınır (her yarım saniyenin en net karesi; 60 sn'de en çok 120). Bozuk (bloklaşmış) ve bulanık kareler, aynı 10 saniyede sağlam kare varsa gönderilmez; yazısı okunan kare, kamera oynasa da bulanık sayılmaz. Kameradan 3 sn görüntü gelmezse program “Kameradan görüntü gelmiyor, bekleyin” der ve süreyi bekletir. Kareler çekildikleri zaman aralığının etiketiyle Gemini'ye gider; Gemini örtüşen kareleri birleştirir. Konumlandırma KAPALIYSA çekim sessizdir: sayfa sayısı ya da sayfa başına süre yoktur, sayfaları istediğiniz hızda gösterirsiniz, kamera her saniyenin en net karesini saklar. Bütün oturumun fotoğrafları TEK PDF olur ve tek seferde Gemini'ye gider (16 MB'ı aşarsa fotoğraflar biraz daha düşük kaliteyle yeniden sıkıştırılır; yükleme ve okuma birkaç dakika sürebilir). Süre dolunca kamera kapanır, kestirme hücreseli açar; Gemini görüntülerdeki BÜTÜN soru ve paragraf sorularını cevaplar, cevaplar soru numarası, şık sözcüğü ve doğru şıkkın metniyle sırayla okunur, her cevap arasında 2 sn boşluk olur. Sonra program yeniden talimat bekler; kamera bir sonraki “Başla”ya kadar kapalı kalır. “Başla” denmezse süre kendiliğinden başlamaz. “Kameraya geç” kestirmesi (uçak modu) kulaklığı düşürür; program hemen ardından “Bluetooth yenile” kestirmesini çalıştırıp kulaklığı geri getirir (Ayarlar > Kestirmeler'de dolu olmalıdır). Toplu çekimde video gönderilmez. Kapatırsanız her çekim tek bir sorudur (eski düzen).")
@@ -183,13 +192,14 @@ struct CameraSettingsSections: View {
 
     private var testSection: some View {
         AccordionSection(id: "deneme", title: "Kamerayı dene (sınavdan önce)") {
-            Button(tester.running ? "Durdur" : "Kamerayı dene") {
+            Button(tester.stopping ? "Durduruluyor…" : (tester.running ? "Durdur" : "Kamerayı dene")) {
                 if tester.running {
                     tester.stop()
                 } else {
                     Task { await tester.run() }
                 }
             }
+            .disabled(tester.stopping)
             Button("Akış denemesi (1, 2, 3 ölç)") {
                 Task { await tester.runStreamSurvey() }
             }

@@ -489,8 +489,31 @@ enum Say {
     }
     /// Sonraki taramalar (kullanıcı kararı 2026-11-19): iki sayfalık taramalar arasında 15 sn boşluk; son 5 saniyede beşten bire sayılır. `next`: cevabı
     /// alınmamış en küçük soru numarası (kullanıcı hangi sayfayı hazırlayacağını bilsin)
-    static func autoGap(seconds: Int, next: Int) -> String {
-        return "Yeni iki sayfalık tarama için \(next). soruyu kameraya gösterin. Soru görülünce, en geç \(seconds + Int(AutoStart.sequentialMaxWait)) saniye sonra başlar."
+    /// Kullanıcı kararı 2026-11-26: eksik kalan soru İSTENMEZ; sıradaki yeni soru söylenir ve kullanıcı istediği soruyu gösterebilir. `missing`
+    /// verilirse (eksik listesi değiştiğinde) eksikler yalnız hatırlatılır
+    static func autoGap(seconds: Int, next: Int, missing: [Int] = []) -> String {
+        let ask = "Yeni iki sayfalık tarama için \(next). soruyu ya da istediğiniz bir soruyu kameraya gösterin. Soru görülünce, en geç \(seconds + Int(AutoStart.sequentialMaxWait)) saniye sonra başlar."
+        return missing.isEmpty ? ask : autoMissing(missing) + " İsterseniz sonra okutabilirsiniz. " + ask
+    }
+    /// Eksik soruların hatırlatılması: "Eksik soru: 7." / "Eksik sorular: 7 ve 12."
+    static func autoMissing(_ numbers: [Int]) -> String {
+        return (numbers.count == 1 ? "Eksik soru: " : "Eksik sorular: ") + compactList(numbers) + "."
+    }
+    /// Önceden eksik olan soruların cevabı bu taramada geldi (sayfanın cevapları okunduktan sonra söylenir)
+    static func autoCompleted(_ done: [Int], remaining: [Int]) -> String {
+        let lead = done.count == 1 ? "Eksik olan \(done[0]). soru tamamlandı." : "Eksik sorulardan \(compactList(done)) tamamlandı."
+        if remaining.isEmpty { return lead + " Eksik soru kalmadı." }
+        return lead + (remaining.count == 1 ? " Kalan eksik soru: " : " Kalan eksik sorular: ") + compactList(remaining) + "."
+    }
+    /// Son aşama: son soru cevaplandı, aradan eksik kalan var. Eksikler söylenir ve okutulmaları için süre verilir; sesli komut beklenmez
+    static func autoClosing(missing: [Int], seconds: Int, section: Bool) -> String {
+        let time = seconds % 60 == 0 ? "\(seconds / 60) dakikanız" : "\(seconds) saniyeniz"
+        let what = section ? "bölüm" : "sınav"
+        return autoMissing(missing) + " Tamamlamak için \(time) var; soruyu kameraya gösterin. Göstermezseniz \(what) kendiliğinden tamamlanır."
+    }
+    /// Eksikler için verilen süre doldu
+    static func autoWindowOver(section: Bool) -> String {
+        return section ? "Süre doldu. Bölüm tamamlanıyor." : "Süre doldu. Sınav tamamlanıyor."
     }
     /// Beklenen soru görüldü: ardından beşten bire sayılır ve "Başladı." denir
     static func autoSeen(number: Int) -> String {

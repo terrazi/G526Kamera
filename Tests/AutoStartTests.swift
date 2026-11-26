@@ -101,7 +101,8 @@ final class AutoStartPlanTests: XCTestCase {
         XCTAssertEqual(Say.autoLost(number: 1), "1. soru görünmüyor. Lütfen yeniden okutunuz.")
         XCTAssertEqual(Say.autoWaiting(clock: "9:30"), "Kamera açılış saati 9:30.", "Program sesli komut istemez")
         XCTAssertEqual(Say.autoGap(seconds: 15, next: 9),
-                       "Yeni iki sayfalık tarama için 9. soruyu kameraya gösterin. Soru görülünce, en geç 45 saniye sonra başlar.")
+                       "Yeni iki sayfalık tarama için 9. soruyu ya da istediğiniz bir soruyu kameraya gösterin. Soru görülünce, en geç 45 saniye sonra başlar.",
+                       "Sıradaki yeni soru söylenir; kullanıcı istediği soruyu gösterebilir")
         XCTAssertEqual(AutoStart.sequentialMaxWait, 30)
         XCTAssertEqual(AutoStart.gapSeconds, 15)
         XCTAssertEqual((1...15).reversed().map { Say.countWord($0) }.prefix(6).joined(separator: " "), "On beş On dört On üç On iki On bir On")
@@ -109,6 +110,65 @@ final class AutoStartPlanTests: XCTestCase {
         XCTAssertEqual(AutoStart.questionCountdown, 5)
         XCTAssertEqual(AutoStart.deadlineCountdown, 15)
         XCTAssertEqual(AutoStart.Trigger.question(1).logName, "1. soru görüldü")
+    }
+
+    // MARK: Eksik sorular ve son aşama (kullanıcı kararı 2026-11-26)
+
+    func testTheNextNewQuestionIsAskedAndSkippedOnesAreOnlyListed() {
+        XCTAssertEqual(AutoStart.nextNew(first: 1, answered: []), 1, "Cevap yokken başlangıç sorusu")
+        XCTAssertEqual(AutoStart.nextNew(first: 1, answered: [1, 2, 4]), 5, "3 eksik kalsa da 5. soru istenir: eksik soru dayatılmaz")
+        XCTAssertEqual(AutoStart.nextNew(first: 21, answered: []), 21)
+        XCTAssertEqual(AutoStart.nextNew(first: 1, answered: Set(21...30)), 31, "Karışık sırada taranmışsa da en büyük numaradan devam edilir")
+        XCTAssertEqual(AutoStart.missing(first: 1, upTo: 4, answered: [1, 2, 4]), [3])
+        XCTAssertEqual(AutoStart.missing(first: 1, upTo: 30, answered: Set(21...30)), Array(1...20))
+        XCTAssertEqual(AutoStart.missing(first: 5, upTo: 8, answered: [6]), [5, 7, 8], "Başlangıç sorusundan öncesi eksik sayılmaz")
+        XCTAssertEqual(AutoStart.missing(first: 1, upTo: 0, answered: []), [])
+        XCTAssertEqual(AutoStart.missingLimit(count: 0, answered: [1, 2, 9]), 9, "Soru sayısı bilinmiyorsa cevabı alınmış en büyük numaraya kadar bakılır")
+        XCTAssertEqual(AutoStart.missingLimit(count: 50, answered: [1, 2, 57]), 2, "Soru sayısından büyük (yanlış okunmuş) numara hesaba katılmaz")
+        XCTAssertEqual(AutoStart.missingLimit(count: 50, answered: []), 0)
+    }
+
+    func testTheClosingStageStartsWhenTheLastQuestionIsAnsweredOrTheEndStalls() {
+        XCTAssertFalse(AutoStart.closing(count: 0, first: 1, answered: [1, 2, 4]), "Soru sayısı belirtilmediyse son aşama yoktur")
+        XCTAssertFalse(AutoStart.closing(count: 50, first: 1, answered: [1, 2, 4]), "Sona gelinmedi: aradaki eksik yalnız hatırlatılır")
+        XCTAssertTrue(AutoStart.closing(count: 4, first: 1, answered: [1, 2, 4]), "Son soru cevaplandı, 3 eksik: eksikler için süre verilir")
+        XCTAssertFalse(AutoStart.closing(count: 4, first: 1, answered: [1, 2, 3, 4]), "Eksik yoksa son aşama da yoktur (sınav tamamlanmıştır)")
+        XCTAssertTrue(AutoStart.closing(count: 50, first: 1, answered: [50]), "Son soru önce taranmışsa da süreli bekleme başlar; her tarama süreyi yeniler")
+        XCTAssertFalse(AutoStart.closing(count: 50, first: 1, answered: Set(1...48), staleScans: 1), "Sona yakın ama yalnız bir tarama boş geçti")
+        XCTAssertTrue(AutoStart.closing(count: 50, first: 1, answered: Set(1...48), staleScans: 2),
+                      "Son sorular hiç okunamıyorsa bölüm açık kalmaz: art arda iki tarama yeni cevap getirmeyince son aşamaya geçilir")
+        XCTAssertFalse(AutoStart.closing(count: 50, first: 1, answered: Set(1...30), staleScans: 9), "Sona yakın değilken boş taramalar son aşamayı başlatmaz")
+        XCTAssertFalse(AutoStart.closing(count: 50, first: 1, answered: [], staleScans: 9), "Hiç cevap yokken son aşama olmaz")
+        XCTAssertEqual(AutoStart.missingWindow, 120, "Eksikler için 2 dakika")
+        XCTAssertEqual(AutoStart.Trigger.windowOver.logName, "eksik sorular için verilen süre doldu")
+        XCTAssertEqual(AutoStart.accepted([7, 60], ask: 7, answered: [1, 2], limit: 50), 7)
+        XCTAssertNil(AutoStart.accepted([60], ask: 7, answered: [1, 2], limit: 50), "Soru sayısından büyük numara soru sayılmaz")
+        XCTAssertEqual(AutoStart.accepted([60], ask: 7, answered: [1, 2]), 60, "Sınır verilmediyse eskisi gibi")
+    }
+
+    func testTheSentencesRemindWithoutDemanding() {
+        XCTAssertEqual(Say.autoMissing([7]), "Eksik soru: 7.")
+        XCTAssertEqual(Say.autoMissing([7, 12]), "Eksik sorular: 7 ve 12.")
+        XCTAssertEqual(Say.autoGap(seconds: 15, next: 21, missing: [7, 12]),
+                       "Eksik sorular: 7 ve 12. İsterseniz sonra okutabilirsiniz. " + Say.autoGap(seconds: 15, next: 21))
+        XCTAssertEqual(Say.autoCompleted([7], remaining: []), "Eksik olan 7. soru tamamlandı. Eksik soru kalmadı.")
+        XCTAssertEqual(Say.autoCompleted([7], remaining: [12]), "Eksik olan 7. soru tamamlandı. Kalan eksik soru: 12.")
+        XCTAssertEqual(Say.autoCompleted([7, 12], remaining: [20, 21]), "Eksik sorulardan 7 ve 12 tamamlandı. Kalan eksik sorular: 20 ve 21.")
+        XCTAssertEqual(Say.autoClosing(missing: [7, 12], seconds: 120, section: true),
+                       "Eksik sorular: 7 ve 12. Tamamlamak için 2 dakikanız var; soruyu kameraya gösterin. Göstermezseniz bölüm kendiliğinden tamamlanır.")
+        XCTAssertEqual(Say.autoClosing(missing: [3], seconds: 90, section: false),
+                       "Eksik soru: 3. Tamamlamak için 90 saniyeniz var; soruyu kameraya gösterin. Göstermezseniz sınav kendiliğinden tamamlanır.")
+        XCTAssertEqual(Say.autoWindowOver(section: true), "Süre doldu. Bölüm tamamlanıyor.")
+        XCTAssertEqual(Say.autoWindowOver(section: false), "Süre doldu. Sınav tamamlanıyor.")
+        XCTAssertFalse(Say.autoClosing(missing: [3], seconds: 120, section: true).contains("deyin"), "Sesli komut istenmez")
+    }
+
+    func testWithSectionsTheQuestionCountComesFromTheSections() {
+        XCTAssertEqual(AutoStart.sectionSummary([]), "", "Bölüm yoksa Video kaydındaki sayı kullanılır")
+        XCTAssertEqual(AutoStart.sectionSummary([50, 50]), "Sınavın soru sayısı bölümlerden alınıyor: 50 + 50 = 100")
+        XCTAssertEqual(AutoStart.sectionSummary([40]), "Sınavın soru sayısı bölümden alınıyor: 40")
+        XCTAssertEqual(AutoStart.sectionSummary([50, 0]),
+                       "Sınavın soru sayısı bölümlerden alınıyor: 1. bölüm 50, 2. bölüm girilmemiş. Sayısı girilmemiş bölüm kendiliğinden tamamlanmaz.")
     }
 
     func testTheNextWantedQuestionIsTheSmallestUnansweredAndTheExamEndsWhenNoneIsLeft() {

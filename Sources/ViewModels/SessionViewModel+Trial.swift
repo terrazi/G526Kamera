@@ -103,6 +103,16 @@ extension SessionViewModel {
     func pageMissingNote() -> String {
         guard let page = pageBeingRead else { return "" }
         let incomplete = pageIncompleteNote(page)
+        if autoMode {
+            // Otomatik zamanlı başlatma (kullanıcı kararı 2026-11-26): atlanan sorular için "yeniden tarayın" denmez; eksikler sıradaki tarama duyurusunda
+            // yalnız hatırlatılır (`autoGapSentence`). Burada, önceden eksik olup bu taramada cevabı gelen sorular bildirilir
+            let skipped = CaptureDiagnosis.missingAnswers(answered: pageReplyNumbers)
+            if !skipped.isEmpty {
+                tlog("[sayfa] cevaplanmayan sorular: \(skipped.map { String($0) }.joined(separator: ",")) (cevaplananlar: \(pageReplyNumbers.map { String($0) }.joined(separator: ",")))")
+            }
+            let done = autoCompletedNote()
+            return [done, incomplete].filter { !$0.isEmpty }.joined(separator: " ")
+        }
         let missing = CaptureDiagnosis.missingAnswers(answered: pageReplyNumbers)
         guard !missing.isEmpty else { return incomplete }
         tlog("[sayfa] cevaplanmayan sorular: \(missing.map { String($0) }.joined(separator: ",")) (cevaplananlar: \(pageReplyNumbers.map { String($0) }.joined(separator: ",")); karelerde görülenler: \(page.seenNumbers.map { String($0) }.joined(separator: ",")))")

@@ -1610,7 +1610,7 @@ final class SessionViewModel: ObservableObject {
         var text = goOn ? Say.continuingPrevious(next: nextNumber, camera: camera) : (camera ? Say.startingNewCamera : Say.startingNew)
         if goOn, autoMode {
             // Otomatik zamanlı başlatma: eski sınavın durumu kısaca bildirilir; tarama ardından geri sayımla başlar (bkz. `autoStartGap`)
-            text = Say.autoResumeReport(answered: answers.count, total: cameraSettings.autoQuestionCount, last: answers.map { $0.number }.max())
+            text = Say.autoResumeReport(answered: answers.count, total: autoQuestionTotal, last: answers.map { $0.number }.max())
         }
         if setAside > 0 { text += " " + Say.leftoverShotsSetAside(count: setAside) }
         if sectionIndex > 0 {

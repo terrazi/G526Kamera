@@ -1277,6 +1277,39 @@ final class CameraTesterTests: XCTestCase {
         XCTAssertEqual(r.shortcuts.runs.last, "Hücresele_Gec", "Durdurulunca da telefon kameranın ağında bırakılmaz")
         XCTAssertFalse(r.tester.running)
     }
+
+    /// Kullanıcı bildirimi 2026-11-26: "Kamerayı dene tuşuna bastıktan sonra denemeyi durdur neden durdurmuyor". Durduruyordu ama düğme "Durdur" olarak
+    /// kalıyor, hiçbir satır çıkmıyor ve internet 30 saniyeye kadar bekleniyordu
+    func testStopShowsThatItIsStoppingAndDoesNotWaitLongForTheInternet() async {
+        let r = rig()
+        r.camera.hold = true
+        r.health.internet = false
+        let task = Task { await r.tester.run() }
+        let capturing = await waitUntil(45) { r.camera.captures == 1 }
+        XCTAssertTrue(capturing)
+        XCTAssertFalse(r.tester.stopping)
+        r.tester.stop()
+        XCTAssertTrue(r.tester.stopping, "Düğme \"Durduruluyor…\" olur")
+        XCTAssertEqual(r.tester.lines.last, CameraTester.stoppingLine, "Basıldığı anda yazılır")
+        r.tester.stop()
+        await task.value
+        XCTAssertEqual(r.camera.cancels, 1, "İkinci basış bir şey yapmaz")
+        XCTAssertEqual(r.tester.lines.filter { $0 == CameraTester.stoppingLine }.count, 1)
+        XCTAssertFalse(r.tester.stopping, "İş bitince düğme eski hâline döner")
+        XCTAssertFalse(r.tester.running)
+        XCTAssertEqual(r.shortcuts.runs.last, "Hücresele_Gec", "İnternet kestirmesi yine çalışır")
+        XCTAssertEqual(r.health.internetCalls, CameraTester.stoppedInternetPolls, "Durdurulan sınamada internet uzun beklenmez")
+        XCTAssertFalse(r.tester.lines.contains { $0.hasPrefix("✗") }, "Durdurma hata gibi yazılmaz: \(r.tester.lines)")
+        XCTAssertTrue(r.tester.lines.last?.hasPrefix("Deneme durduruldu.") ?? false, "\(r.tester.lines)")
+
+        // Durdurulmayan sınama eskisi gibi tam süre bekler
+        let again = rig()
+        again.camera.results = [.success(FakeCamera.shot(video: false))]
+        again.health.internet = false
+        await again.tester.run()
+        XCTAssertEqual(again.health.internetCalls, CameraTester.internetPolls)
+        XCTAssertFalse(again.tester.stopping)
+    }
 }
 
 @MainActor

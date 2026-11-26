@@ -255,7 +255,9 @@ extension SessionViewModel {
     /// ayarlarda girilmişse sınır o sayıdır: hiç okunmayan son sorular da cevapsız sayılır.
     func unansweredNumbers() -> (missing: [Int], highest: Int) {
         let done = Set(answers.map { $0.number })
-        let highest = max(done.max() ?? 0, sectionQuestionCount)
+        // Otomatik zamanlı başlatmada sınavın soru sayısı da bilinir (bölümsüz sınavda Video kaydı > "Sınavın soru sayısı"): sondaki eksikler de sayılır
+        let known = autoMode ? autoQuestionTotal : sectionQuestionCount
+        let highest = max(done.max() ?? 0, known)
         let missing: [Int] = highest == 0 ? [] : (1...highest).filter { !done.contains($0) }
         return (missing, highest)
     }

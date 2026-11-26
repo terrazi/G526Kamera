@@ -412,6 +412,10 @@ extension SessionViewModel {
         pageBeingRead = nil
         pageSpokenAll = []
         pageReplyNumbers = []
+        // Otomatik zamanlı başlatma: bu taramadan ÖNCE eksik olan sorular saklanır; cevapları gelirse "tamamlandı" denir (bkz. `autoCompletedNote`)
+        if shot.isPage, autoMode {
+            auto.missingBefore = Array(Set(autoMissingList(closing: false)).union(auto.reminded)).sorted()
+        }
         sendingShotID = shot.id
         defer { sendingShotID = nil }
         phase = .answering

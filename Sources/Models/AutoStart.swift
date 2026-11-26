@@ -28,6 +28,10 @@ enum AutoStart {
     /// dolduktan en geç bu kadar sn sonra başlanır (gerçek günlük: ikinci tarama kullanıcı hazır olmadan başlamış, ilk 11 saniyenin kareleri boşa gitmişti)
     static let sequentialMaxWait: TimeInterval = 30
     static let firstNumberRange = 1...300
+    /// Son aşamada eksik soruları okutmak için verilen süre (sn; kullanıcı kararı 2026-11-26: "kullanıcının mikrofondan talimatı olmayacak; yalnız
+    /// eksik soruyu okutmak için süre verilmeli"). Bu sürede cevapsız bir soru kamerada görülürse taranır ve süre yeniden başlar; görülmezse bölüm /
+    /// sınav kendiliğinden tamamlanır
+    static let missingWindow: TimeInterval = 120
     /// Sınavın soru sayısı (0: belirtilmedi) ve sınav sonunda cevaplar baştan okunurken iki cevap arasındaki boşluk (sn)
     static let questionCountRange = 0...300
     static let finalGap: Double = 2
@@ -61,10 +65,67 @@ enum AutoStart {
     }
 
     /// Bakışta taramayı başlatacak soru var mı; varsa numarası. Hiç cevap yokken yalnız istenen (başlangıç) soru tetikler; sonrasında istenen numara ya da
-    /// daha ilerisindeki CEVAPSIZ bir soru yeter (cevaplanmış eski sayfa yeniden taranmasın).
-    static func accepted(_ seen: Set<Int>, ask: Int, answered: Set<Int>) -> Int? {
+    /// daha ilerisindeki CEVAPSIZ bir soru yeter (cevaplanmış eski sayfa yeniden taranmasın). `limit`: soru sayısı biliniyorsa ondan büyük numara soru
+    /// sayılmaz (0: sınır yok).
+    static func accepted(_ seen: Set<Int>, ask: Int, answered: Set<Int>, limit: Int = 0) -> Int? {
         if answered.isEmpty { return seen.contains(ask) ? ask : nil }
-        return seen.filter { $0 >= ask && !answered.contains($0) }.min()
+        return seen.filter { $0 >= ask && !answered.contains($0) && (limit <= 0 || $0 <= limit) }.min()
+    }
+
+    // MARK: Eksik sorular (kullanıcı kararı 2026-11-26)
+    //
+    // Kullanıcı eksik kalan soruyu okutmaya ZORLANMAZ: program sıradaki yeni soruyu ister, eksikleri yalnız hatırlatır; kullanıcı istediği soruyu
+    // istediği sırayla gösterebilir, her cevap kendi numarasına kaydedilir. Sonda eksikler söylenir ve okutulmaları için süre verilir.
+
+    /// Sıradaki YENİ soru: cevabı alınmış en büyük numaranın bir fazlası; hiç cevap yoksa başlangıç sorusu
+    static func nextNew(first: Int, answered: Set<Int>) -> Int {
+        let start = max(1, first)
+        guard let highest = answered.max() else { return start }
+        return max(start, highest + 1)
+    }
+
+    /// Başlangıç sorusundan `upTo` numarasına kadar cevabı olmayan sorular
+    static func missing(first: Int, upTo: Int, answered: Set<Int>) -> [Int] {
+        let start = max(1, first)
+        guard upTo >= start else { return [] }
+        return (start...upTo).filter { !answered.contains($0) }
+    }
+
+    /// Eksik listesinin üst sınırı: soru sayısı biliniyorsa ve son soruya ulaşıldıysa soru sayısı (sondaki eksikler de sayılır), yoksa cevabı alınmış
+    /// en büyük numara (yalnız aradaki boşluklar eksiktir; henüz gelinmemiş sorular eksik sayılmaz). Soru sayısından büyük numaralar hesaba katılmaz.
+    static func missingLimit(count: Int, answered: Set<Int>) -> Int {
+        let valid = count > 0 ? answered.filter { $0 <= count } : answered
+        return valid.max() ?? 0
+    }
+
+    /// Sona yakın sayılma eşiği: cevabı alınmış en büyük numara soru sayısına en çok bu kadar uzaksa ve art arda `tailStaleScans` tarama yeni cevap
+    /// getirmediyse de son aşamaya geçilir (son soru hiç okunamazsa bölüm / sınav sonsuza dek açık kalmasın; mikrofonsuz kullanıcı bölümü elle bitiremez)
+    static let tailQuestions = 5
+    static let tailStaleScans = 2
+
+    /// Son aşama mı: soru sayısı belli, sona gelinmiş ama eksik kalan var. Sona gelmek: son soru cevaplandı; ya da sona yakın (`tailQuestions`) olup
+    /// art arda `tailStaleScans` tarama yeni cevap getirmedi (`staleScans`). Son aşamada eksikler söylenir ve okutulmaları için `missingWindow` kadar
+    /// süre verilir. Soru sayısı belirtilmemişse son aşama yoktur.
+    static func closing(count: Int, first: Int, answered: Set<Int>, staleScans: Int = 0) -> Bool {
+        guard count > 0 else { return false }
+        let highest = missingLimit(count: count, answered: answered)
+        let reached = highest >= count || (highest >= 1 && highest >= count - tailQuestions && staleScans >= tailStaleScans)
+        return reached && !missing(first: first, upTo: count, answered: answered).isEmpty
+    }
+
+    /// Ayarlar > Video kaydı: bölümlü sınavda soru sayısı Ayarlar > Sınav bölümleri'nden alınır; ekranda bunun nasıl yazıldığı ("50 + 50 = 100").
+    /// `plan`: etkin bölümlerin soru sayıları (0: girilmemiş)
+    static func sectionSummary(_ plan: [Int]) -> String {
+        guard !plan.isEmpty else { return "" }
+        if plan.contains(where: { $0 <= 0 }) {
+            let parts = plan.enumerated().map { item -> String in
+                let count = item.element > 0 ? String(item.element) : "girilmemiş"
+                return "\(item.offset + 1). bölüm \(count)"
+            }
+            return "Sınavın soru sayısı bölümlerden alınıyor: " + parts.joined(separator: ", ") + ". Sayısı girilmemiş bölüm kendiliğinden tamamlanmaz."
+        }
+        if plan.count == 1 { return "Sınavın soru sayısı bölümden alınıyor: \(plan[0])" }
+        return "Sınavın soru sayısı bölümlerden alınıyor: " + plan.map { String($0) }.joined(separator: " + ") + " = \(plan.reduce(0, +))"
     }
 
     /// İlk taramayı başlatan tetik
@@ -79,6 +140,8 @@ enum AutoStart {
         case unreadable
         /// Sonraki taramalar: iki tarama arasındaki boşluk doldu
         case gap
+        /// Son aşama: eksik sorular için verilen süre doldu (tarama başlamaz; bölüm / sınav tamamlanır)
+        case windowOver
 
         var logName: String {
             switch self {
@@ -87,6 +150,7 @@ enum AutoStart {
             case .deadline: return "en geç başlama süresi doldu"
             case .unreadable: return "soru görünüyor ama numarası okunamadı"
             case .gap: return "taramalar arası boşluk doldu"
+            case .windowOver: return "eksik sorular için verilen süre doldu"
             }
         }
     }
@@ -118,6 +182,8 @@ enum AutoStart {
         /// Art arda soru bulunamayan tarama sayısı ve o sayım yapılırken kayıtlı cevap sayısı (yeni cevap gelince sayı sıfırlanır)
         var emptyScans = 0
         var answersSeen = 0
+        /// En son yeni cevap geldiğinde başlamış tarama sayısı: `rounds` ile farkı, art arda yeni cevap getirmeyen tarama sayısıdır
+        var roundsAtNew = 0
         /// İlk taramanın saatleri hesaplandı mı
         var planned = false
         /// Kamera açılış anı (nil: hemen)
@@ -136,5 +202,15 @@ enum AutoStart {
         var micGivenUp = false
         /// Soru sayısına ulaşıldı: cevaplar baştan okunuyor, bitince sınav kendiliğinden kapanır (menü sorulmaz)
         var finishing = false
+        /// Bölümün sonuna gelindi ve sırada bölüm var: cevaplar okunduktan sonra sormadan sonraki bölüme geçilir (kullanıcı kararı 2026-11-26)
+        var advancing = false
+        /// Son aşama: eksik sorular için verilen sürenin biteceği an (nil: son aşamada değil)
+        var closingUntil: Date?
+        /// Eksikler için verilen süre doldu: bölüm / sınav eksikleriyle tamamlanıyor
+        var closingExpired = false
+        /// En son hatırlatılan eksik sorular: liste değişmedikçe her taramada yeniden söylenmez
+        var reminded: [Int] = []
+        /// Gönderilen taramadan ÖNCE eksik olan sorular: cevapları bu taramada gelirse "tamamlandı" denir
+        var missingBefore: [Int] = []
     }
 }

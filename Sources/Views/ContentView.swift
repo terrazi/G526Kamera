@@ -436,8 +436,9 @@ struct ContentView: View {
         .buttonStyle(.bordered)
         .disabled(tester.running)
         if tester.running && tester.showsTrial {
-            Button("Denemeyi durdur") { tester.stop() }
+            Button(tester.stopping ? "Durduruluyor…" : "Denemeyi durdur") { tester.stop() }
                 .buttonStyle(.bordered)
+                .disabled(tester.stopping)
             if !tester.progress.isEmpty {
                 Text(tester.progress).font(.footnote).foregroundColor(.secondary)
             }

@@ -62,9 +62,19 @@ extension SessionViewModel {
         let found = unansweredNumbers()
         tlog("[komut] \(section). bölüm tamamlandı (\(answers.count) cevap" + (found.missing.isEmpty ? "" : "; cevapsız: " + Say.compactList(found.missing)) + ")")
         endScope = .test
+        let advance = auto.advancing
+        auto.advancing = false
         guard section < sectionPlan.count else {
             // Son bölüm: soru sormadan test tamamlanır
             await completeTestByVoice(prefix: prefix + (sectionPlan.count > 1 ? Say.allSectionsDone + " " : ""))
+            return
+        }
+        if advance {
+            // Otomatik zamanlı başlatma (kullanıcı kararı 2026-11-26): bölümün sonuna gelindi; "yeni bölüm mü?" sorulmaz (mikrofondan talimat beklenmez),
+            // bölümün durumu söylenir ve sonraki bölüme geçilir. Yeni bölümün ilk taraması başlangıç sorusu kamerada görülünce başlar
+            tlog("[otomatik] \(section). bölüm tamamlandı; \(section + 1). bölüme kendiliğinden geçiliyor")
+            autoResetForSection()
+            await beginNextSection(prefix: prefix + Say.sectionCompleted(section, answers: answers.count, missing: found.missing) + " ")
             return
         }
         sectionReminders = 0

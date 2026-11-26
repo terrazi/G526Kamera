@@ -169,6 +169,7 @@ extension SessionViewModel {
         tlog("[tekrar] okuma durdu: \(reason)")
         warn("tekrar", reason)
         auto.finishing = false   // okuma çalınamadı: sınav kendiliğinden kapanmaz, ne yapılacağı sorulur
+        auto.advancing = false   // sonraki bölüme de kendiliğinden geçilmez: "Bitir" denirse yeni bölüm sorulur
         work = Task { [weak self] in await self?.promptReviewMenu(Say.reviewStopped) }
     }
 

@@ -10,6 +10,9 @@ import Foundation
 final class CameraTester: ObservableObject {
     /// Sınama sürüyor mu (düğme "Durdur" olur)
     @Published private(set) var running = false
+    /// "Durdur"a basıldı, kalan iş (çalışan kestirmenin bitmesi, internete dönüş) sürüyor: düğme "Durduruluyor…" olur (kullanıcı bildirimi 2026-11-26:
+    /// "Denemeyi durdur neden durdurmuyor" — durduruyordu ama hiçbir şey göstermiyordu)
+    @Published private(set) var stopping = false
     /// Adım adım sonuç satırları
     @Published private(set) var lines: [String] = []
     /// Deneme çekiminin fotoğrafı (ekranda küçük resim olarak gösterilir: kadraj ve netlik gözle görülsün). Hiçbir yere gönderilmez, dosyası silinir.
@@ -21,6 +24,9 @@ final class CameraTester: ObservableObject {
 
     /// İnternetin gelmesi için en çok bu kadar yoklanır (2 sn arayla)
     static let internetPolls = 15
+    /// Durdurulan sınamada internet yalnız bu kadar yoklanır: kullanıcı beklemesin (kestirme yine çalışır, telefon kamera ağında bırakılmaz)
+    static let stoppedInternetPolls = 3
+    static let stoppingLine = "Durduruluyor: kamera kapatılıyor, internete dönülüyor…"
     static let pollInterval: TimeInterval = 2
 
     private let camera: CameraCapturing
@@ -50,8 +56,10 @@ final class CameraTester: ObservableObject {
 
     /// Sınamayı durdurur (kamerayı kapatır; kalan adımlar yapılmaz, ama internet kestirmesi yine çalışır: telefon kamera ağında kalmasın)
     func stop() {
-        guard running else { return }
+        guard running, !stopped else { return }
         stopped = true
+        stopping = true
+        lines.append(CameraTester.stoppingLine)
         camera.cancel()
     }
 
@@ -76,7 +84,10 @@ final class CameraTester: ObservableObject {
         showsTrial = false
         lines = []
         lastPhoto = nil
-        defer { running = false }
+        defer {
+            running = false
+            stopping = false
+        }
 
         // 1) Kameraya geç
         await switchToCamera(cameraName)
@@ -91,7 +102,7 @@ final class CameraTester: ObservableObject {
                 lastPhoto = shot.photo
                 shot.discard()
             case .failure(let failure):
-                lines.append("✗ " + failure.message + CameraTester.hint(for: failure))
+                if !stopped { lines.append("✗ " + failure.message + CameraTester.hint(for: failure)) }
             }
         }
 
@@ -128,7 +139,10 @@ final class CameraTester: ObservableObject {
         showsTrial = false
         lines = []
         lastPhoto = nil
-        defer { running = false }
+        defer {
+            running = false
+            stopping = false
+        }
 
         await switchToCamera(cameraName)
 
@@ -170,6 +184,7 @@ final class CameraTester: ObservableObject {
         progress = ""
         defer {
             running = false
+            stopping = false
             progress = ""
         }
         let seconds = cameraSettings.seriesSeconds
@@ -194,7 +209,7 @@ final class CameraTester: ObservableObject {
                 if series.failure != nil { lines.append("⚠ Görüntü akışı yarıda kesildi; çekim eksik.") }
                 if let stream = camera.lastStreamSummary { lines.append("Akış ölçümü: " + stream) }
             case .failure(let failure):
-                lines.append("✗ " + failure.message + CameraTester.hint(for: failure))
+                if !stopped { lines.append("✗ " + failure.message + CameraTester.hint(for: failure)) }
             }
         }
 
@@ -216,7 +231,7 @@ final class CameraTester: ObservableObject {
     private func backToInternet(internetName: String) async {
         // "Bağlantılar hep açık": hücresel hiç kapatılmadı; internet varsa hiçbir kestirme çalışmaz
         if cameraSettings.stayOnWifi, await health.internetReachable() {
-            lines.append("3/3 ✓ İnternet var (hücresel açık kaldı; kestirme çalıştırılmadı). Sınama tamam.")
+            lines.append(stopped ? "3/3 ✓ İnternet var. Deneme durduruldu." : "3/3 ✓ İnternet var (hücresel açık kaldı; kestirme çalıştırılmadı). Sınama tamam.")
             return
         }
         if !health.hasCellularService() {
@@ -227,9 +242,15 @@ final class CameraTester: ObservableObject {
         let toInternet = await shortcuts.run(name: internetName)
         lines.append(SettingsViewModel.text(for: toInternet))
         var online = false
-        for poll in 0..<CameraTester.internetPolls {
+        let polls = stopped ? CameraTester.stoppedInternetPolls : CameraTester.internetPolls
+        for poll in 0..<polls {
             if await health.internetReachable() { online = true; break }
-            if poll < CameraTester.internetPolls - 1 { await sleep(CameraTester.pollInterval) }
+            if poll < polls - 1 { await sleep(CameraTester.pollInterval) }
+        }
+        if stopped {
+            // Durdurulan sınamada uzun beklenmez: kestirme çalıştı, internet birkaç saniye içinde kendiliğinden gelir
+            lines.append(online ? "✓ İnternet geldi. Deneme durduruldu." : "Deneme durduruldu. İnternet birazdan gelir; gelmezse “\(internetName)” kestirmesini elle çalıştırın.")
+            return
         }
         lines.append(online ? "✓ İnternet geldi. Sınama tamam." : "✗ İnternet gelmedi: “Hücresele geç” kestirmesi Wi-Fi'yi kapatıp hücreseli açmıyor olabilir.")
     }

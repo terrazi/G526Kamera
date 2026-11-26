@@ -43,42 +43,164 @@ extension SessionViewModel {
         return (AutoStart.nextMissing(first: cameraSettings.autoFirstNumber, answered: answered), !answered.isEmpty)
     }
 
+    /// Otomatik kapanışın esas aldığı soru sayısı (kullanıcı kararı 2026-11-26): bölümlü sınavda o anki bölümün Ayarlar > Sınav bölümleri'ndeki soru
+    /// sayısı (her bölüm 1'den numaralanır; sayı girilmemişse 0: bölüm kendiliğinden tamamlanmaz), bölümsüz sınavda Video kaydı > "Sınavın soru sayısı"
+    var autoQuestionTotal: Int {
+        return sectionIndex > 0 ? sectionQuestionCount : cameraSettings.autoQuestionCount
+    }
+
+    /// Kulaklıktan istenen soru (kullanıcı kararı 2026-11-26): cevap yokken başlangıç sorusu, sonrasında sıradaki YENİ soru (cevabı alınmış en büyük
+    /// numaranın bir fazlası). Eksik kalan soru istenmez, yalnız hatırlatılır; kullanıcı istediği soruyu istediği sırayla gösterebilir
+    var autoAsked: Int {
+        return AutoStart.nextNew(first: cameraSettings.autoFirstNumber, answered: answeredNumbers)
+    }
+
+    /// Art arda yeni cevap getirmeyen tarama sayısı (bkz. `AutoStart.State.roundsAtNew`)
+    var autoStaleScans: Int {
+        return max(0, auto.rounds - auto.roundsAtNew)
+    }
+
+    /// Son aşama mı: sona gelindi ama eksik soru var (bkz. `AutoStart.closing`)
+    var autoClosing: Bool {
+        return AutoStart.closing(count: autoQuestionTotal, first: cameraSettings.autoFirstNumber, answered: answeredNumbers, staleScans: autoStaleScans)
+    }
+
+    /// Eksik sorular: cevabı alınmış en büyük numaraya kadar aradaki boşluklar; son aşamada (`closing`) soru sayısına kadar cevapsız kalanların hepsi
+    func autoMissingList(closing: Bool) -> [Int] {
+        let total = autoQuestionTotal
+        let answered = answeredNumbers
+        let upTo = closing ? total : AutoStart.missingLimit(count: total, answered: answered)
+        return AutoStart.missing(first: cameraSettings.autoFirstNumber, upTo: upTo, answered: answered)
+    }
+
+    var autoMissing: [Int] {
+        return autoMissingList(closing: autoClosing)
+    }
+
     // MARK: Duyuru ve bekleme
 
     /// Ayarlardaki soru sayısına ulaşıldı (kullanıcı kararı 2026-11-19): yeni tarama istenmez. Bütün cevaplar baştan, sırayla, aralarında 2 sn boşlukla
     /// okunur (her cevap: soru numarası, şehir kodlu şık, doğru cevabın metni) ve sınav kapanır; "Devam, Tekrar ya da Bitir" sorulmaz.
-    func autoFinishExam() async {
-        tlog("[otomatik] sınav kapanıyor (soru sayısı \(cameraSettings.autoQuestionCount), cevaplanan \(answeredNumbers.count)): cevaplar baştan okunacak")
-        // Soru sayısına ulaşıldıysa sınav TAMAMLANDI: bir sonraki "Başlat" yeni sınav açar. Boş taramalar yüzünden kapandıysa yarıda kalmıştır:
-        // bir sonraki "Başlat" kaldığı yerden sürer
-        if AutoStart.examComplete(count: cameraSettings.autoQuestionCount, nextMissing: autoTarget.number), let name = locationName {
+    /// `reachedEnd`: sona gelindi (bütün sorular cevaplandı ya da eksikler için verilen süre doldu); false: boş taramalar yüzünden kapanıyor.
+    /// Bölümlü sınavda (kullanıcı kararı 2026-11-26) sona gelinen bölüm son bölüm değilse sınav KAPANMAZ: bölümün cevapları okunur ve sormadan sonraki
+    /// bölüme geçilir (`completeSectionByVoice`); son bölümde sınav kapanır.
+    func autoFinishExam(reachedEnd: Bool) async {
+        let advance = reachedEnd && sectionIndex > 0 && sectionIndex < sectionPlan.count
+        let missing = reachedEnd ? autoMissingList(closing: true) : []
+        let what = advance ? "bölüm tamamlanıyor" : "sınav kapanıyor"
+        let missingNote = missing.isEmpty ? "" : "; eksik: " + Say.compactList(missing)
+        tlog("[otomatik] \(what) (soru sayısı \(autoQuestionTotal), cevaplanan \(answeredNumbers.count)\(missingNote)): cevaplar baştan okunacak")
+        // Sona gelindiyse sınav TAMAMLANDI: bir sonraki "Başlat" yeni sınav açar. Boş taramalar yüzünden kapandıysa yarıda kalmıştır:
+        // bir sonraki "Başlat" kaldığı yerden sürer. Sırada bölüm varsa sınav sürüyor: tamamlandı diye işaretlenmez
+        if reachedEnd, !advance, let name = locationName {
             settings.finishedExamFolder = name
         }
         disarmAutoGate()
-        endScope = .test
+        auto.closingUntil = nil
+        endScope = advance ? .section : .test
         auto.finishing = true
+        auto.advancing = advance
         await beginReview(origin: .endRequest, returnTo: .question)
+    }
+
+    /// Yeni cevap geldiyse boş ve verimsiz tarama sayımları sıfırlanır (cevap sayısı değişmediyse dokunulmaz: aynı sorular yeniden cevaplanmış olabilir)
+    func autoNoteProgress() {
+        guard answers.count != auto.answersSeen else { return }
+        auto.answersSeen = answers.count
+        auto.emptyScans = 0
+        auto.roundsAtNew = auto.rounds
+    }
+
+    /// Yeni bölüm kendiliğinden başlarken kapı sınavın başındaki gibi kurulur: yeni bölümün başlangıç sorusu kamerada görülünce (ya da "Başla" denince)
+    /// tarama başlar. Saat tetikleri (açılış, en geç başlama) yalnız sınavın başı içindir; yeni bölümde beklenmez
+    func autoResetForSection() {
+        auto.rounds = 0
+        auto.roundsAtNew = 0
+        auto.emptyScans = 0
+        auto.answersSeen = 0
+        auto.planned = true
+        auto.openAt = nil
+        auto.latestAt = nil
+        auto.promptedAt = nil
+        auto.unreadSince = nil
+        auto.missed = 0
+        auto.closingUntil = nil
+        auto.closingExpired = false
+        auto.reminded = []
+        auto.missingBefore = []
+    }
+
+    /// Sayfanın cevapları okunduktan sonra (kullanıcı kararı 2026-11-26): önceden eksik olup bu taramada cevabı gelen sorular bildirilir. Yoksa boş
+    func autoCompletedNote() -> String {
+        let before = auto.missingBefore
+        auto.missingBefore = []
+        guard !before.isEmpty else { return "" }
+        let answered = answeredNumbers
+        let done = before.filter { answered.contains($0) }
+        guard !done.isEmpty else { return "" }
+        autoNoteProgress()   // bu taramanın yeni cevapları sayıma girsin: son aşama kararı güncel duruma göre verilir
+        let left = autoMissing
+        auto.reminded = left   // kalanlar az önce söylendi: sıradaki tarama duyurusunda yeniden hatırlatılmaz
+        let leftText = left.isEmpty ? "yok" : Say.compactList(left)
+        tlog("[otomatik] eksik sorulardan tamamlananlar: \(Say.compactList(done)); kalan eksik: \(leftText)")
+        return Say.autoCompleted(done, remaining: left)
+    }
+
+    /// Son aşama (kullanıcı kararı 2026-11-26): sona gelindi ama eksik soru var. Eksikler söylenir ve okutulmaları için `AutoStart.missingWindow` kadar
+    /// süre verilir; sesli komut beklenmez. Kamera açılır ve kapı yalnız CEVAPSIZ bir soru görülünce taramayı başlatır (bu aşamada tarama kendiliğinden
+    /// başlamaz). Tarama olursa cevaplar okunduktan sonra buraya yeniden gelinir ve süre baştan başlar; süre dolarsa bölüm / sınav tamamlanır.
+    func autoStartClosing() async {
+        let missing = autoMissingList(closing: true)
+        auto.unreadSince = nil
+        auto.missed = 0
+        auto.closingUntil = nil
+        auto.reminded = missing
+        guard await speakNotice(Say.autoClosing(missing: missing, seconds: Int(AutoStart.missingWindow), section: sectionIndex > 0)) else {
+            offerCamera = true
+            return
+        }
+        tlog("[otomatik] son aşama: eksik sorular \(Say.compactList(missing)); okutulmaları için \(Int(AutoStart.missingWindow)) sn verildi")
+        if !deps.camera.holding {
+            guard await prepareSeriesCamera() else { return }
+            guard !Task.isCancelled, phase == .answering else {
+                offerCamera = true
+                return
+            }
+        }
+        let now = deps.now()
+        auto.promptedAt = now
+        auto.closingUntil = now.addingTimeInterval(AutoStart.missingWindow)
+        beginListening(mode: .cameraChoice)
+        if phase == .listening { statusNote = "Eksik sorular bekleniyor" }
     }
 
     /// `askCameraChoice` sonunda, "Başla" talimatı yerine çağrılır
     func autoAnnounce() async {
-        if AutoStart.examComplete(count: cameraSettings.autoQuestionCount, nextMissing: autoTarget.number) {
-            await autoFinishExam()
+        let total = autoQuestionTotal
+        if AutoStart.examComplete(count: total, nextMissing: autoTarget.number) {
+            await autoFinishExam(reachedEnd: true)
             return
         }
         // Yeni cevap geldiyse boş tarama sayımı sıfırlanır; art arda boş taramalar sınırı aştıysa sınav kendiliğinden kapanır (sesli komut istenmez)
-        if answers.count != auto.answersSeen {
-            auto.answersSeen = answers.count
-            auto.emptyScans = 0
-        }
-        let limit = AutoStart.emptyScanLimit(count: cameraSettings.autoQuestionCount)
+        autoNoteProgress()
+        let limit = AutoStart.emptyScanLimit(count: total)
         if auto.emptyScans >= limit {
             tlog("[otomatik] art arda \(auto.emptyScans) taramada soru bulunamadı: sınav kapatılıyor")
             guard await speakNotice(Say.autoEmptyStop(scans: auto.emptyScans)) else {
                 offerCamera = true
                 return
             }
-            await autoFinishExam()
+            await autoFinishExam(reachedEnd: false)
+            return
+        }
+        // Son aşama (kullanıcı kararı 2026-11-26): sona gelindi ama eksik soru var. Eksikler söylenir ve okutulmaları için süre verilir; süre dolduysa
+        // bölüm / sınav eksikleriyle tamamlanır
+        if autoClosing {
+            if auto.closingExpired {
+                await autoFinishExam(reachedEnd: true)
+            } else {
+                await autoStartClosing()
+            }
             return
         }
         // Kamera zaten açık bekliyorsa (kesintiden dönüş) soru yeniden istenir
@@ -113,17 +235,17 @@ extension SessionViewModel {
     /// bu süre içinde açılır. Kamera boşluğun son 5 saniyesinden önce hazır olursa kalan süre beklenir ("Başla" dinlenir, kapı geri sayımı başlatır);
     /// kameraya geçiş daha uzun sürdüyse hazır olur olmaz beşten sayılıp başlanır.
     func autoStartGap() async {
-        let target = autoTarget
+        let next = autoAsked
         auto.unreadSince = nil
         auto.missed = 0
-        guard await speakNotice(Say.autoGap(seconds: AutoStart.gapSeconds, next: target.number)) else {
+        guard await speakNotice(autoGapSentence(next: next)) else {
             offerCamera = true
             return
         }
         let started = deps.now()
         auto.promptedAt = started
         auto.latestAt = started.addingTimeInterval(TimeInterval(AutoStart.gapSeconds - AutoStart.questionCountdown))
-        tlog("[otomatik] cevaplar okundu: yeni tarama \(AutoStart.gapSeconds) sn sonra başlayacak (sıradaki soru \(target.number)); kamera açılıyor")
+        tlog("[otomatik] cevaplar okundu: yeni tarama \(AutoStart.gapSeconds) sn sonra başlayacak (sıradaki yeni soru \(next)); kamera açılıyor")
         guard await prepareSeriesCamera() else { return }
         guard !Task.isCancelled, phase == .answering else {
             offerCamera = true
@@ -155,13 +277,29 @@ extension SessionViewModel {
 
     /// İlk taramada "Kameranın başlaması için lütfen N. soruyu okutunuz." der; kapı kameraya bakmaya başlar. Sonraki taramalarda soru beklenmez: "Yeni iki
     /// sayfalık tarama 15 saniye sonra başlayacak." denir, kapı son 5 saniyede geri sayımı başlatır. İki durumda da "Başla" dinlenir.
+    /// Sonraki tarama duyurusu (kullanıcı kararı 2026-11-26): sıradaki YENİ soru söylenir, eksik soru istenmez. Eksik listesi en son hatırlatılandan
+    /// farklıysa bir kez hatırlatılır (her taramada yinelenmez)
+    func autoGapSentence(next: Int) -> String {
+        let missing = autoMissing
+        let remind = missing != auto.reminded
+        auto.reminded = missing
+        if remind, !missing.isEmpty { tlog("[otomatik] eksik sorular hatırlatılıyor: \(Say.compactList(missing))") }
+        return Say.autoGap(seconds: AutoStart.gapSeconds, next: next, missing: remind ? missing : [])
+    }
+
     func autoAskForQuestion() async {
+        // Son aşamadaysak (kamera kopup yeniden açıldı) yeni soru istenmez: eksikler ve süre yeniden duyurulur
+        if autoClosing, !auto.closingExpired {
+            await autoStartClosing()
+            return
+        }
         let target = autoTarget
         auto.promptedAt = nil
         auto.unreadSince = nil
         auto.missed = 0
         let later = autoSequential
-        guard await speakNotice(later ? Say.autoGap(seconds: AutoStart.gapSeconds, next: target.number) : Say.autoShow(number: target.number)) else {
+        let next = autoAsked
+        guard await speakNotice(later ? autoGapSentence(next: next) : Say.autoShow(number: target.number)) else {
             offerCamera = true
             return
         }
@@ -169,7 +307,7 @@ extension SessionViewModel {
         auto.promptedAt = now
         if later {
             auto.latestAt = now.addingTimeInterval(TimeInterval(AutoStart.gapSeconds - AutoStart.questionCountdown))
-            tlog("[otomatik] yeni tarama \(AutoStart.gapSeconds) sn sonra başlayacak (sıradaki soru \(target.number))")
+            tlog("[otomatik] yeni tarama \(AutoStart.gapSeconds) sn sonra başlayacak (sıradaki yeni soru \(next))")
         } else {
             tlog("[otomatik] \(target.number). soru bekleniyor; en geç başlama \(auto.latestAt.map { AutoStart.clockText($0) } ?? "yok")")
         }
@@ -205,6 +343,19 @@ extension SessionViewModel {
             return
         }
         if auto.promptedAt == nil { auto.promptedAt = now }
+        if let until = auto.closingUntil {
+            // Son aşama: tarama kendiliğinden başlamaz; yalnız cevapsız bir soru görülünce başlar. Süre dolunca bölüm / sınav tamamlanır
+            if now >= until {
+                fireAuto(.windowOver)
+                return
+            }
+            if !auto.looking {
+                auto.looking = true
+                Task { @MainActor [weak self] in await self?.autoLook() }
+            }
+            armAutoGate()
+            return
+        }
         if autoSequential {
             // Sonraki taramalar: boşluk dolmadan başlanmaz. Dolunca beklenen soru kamerada görülünce başlanır (ilk taramadaki gibi: "N. soru görüldü",
             // beşten geri sayım); soru yapısı görünüp numara okunamıyorsa ya da hiç soru görülmüyorsa en geç `sequentialMaxWait` sn sonra yine başlanır
@@ -244,17 +395,19 @@ extension SessionViewModel {
         guard autoMode, phase == .listening, listenMode == .cameraChoice, deps.camera.holding else { return }
         guard let seen = sight, seen.frames > 0 else { return }
         let target = autoTarget
-        if let number = AutoStart.accepted(seen.numbers, ask: target.number, answered: answeredNumbers) {
+        if let number = AutoStart.accepted(seen.numbers, ask: target.number, answered: answeredNumbers, limit: autoQuestionTotal) {
             tlog("[otomatik] kamerada soru görüldü: \(seen.summary)")
             fireAuto(.question(number))
             return
         }
+        // Son aşamada "numara okunamadı, yine de başla" yoktur: kamera herhangi bir soru sayfasına bakarken tarama boş yere yinelenmesin, süre dolsun
+        guard auto.closingUntil == nil else { return }
         let now = deps.now()
         if seen.looksLikeQuestion {
             auto.missed = 0
             if let since = auto.unreadSince {
                 if now.timeIntervalSince(since) >= AutoStart.unreadSeconds {
-                    tlog("[otomatik] soru yapısı \(Int(AutoStart.unreadSeconds)) sn'dir görünüyor ama \(target.number). soru okunamadı: \(seen.summary)")
+                    tlog("[otomatik] soru yapısı \(Int(AutoStart.unreadSeconds)) sn'dir görünüyor ama \(autoAsked). soru okunamadı: \(seen.summary)")
                     fireAuto(.unreadable)
                 }
             } else {
@@ -361,8 +514,23 @@ extension SessionViewModel {
                 offerCamera = true
                 return
             }
+        case .windowOver:
+            // Eksikler için verilen süre doldu: tarama başlamaz, bölüm / sınav eksikleriyle tamamlanır. Bayrak önce kurulur: duyuru kesilirse onarımdan
+            // sonra `autoAnnounce` aynı yerden sürdürür
+            auto.closingUntil = nil
+            auto.closingExpired = true
+            guard await speakNotice(Say.autoWindowOver(section: sectionIndex > 0)) else {
+                offerCamera = true
+                return
+            }
+            guard !Task.isCancelled, phase == .speaking else {
+                offerCamera = true
+                return
+            }
+            await autoFinishExam(reachedEnd: true)
+            return
         case .unreadable:
-            guard await speakNotice(Say.autoUnread(number: target.number)) else {
+            guard await speakNotice(Say.autoUnread(number: autoAsked)) else {
                 offerCamera = true
                 return
             }
@@ -393,13 +561,15 @@ extension SessionViewModel {
         auto.missed = 0
         auto.latestAt = nil
         auto.openAt = nil
+        auto.closingUntil = nil
+        auto.closingExpired = false
     }
 
     /// Gemini taramada soru bulamadı: sayılır. Sınır aşılınca (`AutoStart.emptyScanLimit`) bir sonraki adımda sınav kendiliğinden kapanır (`autoAnnounce`)
     func noteEmptyScan() {
         guard cameraSettings.autoStart, cameraSettings.pageSeries else { return }
         auto.emptyScans += 1
-        tlog("[otomatik] taramada soru bulunamadı (art arda \(auto.emptyScans); sınır \(AutoStart.emptyScanLimit(count: cameraSettings.autoQuestionCount)))")
+        tlog("[otomatik] taramada soru bulunamadı (art arda \(auto.emptyScans); sınır \(AutoStart.emptyScanLimit(count: autoQuestionTotal)))")
     }
 
     /// Mikrofon açılamadı ya da ses vermiyor ama zorunlu değil: bir kez yazılır, akış otomatik tetiklerle sürer
