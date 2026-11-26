@@ -91,15 +91,20 @@ final class GeminiAnswerService: Answering {
         sourceRefused.removeAll()
     }
 
-    /// Ayrıntılı çözüm (Ayarlar > Gemini; kullanıcı isteği 2026-11-25, uygulamada varsayılan açık): her isteğin sistem komutuna çözüm kuralları
-    /// eklenir; sayfa taramasında ayrıca Gemini'den en yüksek düşünme düzeyi istenir ve model başına bekleme uzar. Neden: 30 soruluk ALES sayısal
-    /// denemesinde tek istekte 13 yanlış çıkmıştı; aynı kurallar ve yüksek düşünme düzeyi Windows programında denendi ve cevaplar düzeldi.
-    /// Varsayılan kapalı (testler ve eski davranış: istek gövdesine dokunulmaz); uygulama ayara bağlar
-    var detailedSolving: () -> Bool = { false }
+    /// Çözüm kuralları (Ayarlar > Gemini; kullanıcı isteği 2026-11-25, uygulamada varsayılan açık): her isteğin sistem komutuna çözüm kuralları
+    /// eklenir. Neden: 30 soruluk ALES sayısal denemesinde tek istekte 13 yanlış çıkmıştı; aynı kurallar Windows programında denendi ve cevaplar
+    /// düzeldi. Varsayılan kapalı (testler ve eski davranış: istek gövdesine dokunulmaz); uygulama ayara bağlar
+    var solveRulesEnabled: () -> Bool = { false }
+    /// Yüksek düşünme düzeyi (Ayarlar > Gemini; uygulamada varsayılan KAPALI): sayfa taramasında Gemini'den en yüksek düşünme düzeyi istenir ve
+    /// model başına bekleme `deepLimit`e çıkar. Kurallarla birlikte açık geldiği ilk sürümde gerçek kamera taramalarında cevap gelmedi (kullanıcı
+    /// bildirimi 2026-11-26; seçenek kapatılınca geldi): tek istekte onlarca kare ve en yüksek düşünme düzeyi süreye sığmıyor. Ayrı seçenek oldu
+    var deepThinkingEnabled: () -> Bool = { false }
     /// Bu çalıştırmada düşünme düzeyi ayarını geri çeviren profiller: her istekte boşuna denenmez
     private var thinkingRefused = Set<String>()
     /// Yüksek düşünme düzeyi istenen sayfa isteğinde her modele verilen süre (sn): model soruları daha uzun düşünerek çözer
     static let deepLimit: TimeInterval = 240
+    /// Bu örnekte kullanılan süre (testler kısaltır)
+    var deepWait: TimeInterval = GeminiAnswerService.deepLimit
 
     /// Çözüm kuralları: okuma komutunun ardına ayrı bir parça olarak eklenir. Cevap biçimini değiştirmez, yalnız NASIL çözüleceğini anlatır
     /// (genel dikkat, sayısal, Türkçe ve sözel, İngilizce, açıköğretim alan dersleri). Windows programındaki metnin aynısıdır.
@@ -540,9 +545,9 @@ final class GeminiAnswerService: Answering {
         let body = try GeminiAnswerService.captureBody(capture, expectedNumber: expectedNumber, page: true)
         // 75 fotoğraflık PDF (≈16 MB) hücresel veriyle yüklenir ve çok görüntü okunur: model başına bekleme iki katıdır (üç katıydı)
         let usual = capture.pageCount > 20 ? captureLimit * 2 : captureLimit
-        // Ayrıntılı çözüm: sayfadaki sorular en yüksek düşünme düzeyiyle çözülür; model daha geç cevaplar, bekleme buna göre uzar
-        let deep = detailedSolving()
-        let limit = deep ? max(usual, GeminiAnswerService.deepLimit) : usual
+        // Yüksek düşünme düzeyi (ayar açıksa): sayfadaki sorular en yüksek düşünme düzeyiyle çözülür; model daha geç cevaplar, bekleme buna göre uzar
+        let deep = deepThinkingEnabled()
+        let limit = deep ? max(usual, deepWait) : usual
         // Büyük PDF (sıkıştırılmamış kareler): önce dosya olarak yüklenir, isteğe adresi girer; yüklenemezse PDF isteğin içinde gider
         var alternate: ((GeminiProfileInfo, GeminiClient) async -> Data?)?
         if largeFiles(), let pdf = capture.pdf, pdf.count > GeminiAnswerService.fileUploadThreshold {
@@ -558,11 +563,13 @@ final class GeminiAnswerService: Answering {
         let fileMode = alternate != nil
         do {
             return try await runChain(body: body, limit: fileMode ? max(limit, GeminiAnswerService.fileModeLimit) : limit,
-                                      alternate: alternate, slotOrder: fileMode, deep: deep, parse: GeminiAnswerService.parsePage)
+                                      alternate: alternate, slotOrder: fileMode, deep: deep,
+                                      usualLimit: fileMode ? max(usual, GeminiAnswerService.fileModeLimit) : usual,
+                                      parse: GeminiAnswerService.parsePage)
         } catch let error as GeminiError where error.status == 400 && error.kind == .http && capture.sendsFrameRate {
             tlog("[kamera] kare hızı ayarıyla sayfa isteği reddedildi (\(error.message)); ayarsız yeniden deneniyor")
             return try await runChain(body: try GeminiAnswerService.captureBody(capture, expectedNumber: expectedNumber, fps: nil, page: true),
-                                      limit: limit, deep: deep, parse: GeminiAnswerService.parsePage)
+                                      limit: limit, deep: deep, usualLimit: usual, parse: GeminiAnswerService.parsePage)
         }
     }
 
@@ -626,15 +633,18 @@ final class GeminiAnswerService: Answering {
     /// `alternate`: profil için başka bir gövde (PDF dosya olarak yüklendiyse adresli gövde); nil dönerse `body` gider. Adresli gövde reddedilirse
     /// (400 / 403 / 404) aynı profilde bir kez `body` ile yeniden denenir.
     /// `slotOrder`: profiller dinlenmeye bakılmadan yuva sırasıyla denenir (bkz. `answerPage`).
-    /// `deep`: ayrıntılı çözümde en yüksek düşünme düzeyi de istenir (yalnız sayfa isteği; sesli soruda bekleme kısa tutulur).
+    /// `deep`: en yüksek düşünme düzeyi de istenir (yalnız sayfa isteği; sesli soruda bekleme kısa tutulur). Yüksek düşünme düzeyiyle bir model
+    /// süresinde cevap veremezse (kullanıcı bildirimi 2026-11-26: "zaman aşımına uğruyor, diğer modele geçiyor, o da zaman aşımına uğruyor; bütün
+    /// modelleri dolaştığı hâlde cevap gelmiyor") bu gönderimin kalan denemeleri modelin kendi düşünme düzeyiyle ve olağan süreyle (`usualLimit`)
+    /// yapılır: uzun bekleme zincirleme yinelenmez.
     private func runChain(body: Data, limit: TimeInterval, alternate: ((GeminiProfileInfo, GeminiClient) async -> Data?)? = nil,
-                          slotOrder: Bool = false, deep: Bool = false, parse: (String) -> [AnswerParser.Parsed]) async throws -> [GeminiReply] {
+                          slotOrder: Bool = false, deep: Bool = false, usualLimit: TimeInterval? = nil,
+                          parse: (String) -> [AnswerParser.Parsed]) async throws -> [GeminiReply] {
         let usable = GeminiProfiles.usable(profilesProvider())
         guard !usable.isEmpty else { throw GeminiError(Say.noKeyShort, .key) }
-        let solve = detailedSolving()
-        if solve {
-            tlog("[gemini] ayrıntılı çözüm açık: çözüm kuralları eklendi" + (deep ? "; düşünme düzeyi yüksek, model başına bekleme \(Int(limit)) sn" : ""))
-        }
+        let solve = solveRulesEnabled()
+        if solve { tlog("[gemini] çözüm kuralları eklendi") }
+        if deep { tlog("[gemini] yüksek düşünme düzeyi isteniyor; model başına bekleme \(Int(limit)) sn") }
         var active = slotOrder ? usable : order(usable)
         if slotOrder { tlog("[gemini] dosya yolu: modeller yuva sırasıyla denenecek (\(usable.map { $0.name }.joined(separator: " → ")))") }
         var lastError = GeminiError("Gemini cevap vermedi.", .error)
@@ -646,12 +656,15 @@ final class GeminiAnswerService: Answering {
         /// Gemini'nin HTTP cevabıyla dönen son hata (kota, yoğunluk…): böyle bir cevap geldiyse telefonun interneti çalışıyordur
         var served: GeminiError?
         var round = 0
+        /// Yüksek düşünme düzeyi hâlâ isteniyor mu: bir model bu düzeyle süresinde cevap veremeyince kapanır
+        var deepNow = deep
         roundLoop: while round < maxRounds && !active.isEmpty {
             try Task.checkCancellation()
             let factors = GeminiAnswerService.roundFactors
-            let wait = limit * factors[min(round, factors.count - 1)]
+            let factor = factors[min(round, factors.count - 1)]
             var again: [GeminiProfileInfo] = []
             for profile in active {
+                let wait = (deepNow ? limit : (usualLimit ?? limit)) * factor
                 do {
                     let client = makeClient(profile)
                     // Sunucu hatasında yeniden deneme ve uzun bekleme yok: hemen sıradakine geçilir; yeniden deneme turlarla yapılır
@@ -666,7 +679,7 @@ final class GeminiAnswerService: Answering {
                     if !sourceRefused.contains(profile.identity), let name = sourceStore(profile)?.trimmed, !name.isEmpty { store = name }
                     let object: Any
                     do {
-                        object = try await send(client, profile, body: sendBody, store: store, solve: solve, deep: deep,
+                        object = try await send(client, profile, body: sendBody, store: store, solve: solve, deep: deepNow,
                                                 timeout: wait + GeminiAnswerService.inlineAllowance(bytes: sendBody.count))
                     } catch let error as GeminiError where store != nil && GeminiAnswerService.sourceRejection(error) {
                         // Önce kaynak deposu bırakılır (istek aynı kalır); yine reddedilirse ve PDF dosya olarak gitmişse PDF isteğin içinde gönderilir.
@@ -676,12 +689,12 @@ final class GeminiAnswerService: Answering {
                         store = nil
                         var storeWasTheCause = true
                         do {
-                            object = try await send(client, profile, body: sendBody, store: nil, solve: solve, deep: deep,
+                            object = try await send(client, profile, body: sendBody, store: nil, solve: solve, deep: deepNow,
                                                     timeout: wait + GeminiAnswerService.inlineAllowance(bytes: sendBody.count))
                         } catch let second as GeminiError where viaFile && [400, 403, 404].contains(second.status) {
                             storeWasTheCause = false
                             tlog("[gemini] yüklenen dosyayla istek reddedildi (HTTP \(second.status): \(second.message)); PDF isteğin içinde yeniden gönderiliyor")
-                            object = try await send(client, profile, body: body, store: nil, solve: solve, deep: deep,
+                            object = try await send(client, profile, body: body, store: nil, solve: solve, deep: deepNow,
                                                     timeout: wait + GeminiAnswerService.inlineAllowance(bytes: body.count))
                         }
                         if storeWasTheCause {
@@ -690,7 +703,7 @@ final class GeminiAnswerService: Answering {
                         }
                     } catch let error as GeminiError where viaFile && [400, 403, 404].contains(error.status) {
                         tlog("[gemini] yüklenen dosyayla istek reddedildi (HTTP \(error.status): \(error.message)); PDF isteğin içinde yeniden gönderiliyor")
-                        object = try await send(client, profile, body: body, store: nil, solve: solve, deep: deep,
+                        object = try await send(client, profile, body: body, store: nil, solve: solve, deep: deepNow,
                                                 timeout: wait + GeminiAnswerService.inlineAllowance(bytes: body.count))
                     }
                     let parsedList = parse(try GeminiAnswerService.replyText(from: object))
@@ -711,6 +724,10 @@ final class GeminiAnswerService: Answering {
                     failedNames.append(profile.name)
                     if profile.free { failedFree = true }
                     lastError = error
+                    if deepNow, error.timedOut {
+                        deepNow = false
+                        tlog("[gemini] yüksek düşünme düzeyiyle \(profile.name) süresinde cevap vermedi: kalan denemeler modelin kendi düşünme düzeyiyle ve olağan süreyle yapılacak")
+                    }
                     if error.status > 0 { served = error }
                     guard GeminiAnswerService.fallbackWorthy(error) else { break roundLoop }
                     rest(profile, after: error)

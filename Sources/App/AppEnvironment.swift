@@ -61,8 +61,9 @@ final class AppEnvironment: ObservableObject {
         shortcuts.onReturned = { journal.setAway(false) }
         let answering = GeminiAnswerService(profiles: { settings.geminiProfileInfos() })
         answering.largeFiles = { camera.largeUpload }
-        // Ayrıntılı çözüm (Ayarlar > Gemini, varsayılan açık): çözüm kuralları her istekte, yüksek düşünme düzeyi sayfa taramasında
-        answering.detailedSolving = { settings.detailedSolving }
+        // Ayarlar > Gemini: çözüm kuralları her istekte (varsayılan açık); yüksek düşünme düzeyi sayfa taramasında (varsayılan kapalı)
+        answering.solveRulesEnabled = { settings.solveRules }
+        answering.deepThinkingEnabled = { settings.deepThinking }
         // Kaynaklara göre cevaplama (Ayarlar > Gemini): seçenek kapalıyken depo adı verilmez, istekler eskisi gibi gider
         let sourceSync = SourceSync(settings: settings, root: { folderStore.resolution().url })
         answering.sourceStore = { profile in sourceSync.store(forKey: profile.key) }

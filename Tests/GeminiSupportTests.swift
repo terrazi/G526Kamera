@@ -106,6 +106,8 @@ final class FakeGeminiProtocol: URLProtocol {
         var body: Data = Data()
         var error: Error?
         var headers: [String: String] = [:]
+        /// İsteğe hiç cevap verilmez (model düşünürken süre dolsun): istemcinin kendi süre sınırı işler
+        var stall = false
     }
 
     static let lock = NSLock()
@@ -153,6 +155,7 @@ final class FakeGeminiProtocol: URLProtocol {
         let reply = FakeGeminiProtocol.replies.isEmpty ? Reply(status: 500, body: Data(), error: nil)
                                                        : FakeGeminiProtocol.replies.removeFirst()
         FakeGeminiProtocol.lock.unlock()
+        if reply.stall { return }
         if let error = reply.error {
             client?.urlProtocol(self, didFailWithError: error)
             return

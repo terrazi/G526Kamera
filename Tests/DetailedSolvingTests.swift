@@ -68,9 +68,15 @@ final class DetailedSolvingTests: XCTestCase {
         return (config?["thinkingConfig"] as? [String: Any])?["thinkingLevel"] as? String
     }
 
+    /// `on`: iki seçenek birden (çözüm kuralları ve yüksek düşünme düzeyi); ayrı ayrı denemek için `rules` / `deep`
     private func service(on: Bool) -> GeminiAnswerService {
+        return service(rules: on, deep: on)
+    }
+
+    private func service(rules: Bool, deep: Bool) -> GeminiAnswerService {
         let answering = GeminiAnswerService(profiles: testProfiles(count: 1), makeClient: fakeProfileClient)
-        answering.detailedSolving = { on }
+        answering.solveRulesEnabled = { rules }
+        answering.deepThinkingEnabled = { deep }
         return answering
     }
 
@@ -206,11 +212,52 @@ final class DetailedSolvingTests: XCTestCase {
 
     // MARK: Ayar
 
-    func testTheSettingIsOnByDefaultAndIsRemembered() {
+    /// Kullanıcı bildirimi 2026-11-26: iki özellik tek seçenekken ve açık gelirken kamera taramalarında Gemini'den cevap gelmedi; kapatınca geldi.
+    /// Artık ayrıdırlar: kurallar açık gelir (beklemeyi uzatmaz), yüksek düşünme düzeyi kapalı gelir
+    func testTheRulesAreOnAndHighThinkingIsOffByDefault() {
         let defaults = UserDefaults(suiteName: "g526.testler.cozum.\(UUID().uuidString)")!
         let settings = AppSettings(defaults: defaults)
-        XCTAssertTrue(settings.detailedSolving, "Varsayılan açıktır")
-        settings.detailedSolving = false
-        XCTAssertFalse(AppSettings(defaults: defaults).detailedSolving, "Kapatılınca kapalı kalır")
+        XCTAssertTrue(settings.solveRules, "Çözüm kuralları varsayılan açıktır")
+        XCTAssertFalse(settings.deepThinking, "Yüksek düşünme düzeyi varsayılan kapalıdır")
+        settings.solveRules = false
+        settings.deepThinking = true
+        let again = AppSettings(defaults: defaults)
+        XCTAssertFalse(again.solveRules, "Seçim hatırlanır")
+        XCTAssertTrue(again.deepThinking)
+    }
+
+    func testWithOnlyTheRulesThePageIsAskedAtTheModelsOwnThinkingLevel() async throws {
+        queue([ok("Soru 1, Adana, Bir")])
+        let replies = try await service(rules: true, deep: false).answerPage(capture: FakeCamera.page(1, photos: 3), expectedNumber: 1)
+        XCTAssertEqual(replies.first?.option, "Adana")
+        let body = try sent(0)
+        XCTAssertEqual(systemTexts(body), [GeminiAnswerService.pageSystemPrompt, GeminiAnswerService.solveRules], "Kurallar gider")
+        XCTAssertNil(thinkingLevel(body), "Düşünme düzeyi istenmez: cevap eskisi kadar çabuk gelir")
+    }
+
+    /// Kullanıcı bildirimi 2026-11-26: yüksek düşünme düzeyiyle her model sırayla zaman aşımına düşüyor ve cevap hiç gelmiyordu. Artık ilk zaman
+    /// aşımından sonra kalan modeller kendi düşünme düzeyleriyle ve olağan süreyle sorulur
+    func testAfterOneTimeoutWithHighThinkingTheOtherModelsAreAskedTheUsualWay() async throws {
+        let answering = GeminiAnswerService(profiles: testProfiles(count: 2), captureLimit: 0.2, makeClient: fakeProfileClient)
+        answering.deepThinkingEnabled = { true }
+        answering.deepWait = 0.4
+        var stalled = FakeGeminiProtocol.Reply()
+        stalled.stall = true
+        queue([stalled, ok("Soru 1, Adana, Bir")])
+        let replies = try await answering.answerPage(capture: FakeCamera.page(1, photos: 3), expectedNumber: 1)
+        XCTAssertEqual(replies.first?.option, "Adana", "Cevap ikinci modelden gelir")
+        XCTAssertEqual(sentBodies().count, 2)
+        XCTAssertEqual(thinkingLevel(try sent(0)), "high", "İlk model yüksek düşünme düzeyiyle soruldu")
+        XCTAssertNil(thinkingLevel(try sent(1)), "İlki süresinde cevap vermedi: sıradaki model kendi düşünme düzeyiyle sorulur")
+        let urls = sentURLs()
+        XCTAssertNotEqual(urls.first, urls.last, "Sıradaki modele geçildi")
+    }
+
+    func testWithOnlyHighThinkingTheSystemPromptIsTheOldOne() async throws {
+        queue([ok("Soru 1, Adana, Bir")])
+        _ = try await service(rules: false, deep: true).answerPage(capture: FakeCamera.page(1, photos: 3), expectedNumber: 1)
+        let body = try sent(0)
+        XCTAssertEqual(systemTexts(body), [GeminiAnswerService.pageSystemPrompt])
+        XCTAssertEqual(thinkingLevel(body), "high")
     }
 }

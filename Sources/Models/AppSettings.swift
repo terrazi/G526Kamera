@@ -37,7 +37,8 @@ final class AppSettings: ObservableObject {
         static let sectionQuestions = "v4.sectionQuestions"
         static let closeGuard = "v4.closeGuard"
         static let useSources = "v4.useSources"
-        static let detailedSolving = "v4.detailedSolving"
+        static let solveRules = "v4.solveRules"
+        static let deepThinking = "v4.deepThinking"
     }
 
     /// Kullanıcının verdiği kestirme adları. Uygulama ilk açıldığında (bir kez) ilgili alanlara yazılır; sonra Ayarlar'dan silinip
@@ -288,11 +289,17 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(useSources, forKey: Key.useSources) }
     }
 
-    /// Ayrıntılı çözüm (kullanıcı isteği 2026-11-25; varsayılan açık): her istekte Gemini'ye çözüm kuralları da gider (genel dikkat, sayısal,
-    /// Türkçe ve sözel, İngilizce, açıköğretim alan dersleri); sayfa taramasında ayrıca en yüksek düşünme düzeyi istenir ve model başına bekleme
-    /// uzar (bkz. `GeminiAnswerService.detailedSolving`). Kapalıyken istekler önceki sürümdeki gibi gider.
-    @Published var detailedSolving: Bool {
-        didSet { defaults.set(detailedSolving, forKey: Key.detailedSolving) }
+    /// Çözüm kuralları (kullanıcı isteği 2026-11-25; varsayılan açık): her istekte Gemini'ye çözüm kuralları da gider (genel dikkat, sayısal,
+    /// Türkçe ve sözel, İngilizce, açıköğretim alan dersleri). Cevap süresini uzatmaz. Kapalıyken sistem komutu önceki sürümdeki gibidir.
+    @Published var solveRules: Bool {
+        didSet { defaults.set(solveRules, forKey: Key.solveRules) }
+    }
+
+    /// Yüksek düşünme düzeyi (varsayılan KAPALI; kullanıcı bildirimi 2026-11-26): sayfa taramasında Gemini'den en yüksek düşünme düzeyi istenir ve
+    /// model başına bekleme uzar. İlk sürümde çözüm kurallarıyla tek seçenekti ve açık geliyordu; gerçek kullanımda kamera taramalarında (tek
+    /// istekte onlarca kare) Gemini'den cevap gelmedi, seçenek kapatılınca geldi. O yüzden ayrı ve kapalı: isteyen dener.
+    @Published var deepThinking: Bool {
+        didSet { defaults.set(deepThinking, forKey: Key.deepThinking) }
     }
 
     /// Test sürerken (kırmızı uyarı yokken) ekran pil için kısılsın mı
@@ -347,7 +354,8 @@ final class AppSettings: ObservableObject {
         dimScreen = defaults.object(forKey: Key.dimScreen) as? Bool ?? false
         closeGuard = defaults.object(forKey: Key.closeGuard) as? Bool ?? true
         useSources = defaults.object(forKey: Key.useSources) as? Bool ?? false
-        detailedSolving = defaults.object(forKey: Key.detailedSolving) as? Bool ?? true
+        solveRules = defaults.object(forKey: Key.solveRules) as? Bool ?? true
+        deepThinking = defaults.object(forKey: Key.deepThinking) as? Bool ?? false
         clipboardMarker = defaults.object(forKey: ClipboardFlag.usesClipboardKey) as? Bool ?? true
         spokenWarnings = defaults.object(forKey: Key.spokenWarnings) as? Bool ?? true
         instantDetection = defaults.object(forKey: Key.instantDetection) as? Bool ?? true
