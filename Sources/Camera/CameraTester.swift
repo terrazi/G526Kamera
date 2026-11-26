@@ -26,6 +26,9 @@ final class CameraTester: ObservableObject {
     static let internetPolls = 15
     /// Durdurulan sınamada internet yalnız bu kadar yoklanır: kullanıcı beklemesin (kestirme yine çalışır, telefon kamera ağında bırakılmaz)
     static let stoppedInternetPolls = 3
+    /// "Bağlantılar hep açık": kestirme çalıştırmadan önce internet bu kadar kez yoklanır. Çekimden hemen sonraki tek yoklama boşa çıkabilir (internet
+    /// hücreselden gelir); sağlam bağlantı boş yere kapatılıp açılmasın (kullanıcı bildirimi 2026-11-26: "bağlantı sağlamsa neden koparıp kuruyor")
+    static let stayInternetPolls = 3
     static let stoppingLine = "Durduruluyor: kamera kapatılıyor, internete dönülüyor…"
     static let pollInterval: TimeInterval = 2
 
@@ -230,16 +233,28 @@ final class CameraTester: ObservableObject {
 
     private func backToInternet(internetName: String) async {
         // "Bağlantılar hep açık": hücresel hiç kapatılmadı; internet varsa hiçbir kestirme çalışmaz
-        if cameraSettings.stayOnWifi, await health.internetReachable() {
-            lines.append(stopped ? "3/3 ✓ İnternet var. Deneme durduruldu." : "3/3 ✓ İnternet var (hücresel açık kaldı; kestirme çalıştırılmadı). Sınama tamam.")
-            return
+        var shortcutName = internetName
+        if cameraSettings.stayOnWifi {
+            var reachable = false
+            for poll in 0..<CameraTester.stayInternetPolls {
+                if await health.internetReachable() { reachable = true; break }
+                if poll < CameraTester.stayInternetPolls - 1 { await sleep(CameraTester.pollInterval) }
+            }
+            if reachable {
+                lines.append(stopped ? "3/3 ✓ İnternet var. Deneme durduruldu." : "3/3 ✓ İnternet var (hücresel açık kaldı; kestirme çalıştırılmadı). Sınama tamam.")
+                return
+            }
+            // İnternet gerçekten yok: Wi-Fi'ye dokunmayan hücresel onarım kestirmesi çalışır (sınavdaki `returnToInternet` ile aynı kural); telefon
+            // kameranın Wi-Fi ağından çıkarılmaz
+            let repair = settings.shortcutName(for: .cellular)
+            if !repair.isEmpty { shortcutName = repair }
         }
         if !health.hasCellularService() {
             lines.append("3/3 Telefonda SIM kart yok: “\(internetName)” kestirmesi çalıştırılmadı (yalnız Wi-Fi'yi kapatırdı). Kamera ağından çıkıp internet olan bir Wi-Fi ağına bağlanın.")
             return
         }
-        lines.append("3/3 İnternete geçiliyor: “\(internetName)”…")
-        let toInternet = await shortcuts.run(name: internetName)
+        lines.append("3/3 İnternete geçiliyor: “\(shortcutName)”…")
+        let toInternet = await shortcuts.run(name: shortcutName)
         lines.append(SettingsViewModel.text(for: toInternet))
         var online = false
         let polls = stopped ? CameraTester.stoppedInternetPolls : CameraTester.internetPolls
@@ -249,7 +264,7 @@ final class CameraTester: ObservableObject {
         }
         if stopped {
             // Durdurulan sınamada uzun beklenmez: kestirme çalıştı, internet birkaç saniye içinde kendiliğinden gelir
-            lines.append(online ? "✓ İnternet geldi. Deneme durduruldu." : "Deneme durduruldu. İnternet birazdan gelir; gelmezse “\(internetName)” kestirmesini elle çalıştırın.")
+            lines.append(online ? "✓ İnternet geldi. Deneme durduruldu." : "Deneme durduruldu. İnternet birazdan gelir; gelmezse “\(shortcutName)” kestirmesini elle çalıştırın.")
             return
         }
         lines.append(online ? "✓ İnternet geldi. Sınama tamam." : "✗ İnternet gelmedi: “Hücresele geç” kestirmesi Wi-Fi'yi kapatıp hücreseli açmıyor olabilir.")

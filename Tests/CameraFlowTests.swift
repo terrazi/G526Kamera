@@ -1158,6 +1158,30 @@ final class CameraSupportTests: XCTestCase {
     }
 }
 
+/// İnterneti ilk `misses` yoklamada yok, sonra var gösteren sağlık denetimi (çekimden hemen sonraki anlık boşluk)
+@MainActor
+private final class FlakyHealth: HealthChecking {
+    private let misses: Int
+    private(set) var internetCalls = 0
+
+    init(misses: Int) {
+        self.misses = misses
+    }
+
+    func internetReachable() async -> Bool {
+        internetCalls += 1
+        return internetCalls > misses
+    }
+
+    func gemini(key: String) async -> GeminiHealth {
+        return .ok
+    }
+
+    func quickProbe() async -> Bool {
+        return true
+    }
+}
+
 /// Ayarlar > Kamera > "Kamerayı dene": sınavın adımlarını (kestirme, çekim, internete dönüş) sınavdan önce yürütür
 @MainActor
 final class CameraTesterTests: XCTestCase {
@@ -1276,6 +1300,42 @@ final class CameraTesterTests: XCTestCase {
         XCTAssertEqual(r.camera.cancels, 1)
         XCTAssertEqual(r.shortcuts.runs.last, "Hücresele_Gec", "Durdurulunca da telefon kameranın ağında bırakılmaz")
         XCTAssertFalse(r.tester.running)
+    }
+
+    /// Kullanıcı bildirimi 2026-11-26: "bağlantı sağlamsa neden koparıp yeniden kuruyor; önce koptuğundan emin olması gerekmez mi". "Bağlantılar hep
+    /// açık"ta internet hücreselden gelir ve çekimden hemen sonraki tek yoklama boşa çıkabiliyordu; o zaman Wi-Fi'yi kapatan kestirme çalışıyordu
+    func testWithConnectionsAlwaysOnAMomentaryInternetGapRunsNoShortcut() async {
+        let defaults = UserDefaults(suiteName: "g526.testler.\(UUID().uuidString)")!
+        let settings = AppSettings(defaults: defaults)
+        let cameraSettings = CameraSettings(defaults: defaults)
+        cameraSettings.cameraShortcutName = "Kameraya_Gec"
+        cameraSettings.stayOnWifi = true
+        settings.internetShortcut = "Hücresele_Gec"
+        settings.cellularShortcut = "Hücresel_Ac"
+
+        // İnternet ikinci yoklamada görünür: hiçbir kestirme çalışmaz
+        let camera = FakeCamera()
+        camera.results = [.success(FakeCamera.shot(video: false))]
+        let shortcuts = FakeShortcuts()
+        let flaky = FlakyHealth(misses: 1)
+        let tester = CameraTester(camera: camera, shortcuts: shortcuts, health: flaky, settings: settings, cameraSettings: cameraSettings,
+                                  sessionActive: { false }, sleep: { _ in })
+        await tester.run()
+        XCTAssertEqual(shortcuts.runs, [], "Sağlam bağlantı için kestirme çalışmaz: \(tester.lines)")
+        XCTAssertEqual(flaky.internetCalls, 2)
+        XCTAssertTrue(tester.lines.last?.contains("İnternet var") ?? false, "\(tester.lines)")
+
+        // İnternet gerçekten yoksa Wi-Fi'yi kapatan "Hücresele geç" değil, yalnız hücreseli yenileyen kestirme çalışır
+        let camera2 = FakeCamera()
+        camera2.results = [.success(FakeCamera.shot(video: false))]
+        let shortcuts2 = FakeShortcuts()
+        let down = FlakyHealth(misses: CameraTester.stayInternetPolls)
+        let tester2 = CameraTester(camera: camera2, shortcuts: shortcuts2, health: down, settings: settings, cameraSettings: cameraSettings,
+                                   sessionActive: { false }, sleep: { _ in })
+        await tester2.run()
+        XCTAssertEqual(shortcuts2.runs, ["Hücresel_Ac"], "Telefon kameranın Wi-Fi ağından çıkarılmaz: \(tester2.lines)")
+        XCTAssertEqual(tester2.lines.last, "✓ İnternet geldi. Sınama tamam.")
+        XCTAssertEqual(CameraTester.stayInternetPolls, 3)
     }
 
     /// Kullanıcı bildirimi 2026-11-26: "Kamerayı dene tuşuna bastıktan sonra denemeyi durdur neden durdurmuyor". Durduruyordu ama düğme "Durdur" olarak
