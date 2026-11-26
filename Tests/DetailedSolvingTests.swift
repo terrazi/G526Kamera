@@ -253,6 +253,31 @@ final class DetailedSolvingTests: XCTestCase {
         XCTAssertNotEqual(urls.first, urls.last, "Sıradaki modele geçildi")
     }
 
+    /// Günlük 26.11.2026: yüksek düşünme düzeyiyle model 120 saniye veri göndermedi; ağ katmanı isteği kendi 120 saniyelik sınırıyla kesti ("-1001"),
+    /// hata "internete ulaşılamadı" sayıldı, sıradaki modele geçilmedi. Ağ katmanının sınırı isteğe verilen süreden kısa olamaz
+    func testTheNetworkLayerNeverGivesUpBeforeTheTimeGivenToTheRequest() {
+        XCTAssertNil(GeminiClient.idleAllowance(for: nil), "Süre verilmeyen istekte olağan sınır geçerlidir")
+        XCTAssertEqual(GeminiClient.idleAllowance(for: 25), 120, "Kısa istekte olağan sınır yeter")
+        XCTAssertEqual(GeminiClient.idleAllowance(for: 150), 165, "Dosya yolunun 150 saniyesi de olağan sınırı aşar")
+        XCTAssertEqual(GeminiClient.idleAllowance(for: 240), 255)
+        XCTAssertEqual(GeminiClient.idleAllowance(for: 480), 495, "Sonraki turlarda süre iki katına çıkar")
+
+        var request = URLRequest(url: URL(string: "https://example.test/x")!)
+        let usual = CellularHTTP.Options()
+        XCTAssertEqual(CellularHTTP.patience(for: request, options: usual).idle, 120, "Olağan istek: seçenekler aynen")
+        XCTAssertEqual(CellularHTTP.patience(for: request, options: usual).total, 600)
+        request.timeoutInterval = 255
+        XCTAssertEqual(CellularHTTP.patience(for: request, options: usual).idle, 255, "Hücresel yol da isteğe verilen süre kadar bekler")
+        XCTAssertEqual(CellularHTTP.patience(for: request, options: usual).total, 600)
+        request.timeoutInterval = 495
+        XCTAssertEqual(CellularHTTP.patience(for: request, options: usual).idle, 495)
+        XCTAssertEqual(CellularHTTP.patience(for: request, options: usual).total, 615, "Toplam süre de veri bekleme süresinden kısa kalmaz")
+        var quick = CellularHTTP.Options()
+        quick.idleTimeout = 0.5
+        XCTAssertEqual(CellularHTTP.patience(for: URLRequest(url: URL(string: "https://example.test/x")!), options: quick).idle, 0.5,
+                       "Olağan istekte kısa sınır kısaltılmış kalır")
+    }
+
     func testWithOnlyHighThinkingTheSystemPromptIsTheOldOne() async throws {
         queue([ok("Soru 1, Adana, Bir")])
         _ = try await service(rules: false, deep: true).answerPage(capture: FakeCamera.page(1, photos: 3), expectedNumber: 1)

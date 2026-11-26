@@ -499,6 +499,15 @@ enum CellularHTTP {
         var totalTimeout: TimeInterval = 600
     }
 
+    /// Bu istek için veri gelmeden bekleme ve toplam süre sınırı. İsteğe olağandan (120 sn) uzun süre verildiyse (`URLRequest.timeoutInterval`;
+    /// bkz. `GeminiClient.idleAllowance`) sınırlar ona uyar: yüksek düşünme düzeyiyle model cevabın ilk baytını dakikalar sonra gönderebilir
+    /// (günlük 26.11.2026: 120 sn'de "-1001" ile kesiliyor, hata "internete ulaşılamadı" sanılıyordu). Olağan isteklerde seçenekler aynen geçerlidir.
+    static func patience(for request: URLRequest, options: Options) -> (idle: TimeInterval, total: TimeInterval) {
+        guard request.timeoutInterval > 120 else { return (options.idleTimeout, options.totalTimeout) }
+        let idle = max(options.idleTimeout, request.timeoutInterval)
+        return (idle, max(options.totalTimeout, idle + 120))
+    }
+
     /// İsteği gönderir. Bağlanılamazsa `CellularUnavailable` (istek hiç gitmedi); sonrasında `URLError` (-1001 süre doldu, -1005 bağlantı koptu…).
     static func perform(_ request: URLRequest, body: Data?, options: Options = Options()) async throws -> (data: Data, status: Int) {
         let response = try await performFull(request, body: body, options: options)
@@ -517,8 +526,9 @@ enum CellularHTTP {
         guard let head = HTTPWire.requestHead(method: method, url: url, headers: request.allHTTPHeaderFields ?? [:], contentLength: length) else {
             throw URLError(.badURL)
         }
+        let patience = CellularHTTP.patience(for: request, options: options)
         let plan = HTTPExchange.Plan(host: host, port: UInt16(portNumber), useTLS: useTLS, interface: options.interface, head: head, body: body,
-                                     connectTimeout: options.connectTimeout, idleTimeout: options.idleTimeout, totalTimeout: options.totalTimeout)
+                                     connectTimeout: options.connectTimeout, idleTimeout: patience.idle, totalTimeout: patience.total)
         let exchange = HTTPExchange(plan: plan)
         let response = try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<HTTPWire.Response, Error>) in

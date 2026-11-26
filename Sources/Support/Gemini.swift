@@ -210,6 +210,22 @@ enum GeminiSupport {
 /// Gemini'ye istek atan istemci: generateContent (yeniden denemeli), model listesi, anahtar sınaması
 final class GeminiClient {
     private let session: URLSession
+    /// Uzun süre verilen istekler için oturum: ağ katmanının "veri gelmeden bekleme" sınırı bu isteklerde erken işlemez (bkz. `idleAllowance`).
+    /// İlk gerektiğinde kurulur (her istemci için boşuna ikinci oturum açılmasın); testlerde verilen oturum kullanılır
+    private let givenSession: URLSession?
+    private lazy var patientSession: URLSession = givenSession ?? GeminiClient.makeSession(requestTimeout: GeminiClient.patientIdle)
+    /// Ağ katmanının olağan "veri gelmeden bekleme" sınırı (sn)
+    static let usualIdle: TimeInterval = 120
+    /// Uzun süre verilen isteklerin oturumunda veri gelmeden bekleme sınırı (sn); asıl süreyi istemcinin kendi sınırı (`timeout`) belirler
+    static let patientIdle: TimeInterval = 900
+
+    /// `timeout` kadar süre verilen istekte ağ katmanının veri gelmeden bekleme sınırı. Günlük 26.11.2026: yüksek düşünme düzeyiyle model 120 saniye
+    /// hiç veri göndermedi; ağ katmanı isteği "-1001" ile kesti, hata "internete ulaşılamadı" sayıldı, sıradaki modele geçilmedi ve 240 saniyelik
+    /// süre hiç işlemedi. İstemcinin kendi süresi her zaman önce dolmalı: o zaman hata "süresinde cevap vermedi" olur ve sıradaki model denenir.
+    static func idleAllowance(for timeout: TimeInterval?) -> TimeInterval? {
+        guard let limit = timeout, limit > 0 else { return nil }
+        return max(usualIdle, limit + 15)
+    }
     /// Kaynak deposu istekleri (`GeminiSources.swift`) de bu adresi, `sleep`'i ve aşağıdaki `transport` yollarını kullanır
     let baseURL: String
     private let keyProvider: () -> String
@@ -219,11 +235,11 @@ final class GeminiClient {
     private let preferCellular: () -> Bool
     private let cellular: GeminiTransport.CellularSender
 
-    static func makeSession() -> URLSession {
+    static func makeSession(requestTimeout: TimeInterval = GeminiClient.usualIdle) -> URLSession {
         let c = URLSessionConfiguration.ephemeral
         c.waitsForConnectivity = false
-        c.timeoutIntervalForRequest = 120
-        c.timeoutIntervalForResource = 600
+        c.timeoutIntervalForRequest = requestTimeout
+        c.timeoutIntervalForResource = max(600, requestTimeout + 120)
         return URLSession(configuration: c)
     }
 
@@ -237,6 +253,7 @@ final class GeminiClient {
              try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
          }) {
         self.session = session ?? GeminiClient.makeSession()
+        self.givenSession = session
         self.baseURL = baseURL
         self.keyProvider = key
         self.modelProvider = model
@@ -249,8 +266,10 @@ final class GeminiClient {
     /// Dönen durum 0 ise cevap HTTP değildir.
     func transport(_ request: URLRequest, body: Data?) async throws -> (data: Data, status: Int) {
         let viaCellular = preferCellular()
+        // İsteğe olağandan uzun süre verildiyse (bkz. `idleAllowance`) sabırlı oturum kullanılır; hücresel yol süreyi isteğin kendisinden okur
+        let chosen = request.timeoutInterval > GeminiClient.usualIdle ? patientSession : session
         return try await BackgroundGrace.run("gemini") {
-            try await GeminiTransport.send(request, body: body, session: self.session, viaCellular: viaCellular, cellular: self.cellular)
+            try await GeminiTransport.send(request, body: body, session: chosen, viaCellular: viaCellular, cellular: self.cellular)
         }
     }
 
@@ -392,7 +411,7 @@ final class GeminiClient {
         let reply: Reply = try await withThrowingTaskGroup(of: Reply.self) { group in
             group.addTask {
                 return Reply(value: try await self.send(path: path, body: body, serverRetries: serverRetries, key: key,
-                                                        model: model, networkRetry: false))
+                                                        model: model, networkRetry: false, patience: limit))
             }
             group.addTask {
                 try await Task.sleep(nanoseconds: UInt64(limit * 1_000_000_000))
@@ -410,8 +429,9 @@ final class GeminiClient {
         return value
     }
 
+    /// `patience`: çağıranın bu isteğe verdiği süre (sn); ağ katmanının veri gelmeden bekleme sınırı ondan kısa kalmasın diye isteğe işlenir
     private func send(path: String, body: Data, serverRetries: Int, key override: String?, model overrideModel: String?,
-                      networkRetry: Bool) async throws -> Any {
+                      networkRetry: Bool, patience: TimeInterval? = nil) async throws -> Any {
         let key = (override ?? keyProvider()).trimmed
         guard !key.isEmpty else {
             throw GeminiError("Gemini API anahtarı girilmemiş. Ayarlardan yapıştırın.", .key)
@@ -424,6 +444,7 @@ final class GeminiClient {
         while true {
             var request = URLRequest(url: url)
             request.httpMethod = "POST"
+            if let idle = GeminiClient.idleAllowance(for: patience) { request.timeoutInterval = idle }
             request.setValue(key, forHTTPHeaderField: "x-goog-api-key")
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             let status: Int
