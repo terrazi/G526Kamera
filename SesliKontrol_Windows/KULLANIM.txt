@@ -1,4 +1,4 @@
-SESLI KONTROL - WINDOWS SURUMU 4.1
+SESLI KONTROL - WINDOWS SURUMU 4.2
 ==================================
 iPhone programinin son surumunun (885ddbc) Windows karsiligidir: ayni tarama duzeni, ayni Gemini talimati, ayni cevap
 bicimi (Soru N, sik sozcugu, cevap metni), ayni model sirasi ve "kaynaklara gore cevaplama".
@@ -41,6 +41,13 @@ DAHA DOGRU COZUM ICIN (4.1 ile geldi, Ayarlar > Gemini)
                            olunca her soru daha dikkatli cozulur. Parcalarin ucu birden sorulur, cevaplar belge sirasiyla
                            yazilir ve okunur. Bir parca cevaplanamazsa digerleri yine gelir; eksik sayfalar notlarda yazar.
   * Model basina bekleme : 240 saniyedir (yuksek dusunme duzeyi daha uzun surebilir).
+
+4.2 ILE GELENLER (iPhone surumundeki son duzeltmelerin karsiligi)
+  * Eksi isareti        : cevabi eksi olan sorularda isaret artik dusmuyor ("-39" yerine "39" yaziliyordu). Cevap listesinde
+                           "-39" yazar, sesli okumada "eksi 39" denir.
+  * Sure dolarsa        : "Yuksek" dusunme duzeyinde bir model suresinde (240 sn) cevap vermezse siradaki modeller olagan
+                           duzeyde ve 150 saniyeyle sorulur; her model icin ayni uzun sure yeniden beklenmez. Boyle olursa
+                           cevabin yaninda not olarak yazar. (Olagan duzeyde dogruluk daha dusuktur.)
 
 KAYNAKLARA GORE CEVAPLAMA (Ayarlar > Gemini)
   "Sorulari verilen kaynaklara gore cevapla" kapaliyken program kaynaksiz calisir. Acikken kitaplarinizi (PDF, .docx, metin)

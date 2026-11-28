@@ -165,6 +165,62 @@ def test_sik_sozcugu_beklenen_sozcuge_cevrilir():
     assert A.parse("Soru 3, Ankara")["spoken"] == "Soru 3, Ankara", "şıksız sorunun şehir adlı cevabına dokunulmaz"
 
 
+def test_eksi_isareti_cevapta_korunur_ve_eksi_diye_okunur():
+    """ALES 2023/3 (26.11.2026): cevabı -39 ve -1/3 olan sorular "39" ve "1/3" diye yazılıp okundu; tire ayraç sanılıp atılıyordu."""
+    from sk import answers as A, talk as T
+    assert A.parse("Soru 10, Ceyhan, -39") == {"number": 10, "option": "Ceyhan", "text": "-39", "spoken": "Soru 10, Ceyhan, -39"}
+    assert A.parse("Soru 11, Ceyhan,-1/3")["text"] == "-1/3" and A.parse("Soru 8, Adana, –0,4")["text"] == "-0,4"
+    assert A.parse("Soru 12, Denizli -5")["text"] == "-5" and A.parse("Soru 9: Bursa: -√2")["text"] == "-√2"
+    assert A.parse("Soru 3, -5")["spoken"] == "Soru 3, -5", "şıksız sorunun eksi cevabı"
+    # tire ayraç olarak kullanıldıysa sayı artı kalır; aralıklar ve sözcükler değişmez
+    assert A.parse("Soru 4 - Denizli - 39")["spoken"] == "Soru 4, Denizli, 39" and A.parse("Soru 4-Denizli-39")["text"] == "39"
+    assert A.parse("Soru 5, Adana, – 12")["text"] == "12" and A.parse("Soru 7, Erzurum, 3-5")["text"] == "3-5"
+    assert A.parse("Soru 13, Ceyhan, - Örgütsel")["text"] == "Örgütsel" and A.parse("Soru 2, Bursa, Yönetim -")["text"] == "Yönetim"
+    assert A.parse("Soru 3 - 5")["spoken"] == "Soru 3, 5" and A.parse("Soru 3-5")["spoken"] == "Soru 3, 5"
+    assert T.clean_for_speech("Soru 10, Ceyhan, -39") == "Soru 10, Ceyhan, eksi 39"
+    assert T.clean_for_speech("Soru 6, Bursa, −7") == "Soru 6, Bursa, eksi 7" and T.clean_for_speech("a = -4") == "a = eksi 4"
+    assert T.clean_for_speech("Soru 7, Erzurum, 3-5") == "Soru 7, Erzurum, 3-5" and T.clean_for_speech("2020 - 2021") == "2020 - 2021"
+
+
+def test_yuksek_dusunmede_sure_dolunca_siradaki_modeller_olagan_duzeyde_sorulur(settings, monkeypatch):
+    from sk import answers as A, gemini as G
+    settings.update({"p2_key": "ANAHTAR-2", "p3_key": "ANAHTAR-3"})
+    calls, failures = [], []
+
+    def generate(model, key, body, timeout=150.0, thinking="auto"):
+        calls.append((model, timeout, thinking))
+        if failures:
+            raise failures.pop(0)
+        return {"candidates": [{"finishReason": "STOP", "content": {"parts": [{"text": "Soru 1, Adana, Bir"}]}}]}
+
+    monkeypatch.setattr(G, "generate", generate)
+    late = lambda: G.GeminiError("Gemini 240 sn içinde cevap vermedi.", "network", timed_out=True)
+    busy = lambda: G.GeminiError("Gemini şu anda yoğun ya da ulaşılamıyor (503).", "http", 503)
+
+    failures[:] = [late(), busy()]
+    reply = A.AnswerService(settings, sleep=lambda s: None).ask(pdf_bytes(), A.DOC_SYSTEM, "x")
+    assert [(t, k) for _, t, k in calls] == [(240.0, "high"), (150.0, "auto"), (150.0, "auto")], "süre dolunca kalan modeller olağan düzeyde"
+    assert len({m for m, _, _ in calls}) == 3 and any("olağan düzeyde" in n for n in reply.notes)
+
+    del calls[:]
+    failures[:] = [busy()]                      # süre dolmadıysa (başka bir hata) yüksek düzey sürer
+    reply = A.AnswerService(settings, sleep=lambda s: None).ask(pdf_bytes(), A.DOC_SYSTEM, "x")
+    assert [(t, k) for _, t, k in calls] == [(240.0, "high"), (240.0, "high")] and not any("olağan düzeyde" in n for n in reply.notes)
+
+    del calls[:]
+    settings.update({"thinking": "auto", "wait_limit": 200})
+    failures[:] = [late()]                      # ayar zaten olağan düzeydeyse kullanıcının süresi değişmez
+    A.AnswerService(settings, sleep=lambda s: None).ask(pdf_bytes(), A.DOC_SYSTEM, "x")
+    assert [(t, k) for _, t, k in calls] == [(200.0, "auto"), (200.0, "auto")]
+
+    del calls[:]
+    settings.update({"thinking": "high", "wait_limit": 240})
+    failures[:] = [late()]                      # her soruş yüksek düzeyle yeniden başlar (vazgeçiş hatırlanmaz)
+    A.AnswerService(settings, sleep=lambda s: None).ask(pdf_bytes(), A.DOC_SYSTEM, "x")
+    A.AnswerService(settings, sleep=lambda s: None).ask(pdf_bytes(), A.DOC_SYSTEM, "x")
+    assert [(t, k) for _, t, k in calls] == [(240.0, "high"), (150.0, "auto"), (240.0, "high")]
+
+
 def test_eski_ayar_dosyasinda_bekleme_suresi_yukselir(home):
     import json
     from sk.settings import Settings

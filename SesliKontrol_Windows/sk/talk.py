@@ -21,6 +21,9 @@ _BULLET = re.compile(r"^\s*(?:[-*•▪◦–—]+|\d{1,2}[.)])\s+", re.M)
 _HEADING = re.compile(r"^\s{0,3}#{1,6}\s*", re.M)
 _PERCENT_AFTER = re.compile(r"(\d+(?:[.,]\d+)?)\s*%")
 _PERCENT_BEFORE = re.compile(r"%\s*(\d+(?:[.,]\d+)?)")
+# Sayının hemen önündeki eksi işareti ("-39", "−1/3"): satır başında ya da boşluk / noktalama / karşılaştırma işaretinden sonra.
+# "3-5" gibi aralıklara ve "2020 - 2021" gibi ayraç tirelerine dokunulmaz.
+_MINUS = re.compile(r"(?<![^\s,;:(=<>])[-−–](?=\d|√)")
 _ABBREV = {"sn", "dr", "prof", "doç", "doc", "no", "md", "vb", "vs", "bkz", "say", "tel", "sk", "mah", "cad", "ltd",
            "şti", "sti", "yrd", "öğr", "ogr", "uzm", "av", "mad", "böl", "bol", "fak", "üni", "uni", "tc", "t.c"}
 
@@ -46,6 +49,7 @@ def clean_for_speech(text):
     s = s.replace("**", "").replace("__", "").replace("`", "").replace("~~", "")
     s = re.sub(r"(?<![\w*])\*(?!\s)|(?<!\s)\*(?![\w*])", "", s)          # tek yıldız (italik)
     s = s.replace("|", ", ")
+    s = _MINUS.sub("eksi ", s)
     s = _PERCENT_AFTER.sub(r"yüzde \1", s)
     s = _PERCENT_BEFORE.sub(r"yüzde \1", s)
     s = _strip_symbols(s)

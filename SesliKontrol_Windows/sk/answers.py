@@ -11,6 +11,7 @@ from .applog import log
 INLINE_LIMIT = 10_000_000       # bundan büyük PDF isteğin içine konmaz, Gemini'ye dosya olarak yüklenir
 ROUNDS = 2                      # bütün modeller geçici hata verirse sıra bir kez daha denenir
 ROUND_PAUSE = 3.0
+USUAL_LIMIT = 150.0             # yüksek düşünme düzeyinden vazgeçilince model başına bekleme (sn): 4.0'daki olağan süre
 
 # PDF dosyasıyla gelen sorular için sistem komutu: cevap biçimi kamera taramasıyla aynıdır (iPhone talimatından uyarlanmıştır)
 DOC_SYSTEM = (
@@ -104,6 +105,7 @@ def doc_text(expected, name="", extra="", pages=None):
 
 
 # ----------------------------------------------------------------- cevap satırları
+_DASHES = "-–—−"                # tire, uzun tireler ve eksi işareti
 _HEAD = re.compile(r"^\s*(?:soru(?:\s*(?:no|numara|numarası))?\s*[:\.\-–—]?\s*)?(\d+)\s*[\.\)]?(?:\s*soru(?:su)?\b)?", re.I)
 _SEPARATORS = ",-–—:;"
 _JUNK = str.maketrans("", "", "*`[]#_")
@@ -134,6 +136,22 @@ def fix_option(option, text):
     return option
 
 
+def _answer_text(rest, cut):
+    """Şık sözcüğünden sonraki cevap metni: baştaki ve sondaki ayraçlar atılır. Rakamın hemen önünde (arada boşluk olmadan) duran tire
+    ayraç değil eksi işaretidir ve korunur: "Soru 10, Ceyhan, -39" -> "-39". (26.11.2026, ALES 2023/3: cevabı -39 ve -1/3 olan sorular
+    "39" ve "1/3" diye yazılıp okundu.) "Soru 4 - Denizli - 39" ve "Soru 4-Denizli-39" yazımlarında tire ayraçtır, sayı artı kalır."""
+    tail = rest[cut + 1:]
+    text = tail.strip(" \t\r\n" + _SEPARATORS)
+    if not text or not (text[0].isdigit() or text[0] == "√"):
+        return text
+    lead = tail[:len(tail) - len(tail.lstrip(" \t\r\n" + _SEPARATORS))]
+    if lead[-1:] in tuple(_DASHES):
+        return "-" + text                                   # ", -39" ya da ",-39"
+    if not lead and rest[cut] in _DASHES and rest[cut - 1:cut].isspace():
+        return "-" + text                                   # "Ceyhan -39": tire sözcükten ayrı, sayıya bitişik
+    return text
+
+
 def parse(raw):
     """Tek cevap satırı -> {"number","option","text","spoken"}"""
     line = raw.translate(_JUNK).strip().split("\n")[0].strip()
@@ -142,11 +160,17 @@ def parse(raw):
     if m:
         number = int(m.group(1))
         rest = line[m.end():]
-    rest = rest.lstrip(" \t" + _SEPARATORS)
+    lead = rest[:len(rest) - len(rest.lstrip(" \t" + _SEPARATORS))]
+    rest = rest[len(lead):]
+    if rest[:1].isdigit() and len(lead) > 1 and lead[-1] in _DASHES:
+        rest = "-" + rest                                   # şıksız sorunun eksi cevabı: "Soru 3, -5" ("Soru 3-5"te tire ayraçtır)
+        option, text = rest.strip(), ""
+        return {"number": number, "option": option, "text": text,
+                "spoken": ("Soru %d, %s" % (number, option)) if number is not None else option}
     option, text = rest.strip(), ""
     for i, ch in enumerate(rest):
         if ch in _SEPARATORS:
-            option, text = rest[:i].strip(), rest[i + 1:].strip(" \t\r\n" + _SEPARATORS)
+            option, text = rest[:i].strip(), _answer_text(rest, i)
             break
     option = fix_option(option, text)
     spoken = line
@@ -249,7 +273,7 @@ class AnswerService:
         chain = profiles(self.s)
         if not chain:
             raise G.GeminiError("Gemini API anahtarı girilmemiş. Ayarlar > Gemini bölümünden yapıştırın.", "key")
-        limit = float(self.s["wait_limit"])
+        limit, thinking = float(self.s["wait_limit"]), self.s["thinking"]
         files, last, notes = {}, None, []
         for round_no in range(ROUNDS):
             retry = False
@@ -265,14 +289,14 @@ class AnswerService:
                         body["generationConfig"] = {"mediaResolution": "MEDIA_RESOLUTION_HIGH"}
                     began = time.monotonic()
                     try:
-                        obj = G.generate(profile["model"], profile["key"], with_sources(body, store) if store else body, limit, self.s["thinking"])
+                        obj = G.generate(profile["model"], profile["key"], with_sources(body, store) if store else body, limit, thinking)
                     except G.GeminiError as e:
                         if not store or not source_rejection(e):
                             raise
                         # Aynı istek kaynaksız kabul edilirse reddin nedeni depodur: profil bu çalıştırmada kaynaksız sorulur
                         log("[kaynak] kaynak depolu istek reddedildi (HTTP %d: %s); %s kaynaksiz yeniden deneniyor"
                             % (e.status, e.message, profile["name"]))
-                        obj = G.generate(profile["model"], profile["key"], body, limit, self.s["thinking"])
+                        obj = G.generate(profile["model"], profile["key"], body, limit, thinking)
                         self._refused.add(ident)
                         self.on_source_rejected(profile["key"], e)
                         notes.append("Gemini kaynak deposunu kabul etmedi; cevap kaynaksız verildi.")
@@ -295,6 +319,12 @@ class AnswerService:
                     log("[gemini] %s cevap veremedi: %s" % (profile["name"], e.message))
                     if e.kind == "key" and len(chain) == 1:
                         raise
+                    if e.timed_out and thinking == "high":
+                        # iPhone'daki kural (26.11.2026): yüksek düşünme düzeyiyle bir model süresinde cevap vermediyse kalan modeller
+                        # olağan düzeyde ve olağan süreyle sorulur; yoksa her model için aynı uzun süre yeniden beklenirdi.
+                        thinking, limit = "auto", min(limit, USUAL_LIMIT)
+                        log("[gemini] yuksek dusunme duzeyinde sure doldu; siradaki modeller olagan duzeyde, %d sn ile sorulacak" % int(limit))
+                        notes.append("Yüksek düşünme düzeyinde süresinde cevap gelmedi; sıradaki modeller olağan düzeyde soruldu.")
                     retry = retry or e.kind in ("network", "quota", "empty") or e.status in (500, 502, 503, 504)
             if not retry or round_no + 1 >= ROUNDS:
                 break
